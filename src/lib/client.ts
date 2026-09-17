@@ -15,7 +15,8 @@ import {
   unwrapPhrase,
   wrapCkForDevice,
 } from "./wasm";
-import type { Contact, DeviceOut, DevicePublic, DeviceState, KeyWrap, SealedObject } from "./types";
+import { parseContact, serializeCard } from "./contact";
+import type { Contact, ContactDraft, DeviceOut, DevicePublic, DeviceState, KeyWrap, SealedObject } from "./types";
 
 class ApiError extends Error {
   constructor(message: string) {
@@ -419,38 +420,6 @@ export async function loginAccount(state: DeviceState, password: string): Promis
   };
 }
 
-function jscontact(name: string, email?: string): string {
-  const body: Record<string, unknown> = {
-    "@type": "Card",
-    version: "1.0",
-    name: { full: name },
-  };
-  if (email) {
-    body.emails = { e1: { address: email } };
-  }
-  return JSON.stringify(body);
-}
-
-function parseCard(id: string, raw: string, ciphertext: string, paddedSize: number): Contact {
-  try {
-    const card = JSON.parse(raw) as {
-      name?: { full?: string };
-      emails?: Record<string, { address?: string }>;
-    };
-    const email = card.emails ? Object.values(card.emails)[0]?.address : undefined;
-    return {
-      id,
-      name: card.name?.full ?? "Untitled",
-      email,
-      raw,
-      ciphertext,
-      paddedSize,
-    };
-  } catch {
-    return { id, name: raw, raw, ciphertext, paddedSize };
-  }
-}
-
 export async function listContacts(session: Session): Promise<{ sealed: SealedObject[]; open: Contact[] }> {
   const { state, token, collectionKey } = session;
   const resp = await getJson<{ objects: SealedObject[] }>(
@@ -468,14 +437,14 @@ export async function listContacts(session: Session): Promise<{ sealed: SealedOb
       obj.ciphertext,
       obj.padded_size,
     );
-    open.push(parseCard(obj.id, raw, obj.ciphertext, obj.padded_size));
+    open.push(parseContact(obj.id, raw, obj.ciphertext, obj.padded_size));
   }
   return { sealed, open };
 }
 
-export async function putContact(session: Session, name: string, email?: string): Promise<void> {
+export async function putContact(session: Session, draft: ContactDraft): Promise<void> {
   const id = newUuid();
-  const plaintext = jscontact(name, email);
+  const plaintext = serializeCard(draft);
   const enc = encryptContact(session.collectionKey, id, session.state.collection_id, plaintext);
   await putJson(
     `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`,

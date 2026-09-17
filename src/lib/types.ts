@@ -29,9 +29,41 @@ export type SealedObject = {
   content_type: string;
 };
 
-export type Contact = {
+export type ContactChannelKind = "work" | "home" | "mobile" | "custom";
+
+export type ContactChannel = {
   id: string;
+  kind: ContactChannelKind;
+  label?: string;
+  value: string;
+};
+
+export type ContactAddress = {
+  street1?: string;
+  street2?: string;
+  locality?: string;
+  region?: string;
+  postcode?: string;
+  country?: string;
+};
+
+export type ContactWork = {
+  id: string;
+  organization: string;
+  title?: string;
+};
+
+export type ContactDraft = {
   name: string;
+  nickname?: string;
+  emails: ContactChannel[];
+  phones: ContactChannel[];
+  address?: ContactAddress;
+  work: ContactWork[];
+};
+
+export type Contact = ContactDraft & {
+  id: string;
   email?: string;
   raw: string;
   ciphertext: string;
