@@ -17,7 +17,7 @@ Open `http://localhost:5173`. Vite proxies `/v1` to the local server (self-signe
 
 ## Sign-in
 
-Creating an account shows 24 recovery words once. This browser keeps its own device keys in `localStorage`. After that, the page is a lock screen: enter the password to open the stored account.
+Creating an account shows 24 recovery words once. This browser keeps its own device keys in `localStorage`. After that, the page is a lock screen: enter the password to open the stored account. **Sign out** deletes those keys from this browser.
 
 **Sign in** on a browser that does not have those keys always pairs this browser with a signed-in device. Match the confirm code, then enter the password. Recovery words are still available from that page.
 

@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import logo from "./assets/sealbook-white.png";
 import {
   listContacts,
   loginAccount,
@@ -11,7 +12,7 @@ import {
   registerAccount,
   type Session,
 } from "./lib/client";
-import { loadDevice, saveDevice } from "./lib/storage";
+import { clearDevice, loadDevice, saveDevice } from "./lib/storage";
 import type { Contact, DeviceState } from "./lib/types";
 
 type Mode = "register" | "signin";
@@ -47,11 +48,26 @@ const primary =
   "w-full rounded-lg bg-text py-2.5 text-sm font-medium text-bg disabled:opacity-50";
 const ghost = "text-sm text-mute hover:text-text";
 
+function Logo({ className }: { className: string }) {
+  return <img src={logo} alt="" className={className} />;
+}
+
+function Brand({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div className="flex items-center gap-3">
+      <Logo className="h-12 w-12 shrink-0" />
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+        <p className="mt-0.5 text-sm text-mute">{subtitle}</p>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const initial = loadDevice();
   const [stored, setStored] = useState<DeviceState | null>(initial);
   const [mode, setMode] = useState<Mode>(initial ? "signin" : "register");
-  const [switchAccount, setSwitchAccount] = useState(false);
   const [screen, setScreen] = useState<Screen>("auth");
   const [username, setUsername] = useState(initial?.username ?? "");
   const [password, setPassword] = useState("");
@@ -70,7 +86,7 @@ export default function App() {
   const [addConfirm, setAddConfirm] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
-  const locked = Boolean(stored) && !switchAccount;
+  const locked = Boolean(stored);
 
   useEffect(() => {
     if (screen !== "pair" || !pairId || pairApproved) {
@@ -103,7 +119,6 @@ export default function App() {
   async function openSession(next: Session) {
     saveDevice(next.state);
     setStored(next.state);
-    setSwitchAccount(false);
     setSession(next);
     await refresh(next);
   }
@@ -122,10 +137,28 @@ export default function App() {
     setPhrase("");
     setError(null);
     if (stored) {
-      setSwitchAccount(false);
       setUsername(stored.username);
-      setMode("signin");
     }
+  }
+
+  function signOut() {
+    clearDevice();
+    setStored(null);
+    setSession(null);
+    setContacts([]);
+    setUsername("");
+    setPassword("");
+    setPhrase("");
+    setPairId("");
+    setPairConfirm("");
+    setPairState(null);
+    setPairApproved(false);
+    setAdding(false);
+    setAddConfirm(null);
+    setAddCode("");
+    setError(null);
+    setMode("register");
+    setScreen("auth");
   }
 
   async function onUnlock(event: FormEvent) {
@@ -156,7 +189,6 @@ export default function App() {
       );
       saveDevice(next.state);
       setStored(next.state);
-      setSwitchAccount(false);
       setSession(next);
       setPhrase(words);
       setScreen("phrase");
@@ -272,8 +304,10 @@ export default function App() {
     const words = phrase.split(/\s+/u).filter(Boolean);
     return (
       <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-5">
-        <h1 className="text-2xl font-semibold tracking-tight">Write these down</h1>
-        <p className="mt-1 text-sm text-mute">They are shown once. You will need them on a new browser.</p>
+        <Brand
+          title="Write these down"
+          subtitle="They are shown once. You will need them on a new browser."
+        />
         <ol className="mt-8 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
           {words.map((word, index) => (
             <li key={`${index}-${word}`} className="flex gap-2 font-mono">
@@ -299,8 +333,7 @@ export default function App() {
   if (screen === "pair") {
     return (
       <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-5">
-        <h1 className="text-2xl font-semibold tracking-tight">Pair this browser</h1>
-        <p className="mt-1 text-sm text-mute">Confirm this matches the other screen.</p>
+        <Brand title="Pair this browser" subtitle="Confirm this matches the other screen." />
         <p className="mt-8 text-center font-mono text-3xl tracking-[0.35em]">{pairConfirm}</p>
         <p className="mt-8 text-sm text-mute">Type this on the signed-in device.</p>
         <p className="mt-2 break-all font-mono text-sm">{pairId}</p>
@@ -336,8 +369,10 @@ export default function App() {
   if (screen === "recover") {
     return (
       <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-5">
-        <h1 className="text-2xl font-semibold tracking-tight">Recovery words</h1>
-        <p className="mt-1 text-sm text-mute">Use the 24 words from when you created the account.</p>
+        <Brand
+          title="Recovery words"
+          subtitle="Use the 24 words from when you created the account."
+        />
         <form onSubmit={onRecover} className="mt-8">
           <label className="block text-sm text-mute">
             Username
@@ -386,8 +421,7 @@ export default function App() {
     if (locked && stored) {
       return (
         <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-5">
-          <h1 className="text-2xl font-semibold tracking-tight">Sealbook</h1>
-          <p className="mt-1 text-sm text-mute">{stored.username}</p>
+          <Brand title="Sealbook" subtitle={stored.username} />
           <form onSubmit={onUnlock} className="mt-8">
             <label className="block text-sm text-mute">
               Password
@@ -406,18 +440,8 @@ export default function App() {
               {busy ? "Please wait…" : "Unlock"}
             </button>
           </form>
-          <button
-            type="button"
-            className={`${ghost} mt-4`}
-            onClick={() => {
-              setSwitchAccount(true);
-              setMode("signin");
-              setUsername("");
-              setPassword("");
-              setError(null);
-            }}
-          >
-            Sign in on this browser
+          <button type="button" className={`${ghost} mt-4`} onClick={signOut}>
+            Sign out
           </button>
         </main>
       );
@@ -425,10 +449,12 @@ export default function App() {
 
     return (
       <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-5">
-        <h1 className="text-2xl font-semibold tracking-tight">Sealbook</h1>
-        <p className="mt-1 text-sm text-mute">
-          {mode === "signin" ? "Pair this browser with a signed-in device." : "Your private contacts."}
-        </p>
+        <Brand
+          title="Sealbook"
+          subtitle={
+            mode === "signin" ? "Pair this browser with a signed-in device." : "Your private contacts."
+          }
+        />
         <div className="mt-8 mb-5 grid grid-cols-2 gap-1 rounded-lg bg-panel p-1 text-sm">
           <button
             type="button"
@@ -507,20 +533,6 @@ export default function App() {
             </button>
           </form>
         )}
-        {stored ? (
-          <button
-            type="button"
-            className={`${ghost} mt-6`}
-            onClick={() => {
-              setSwitchAccount(false);
-              setUsername(stored.username);
-              setPassword("");
-              setError(null);
-            }}
-          >
-            Back to {stored.username}
-          </button>
-        ) : null}
       </main>
     );
   }
@@ -528,9 +540,12 @@ export default function App() {
   return (
     <div className="min-h-screen">
       <header className="mx-auto flex max-w-lg items-center justify-between px-5 py-5">
-        <div>
-          <p className="font-semibold tracking-tight">Sealbook</p>
-          <p className="text-sm text-mute">{session.state.username}</p>
+        <div className="flex items-center gap-2.5">
+          <Logo className="h-8 w-8" />
+          <div>
+            <p className="font-semibold tracking-tight">Sealbook</p>
+            <p className="text-sm text-mute">{session.state.username}</p>
+          </div>
         </div>
         <div className="flex gap-4">
           <button
@@ -553,7 +568,6 @@ export default function App() {
               setPassword("");
               setAdding(false);
               setAddConfirm(null);
-              setSwitchAccount(false);
               setError(null);
             }}
           >
