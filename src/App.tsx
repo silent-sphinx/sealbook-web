@@ -29,6 +29,10 @@ import {
   resolveAddressBookId,
 } from "./lib/addressBook";
 import { emptyDraft } from "./lib/contact";
+import {
+  extractRecoveryWords,
+  formatRecoveryWordsFile,
+} from "./lib/phrase";
 import { clearDevice, loadDevice, saveDevice } from "./lib/storage";
 import { field, ghost, primary, secondary, searchField } from "./lib/styles";
 import type { AddressBook, Contact, ContactDraft, DeviceState } from "./lib/types";
@@ -145,6 +149,18 @@ function CheckIcon() {
       <path
         fillRule="evenodd"
         d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function UploadIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+      <path
+        fillRule="evenodd"
+        d="M9.25 13.25a.75.75 0 0 0 1.5 0V4.56l2.22 2.22a.75.75 0 1 0 1.06-1.06l-3.5-3.5a.75.75 0 0 0-1.06 0l-3.5 3.5a.75.75 0 0 0 1.06 1.06l2.22-2.22v8.69ZM3.5 14.25a.75.75 0 0 1 .75.75v1.5c0 .414.336.75.75.75h10a.75.75 0 0 0 .75-.75V15a.75.75 0 0 1 1.5 0v1.5A2.25 2.25 0 0 1 15 18.75H5A2.25 2.25 0 0 1 2.75 16.5V15a.75.75 0 0 1 .75-.75Z"
         clipRule="evenodd"
       />
     </svg>
@@ -424,7 +440,7 @@ export default function App() {
 
   async function onRecover(event: FormEvent) {
     event.preventDefault();
-    const words = phrase.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const words = extractRecoveryWords(phrase);
     if (words.length !== 24) {
       setError(`Please enter all 24 words (${words.length} entered so far).`);
       return;
@@ -591,8 +607,7 @@ export default function App() {
     const words = phrase.split(/\s+/u).filter(Boolean);
 
     function downloadWords() {
-      const lines = words.map((w, i) => `${String(i + 1).padStart(2, " ")}. ${w}`);
-      const text = "Sealbook Recovery Words\n" + "=".repeat(24) + "\n\n" + lines.join("\n") + "\n\nKeep this file safe and secret.\n";
+      const text = formatRecoveryWordsFile(words);
       const blob = new Blob([text], { type: "text/plain" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -811,18 +826,40 @@ export default function App() {
 
   // ---------- RECOVER SCREEN ----------
   if (screen === "recover") {
-    const enteredWords = phrase.trim().split(/\s+/).filter(Boolean);
+    const enteredWords = extractRecoveryWords(phrase);
     const count = enteredWords.length;
 
     async function handlePastePhrase() {
       try {
         const text = await navigator.clipboard.readText();
         if (text.trim()) {
-          setPhrase(text.trim());
+          const words = extractRecoveryWords(text);
+          if (words.length > 0) {
+            setPhrase(words.join(" "));
+          } else {
+            setPhrase(text.trim());
+          }
         }
       } catch {
         // clipboard access not permitted
       }
+    }
+
+    function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target?.result;
+        if (typeof content === "string" && content.trim()) {
+          const words = extractRecoveryWords(content);
+          if (words.length > 0) {
+            setPhrase(words.join(" "));
+          }
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = "";
     }
 
     return (
@@ -848,41 +885,70 @@ export default function App() {
           </div>
 
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label htmlFor="recovery-phrase" className="text-sm font-medium text-text">
-                Recovery words
-              </label>
-              <div className="flex items-center gap-2">
+            <label htmlFor="recovery-phrase" className="block text-sm font-medium text-text mb-1.5">
+              Recovery words
+            </label>
+            <div className="box-border w-full rounded-xl border border-line bg-bg transition-all focus-within:border-accent-dim focus-within:ring-1 focus-within:ring-accent-ring overflow-hidden">
+              <textarea
+                id="recovery-phrase"
+                value={phrase}
+                onChange={(e) => setPhrase(e.target.value)}
+                onPaste={(e) => {
+                  const pastedText = e.clipboardData.getData("text");
+                  if (pastedText) {
+                    const words = extractRecoveryWords(pastedText);
+                    if (
+                      words.length === 24 ||
+                      pastedText.includes("\n") ||
+                      /(?:^|\s)\d+[-.:)]/.test(pastedText)
+                    ) {
+                      e.preventDefault();
+                      setPhrase(words.join(" "));
+                    }
+                  }
+                }}
+                placeholder="Paste or type all 24 words separated by spaces…"
+                rows={4}
+                className="box-border block w-full bg-transparent px-3.5 py-2.5 font-mono text-sm leading-relaxed text-text outline-none placeholder:text-mute/50 resize-none"
+                required
+              />
+              <div className="flex items-center justify-between border-t border-line/60 bg-surface/30 px-3 py-2">
                 <span
-                  className={`rounded-md border border-line bg-surface px-2 py-0.5 font-mono text-xs ${
+                  className={`inline-flex items-center gap-1.5 font-mono text-xs whitespace-nowrap ${
                     count === 24
-                      ? "text-accent font-semibold border-accent/30"
+                      ? "text-accent font-semibold"
                       : count > 24
-                      ? "text-danger border-danger/30"
+                      ? "text-danger font-medium"
                       : "text-mute"
                   }`}
                 >
+                  {count === 24 ? (
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-accent" />
+                  ) : null}
                   {count} / 24 words
                 </span>
-                <button
-                  type="button"
-                  onClick={handlePastePhrase}
-                  className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2.5 py-0.5 text-xs font-medium text-accent hover:border-line-light hover:text-accent-dim transition-colors cursor-pointer"
-                >
-                  <CopyIcon />
-                  <span>Paste</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePastePhrase}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1 text-xs font-medium text-text hover:border-line-light hover:text-accent active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap"
+                  >
+                    <CopyIcon />
+                    <span>Paste</span>
+                  </button>
+                  <label className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1 text-xs font-medium text-text hover:border-line-light hover:text-accent active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap">
+                    <UploadIcon />
+                    <span>Upload file</span>
+                    <input
+                      type="file"
+                      accept=".txt,text/plain"
+                      className="hidden"
+                      onChange={handleFileUpload}
+                    />
+                  </label>
+                </div>
               </div>
             </div>
-            <textarea
-              id="recovery-phrase"
-              value={phrase}
-              onChange={(e) => setPhrase(e.target.value)}
-              placeholder="Paste or type all 24 words separated by spaces…"
-              rows={4}
-              className="box-border w-full rounded-xl border border-line bg-bg px-3.5 py-2.5 font-mono text-sm leading-relaxed text-text outline-none transition-all placeholder:text-mute/50 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring resize-none"
-              required
-            />
           </div>
 
           <div>
