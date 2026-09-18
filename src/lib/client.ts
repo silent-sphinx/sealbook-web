@@ -503,8 +503,12 @@ export async function putAddressBook(
   return id;
 }
 
-export async function putContact(session: Session, draft: ContactDraft): Promise<void> {
-  const id = newUuid();
+export async function putContact(
+  session: Session,
+  draft: ContactDraft,
+  existingId?: string,
+): Promise<string> {
+  const id = existingId ?? newUuid();
   const plaintext = serializeCard(draft);
   const enc = encryptContact(session.collectionKey, id, session.state.collection_id, plaintext);
   await putJson(
@@ -519,7 +523,9 @@ export async function putContact(session: Session, draft: ContactDraft): Promise
     },
     session.token,
   );
+  return id;
 }
+
 
 function isAddressBookPayload(raw: string): boolean {
   try {

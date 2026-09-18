@@ -25,20 +25,20 @@ export function Modal({ title, children, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm p-3 sm:items-center sm:p-6 animate-[fadeIn_0.15s_ease-out]"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 sm:p-6 animate-fade-in"
       onClick={onClose}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
-        className="flex max-h-[min(92dvh,40rem)] w-full min-w-0 max-w-lg flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl shadow-black/40 animate-scale-in sm:animate-scale-in"
+        className="flex max-h-[min(92dvh,42rem)] w-full min-w-0 max-w-xl flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl shadow-black/50 animate-scale-in"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-line px-5 py-3.5">
+        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-line px-6 py-4.5">
           <h2
             id="modal-title"
-            className="min-w-0 truncate text-base font-semibold tracking-tight"
+            className="min-w-0 truncate text-lg font-semibold tracking-tight text-text"
           >
             {title}
           </h2>

@@ -71,12 +71,13 @@ body {
   font-family: var(--font-sans);
 }
 
-input,
-select,
-textarea,
-button {
-  font: inherit;
-  color: inherit;
+@layer base {
+  input,
+  select,
+  textarea,
+  button {
+    font-family: inherit;
+  }
 }
 
 select {

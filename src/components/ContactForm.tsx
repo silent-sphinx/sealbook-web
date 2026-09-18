@@ -33,20 +33,37 @@ type Props = {
   error?: string | null;
   addressBooks: AddressBook[];
   initialDraft?: ContactDraft;
+  submitLabel?: string;
   onSubmit: (draft: ContactDraft) => void;
   onCancel: () => void;
 };
+
+function cloneDraft(source?: ContactDraft): ContactDraft {
+  if (!source) {
+    return emptyDraft();
+  }
+  return {
+    ...source,
+    emails: source.emails ? source.emails.map((e) => ({ ...e })) : [],
+    phones: source.phones ? source.phones.map((p) => ({ ...p })) : [],
+    work: source.work ? source.work.map((w) => ({ ...w })) : [],
+    address: source.address ? { ...source.address } : {},
+  };
+}
 
 export function ContactForm({
   busy,
   error,
   addressBooks,
   initialDraft,
+  submitLabel,
   onSubmit,
   onCancel,
 }: Props) {
-  const [draft, setDraft] = useState<ContactDraft>(initialDraft ?? emptyDraft());
-  const [showAddress, setShowAddress] = useState(false);
+  const [draft, setDraft] = useState<ContactDraft>(() => cloneDraft(initialDraft));
+  const [showAddress, setShowAddress] = useState(
+    () => Boolean(initialDraft?.address && addressLines(initialDraft.address).length > 0),
+  );
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -254,7 +271,7 @@ export function ContactForm({
             Cancel
           </button>
           <button type="submit" disabled={busy} className={`${primary} flex-1`}>
-            {busy ? "Please wait…" : "Add"}
+            {busy ? "Please wait…" : (submitLabel ?? (initialDraft ? "Save" : "Add"))}
           </button>
         </div>
       </div>
