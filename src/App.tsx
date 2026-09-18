@@ -33,6 +33,7 @@ import {
   extractRecoveryWords,
   formatRecoveryWordsFile,
 } from "./lib/phrase";
+import { findInvalidBip39Words } from "./lib/bip39Words";
 import { clearDevice, loadDevice, saveDevice } from "./lib/storage";
 import { field, ghost, primary, secondary, searchField } from "./lib/styles";
 import type { AddressBook, Contact, ContactDraft, DeviceState } from "./lib/types";
@@ -445,6 +446,11 @@ export default function App() {
       setError(`Please enter all 24 words (${words.length} entered so far).`);
       return;
     }
+    const invalidWords = findInvalidBip39Words(words);
+    if (invalidWords.length > 0) {
+      setError(`"${invalidWords[0]}" is not a valid BIP-39 recovery word. Please check for typos.`);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -828,6 +834,7 @@ export default function App() {
   if (screen === "recover") {
     const enteredWords = extractRecoveryWords(phrase);
     const count = enteredWords.length;
+    const invalidWords = findInvalidBip39Words(enteredWords);
 
     async function handlePastePhrase() {
       try {
@@ -915,17 +922,27 @@ export default function App() {
               <div className="flex items-center justify-between border-t border-line/60 bg-surface/30 px-3 py-2">
                 <span
                   className={`inline-flex items-center gap-1.5 font-mono text-xs whitespace-nowrap ${
-                    count === 24
+                    invalidWords.length > 0
+                      ? "text-danger font-medium"
+                      : count === 24
                       ? "text-accent font-semibold"
                       : count > 24
                       ? "text-danger font-medium"
                       : "text-mute"
                   }`}
                 >
-                  {count === 24 ? (
-                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-accent" />
-                  ) : null}
-                  {count} / 24 words
+                  {invalidWords.length > 0 ? (
+                    <span>
+                      {count} / 24 words · <span className="underline">"{invalidWords[0]}"</span> invalid
+                    </span>
+                  ) : (
+                    <>
+                      {count === 24 ? (
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-accent" />
+                      ) : null}
+                      {count} / 24 words
+                    </>
+                  )}
                 </span>
                 <div className="flex items-center gap-2">
                   <button

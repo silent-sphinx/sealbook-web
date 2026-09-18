@@ -7,6 +7,12 @@ export const primary =
   "box-border w-full min-w-0 rounded-lg bg-accent py-2.5 text-sm font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:hover:brightness-100 disabled:active:scale-100";
 export const secondary =
   "box-border w-full min-w-0 rounded-lg border border-line bg-surface py-2.5 text-sm text-mute transition-all duration-150 hover:border-line-light hover:text-text disabled:opacity-50";
+export const btnBase =
+  "box-border inline-flex items-center justify-center gap-2 rounded-lg text-sm font-semibold transition-all duration-150 active:scale-[0.98] disabled:opacity-50 cursor-pointer whitespace-nowrap shrink-0";
+export const btnPrimary =
+  `${btnBase} bg-accent px-4 py-2 text-bg hover:brightness-110`;
+export const btnSecondary =
+  `${btnBase} border border-line bg-surface px-4 py-2 text-mute font-medium hover:border-line-light hover:text-text`;
 export const ghost =
   "text-sm text-mute transition-colors duration-150 hover:text-accent";
 export const addLink = `${ghost} justify-self-start`;

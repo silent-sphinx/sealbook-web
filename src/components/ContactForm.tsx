@@ -9,6 +9,8 @@ import {
 } from "../lib/contact";
 import {
   addLink,
+  btnPrimary,
+  btnSecondary,
   field,
   fieldBase,
   ghost,
@@ -288,10 +290,10 @@ export function ContactForm({
               </svg>
               Delete
             </button>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <button
                 type="button"
-                className={`${secondary} px-4 py-2 cursor-pointer`}
+                className={btnSecondary}
                 onClick={onCancel}
                 disabled={busy}
               >
@@ -300,7 +302,7 @@ export function ContactForm({
               <button
                 type="submit"
                 disabled={busy}
-                className={`${primary} px-5 py-2 cursor-pointer`}
+                className={btnPrimary}
               >
                 {busy ? "Please wait…" : (submitLabel ?? "Save")}
               </button>
