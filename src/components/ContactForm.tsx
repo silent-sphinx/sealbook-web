@@ -18,6 +18,7 @@ import {
   selectField,
 } from "../lib/styles";
 import type {
+  AddressBook,
   ContactAddress,
   ContactChannel,
   ContactChannelKind,
@@ -30,12 +31,21 @@ const labelClass = "block min-w-0 text-sm text-mute";
 type Props = {
   busy: boolean;
   error?: string | null;
+  addressBooks: AddressBook[];
+  initialDraft?: ContactDraft;
   onSubmit: (draft: ContactDraft) => void;
   onCancel: () => void;
 };
 
-export function ContactForm({ busy, error, onSubmit, onCancel }: Props) {
-  const [draft, setDraft] = useState<ContactDraft>(emptyDraft);
+export function ContactForm({
+  busy,
+  error,
+  addressBooks,
+  initialDraft,
+  onSubmit,
+  onCancel,
+}: Props) {
+  const [draft, setDraft] = useState<ContactDraft>(initialDraft ?? emptyDraft());
   const [showAddress, setShowAddress] = useState(false);
 
   function handleSubmit(event: FormEvent) {
@@ -71,6 +81,22 @@ export function ContactForm({ busy, error, onSubmit, onCancel }: Props) {
     >
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">
         <Section title="Identity" first>
+          {addressBooks.length > 0 ? (
+            <label className={`${labelClass} mb-3`}>
+              Address book
+              <select
+                value={draft.addressBookId}
+                onChange={(e) => patch({ addressBookId: e.target.value })}
+                className={`${selectField} mt-1.5`}
+              >
+                {addressBooks.map((book) => (
+                  <option key={book.id} value={book.id}>
+                    {book.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
             <label className={labelClass}>
               Full name

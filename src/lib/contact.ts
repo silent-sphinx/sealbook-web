@@ -1,3 +1,8 @@
+import {
+  ADDRESS_BOOK_ID_PROP,
+  DEFAULT_ADDRESS_BOOK_ID,
+  resolveAddressBookId,
+} from "./addressBook";
 import type {
   Contact,
   ContactAddress,
@@ -34,13 +39,14 @@ export function emptyWork(): ContactWork {
   return { id: newId(), organization: "" };
 }
 
-export function emptyDraft(): ContactDraft {
+export function emptyDraft(addressBookId = DEFAULT_ADDRESS_BOOK_ID): ContactDraft {
   return {
     name: "",
     emails: [emptyChannel("home")],
     phones: [emptyChannel("mobile")],
     work: [],
     address: {},
+    addressBookId: resolveAddressBookId(addressBookId),
   };
 }
 
@@ -178,6 +184,7 @@ export function serializeCard(draft: ContactDraft): string {
     "@type": "Card",
     version: "1.0",
     name: { full: draft.name.trim() },
+    [ADDRESS_BOOK_ID_PROP]: resolveAddressBookId(draft.addressBookId),
   };
   const nickname = trim(draft.nickname);
   if (nickname) {
@@ -252,6 +259,7 @@ type RawCard = {
   >;
   organizations?: Record<string, { name?: string }>;
   titles?: Record<string, { name?: string; organization?: string }>;
+  [ADDRESS_BOOK_ID_PROP]?: string;
 };
 
 function parseChannels<T extends { label?: string; contexts?: Record<string, boolean> }>(
@@ -362,6 +370,7 @@ export function parseDraft(raw: string): ContactDraft {
     phones,
     address: parseAddress(card.addresses),
     work: parseWork(card),
+    addressBookId: resolveAddressBookId(card[ADDRESS_BOOK_ID_PROP]),
   };
 }
 
@@ -388,6 +397,7 @@ export function parseContact(
       emails: [],
       phones: [],
       work: [],
+      addressBookId: DEFAULT_ADDRESS_BOOK_ID,
       raw,
       ciphertext,
       paddedSize,

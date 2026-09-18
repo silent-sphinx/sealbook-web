@@ -16,7 +16,16 @@ import {
   wrapCkForDevice,
 } from "./wasm";
 import { parseContact, serializeCard } from "./contact";
-import type { Contact, ContactDraft, DeviceOut, DevicePublic, DeviceState, KeyWrap, SealedObject } from "./types";
+import {
+  ADDRESS_BOOK_CONTENT_TYPE,
+  DEFAULT_ADDRESS_BOOK_ID,
+  DEFAULT_ADDRESS_BOOK_NAME,
+  JSCONTACT_CONTENT_TYPE,
+  parseAddressBook,
+  serializeAddressBook,
+  sortAddressBooks,
+} from "./addressBook";
+import type { AddressBook, Contact, ContactDraft, DeviceOut, DevicePublic, DeviceState, KeyWrap, SealedObject } from "./types";
 
 class ApiError extends Error {
   constructor(message: string) {
@@ -420,14 +429,17 @@ export async function loginAccount(state: DeviceState, password: string): Promis
   };
 }
 
-export async function listContacts(session: Session): Promise<{ sealed: SealedObject[]; open: Contact[] }> {
+export async function listVault(
+  session: Session,
+): Promise<{ sealed: SealedObject[]; addressBooks: AddressBook[]; contacts: Contact[] }> {
   const { state, token, collectionKey } = session;
   const resp = await getJson<{ objects: SealedObject[] }>(
     `${apiRoot(state.server)}/v1/collections/${state.collection_id}/changes?after=0`,
     token,
   );
   const sealed = resp.objects.filter((obj) => !obj.tombstone);
-  const open: Contact[] = [];
+  const addressBooks: AddressBook[] = [];
+  const contacts: Contact[] = [];
   for (const obj of sealed) {
     const raw = decryptContact(
       collectionKey,
@@ -437,9 +449,58 @@ export async function listContacts(session: Session): Promise<{ sealed: SealedOb
       obj.ciphertext,
       obj.padded_size,
     );
-    open.push(parseContact(obj.id, raw, obj.ciphertext, obj.padded_size));
+    if (obj.content_type === ADDRESS_BOOK_CONTENT_TYPE || isAddressBookPayload(raw)) {
+      addressBooks.push(parseAddressBook(obj.id, raw));
+    } else {
+      contacts.push(parseContact(obj.id, raw, obj.ciphertext, obj.padded_size));
+    }
   }
-  return { sealed, open };
+  return { sealed, addressBooks: sortAddressBooks(addressBooks), contacts };
+}
+
+export async function listContacts(session: Session): Promise<{ sealed: SealedObject[]; open: Contact[] }> {
+  const listed = await listVault(session);
+  return { sealed: listed.sealed, open: listed.contacts };
+}
+
+export async function ensureDefaultAddressBook(
+  session: Session,
+  books: AddressBook[],
+): Promise<AddressBook[]> {
+  if (books.some((book) => book.id === DEFAULT_ADDRESS_BOOK_ID)) {
+    return sortAddressBooks(books);
+  }
+  await putAddressBook(session, DEFAULT_ADDRESS_BOOK_NAME, DEFAULT_ADDRESS_BOOK_ID);
+  return sortAddressBooks([
+    {
+      id: DEFAULT_ADDRESS_BOOK_ID,
+      name: DEFAULT_ADDRESS_BOOK_NAME,
+      raw: serializeAddressBook(DEFAULT_ADDRESS_BOOK_NAME),
+    },
+    ...books,
+  ]);
+}
+
+export async function putAddressBook(
+  session: Session,
+  name: string,
+  id = newUuid(),
+): Promise<string> {
+  const plaintext = serializeAddressBook(name);
+  const enc = encryptContact(session.collectionKey, id, session.state.collection_id, plaintext);
+  await putJson(
+    `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`,
+    {
+      id,
+      nonce: enc.nonce,
+      ciphertext: enc.ciphertext,
+      padded_size: enc.padded_size,
+      content_type: ADDRESS_BOOK_CONTENT_TYPE,
+      tombstone: false,
+    },
+    session.token,
+  );
+  return id;
 }
 
 export async function putContact(session: Session, draft: ContactDraft): Promise<void> {
@@ -453,10 +514,19 @@ export async function putContact(session: Session, draft: ContactDraft): Promise
       nonce: enc.nonce,
       ciphertext: enc.ciphertext,
       padded_size: enc.padded_size,
-      content_type: "application/jscontact+json",
+      content_type: JSCONTACT_CONTENT_TYPE,
       tombstone: false,
     },
     session.token,
   );
+}
+
+function isAddressBookPayload(raw: string): boolean {
+  try {
+    const body = JSON.parse(raw) as { "@type"?: string };
+    return body["@type"] === "AddressBook";
+  } catch {
+    return false;
+  }
 }
 

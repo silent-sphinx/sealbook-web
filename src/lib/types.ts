@@ -60,6 +60,7 @@ export type ContactDraft = {
   phones: ContactChannel[];
   address?: ContactAddress;
   work: ContactWork[];
+  addressBookId: string;
 };
 
 export type Contact = ContactDraft & {
@@ -68,6 +69,12 @@ export type Contact = ContactDraft & {
   raw: string;
   ciphertext: string;
   paddedSize: number;
+};
+
+export type AddressBook = {
+  id: string;
+  name: string;
+  raw: string;
 };
 
 export type OpaqueStart = {

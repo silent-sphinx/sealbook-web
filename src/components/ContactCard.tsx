@@ -1,10 +1,19 @@
 import type { Contact } from "../lib/types";
 
-export function ContactCard({ contact }: { contact: Contact }) {
+export function ContactCard({
+  contact,
+  bookName,
+}: {
+  contact: Contact;
+  bookName?: string;
+}) {
   return (
     <li className="flex items-center gap-3 py-3">
       <Initials name={contact.name} />
-      <p className="min-w-0 truncate font-medium tracking-tight">{contact.name}</p>
+      <p className="min-w-0 flex-1 truncate font-medium tracking-tight">{contact.name}</p>
+      {bookName ? (
+        <p className="max-w-[40%] shrink-0 truncate text-xs text-mute">{bookName}</p>
+      ) : null}
     </li>
   );
 }

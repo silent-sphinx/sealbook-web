@@ -1,23 +1,33 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import logo from "./assets/sealbook-white.png";
+import { AddressBookMenu } from "./components/AddressBookMenu";
 import { ContactCard } from "./components/ContactCard";
 import { ContactForm } from "./components/ContactForm";
 import { Modal } from "./components/Modal";
 import {
-  listContacts,
+  ensureDefaultAddressBook,
+  listVault,
   loginAccount,
   pairApprove,
   pairJoin,
   pairPreview,
   pairReady,
+  putAddressBook,
   putContact,
   recoverAccount,
   registerAccount,
   type Session,
 } from "./lib/client";
+import {
+  ALL_ADDRESS_BOOKS,
+  DEFAULT_ADDRESS_BOOK_ID,
+  bookNameById,
+  resolveAddressBookId,
+} from "./lib/addressBook";
+import { emptyDraft } from "./lib/contact";
 import { clearDevice, loadDevice, saveDevice } from "./lib/storage";
-import { field, ghost, primary, searchField } from "./lib/styles";
-import type { Contact, ContactDraft, DeviceState } from "./lib/types";
+import { field, ghost, primary, secondary, searchField } from "./lib/styles";
+import type { AddressBook, Contact, ContactDraft, DeviceState } from "./lib/types";
 
 type Mode = "register" | "signin";
 type Screen = "auth" | "phrase" | "pair" | "recover";
@@ -99,7 +109,13 @@ function PlusIcon() {
 }
 
 // Empty state illustration
-function EmptyContacts({ onAdd }: { onAdd: () => void }) {
+function EmptyContacts({
+  onAdd,
+  bookName,
+}: {
+  onAdd: () => void;
+  bookName?: string;
+}) {
   return (
     <div className="flex flex-col items-center justify-center py-20 animate-fade-in-up">
       <div className="flex h-20 w-20 items-center justify-center rounded-full bg-surface border border-line">
@@ -115,9 +131,13 @@ function EmptyContacts({ onAdd }: { onAdd: () => void }) {
           <path d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
         </svg>
       </div>
-      <p className="mt-5 text-[15px] font-medium text-text">No contacts yet</p>
+      <p className="mt-5 text-[15px] font-medium text-text">
+        {bookName ? `No contacts in ${bookName}` : "No contacts yet"}
+      </p>
       <p className="mt-1 text-sm text-mute">
-        Add your first contact to get started.
+        {bookName
+          ? "Add a contact to this address book."
+          : "Add your first contact to get started."}
       </p>
       <button
         type="button"
@@ -143,6 +163,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [addressBooks, setAddressBooks] = useState<AddressBook[]>([]);
+  const [bookFilter, setBookFilter] = useState(ALL_ADDRESS_BOOKS);
   const [formKey, setFormKey] = useState(0);
   const [composing, setComposing] = useState(false);
   const [pairId, setPairId] = useState("");
@@ -157,11 +179,17 @@ export default function App() {
   const locked = Boolean(stored);
 
   const filtered = useMemo(() => {
+    const inBook =
+      bookFilter === ALL_ADDRESS_BOOKS
+        ? contacts
+        : contacts.filter(
+            (contact) => resolveAddressBookId(contact.addressBookId) === bookFilter,
+          );
     const query = search.trim().toLowerCase();
     if (!query) {
-      return contacts;
+      return inBook;
     }
-    return contacts.filter((contact) => {
+    return inBook.filter((contact) => {
       const haystack = [
         contact.name,
         contact.nickname,
@@ -169,13 +197,14 @@ export default function App() {
         ...contact.emails.map((e) => e.value),
         ...contact.phones.map((p) => p.value),
         ...contact.work.map((w) => `${w.organization} ${w.title ?? ""}`),
+        bookNameById(addressBooks, contact.addressBookId),
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
       return haystack.includes(query);
     });
-  }, [contacts, search]);
+  }, [addressBooks, bookFilter, contacts, search]);
 
   useEffect(() => {
     if (screen !== "pair" || !pairId || pairApproved) {
@@ -213,8 +242,16 @@ export default function App() {
   }
 
   async function refresh(next: Session) {
-    const listed = await listContacts(next);
-    setContacts(listed.open);
+    const listed = await listVault(next);
+    const books = await ensureDefaultAddressBook(next, listed.addressBooks);
+    setAddressBooks(books);
+    setContacts(listed.contacts);
+    setBookFilter((current) => {
+      if (current === ALL_ADDRESS_BOOKS) {
+        return current;
+      }
+      return books.some((book) => book.id === current) ? current : ALL_ADDRESS_BOOKS;
+    });
   }
 
   function backToAuth() {
@@ -235,6 +272,8 @@ export default function App() {
     setStored(null);
     setSession(null);
     setContacts([]);
+    setAddressBooks([]);
+    setBookFilter(ALL_ADDRESS_BOOKS);
     setUsername("");
     setPassword("");
     setPhrase("");
@@ -390,6 +429,29 @@ export default function App() {
     }
   }
 
+  async function onCreateBook(name: string) {
+    if (!session || !name.trim()) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const id = await putAddressBook(session, name.trim());
+      await refresh(session);
+      setBookFilter(id);
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openComposer() {
+    setError(null);
+    setFormKey((key) => key + 1);
+    setComposing(true);
+  }
+
   function closeComposer() {
     if (busy) {
       return;
@@ -402,6 +464,39 @@ export default function App() {
   // ---------- PHRASE SCREEN ----------
   if (screen === "phrase" && session) {
     const words = phrase.split(/\s+/u).filter(Boolean);
+
+    function downloadWords() {
+      const lines = words.map((w, i) => `${String(i + 1).padStart(2, " ")}. ${w}`);
+      const text = "Sealbook Recovery Words\n" + "=".repeat(24) + "\n\n" + lines.join("\n") + "\n\nKeep this file safe and secret.\n";
+      const blob = new Blob([text], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "sealbook-recovery-words.txt";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function printWords() {
+      const lines = words.map((w, i) => `<tr><td style="text-align:right;padding-right:12px;color:#888;font-variant-numeric:tabular-nums">${i + 1}</td><td style="font-family:monospace">${w}</td></tr>`);
+      const html = `
+        <html>
+          <head><title>Sealbook Recovery Words</title></head>
+          <body style="font-family:system-ui,sans-serif;padding:40px;max-width:480px;margin:0 auto">
+            <h2 style="margin:0 0 4px">Sealbook Recovery Words</h2>
+            <p style="color:#666;margin:0 0 24px;font-size:14px">Keep this document safe and secret.</p>
+            <table style="border-collapse:collapse;font-size:15px">${lines.join("")}</table>
+          </body>
+        </html>`;
+      const win = window.open("", "_blank");
+      if (win) {
+        win.document.write(html);
+        win.document.close();
+        win.focus();
+        win.print();
+      }
+    }
+
     return (
       <AuthCard>
         <Brand
@@ -416,9 +511,17 @@ export default function App() {
             </li>
           ))}
         </ol>
+        <div className="mt-6 flex gap-3">
+          <button type="button" className={secondary} onClick={downloadWords}>
+            ⬇ Download
+          </button>
+          <button type="button" className={secondary} onClick={printWords}>
+            🖨 Print
+          </button>
+        </div>
         <button
           type="button"
-          className={`${primary} mt-8`}
+          className={`${primary} mt-4`}
           onClick={() => {
             setPhrase("");
             setScreen("auth");
@@ -677,6 +780,8 @@ export default function App() {
                 onClick={() => {
                   setSession(null);
                   setContacts([]);
+                  setAddressBooks([]);
+                  setBookFilter(ALL_ADDRESS_BOOKS);
                   setPassword("");
                   setAdding(false);
                   setAddConfirm(null);
@@ -725,10 +830,27 @@ export default function App() {
           </form>
         ) : null}
 
-        {/* Search + Add */}
-        {contacts.length > 0 ? (
-          <div className="mb-6 flex items-center gap-3 animate-fade-in-up">
-            <div className="relative flex-1">
+        {/* Address books + search */}
+        <div className="relative z-20 mb-6 animate-fade-in-up">
+          <div className="flex items-center gap-3">
+            <AddressBookMenu
+              books={addressBooks}
+              selectedId={bookFilter}
+              onSelect={setBookFilter}
+              onCreate={onCreateBook}
+              busy={busy}
+            />
+            <button
+              type="button"
+              className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl bg-accent text-bg transition-all duration-150 hover:brightness-110 active:scale-95"
+              onClick={openComposer}
+              aria-label="Add contact"
+            >
+              <PlusIcon />
+            </button>
+          </div>
+          {contacts.length > 0 ? (
+            <div className="relative mt-3">
               <SearchIcon />
               <input
                 type="text"
@@ -738,30 +860,21 @@ export default function App() {
                 className={`${searchField} pl-10`}
               />
             </div>
-            <button
-              type="button"
-              className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl bg-accent text-bg transition-all duration-150 hover:brightness-110 active:scale-95"
-              onClick={() => {
-                setError(null);
-                setComposing(true);
-              }}
-              aria-label="Add contact"
-            >
-              <PlusIcon />
-            </button>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
 
         {error && !composing ? (
           <p className="mt-4 text-sm text-danger">{error}</p>
         ) : null}
 
-        {contacts.length === 0 ? (
+        {filtered.length === 0 && !search.trim() ? (
           <EmptyContacts
-            onAdd={() => {
-              setError(null);
-              setComposing(true);
-            }}
+            bookName={
+              bookFilter === ALL_ADDRESS_BOOKS
+                ? undefined
+                : bookNameById(addressBooks, bookFilter)
+            }
+            onAdd={openComposer}
           />
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center py-16 animate-fade-in-up">
@@ -773,11 +886,19 @@ export default function App() {
           <>
             <p className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-mute/60">
               {filtered.length} {filtered.length === 1 ? "contact" : "contacts"}
-              {search.trim() ? ` found` : ""}
+              {search.trim() ? " found" : ""}
             </p>
             <ul className="divide-y divide-line">
               {filtered.map((card) => (
-                <ContactCard key={card.id} contact={card} />
+                <ContactCard
+                  key={card.id}
+                  contact={card}
+                  bookName={
+                    bookFilter === ALL_ADDRESS_BOOKS
+                      ? bookNameById(addressBooks, card.addressBookId)
+                      : undefined
+                  }
+                />
               ))}
             </ul>
           </>
@@ -791,6 +912,12 @@ export default function App() {
             key={formKey}
             busy={busy}
             error={error}
+            addressBooks={addressBooks}
+            initialDraft={emptyDraft(
+              bookFilter === ALL_ADDRESS_BOOKS
+                ? DEFAULT_ADDRESS_BOOK_ID
+                : bookFilter,
+            )}
             onSubmit={onAdd}
             onCancel={closeComposer}
           />
