@@ -5,8 +5,10 @@ import { AddDeviceModal } from "./components/AddDeviceModal";
 import { ContactCard } from "./components/ContactCard";
 import { ContactDetailModal } from "./components/ContactDetailModal";
 import { ContactForm } from "./components/ContactForm";
+import { DeleteContactModal } from "./components/DeleteContactModal";
 import { Modal } from "./components/Modal";
 import {
+  deleteContact,
   ensureDefaultAddressBook,
   listVault,
   loginAccount,
@@ -210,6 +212,7 @@ export default function App() {
   const [composing, setComposing] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [viewingContact, setViewingContact] = useState<Contact | null>(null);
+  const [deletingContact, setDeletingContact] = useState<Contact | null>(null);
   const [pairId, setPairId] = useState("");
   const [pairConfirm, setPairConfirm] = useState("");
   const [pairState, setPairState] = useState<DeviceState | null>(null);
@@ -331,6 +334,9 @@ export default function App() {
     setAddConfirm(null);
     setAddCode("");
     setComposing(false);
+    setEditingContact(null);
+    setViewingContact(null);
+    setDeletingContact(null);
     setError(null);
     setSearch("");
     setMode("register");
@@ -510,6 +516,42 @@ export default function App() {
     }
     setEditingContact(null);
     setError(null);
+  }
+
+  function promptDelete(contact: Contact) {
+    setError(null);
+    setDeletingContact(contact);
+  }
+
+  function closeDelete() {
+    if (busy) {
+      return;
+    }
+    setDeletingContact(null);
+    setError(null);
+  }
+
+  async function onConfirmDelete() {
+    if (!session || !deletingContact) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteContact(session, deletingContact.id);
+      if (editingContact?.id === deletingContact.id) {
+        setEditingContact(null);
+      }
+      if (viewingContact?.id === deletingContact.id) {
+        setViewingContact(null);
+      }
+      setDeletingContact(null);
+      await refresh(session);
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function onCreateBook(name: string) {
@@ -1104,6 +1146,7 @@ export default function App() {
                   setComposing(false);
                   setEditingContact(null);
                   setViewingContact(null);
+                  setDeletingContact(null);
                   setError(null);
                   setSearch("");
                 }}
@@ -1191,6 +1234,9 @@ export default function App() {
                   onEdit={(contact) => {
                     startEditing(contact);
                   }}
+                  onDelete={(contact) => {
+                    promptDelete(contact);
+                  }}
                 />
               ))}
             </ul>
@@ -1204,6 +1250,7 @@ export default function App() {
           contact={viewingContact}
           bookName={bookNameById(addressBooks, viewingContact.addressBookId)}
           onEdit={() => startEditing(viewingContact)}
+          onDelete={() => promptDelete(viewingContact)}
           onClose={() => setViewingContact(null)}
         />
       ) : null}
@@ -1240,8 +1287,20 @@ export default function App() {
             submitLabel="Save changes"
             onSubmit={onEditContact}
             onCancel={closeEditor}
+            onDelete={() => promptDelete(editingContact)}
           />
         </Modal>
+      ) : null}
+
+      {/* Delete confirmation modal */}
+      {deletingContact ? (
+        <DeleteContactModal
+          contact={deletingContact}
+          busy={busy}
+          error={error}
+          onConfirm={onConfirmDelete}
+          onClose={closeDelete}
+        />
       ) : null}
 
       {/* Add Device modal */}

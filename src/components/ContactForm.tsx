@@ -10,8 +10,8 @@ import {
 import {
   addLink,
   field,
+  fieldBase,
   ghost,
-  iconButton,
   primary,
   secondary,
   sectionBar,
@@ -36,6 +36,7 @@ type Props = {
   submitLabel?: string;
   onSubmit: (draft: ContactDraft) => void;
   onCancel: () => void;
+  onDelete?: () => void;
 };
 
 function cloneDraft(source?: ContactDraft): ContactDraft {
@@ -59,6 +60,7 @@ export function ContactForm({
   submitLabel,
   onSubmit,
   onCancel,
+  onDelete,
 }: Props) {
   const [draft, setDraft] = useState<ContactDraft>(() => cloneDraft(initialDraft));
   const [showAddress, setShowAddress] = useState(
@@ -261,19 +263,64 @@ export function ContactForm({
         {error ? (
           <p className="px-5 pt-3 text-sm text-danger">{error}</p>
         ) : null}
-        <div className="flex gap-3 px-5 py-4">
-          <button
-            type="button"
-            className={`${secondary} flex-1`}
-            onClick={onCancel}
-            disabled={busy}
-          >
-            Cancel
-          </button>
-          <button type="submit" disabled={busy} className={`${primary} flex-1`}>
-            {busy ? "Please wait…" : (submitLabel ?? (initialDraft ? "Save" : "Add"))}
-          </button>
-        </div>
+        {onDelete ? (
+          <div className="flex items-center justify-between gap-3 px-5 py-4">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-danger/80 transition-colors hover:bg-danger/10 hover:text-danger active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+              onClick={onDelete}
+              disabled={busy}
+            >
+              <svg
+                className="h-4 w-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M3 6h18" />
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                <line x1="10" y1="11" x2="10" y2="17" />
+                <line x1="14" y1="11" x2="14" y2="17" />
+              </svg>
+              Delete
+            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className={`${secondary} px-4 py-2 cursor-pointer`}
+                onClick={onCancel}
+                disabled={busy}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={busy}
+                className={`${primary} px-5 py-2 cursor-pointer`}
+              >
+                {busy ? "Please wait…" : (submitLabel ?? "Save")}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex gap-3 px-5 py-4">
+            <button
+              type="button"
+              className={`${secondary} flex-1 cursor-pointer`}
+              onClick={onCancel}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+            <button type="submit" disabled={busy} className={`${primary} flex-1 cursor-pointer`}>
+              {busy ? "Please wait…" : (submitLabel ?? (initialDraft ? "Save" : "Add"))}
+            </button>
+          </div>
+        )}
       </div>
     </form>
   );
@@ -315,7 +362,7 @@ function RemoveButton({
   return (
     <button
       type="button"
-      className={iconButton}
+      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-mute transition-all duration-150 hover:bg-surface hover:text-text cursor-pointer"
       aria-label={label}
       onClick={onClick}
     >
@@ -354,7 +401,7 @@ function ChannelList({
       {channels.map((channel) => (
         <div
           key={channel.id}
-          className="grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)_2.25rem] items-start gap-2 sm:grid-cols-[6rem_minmax(0,1fr)_2.25rem]"
+          className="grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)_2.5rem] items-start gap-2 sm:grid-cols-[6rem_minmax(0,1fr)_2.5rem]"
         >
           <select
             value={channel.kind}
@@ -366,7 +413,7 @@ function ChannelList({
                 label: kind === "custom" ? channel.label : undefined,
               });
             }}
-            className={`${selectField} w-full`}
+            className={selectField}
           >
             {CHANNEL_KINDS.map((kind) => (
               <option key={kind} value={kind}>
@@ -382,7 +429,7 @@ function ChannelList({
                 update(channel.id, { value: e.target.value })
               }
               placeholder={valuePlaceholder}
-              className={`${field} mt-0`}
+              className={fieldBase}
             />
             {channel.kind === "custom" ? (
               <input
@@ -392,7 +439,7 @@ function ChannelList({
                 }
                 placeholder="Label"
                 aria-label="Custom label"
-                className={`${field} mt-0`}
+                className={fieldBase}
               />
             ) : null}
           </div>
@@ -440,7 +487,7 @@ function WorkList({
               }
               placeholder="Workplace"
               aria-label="Workplace"
-              className={`${field} mt-0`}
+              className={fieldBase}
               autoComplete="organization"
             />
             <input
@@ -450,7 +497,7 @@ function WorkList({
               }
               placeholder="Occupation"
               aria-label="Occupation"
-              className={`${field} mt-0`}
+              className={fieldBase}
               autoComplete="organization-title"
             />
           </div>
