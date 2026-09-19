@@ -112,6 +112,10 @@ option {
   padding-top: 1.75rem;
 }
 
+.calendar-view > .fixed > section > div:first-child > div > p:first-child {
+  display: none;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

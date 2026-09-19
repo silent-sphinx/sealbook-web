@@ -42,6 +42,26 @@ import type { AddressBook, Calendar, CalendarEvent, Contact, ContactDraft, Devic
 
 type Mode = "register" | "signin";
 type Screen = "auth" | "phrase" | "pair" | "recover";
+type MainTab = "contacts" | "calendar" | "settings";
+
+const LAST_TAB_KEY = "sealbook.last-tab";
+
+function loadLastTab(): MainTab {
+  try {
+    const stored = sessionStorage.getItem(LAST_TAB_KEY);
+    return stored === "calendar" ? "calendar" : "contacts";
+  } catch {
+    return "contacts";
+  }
+}
+
+function saveLastTab(tab: MainTab): void {
+  if (tab === "settings") return;
+  try {
+    sessionStorage.setItem(LAST_TAB_KEY, tab);
+  } catch {
+  }
+}
 
 function friendlyError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
@@ -271,7 +291,12 @@ export default function App() {
   const [adding, setAdding] = useState(false);
   const [copied, setCopied] = useState(false);
   const [search, setSearch] = useState("");
-  const [activeTab, setActiveTab] = useState<"contacts" | "calendar" | "settings">("contacts");
+  const [activeTab, setActiveTabState] = useState<MainTab>(loadLastTab);
+
+  function setActiveTab(tab: MainTab) {
+    setActiveTabState(tab);
+    saveLastTab(tab);
+  }
 
   const locked = Boolean(stored);
 
@@ -1314,7 +1339,6 @@ export default function App() {
                   setDeletingContact(null);
                   setError(null);
                   setSearch("");
-                  setActiveTab("contacts");
                 }}
               >
                 Lock

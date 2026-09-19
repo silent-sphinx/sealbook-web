@@ -9,12 +9,19 @@ import type { Calendar, CalendarEvent } from "../lib/types";
 
 type ViewMode = "day" | "week" | "month" | "year";
 
-const colors = [
-  "bg-sky-100 text-sky-950",
-  "bg-lime-100 text-lime-950",
-  "bg-orange-100 text-orange-950",
-  "bg-rose-100 text-rose-950",
-];
+function hiddenCalendarStorageKey(collectionId: string): string {
+  return `sealbook.hidden-calendars.${collectionId}`;
+}
+
+function loadHiddenCalendarIds(collectionId: string): Set<string> {
+  try {
+    const stored = sessionStorage.getItem(hiddenCalendarStorageKey(collectionId));
+    const ids = stored ? JSON.parse(stored) : [];
+    return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
 
 function keyFor(day: Date): string {
   return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
@@ -38,12 +45,14 @@ function monthDays(month: Date): Date[] {
   });
 }
 
-function Icon({ name, className = "h-4 w-4" }: { name: "plus" | "search" | "chevron" | "x"; className?: string }) {
+function Icon({ name, className = "h-4 w-4" }: { name: "plus" | "search" | "chevron" | "x" | "eye" | "eyeOff"; className?: string }) {
   const content = {
     plus: <path d="M8 2.5v11M2.5 8h11" />,
     search: <><circle cx="6.5" cy="6.5" r="4" /><path d="m10 10 3.5 3.5" /></>,
     chevron: <path d="m6.5 3.5 5 5-5 5" />,
     x: <><path d="m3.5 3.5 9 9M12.5 3.5l-9 9" /></>,
+    eye: <><path d="M1.5 8s2.25-4 6.5-4 6.5 4 6.5 4-2.25 4-6.5 4-6.5-4-6.5-4Z" /><circle cx="8" cy="8" r="1.75" /></>,
+    eyeOff: <><path d="m2.5 2.5 11 11M6.6 4.2C7.05 4.07 7.52 4 8 4c4.25 0 6.5 4 6.5 4a12.5 12.5 0 0 1-2.08 2.48M4.3 5.3C2.57 6.3 1.5 8 1.5 8s2.25 4 6.5 4c.48 0 .95-.07 1.4-.2" /></>,
   }[name];
   const resolvedClassName = name === "search"
     ? `${className} pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-mute`
@@ -72,6 +81,7 @@ export function CalendarView({
   const [search, setSearch] = useState("");
   const [composer, setComposer] = useState(false);
   const [calendarComposer, setCalendarComposer] = useState(false);
+  const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(() => loadHiddenCalendarIds(session.state.collection_id));
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [calendarName, setCalendarName] = useState("");
   const [calendarColor, setCalendarColor] = useState("#7aa2f7");
@@ -84,9 +94,26 @@ export function CalendarView({
   const [error, setError] = useState<string | null>(null);
   const days = useMemo(() => monthDays(month), [month]);
   const filtered = useMemo(
-    () => events.filter((event) => event.title.toLowerCase().includes(search.trim().toLowerCase())),
-    [events, search],
+    () => events.filter((event) => !event.calendarId || !hiddenCalendarIds.has(event.calendarId))
+      .filter((event) => event.title.toLowerCase().includes(search.trim().toLowerCase())),
+    [events, hiddenCalendarIds, search],
   );
+
+  function toggleCalendar(calendarId: string) {
+    setHiddenCalendarIds((current) => {
+      const next = new Set(current);
+      if (next.has(calendarId)) {
+        next.delete(calendarId);
+      } else {
+        next.add(calendarId);
+      }
+      try {
+        sessionStorage.setItem(hiddenCalendarStorageKey(session.state.collection_id), JSON.stringify([...next]));
+      } catch {
+      }
+      return next;
+    });
+  }
 
   function selectDay(day: Date) {
     const key = keyFor(day);
@@ -181,12 +208,12 @@ export function CalendarView({
         <aside className="bg-panel px-6 py-7 lg:min-h-full">
           <div className="flex items-center justify-between">
             <div><p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-mute">My calendar</p><h2 className="mt-1 text-lg font-semibold">Calendar</h2></div>
-            <button type="button" onClick={openNewTask} className="flex h-8 w-8 items-center justify-center rounded-md bg-surface text-text hover:bg-elevated" aria-label="Create task"><Icon name="plus" /></button>
+            <button type="button" onClick={openNewTask} className="flex h-8 w-8 items-center justify-center rounded-md bg-surface text-text hover:bg-elevated" aria-label="Create event"><Icon name="plus" /></button>
           </div>
           <MiniMonth month={month} selected={selected} events={filtered} onSelect={selectDay} />
           <div className="mt-8 border-t border-line pt-5">
             <div className="flex items-center justify-between"><p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-mute">Calendars</p><button type="button" onClick={() => setCalendarComposer(true)} className="flex h-6 w-6 items-center justify-center rounded-md text-mute hover:bg-surface hover:text-text" aria-label="Add calendar"><Icon name="plus" /></button></div>
-            <div className="mt-3 space-y-3">{calendars.length === 0 ? <p className="text-xs text-mute">No calendars yet.</p> : calendars.map((calendar) => <p key={calendar.id} className="flex items-center gap-2 truncate text-xs text-text"><i className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: calendar.color }} />{calendar.name}</p>)}</div>
+            <div className="mt-3 space-y-3">{calendars.length === 0 ? <p className="text-xs text-mute">No calendars yet.</p> : calendars.map((calendar) => { const hidden = hiddenCalendarIds.has(calendar.id); return <div key={calendar.id} className={`flex items-center gap-2 text-xs ${hidden ? "text-mute" : "text-text"}`}><i className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: calendar.color }} /><span className="min-w-0 flex-1 truncate">{calendar.name}</span><button type="button" onClick={() => toggleCalendar(calendar.id)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-mute hover:bg-surface hover:text-text" aria-label={`${hidden ? "Show" : "Hide"} ${calendar.name} calendar`} title={`${hidden ? "Show" : "Hide"} calendar`}><Icon name={hidden ? "eyeOff" : "eye"} className="h-3.5 w-3.5" /></button></div>; })}</div>
           </div>
         </aside>
 
@@ -195,8 +222,8 @@ export function CalendarView({
             <div className="flex items-center gap-2"><button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} className="flex h-8 w-8 items-center justify-center rounded-md border border-line text-mute hover:bg-surface" aria-label="Previous month"><Icon name="chevron" /></button><button type="button" onClick={() => { setMonth(new Date(today.getFullYear(), today.getMonth(), 1)); selectDay(today); }} className="h-8 rounded-md border border-line px-3 text-xs text-mute hover:bg-surface">Today</button><button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} className="flex h-8 w-8 items-center justify-center rounded-md border border-line text-mute hover:bg-surface" aria-label="Next month"><Icon name="chevron" /></button><h1 className="ml-2 text-lg font-semibold">{month.toLocaleDateString([], { month: "long", year: "numeric" })}</h1></div>
             <div className="flex items-center gap-3"><div className="relative hidden sm:block"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" className="h-8 w-48 rounded-md border border-line bg-bg pl-9 pr-3 text-xs text-text outline-none placeholder:text-mute focus:border-accent" /></div><div className="flex rounded-md border border-line bg-bg p-0.5">{(["day", "week", "month", "year"] as ViewMode[]).map((item) => <button key={item} type="button" onClick={() => setMode(item)} className={`h-7 px-3 text-[11px] capitalize ${mode === item ? "rounded bg-accent font-semibold text-bg" : "text-mute hover:text-text"}`}>{item}</button>)}</div></div>
           </header>
-          <div className="flex items-center justify-between border-b border-line bg-bg px-5 py-2.5 lg:px-8"><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-mute">{filtered.length} task{filtered.length === 1 ? "" : "s"}</p><button type="button" onClick={openNewTask} className="flex items-center gap-1.5 text-xs font-semibold text-accent hover:text-text"><Icon name="plus" /> New task</button></div>
-          {mode === "month" ? <MonthGrid month={month} days={days} selected={selected} todayKey={todayKey} events={filtered} onSelect={selectDay} onEdit={openEditTask} /> : <div className="p-10 text-sm text-mute">{mode[0].toUpperCase() + mode.slice(1)} view is ready for the next calendar iteration.</div>}
+          <div className="flex items-center justify-between border-b border-line bg-bg px-5 py-2.5 lg:px-8"><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-mute">{filtered.length} event{filtered.length === 1 ? "" : "s"}</p><button type="button" onClick={openNewTask} className="flex items-center gap-1.5 text-xs font-semibold text-accent hover:text-text"><Icon name="plus" /> New event</button></div>
+          {mode === "month" ? <MonthGrid month={month} days={days} selected={selected} todayKey={todayKey} events={filtered} calendars={calendars} onSelect={selectDay} onEdit={openEditTask} /> : <div className="p-10 text-sm text-mute">{mode[0].toUpperCase() + mode.slice(1)} view is ready for the next calendar iteration.</div>}
         </section>
       </div>
 
@@ -206,15 +233,15 @@ export function CalendarView({
   );
 }
 
-function eventSegmentClass(event: CalendarEvent, day: Date, index: number): string {
+function eventSegmentClass(event: CalendarEvent, day: Date): string {
   const dayKey = keyFor(day);
   const startsHere = event.start.slice(0, 10) === dayKey;
   const endsHere = (event.end?.slice(0, 10) || event.start.slice(0, 10)) === dayKey;
-  return `relative z-10 -mx-2 block truncate px-2 py-1 text-[10px] font-medium ${startsHere ? "rounded-l-sm" : "rounded-l-none"} ${endsHere ? "rounded-r-sm" : "rounded-r-none"} ${colors[index % colors.length]}`;
+  return `relative z-10 -mx-2 block truncate bg-surface px-2 py-1 text-[10px] font-medium text-text ${startsHere ? "rounded-l-sm" : "rounded-l-none"} ${endsHere ? "rounded-r-sm" : "rounded-r-none"}`;
 }
 
-function MonthGrid({ month, days, selected, todayKey, events, onSelect, onEdit }: { month: Date; days: Date[]; selected: string; todayKey: string; events: CalendarEvent[]; onSelect: (day: Date) => void; onEdit: (event: CalendarEvent) => void }) {
-  return <div className="overflow-x-auto"><div className="min-w-[720px]"><div className="grid grid-cols-7 border-b border-line bg-panel">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div key={day} className="px-3 py-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-mute">{day}</div>)}</div><div className="grid grid-cols-7">{days.map((day) => { const key = keyFor(day); const dayEvents = events.filter((event) => eventCoversDay(event, day)); return <button key={key} type="button" onClick={() => onSelect(day)} className={`relative min-h-[112px] border-b border-r border-line bg-bg p-2 text-left align-top hover:bg-surface ${day.getMonth() !== month.getMonth() ? "bg-panel text-mute/50" : "text-text"} ${key === selected ? "z-10 ring-2 ring-inset ring-accent" : ""}`}><span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs ${key === todayKey ? "bg-accent font-semibold text-bg" : ""}`}>{day.getDate()}</span><span className="mt-1 block space-y-1">{dayEvents.slice(0, 3).map((event, index) => <span key={event.id} role="button" tabIndex={0} onClick={(click) => { click.stopPropagation(); onEdit(event); }} onKeyDown={(keyEvent) => { if (keyEvent.key === "Enter" || keyEvent.key === " ") { keyEvent.preventDefault(); keyEvent.stopPropagation(); onEdit(event); } }} className={eventSegmentClass(event, day, index)}>{event.title}</span>)}</span></button>; })}</div></div></div>;
+function MonthGrid({ month, days, selected, todayKey, events, calendars, onSelect, onEdit }: { month: Date; days: Date[]; selected: string; todayKey: string; events: CalendarEvent[]; calendars: Calendar[]; onSelect: (day: Date) => void; onEdit: (event: CalendarEvent) => void }) {
+  return <div className="overflow-x-auto"><div className="min-w-[720px]"><div className="grid grid-cols-7 border-b border-line bg-panel">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div key={day} className="px-3 py-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-mute">{day}</div>)}</div><div className="grid grid-cols-7">{days.map((day) => { const key = keyFor(day); const dayEvents = events.filter((event) => eventCoversDay(event, day)); return <button key={key} type="button" onClick={() => onSelect(day)} className={`relative min-h-[112px] border-b border-r border-line bg-bg p-2 text-left align-top hover:bg-surface ${day.getMonth() !== month.getMonth() ? "bg-panel text-mute/50" : "text-text"} ${key === selected ? "z-10 ring-2 ring-inset ring-accent" : ""}`}><span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs ${key === todayKey ? "bg-accent font-semibold text-bg" : ""}`}>{day.getDate()}</span><span className="mt-1 block space-y-1">{dayEvents.slice(0, 3).map((event) => <span key={event.id} role="button" tabIndex={0} onClick={(click) => { click.stopPropagation(); onEdit(event); }} onKeyDown={(keyEvent) => { if (keyEvent.key === "Enter" || keyEvent.key === " ") { keyEvent.preventDefault(); keyEvent.stopPropagation(); onEdit(event); } }} className={eventSegmentClass(event, day)} style={{ backgroundColor: calendars.find((calendar) => calendar.id === event.calendarId)?.color }}>{event.title}</span>)}</span></button>; })}</div></div></div>;
 }
 
 function TaskDialog({ editing, title, start, end, notes, allDay, calendarId, calendars, busy, error, onClose, onSave, onDelete, onTitleChange, onStartChange, onEndChange, onNotesChange, onAllDayChange, onCalendarChange }: { editing: boolean; title: string; start: string; end: string; notes: string; allDay: boolean; calendarId: string; calendars: Calendar[]; busy: boolean; error: string | null; onClose: () => void; onSave: () => void; onDelete?: () => void; onTitleChange: (value: string) => void; onStartChange: (value: string) => void; onEndChange: (value: string) => void; onNotesChange: (value: string) => void; onAllDayChange: (value: boolean) => void; onCalendarChange: (value: string) => void }) {
