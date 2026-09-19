@@ -27,7 +27,10 @@ import {
   serializeAddressBook,
   sortAddressBooks,
 } from "./addressBook";
-import type { AddressBook, Contact, ContactDraft, DeviceOut, DevicePublic, DeviceState, KeyWrap, SealedObject } from "./types";
+import type { AddressBook, Calendar, CalendarEvent, Contact, ContactDraft, DeviceOut, DevicePublic, DeviceState, KeyWrap, SealedObject } from "./types";
+
+export const CALENDAR_EVENT_CONTENT_TYPE = "application/sealbook.calendar-event+json";
+export const CALENDAR_CONTENT_TYPE = "application/sealbook.calendar+json";
 
 class ApiError extends Error {
   constructor(message: string) {
@@ -445,7 +448,7 @@ export async function loginAccount(state: DeviceState, password: string): Promis
 
 export async function listVault(
   session: Session,
-): Promise<{ sealed: SealedObject[]; addressBooks: AddressBook[]; contacts: Contact[] }> {
+): Promise<{ sealed: SealedObject[]; addressBooks: AddressBook[]; contacts: Contact[]; calendars: Calendar[]; calendarEvents: CalendarEvent[] }> {
   const { state, token, collectionKey } = session;
   const resp = await getJson<{ objects: SealedObject[] }>(
     `${apiRoot(state.server)}/v1/collections/${state.collection_id}/changes?after=0`,
@@ -454,6 +457,8 @@ export async function listVault(
   const sealed = resp.objects.filter((obj) => !obj.tombstone);
   const addressBooks: AddressBook[] = [];
   const contacts: Contact[] = [];
+  const calendarEvents: CalendarEvent[] = [];
+  const calendars: Calendar[] = [];
   for (const obj of sealed) {
     const raw = decryptContact(
       collectionKey,
@@ -463,13 +468,19 @@ export async function listVault(
       obj.ciphertext,
       obj.padded_size,
     );
-    if (obj.content_type === ADDRESS_BOOK_CONTENT_TYPE || isAddressBookPayload(raw)) {
+    if (obj.content_type === CALENDAR_EVENT_CONTENT_TYPE || isCalendarEventPayload(raw)) {
+      const value = JSON.parse(raw) as { title?: string; start?: string; end?: string; notes?: string };
+      calendarEvents.push({ id: obj.id, title: value.title?.trim() || "Untitled event", start: value.start ?? "", end: value.end, notes: value.notes });
+    } else if (obj.content_type === CALENDAR_CONTENT_TYPE || isCalendarPayload(raw)) {
+      const value = JSON.parse(raw) as { name?: string; color?: string };
+      calendars.push({ id: obj.id, name: value.name?.trim() || "Untitled calendar", color: value.color || "#7aa2f7" });
+    } else if (obj.content_type === ADDRESS_BOOK_CONTENT_TYPE || isAddressBookPayload(raw)) {
       addressBooks.push(parseAddressBook(obj.id, raw));
     } else {
       contacts.push(parseContact(obj.id, raw, obj.ciphertext, obj.padded_size));
     }
   }
-  return { sealed, addressBooks: sortAddressBooks(addressBooks), contacts: sortContacts(contacts) };
+  return { sealed, addressBooks: sortAddressBooks(addressBooks), contacts: sortContacts(contacts), calendars, calendarEvents };
 }
 
 export async function listContacts(session: Session): Promise<{ sealed: SealedObject[]; open: Contact[] }> {
@@ -559,11 +570,57 @@ export async function deleteContact(
   );
 }
 
+export async function putCalendarEvent(session: Session, event: Omit<CalendarEvent, "id">, existingId?: string): Promise<string> {
+  const id = existingId ?? newUuid();
+  const plaintext = JSON.stringify({ "@type": "CalendarEvent", version: "1.0", ...event });
+  const enc = encryptContact(session.collectionKey, id, session.state.collection_id, plaintext);
+  await putJson(`${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`, {
+    id, nonce: enc.nonce, ciphertext: enc.ciphertext, padded_size: enc.padded_size,
+    content_type: CALENDAR_EVENT_CONTENT_TYPE, tombstone: false,
+  }, session.token);
+  return id;
+}
+
+export async function putCalendar(session: Session, calendar: Omit<Calendar, "id">): Promise<string> {
+  const id = newUuid();
+  const plaintext = JSON.stringify({ "@type": "Calendar", version: "1.0", ...calendar });
+  const enc = encryptContact(session.collectionKey, id, session.state.collection_id, plaintext);
+  await putJson(`${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`, {
+    id, nonce: enc.nonce, ciphertext: enc.ciphertext, padded_size: enc.padded_size,
+    content_type: CALENDAR_CONTENT_TYPE, tombstone: false,
+  }, session.token);
+  return id;
+}
+
+export async function deleteCalendarEvent(session: Session, id: string): Promise<void> {
+  const enc = encryptContact(session.collectionKey, id, session.state.collection_id, "");
+  await putJson(`${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`, {
+    id, nonce: enc.nonce, ciphertext: enc.ciphertext, padded_size: enc.padded_size,
+    content_type: CALENDAR_EVENT_CONTENT_TYPE, tombstone: true,
+  }, session.token);
+}
+
 
 function isAddressBookPayload(raw: string): boolean {
   try {
     const body = JSON.parse(raw) as { "@type"?: string };
     return body["@type"] === "AddressBook";
+  } catch {
+    return false;
+  }
+}
+
+function isCalendarEventPayload(raw: string): boolean {
+  try {
+    return (JSON.parse(raw) as { "@type"?: string })["@type"] === "CalendarEvent";
+  } catch {
+    return false;
+  }
+}
+
+function isCalendarPayload(raw: string): boolean {
+  try {
+    return (JSON.parse(raw) as { "@type"?: string })["@type"] === "Calendar";
   } catch {
     return false;
   }

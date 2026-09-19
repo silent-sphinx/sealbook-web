@@ -5,6 +5,7 @@ import { AddDeviceModal } from "./components/AddDeviceModal";
 import { ContactCard } from "./components/ContactCard";
 import { ContactDetailModal } from "./components/ContactDetailModal";
 import { ContactForm } from "./components/ContactForm";
+import { CalendarView } from "./components/CalendarView";
 import { DeleteContactModal } from "./components/DeleteContactModal";
 import { Modal } from "./components/Modal";
 import { SettingsView } from "./components/SettingsView";
@@ -37,7 +38,7 @@ import {
 import { findInvalidBip39Words } from "./lib/bip39Words";
 import { clearDevice, loadDevice, saveDevice } from "./lib/storage";
 import { field, ghost, primary, secondary, searchField } from "./lib/styles";
-import type { AddressBook, Contact, ContactDraft, DeviceState } from "./lib/types";
+import type { AddressBook, Calendar, CalendarEvent, Contact, ContactDraft, DeviceState } from "./lib/types";
 
 type Mode = "register" | "signin";
 type Screen = "auth" | "phrase" | "pair" | "recover";
@@ -113,6 +114,14 @@ function ContactsIcon() {
   return (
     <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
       <path d="M10 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm-7 9a7 7 0 1 1 14 0H3Z" />
+    </svg>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M5 2.75a.75.75 0 0 1 1.5 0V4h7V2.75a.75.75 0 0 1 1.5 0V4H16a2 2 0 0 1 2 2v9.5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1V2.75ZM3.5 8v7.5a.5.5 0 0 0 .5.5h12a.5.5 0 0 0 .5-.5V8h-13Z" clipRule="evenodd" />
     </svg>
   );
 }
@@ -244,6 +253,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [addressBooks, setAddressBooks] = useState<AddressBook[]>([]);
   const [bookFilter, setBookFilter] = useState(ALL_ADDRESS_BOOKS);
   const [formKey, setFormKey] = useState(0);
@@ -260,7 +271,7 @@ export default function App() {
   const [adding, setAdding] = useState(false);
   const [copied, setCopied] = useState(false);
   const [search, setSearch] = useState("");
-  const [activeTab, setActiveTab] = useState<"contacts" | "settings">("contacts");
+  const [activeTab, setActiveTab] = useState<"contacts" | "calendar" | "settings">("contacts");
 
   const locked = Boolean(stored);
 
@@ -332,6 +343,8 @@ export default function App() {
     const books = await ensureDefaultAddressBook(next, listed.addressBooks);
     setAddressBooks(books);
     setContacts(listed.contacts);
+    setCalendarEvents(listed.calendarEvents);
+    setCalendars(listed.calendars);
     setBookFilter((current) => {
       if (current === ALL_ADDRESS_BOOKS) {
         return current;
@@ -359,6 +372,8 @@ export default function App() {
     setStored(null);
     setSession(null);
     setContacts([]);
+    setCalendarEvents([]);
+    setCalendars([]);
     setAddressBooks([]);
     setBookFilter(ALL_ADDRESS_BOOKS);
     setUsername("");
@@ -1218,7 +1233,7 @@ export default function App() {
       <div className="sticky top-0 z-40">
         <div className="h-[2px] bg-gradient-to-r from-accent/60 via-accent to-accent/60" />
         <header className="border-b border-line bg-bg/80 backdrop-blur-lg">
-          <div className="mx-auto flex max-w-2xl items-center justify-between px-5 py-4">
+          <div className="mx-auto flex items-center justify-between px-5 py-4">
             <div className="flex items-center gap-2.5">
               <Logo className="h-8 w-8" />
               <div>
@@ -1240,6 +1255,18 @@ export default function App() {
               >
                 <ContactsIcon />
                 Contacts
+              </button>
+              <button
+                type="button"
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 cursor-pointer ${
+                  activeTab === "calendar"
+                    ? "bg-accent text-bg shadow-sm"
+                    : "text-mute hover:text-text hover:bg-surface/50"
+                }`}
+                onClick={() => setActiveTab("calendar")}
+              >
+                <CalendarIcon />
+                Calendar
               </button>
               <button
                 type="button"
@@ -1274,6 +1301,8 @@ export default function App() {
                 onClick={() => {
                   setSession(null);
                   setContacts([]);
+                  setCalendarEvents([]);
+                  setCalendars([]);
                   setAddressBooks([]);
                   setBookFilter(ALL_ADDRESS_BOOKS);
                   setPassword("");
@@ -1296,7 +1325,7 @@ export default function App() {
       </div>
 
       {activeTab === "settings" ? (
-        <main className="mx-auto max-w-2xl px-5 pb-24 pt-6">
+        <main className="mx-auto px-5 pb-24 pt-6">
           <SettingsView
             session={session}
             contacts={contacts}
@@ -1309,8 +1338,12 @@ export default function App() {
             onCreateBook={onCreateBook}
           />
         </main>
+      ) : activeTab === "calendar" ? (
+        <div className="mx-auto pt-6">
+          <CalendarView session={session} calendars={calendars} events={calendarEvents} busy={busy} onRefresh={() => refresh(session)} />
+        </div>
       ) : (
-        <main className="mx-auto max-w-2xl px-5 pb-24 pt-6">
+        <main className="mx-auto px-5 pb-24 pt-6">
           {/* Address books + search */}
           <div className="relative z-20 mb-6 animate-fade-in-up">
             <div className="flex items-center gap-3">

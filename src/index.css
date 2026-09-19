@@ -98,6 +98,20 @@ option {
   color: var(--color-text);
 }
 
+.calendar-view section > .overflow-x-auto > div > div.grid.grid-cols-7:last-child > button {
+  position: relative;
+}
+
+.calendar-view section > .overflow-x-auto > div > div.grid.grid-cols-7:last-child > button > span:first-child {
+  position: absolute;
+  left: 0.5rem;
+  top: 0.5rem;
+}
+
+.calendar-view section > .overflow-x-auto > div > div.grid.grid-cols-7:last-child > button > span:nth-child(2) {
+  padding-top: 1.75rem;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

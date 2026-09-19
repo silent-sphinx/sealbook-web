@@ -99,6 +99,20 @@ export type AddressBook = {
   raw: string;
 };
 
+export type CalendarEvent = {
+  id: string;
+  title: string;
+  start: string;
+  end?: string;
+  notes?: string;
+};
+
+export type Calendar = {
+  id: string;
+  name: string;
+  color: string;
+};
+
 export type OpaqueStart = {
   request: string;
   state: string;
