@@ -3,6 +3,7 @@ import type { AddressBook, Contact, ContactDraft } from "../lib/types";
 import type { Session } from "../lib/client";
 import { putContact } from "../lib/client";
 import { DEFAULT_ADDRESS_BOOK_ID, bookNameById, resolveAddressBookId } from "../lib/addressBook";
+import { sortContacts } from "../lib/contact";
 import {
   parseImportContent,
   generateExportData,
@@ -52,12 +53,13 @@ export function ImportExportSection({
   const [exportMsg, setExportMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // Filtered contacts for export
-  const exportContacts =
+  const exportContacts = sortContacts(
     exportBookFilter === "ALL"
       ? contacts
       : contacts.filter(
           (c) => resolveAddressBookId(c.addressBookId) === exportBookFilter,
-        );
+        ),
+  );
 
   // File loading and parsing
   function handleFileRead(file: File) {

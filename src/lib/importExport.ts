@@ -41,13 +41,19 @@ export function parseImportContent(
         drafts.push({
           name,
           nickname: item.nickname || undefined,
+          pronouns: item.pronouns || undefined,
           emails: Array.isArray(item.emails) ? item.emails : [],
           phones: Array.isArray(item.phones) ? item.phones : [],
+          dates: Array.isArray(item.dates) ? item.dates : [],
+          socials: Array.isArray(item.socials) ? item.socials : [],
+          notes: item.notes || undefined,
           address: item.address || undefined,
           work: Array.isArray(item.work) ? item.work : [],
           addressBookId: resolveAddressBookId(
             item.addressBookId || targetAddressBookId,
           ),
+          createdAt: item.createdAt || undefined,
+          updatedAt: item.updatedAt || undefined,
         });
       }
 

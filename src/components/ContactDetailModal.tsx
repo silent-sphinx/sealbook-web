@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { addressLines, channelKindLabel } from "../lib/contact";
+import { addressLines, channelKindLabel, dateKindLabel } from "../lib/contact";
 import { btnPrimary, btnSecondary, sectionBar } from "../lib/styles";
 import type { Contact } from "../lib/types";
 import { Initials } from "./ContactCard";
@@ -12,6 +12,66 @@ type Props = {
   onDelete?: () => void;
   onClose: () => void;
 };
+
+function formatTimestamp(iso?: string): string | null {
+  if (!iso) return null;
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function formatDate(val: string): string {
+  if (!val) return "";
+  try {
+    const parts = val.split("-");
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      const d = new Date(year, month, day);
+      return d.toLocaleDateString(undefined, {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      });
+    }
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return val;
+    return d.toLocaleDateString(undefined, {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return val;
+  }
+}
+
+function socialUrl(platform: string, handle: string): string | null {
+  const h = handle.trim();
+  if (h.startsWith("http://") || h.startsWith("https://")) {
+    return h;
+  }
+  const cleanHandle = h.replace(/^@/, "");
+  const p = platform.toLowerCase();
+  if (p.includes("github")) return `https://github.com/${cleanHandle}`;
+  if (p.includes("twitter") || p === "x" || p.includes("x/")) return `https://x.com/${cleanHandle}`;
+  if (p.includes("linkedin")) return `https://linkedin.com/in/${cleanHandle}`;
+  if (p.includes("instagram")) return `https://instagram.com/${cleanHandle}`;
+  if (p.includes("bluesky") || p.includes("bsky")) return `https://bsky.app/profile/${cleanHandle}`;
+  if (p.includes("telegram") || p === "tg") return `https://t.me/${cleanHandle}`;
+  return null;
+}
 
 export function ContactDetailModal({
   contact,
@@ -30,9 +90,16 @@ export function ContactDetailModal({
           <div className="flex items-center gap-4 rounded-xl border border-line bg-surface/40 p-4">
             <Initials name={contact.name} size="lg" />
             <div className="min-w-0 flex-1">
-              <h3 className="truncate text-lg font-semibold tracking-tight text-text">
-                {contact.name}
-              </h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="truncate text-lg font-semibold tracking-tight text-text">
+                  {contact.name}
+                </h3>
+                {contact.pronouns ? (
+                  <span className="rounded-md border border-line bg-surface px-2 py-0.5 text-xs text-mute font-medium">
+                    {contact.pronouns}
+                  </span>
+                ) : null}
+              </div>
               {contact.nickname ? (
                 <p className="text-sm text-mute">"{contact.nickname}"</p>
               ) : null}
@@ -111,6 +178,100 @@ export function ContactDetailModal({
             </Section>
           ) : null}
 
+          {/* Dates */}
+          {contact.dates && contact.dates.length > 0 ? (
+            <Section title="Dates">
+              <div className="space-y-2">
+                {contact.dates.map((d) => (
+                  <div
+                    key={d.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-line/70 bg-bg/50 px-3.5 py-2.5 text-sm"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <span className="text-xs uppercase tracking-wider text-mute/80 font-medium mr-2">
+                        {dateKindLabel(d.kind, d.label)}
+                      </span>
+                      <span className="font-medium text-text">
+                        {formatDate(d.date)}
+                      </span>
+                    </div>
+                    <svg
+                      className="h-4 w-4 shrink-0 text-mute"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M5.75 2a.75.75 0 0 1 .75.75V4h7V2.75a.75.75 0 0 1 1.5 0V4h.25A2.75 2.75 0 0 1 18 6.75v8.5A2.75 2.75 0 0 1 15.25 18H4.75A2.75 2.75 0 0 1 2 15.25v-8.5A2.75 2.75 0 0 1 4.75 4H5V2.75A.75.75 0 0 1 5.75 2Zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75Z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          ) : null}
+
+          {/* Social Profiles */}
+          {contact.socials && contact.socials.length > 0 ? (
+            <Section title="Social Profiles">
+              <div className="space-y-2">
+                {contact.socials.map((s) => {
+                  const url = socialUrl(s.platform, s.handle);
+                  const Content = (
+                    <>
+                      <div className="min-w-0 flex-1">
+                        <span className="text-xs uppercase tracking-wider text-mute/80 font-medium mr-2">
+                          {s.platform}
+                        </span>
+                        <span className="font-medium text-text group-hover:text-accent transition-colors">
+                          {s.handle}
+                        </span>
+                      </div>
+                      {url ? (
+                        <svg
+                          className="h-4 w-4 shrink-0 text-mute group-hover:text-accent transition-colors"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M4.25 5.5a.75.75 0 0 0-.75.75v8.5c0 .414.336.75.75.75h8.5a.75.75 0 0 0 .75-.75v-4a.75.75 0 0 1 1.5 0v4A2.25 2.25 0 0 1 12.75 17h-8.5A2.25 2.25 0 0 1 2 14.75v-8.5A2.25 2.25 0 0 1 4.25 4h4a.75.75 0 0 1 0 1.5h-4Z"
+                            clipRule="evenodd"
+                          />
+                          <path
+                            fillRule="evenodd"
+                            d="M6.194 12.753a.75.75 0 0 0 1.06 1.06l7.22-7.22v2.657a.75.75 0 0 0 1.5 0v-4.5a.75.75 0 0 0-.75-.75h-4.5a.75.75 0 0 0 0 1.5h2.657l-7.187 7.253Z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                      ) : null}
+                    </>
+                  );
+
+                  return url ? (
+                    <a
+                      key={s.id}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group flex items-center justify-between gap-3 rounded-lg border border-line/70 bg-bg/50 px-3.5 py-2.5 text-sm transition-colors hover:border-accent-dim hover:bg-surface/50"
+                    >
+                      {Content}
+                    </a>
+                  ) : (
+                    <div
+                      key={s.id}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-line/70 bg-bg/50 px-3.5 py-2.5 text-sm"
+                    >
+                      {Content}
+                    </div>
+                  );
+                })}
+              </div>
+            </Section>
+          ) : null}
+
           {/* Work */}
           {contact.work.length > 0 ? (
             <Section title="Work">
@@ -139,6 +300,31 @@ export function ContactDetailModal({
                 ))}
               </div>
             </Section>
+          ) : null}
+
+          {/* Notes */}
+          {contact.notes ? (
+            <Section title="Notes">
+              <div className="rounded-lg border border-line/70 bg-bg/50 px-3.5 py-2.5 text-sm leading-relaxed text-text whitespace-pre-wrap">
+                {contact.notes}
+              </div>
+            </Section>
+          ) : null}
+
+          {/* Metadata timestamps */}
+          {contact.createdAt || contact.updatedAt ? (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-2 text-[11px] text-mute/80 border-t border-line/50">
+              {contact.createdAt ? (
+                <span>
+                  Created: <span className="text-text/70">{formatTimestamp(contact.createdAt)}</span>
+                </span>
+              ) : null}
+              {contact.updatedAt && contact.updatedAt !== contact.createdAt ? (
+                <span>
+                  Modified: <span className="text-text/70">{formatTimestamp(contact.updatedAt)}</span>
+                </span>
+              ) : null}
+            </div>
           ) : null}
         </div>
 

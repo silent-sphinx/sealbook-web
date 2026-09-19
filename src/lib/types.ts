@@ -53,14 +53,35 @@ export type ContactWork = {
   title?: string;
 };
 
+export type ContactDateKind = "birthday" | "anniversary" | "custom";
+
+export type ContactDate = {
+  id: string;
+  kind: ContactDateKind;
+  label?: string;
+  date: string;
+};
+
+export type ContactSocial = {
+  id: string;
+  platform: string;
+  handle: string;
+};
+
 export type ContactDraft = {
   name: string;
   nickname?: string;
+  pronouns?: string;
   emails: ContactChannel[];
   phones: ContactChannel[];
   address?: ContactAddress;
   work: ContactWork[];
+  dates: ContactDate[];
+  socials: ContactSocial[];
+  notes?: string;
   addressBookId: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type Contact = ContactDraft & {

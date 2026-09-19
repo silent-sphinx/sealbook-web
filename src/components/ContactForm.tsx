@@ -4,7 +4,9 @@ import {
   addressLines,
   channelKindLabel,
   emptyChannel,
+  emptyDate,
   emptyDraft,
+  emptySocial,
   emptyWork,
 } from "../lib/contact";
 import {
@@ -24,7 +26,10 @@ import type {
   ContactAddress,
   ContactChannel,
   ContactChannelKind,
+  ContactDate,
+  ContactDateKind,
   ContactDraft,
+  ContactSocial,
   ContactWork,
 } from "../lib/types";
 
@@ -50,6 +55,8 @@ function cloneDraft(source?: ContactDraft): ContactDraft {
     emails: source.emails ? source.emails.map((e) => ({ ...e })) : [],
     phones: source.phones ? source.phones.map((p) => ({ ...p })) : [],
     work: source.work ? source.work.map((w) => ({ ...w })) : [],
+    dates: source.dates ? source.dates.map((d) => ({ ...d })) : [],
+    socials: source.socials ? source.socials.map((s) => ({ ...s })) : [],
     address: source.address ? { ...source.address } : {},
   };
 }
@@ -118,7 +125,7 @@ export function ContactForm({
               </select>
             </label>
           ) : null}
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
             <label className={labelClass}>
               Full name
               <input
@@ -137,6 +144,15 @@ export function ContactForm({
                 onChange={(e) => patch({ nickname: e.target.value })}
                 className={field}
                 autoComplete="nickname"
+              />
+            </label>
+            <label className={labelClass}>
+              Pronouns
+              <input
+                value={draft.pronouns ?? ""}
+                onChange={(e) => patch({ pronouns: e.target.value })}
+                placeholder="e.g. they/them"
+                className={field}
               />
             </label>
           </div>
@@ -161,6 +177,20 @@ export function ContactForm({
             addLabel="+ Phone"
             onChange={(phones) => patch({ phones })}
             newChannel={() => emptyChannel("mobile")}
+          />
+        </Section>
+
+        <Section title="Dates">
+          <DatesList
+            dates={draft.dates ?? []}
+            onChange={(dates) => patch({ dates })}
+          />
+        </Section>
+
+        <Section title="Social Profiles">
+          <SocialList
+            socials={draft.socials ?? []}
+            onChange={(socials) => patch({ socials })}
           />
         </Section>
 
@@ -258,6 +288,16 @@ export function ContactForm({
 
         <Section title="Work">
           <WorkList work={draft.work} onChange={(work) => patch({ work })} />
+        </Section>
+
+        <Section title="Notes">
+          <textarea
+            value={draft.notes ?? ""}
+            onChange={(e) => patch({ notes: e.target.value })}
+            placeholder="Add notes, context, or meeting reminders…"
+            rows={3}
+            className={`${fieldBase} h-auto min-h-[5.5rem] py-2.5 resize-y leading-relaxed`}
+          />
         </Section>
       </div>
 
@@ -521,3 +561,145 @@ function WorkList({
     </div>
   );
 }
+
+const DATE_KINDS: { kind: ContactDateKind; label: string }[] = [
+  { kind: "birthday", label: "Birthday" },
+  { kind: "anniversary", label: "Anniversary" },
+  { kind: "custom", label: "Custom" },
+];
+
+function DatesList({
+  dates,
+  onChange,
+}: {
+  dates: ContactDate[];
+  onChange: (dates: ContactDate[]) => void;
+}) {
+  function update(id: string, patch: Partial<ContactDate>) {
+    onChange(
+      dates.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+    );
+  }
+
+  return (
+    <div className="grid min-w-0 gap-2">
+      {dates.map((row) => (
+        <div
+          key={row.id}
+          className="grid min-w-0 grid-cols-[6.5rem_minmax(0,1fr)_2.5rem] items-start gap-2 sm:grid-cols-[7.5rem_minmax(0,1fr)_2.5rem]"
+        >
+          <select
+            value={row.kind}
+            aria-label="Date type"
+            onChange={(e) => {
+              const kind = e.target.value as ContactDateKind;
+              update(row.id, {
+                kind,
+                label: kind === "custom" ? row.label : undefined,
+              });
+            }}
+            className={selectField}
+          >
+            {DATE_KINDS.map((opt) => (
+              <option key={opt.kind} value={opt.kind}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <div className="grid min-w-0 gap-2">
+            <input
+              type="text"
+              value={row.date}
+              onChange={(e) => update(row.id, { date: e.target.value })}
+              placeholder="YYYY-MM-DD"
+              aria-label="Date"
+              className={fieldBase}
+            />
+            {row.kind === "custom" ? (
+              <input
+                value={row.label ?? ""}
+                onChange={(e) => update(row.id, { label: e.target.value })}
+                placeholder="Label (e.g. Graduation)"
+                aria-label="Custom date label"
+                className={fieldBase}
+              />
+            ) : null}
+          </div>
+          <RemoveButton
+            label="Remove date"
+            onClick={() => onChange(dates.filter((item) => item.id !== row.id))}
+          />
+        </div>
+      ))}
+      <button
+        type="button"
+        className={addLink}
+        onClick={() => onChange([...dates, emptyDate()])}
+      >
+        + Date
+      </button>
+    </div>
+  );
+}
+
+function SocialList({
+  socials,
+  onChange,
+}: {
+  socials: ContactSocial[];
+  onChange: (socials: ContactSocial[]) => void;
+}) {
+  function update(id: string, patch: Partial<ContactSocial>) {
+    onChange(
+      socials.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+    );
+  }
+
+  return (
+    <div className="grid min-w-0 gap-2">
+      {socials.map((row) => (
+        <div key={row.id} className="flex min-w-0 items-start gap-2">
+          <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-[8.5rem_minmax(0,1fr)]">
+            <input
+              value={row.platform}
+              onChange={(e) => update(row.id, { platform: e.target.value })}
+              placeholder="Platform"
+              aria-label="Social platform"
+              list={`social-platforms-${row.id}`}
+              className={fieldBase}
+            />
+            <datalist id={`social-platforms-${row.id}`}>
+              <option value="GitHub" />
+              <option value="Twitter / X" />
+              <option value="LinkedIn" />
+              <option value="Instagram" />
+              <option value="Bluesky" />
+              <option value="Discord" />
+              <option value="Telegram" />
+              <option value="Mastodon" />
+            </datalist>
+            <input
+              value={row.handle}
+              onChange={(e) => update(row.id, { handle: e.target.value })}
+              placeholder="Username or handle"
+              aria-label="Username or handle"
+              className={fieldBase}
+            />
+          </div>
+          <RemoveButton
+            label="Remove social profile"
+            onClick={() => onChange(socials.filter((item) => item.id !== row.id))}
+          />
+        </div>
+      ))}
+      <button
+        type="button"
+        className={addLink}
+        onClick={() => onChange([...socials, emptySocial()])}
+      >
+        + Social Profile
+      </button>
+    </div>
+  );
+}
+

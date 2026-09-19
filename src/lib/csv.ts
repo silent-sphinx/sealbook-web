@@ -3,7 +3,9 @@ import type {
   Contact,
   ContactAddress,
   ContactChannel,
+  ContactDate,
   ContactDraft,
+  ContactSocial,
   ContactWork,
 } from "./types";
 import { emptyChannel } from "./contact";
@@ -127,6 +129,7 @@ export function parseCsvContacts(
     const firstName = get(["firstname", "givenname", "first"]);
     const lastName = get(["lastname", "familyname", "last", "surname"]);
     const nickname = get(["nickname"]);
+    const pronouns = get(["pronouns", "pronoun"]);
 
     if (!name) {
       if (firstName || lastName) {
@@ -172,6 +175,49 @@ export function parseCsvContacts(
     if (phoneWork && phoneWork !== phoneCell && phoneWork !== phoneHome) {
       phones.push({ id: newId(), kind: "work", value: phoneWork });
     }
+
+    // Extract Dates
+    const dates: ContactDate[] = [];
+    const birthday = get(["birthday", "bday", "birthdate", "dateofbirth", "dob"]);
+    if (birthday) {
+      dates.push({ id: newId(), kind: "birthday", date: birthday });
+    }
+    const anniversary = get(["anniversary", "anniversarydate", "wedding"]);
+    if (anniversary) {
+      dates.push({ id: newId(), kind: "anniversary", date: anniversary });
+    }
+
+    // Extract Socials
+    const socials: ContactSocial[] = [];
+    const knownSocials = ["github", "twitter", "x", "linkedin", "instagram", "bluesky", "discord", "telegram", "mastodon"];
+    for (const p of knownSocials) {
+      const val = get([p]);
+      if (val) {
+        socials.push({
+          id: newId(),
+          platform: p === "x" ? "Twitter / X" : p.charAt(0).toUpperCase() + p.slice(1),
+          handle: val,
+        });
+      }
+    }
+    const socialRaw = get(["socials", "social", "socialmedia"]);
+    if (socialRaw) {
+      for (const piece of socialRaw.split(/[;,]/)) {
+        const colon = piece.indexOf(":");
+        if (colon !== -1) {
+          const plat = piece.slice(0, colon).trim();
+          const hand = piece.slice(colon + 1).trim();
+          if (plat && hand) {
+            socials.push({ id: newId(), platform: plat, handle: hand });
+          }
+        } else if (piece.trim()) {
+          socials.push({ id: newId(), platform: "Social", handle: piece.trim() });
+        }
+      }
+    }
+
+    // Extract Notes
+    const notes = get(["notes", "note", "comments", "comment", "description"]);
 
     // Extract Work / Organization
     const organization = get(["organization", "company", "org", "companyname", "organization1name"]);
@@ -224,8 +270,12 @@ export function parseCsvContacts(
     contacts.push({
       name,
       nickname: nickname || undefined,
+      pronouns: pronouns || undefined,
       emails,
       phones,
+      dates,
+      socials,
+      notes: notes || undefined,
       address,
       work,
       addressBookId: targetAddressBookId,
@@ -242,11 +292,15 @@ export function serializeCsvContacts(
   const headers = [
     "Name",
     "Nickname",
+    "Pronouns",
     "Email (Home)",
     "Email (Work)",
     "Phone (Mobile)",
     "Phone (Home)",
     "Phone (Work)",
+    "Birthday",
+    "Anniversary",
+    "Socials",
     "Organization",
     "Job Title",
     "Street 1",
@@ -255,6 +309,7 @@ export function serializeCsvContacts(
     "Region",
     "Postal Code",
     "Country",
+    "Notes",
     "Address Book",
   ];
 
@@ -266,6 +321,10 @@ export function serializeCsvContacts(
     const phoneMobile = c.phones.find((p) => p.kind === "mobile")?.value || "";
     const phoneHome = c.phones.find((p) => p.kind === "home")?.value || "";
     const phoneWork = c.phones.find((p) => p.kind === "work")?.value || "";
+
+    const bday = c.dates?.find((d) => d.kind === "birthday")?.date || "";
+    const anni = c.dates?.find((d) => d.kind === "anniversary")?.date || "";
+    const socialsStr = c.socials?.map((s) => `${s.platform}:${s.handle}`).join("; ") || "";
 
     const firstWork = c.work[0];
     const organization = firstWork?.organization || "";
@@ -284,11 +343,15 @@ export function serializeCsvContacts(
     const values = [
       escapeCsv(c.name),
       escapeCsv(c.nickname),
+      escapeCsv(c.pronouns),
       escapeCsv(emailHome),
       escapeCsv(emailWork),
       escapeCsv(phoneMobile),
       escapeCsv(phoneHome),
       escapeCsv(phoneWork),
+      escapeCsv(bday),
+      escapeCsv(anni),
+      escapeCsv(socialsStr),
       escapeCsv(organization),
       escapeCsv(jobTitle),
       escapeCsv(street1),
@@ -297,6 +360,7 @@ export function serializeCsvContacts(
       escapeCsv(region),
       escapeCsv(postcode),
       escapeCsv(country),
+      escapeCsv(c.notes),
       escapeCsv(bookName),
     ];
 

@@ -3,7 +3,9 @@ import type {
   ContactAddress,
   ContactChannel,
   ContactChannelKind,
+  ContactDate,
   ContactDraft,
+  ContactSocial,
   ContactWork,
 } from "./types";
 import { emptyChannel } from "./contact";
@@ -27,6 +29,15 @@ function escapeVCard(val: string): string {
     .replace(/;/g, "\\;")
     .replace(/,/g, "\\,")
     .replace(/\r?\n/g, "\\n");
+}
+
+function normalizeVCardDate(raw: string): string {
+  const clean = raw.trim();
+  // Handle YYYYMMDD format without hyphens
+  if (/^\d{8}$/.test(clean)) {
+    return `${clean.slice(0, 4)}-${clean.slice(4, 6)}-${clean.slice(6, 8)}`;
+  }
+  return clean;
 }
 
 type ParsedProp = {
@@ -122,8 +133,14 @@ function buildContactFromProps(
   let familyName = "";
   let givenName = "";
   let nickname = "";
+  let pronouns = "";
+  let notes = "";
+  let createdAt: string | undefined = undefined;
+  let updatedAt: string | undefined = undefined;
   const emails: ContactChannel[] = [];
   const phones: ContactChannel[] = [];
+  const dates: ContactDate[] = [];
+  const socials: ContactSocial[] = [];
   let address: ContactAddress | undefined = undefined;
   let orgName = "";
   let jobTitle = "";
@@ -143,6 +160,11 @@ function buildContactFromProps(
 
       case "NICKNAME":
         nickname = unescapeVCard(prop.value);
+        break;
+
+      case "X-PRONOUNS":
+      case "PRONOUNS":
+        pronouns = unescapeVCard(prop.value);
         break;
 
       case "EMAIL": {
@@ -206,6 +228,66 @@ function buildContactFromProps(
         break;
       }
 
+      case "BDAY": {
+        const bdayVal = normalizeVCardDate(unescapeVCard(prop.value));
+        if (bdayVal) {
+          dates.push({
+            id: newId(),
+            kind: "birthday",
+            date: bdayVal,
+          });
+        }
+        break;
+      }
+
+      case "ANNIVERSARY":
+      case "X-ANNIVERSARY": {
+        const anniVal = normalizeVCardDate(unescapeVCard(prop.value));
+        if (anniVal) {
+          dates.push({
+            id: newId(),
+            kind: "anniversary",
+            date: anniVal,
+          });
+        }
+        break;
+      }
+
+      case "X-DATE": {
+        const dateVal = normalizeVCardDate(unescapeVCard(prop.value));
+        if (dateVal) {
+          const customLabel = prop.params["LABEL"] || prop.params["TYPE"] || "Event";
+          dates.push({
+            id: newId(),
+            kind: "custom",
+            label: unescapeVCard(customLabel),
+            date: dateVal,
+          });
+        }
+        break;
+      }
+
+      case "X-SOCIALPROFILE": {
+        const handle = unescapeVCard(prop.value);
+        if (handle) {
+          const platform = prop.params["TYPE"] || prop.params["SERVICE"] || "Profile";
+          socials.push({
+            id: newId(),
+            platform: unescapeVCard(platform),
+            handle,
+          });
+        }
+        break;
+      }
+
+      case "NOTE": {
+        const noteVal = unescapeVCard(prop.value);
+        if (noteVal) {
+          notes = notes ? `${notes}\n\n${noteVal}` : noteVal;
+        }
+        break;
+      }
+
       case "ADR": {
         // Post office box; extended address; street address; locality; region; postal code; country
         const parts = prop.value.split(";").map(unescapeVCard);
@@ -237,6 +319,15 @@ function buildContactFromProps(
 
       case "TITLE":
         jobTitle = unescapeVCard(prop.value);
+        break;
+
+      case "REV":
+        updatedAt = unescapeVCard(prop.value);
+        break;
+
+      case "X-CREATED":
+      case "CREATED":
+        createdAt = unescapeVCard(prop.value);
         break;
     }
   }
@@ -275,11 +366,17 @@ function buildContactFromProps(
   return {
     name,
     nickname: nickname || undefined,
+    pronouns: pronouns || undefined,
     emails,
     phones,
     address,
     work,
+    dates,
+    socials,
+    notes: notes || undefined,
     addressBookId,
+    createdAt,
+    updatedAt,
   };
 }
 
@@ -307,6 +404,10 @@ export function serializeVCard(contacts: Contact[] | ContactDraft[]): string {
       lines.push(`NICKNAME:${escapeVCard(c.nickname)}`);
     }
 
+    if (c.pronouns) {
+      lines.push(`X-PRONOUNS:${escapeVCard(c.pronouns)}`);
+    }
+
     for (const em of c.emails) {
       if (!em.value.trim()) continue;
       const type =
@@ -325,6 +426,27 @@ export function serializeVCard(contacts: Contact[] | ContactDraft[]): string {
               ? ph.label.toUpperCase()
               : "HOME";
       lines.push(`TEL;TYPE=${type}:${escapeVCard(ph.value.trim())}`);
+    }
+
+    if (c.dates) {
+      for (const d of c.dates) {
+        if (!d.date) continue;
+        if (d.kind === "birthday") {
+          lines.push(`BDAY:${escapeVCard(d.date)}`);
+        } else if (d.kind === "anniversary") {
+          lines.push(`ANNIVERSARY:${escapeVCard(d.date)}`);
+        } else {
+          const lbl = d.label || "Event";
+          lines.push(`X-DATE;LABEL=${escapeVCard(lbl)}:${escapeVCard(d.date)}`);
+        }
+      }
+    }
+
+    if (c.socials) {
+      for (const s of c.socials) {
+        if (!s.handle) continue;
+        lines.push(`X-SOCIALPROFILE;TYPE=${escapeVCard(s.platform)}:${escapeVCard(s.handle)}`);
+      }
     }
 
     if (c.address) {
@@ -349,6 +471,18 @@ export function serializeVCard(contacts: Contact[] | ContactDraft[]): string {
       if (w.title?.trim()) {
         lines.push(`TITLE:${escapeVCard(w.title.trim())}`);
       }
+    }
+
+    if (c.notes) {
+      lines.push(`NOTE:${escapeVCard(c.notes)}`);
+    }
+
+    if (c.createdAt) {
+      lines.push(`X-CREATED:${escapeVCard(c.createdAt)}`);
+    }
+
+    if (c.updatedAt) {
+      lines.push(`REV:${escapeVCard(c.updatedAt)}`);
     }
 
     lines.push("END:VCARD");

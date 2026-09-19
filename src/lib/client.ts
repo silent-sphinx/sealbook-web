@@ -17,7 +17,7 @@ import {
   wrapCkForPassword,
   generateNewPhrase,
 } from "./wasm";
-import { parseContact, serializeCard } from "./contact";
+import { parseContact, serializeCard, sortContacts } from "./contact";
 import {
   ADDRESS_BOOK_CONTENT_TYPE,
   DEFAULT_ADDRESS_BOOK_ID,
@@ -469,7 +469,7 @@ export async function listVault(
       contacts.push(parseContact(obj.id, raw, obj.ciphertext, obj.padded_size));
     }
   }
-  return { sealed, addressBooks: sortAddressBooks(addressBooks), contacts };
+  return { sealed, addressBooks: sortAddressBooks(addressBooks), contacts: sortContacts(contacts) };
 }
 
 export async function listContacts(session: Session): Promise<{ sealed: SealedObject[]; open: Contact[] }> {

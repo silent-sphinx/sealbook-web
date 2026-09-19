@@ -29,7 +29,7 @@ import {
   bookNameById,
   resolveAddressBookId,
 } from "./lib/addressBook";
-import { emptyDraft } from "./lib/contact";
+import { emptyDraft, sortContacts } from "./lib/contact";
 import {
   extractRecoveryWords,
   formatRecoveryWordsFile,
@@ -272,24 +272,24 @@ export default function App() {
             (contact) => resolveAddressBookId(contact.addressBookId) === bookFilter,
           );
     const query = search.trim().toLowerCase();
-    if (!query) {
-      return inBook;
-    }
-    return inBook.filter((contact) => {
-      const haystack = [
-        contact.name,
-        contact.nickname,
-        contact.email,
-        ...contact.emails.map((e) => e.value),
-        ...contact.phones.map((p) => p.value),
-        ...contact.work.map((w) => `${w.organization} ${w.title ?? ""}`),
-        bookNameById(addressBooks, contact.addressBookId),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(query);
-    });
+    const matches = !query
+      ? inBook
+      : inBook.filter((contact) => {
+          const haystack = [
+            contact.name,
+            contact.nickname,
+            contact.email,
+            ...contact.emails.map((e) => e.value),
+            ...contact.phones.map((p) => p.value),
+            ...contact.work.map((w) => `${w.organization} ${w.title ?? ""}`),
+            bookNameById(addressBooks, contact.addressBookId),
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(query);
+        });
+    return sortContacts(matches);
   }, [addressBooks, bookFilter, contacts, search]);
 
   useEffect(() => {
