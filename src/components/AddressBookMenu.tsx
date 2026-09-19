@@ -7,7 +7,7 @@ type Props = {
   books: AddressBook[];
   selectedId: string;
   onSelect: (id: string) => void;
-  onCreate: (name: string) => Promise<void> | void;
+  onCreate: (name: string) => Promise<unknown> | void;
   busy?: boolean;
 };
 

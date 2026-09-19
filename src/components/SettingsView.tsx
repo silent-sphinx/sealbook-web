@@ -14,18 +14,28 @@ import {
   btnSecondary,
   field,
 } from "../lib/styles";
+import type { AddressBook, Contact } from "../lib/types";
 import { Modal } from "./Modal";
+import { ImportExportSection } from "./ImportExportSection";
 
 type Props = {
   session: Session;
+  contacts: Contact[];
+  addressBooks: AddressBook[];
   onSessionUpdate: (updated: Session) => void;
   onAccountDeleted: () => void;
+  onRefresh: () => Promise<void>;
+  onCreateBook?: (name: string) => Promise<string | undefined>;
 };
 
 export function SettingsView({
   session,
+  contacts,
+  addressBooks,
   onSessionUpdate,
   onAccountDeleted,
+  onRefresh,
+  onCreateBook,
 }: Props) {
   // Username state
   const [newUsername, setNewUsername] = useState("");
@@ -507,7 +517,16 @@ export function SettingsView({
         )}
       </section>
 
-      {/* Section 4: Danger Zone - Delete Account */}
+      {/* Section 4: Import & Export Contacts */}
+      <ImportExportSection
+        session={session}
+        contacts={contacts}
+        addressBooks={addressBooks}
+        onRefresh={onRefresh}
+        onCreateBook={onCreateBook}
+      />
+
+      {/* Section 5: Danger Zone - Delete Account */}
       <section className="rounded-2xl border border-danger/40 bg-danger/5 backdrop-blur-md p-6 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>

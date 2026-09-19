@@ -598,9 +598,9 @@ export default function App() {
     }
   }
 
-  async function onCreateBook(name: string) {
+  async function onCreateBook(name: string): Promise<string | undefined> {
     if (!session || !name.trim()) {
-      return;
+      return undefined;
     }
     setBusy(true);
     setError(null);
@@ -608,8 +608,10 @@ export default function App() {
       const id = await putAddressBook(session, name.trim());
       await refresh(session);
       setBookFilter(id);
+      return id;
     } catch (err) {
       setError(friendlyError(err));
+      return undefined;
     } finally {
       setBusy(false);
     }
@@ -1297,10 +1299,14 @@ export default function App() {
         <main className="mx-auto max-w-2xl px-5 pb-24 pt-6">
           <SettingsView
             session={session}
+            contacts={contacts}
+            addressBooks={addressBooks}
             onSessionUpdate={(updated) => setSession(updated)}
             onAccountDeleted={() => {
               signOut();
             }}
+            onRefresh={() => refresh(session)}
+            onCreateBook={onCreateBook}
           />
         </main>
       ) : (
