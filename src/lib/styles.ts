@@ -13,6 +13,8 @@ export const btnPrimary =
   `${btnBase} bg-accent px-4 py-2 text-bg hover:brightness-110`;
 export const btnSecondary =
   `${btnBase} border border-line bg-surface px-4 py-2 text-mute font-medium hover:border-line-light hover:text-text`;
+export const btnDanger =
+  `${btnBase} bg-danger px-4 py-2 text-bg hover:brightness-110`;
 export const ghost =
   "text-sm text-mute transition-colors duration-150 hover:text-accent";
 export const addLink = `${ghost} justify-self-start`;
@@ -25,6 +27,6 @@ export const card =
 export const sectionBar =
   "border-l-2 border-accent/40 pl-3";
 export const dangerButton =
-  "box-border w-full min-w-0 rounded-lg bg-danger py-2.5 text-sm font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:hover:brightness-100 disabled:active:scale-100";
+  "box-border w-full min-w-0 rounded-lg bg-danger py-2.5 text-sm font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:hover:brightness-100 disabled:active:scale-100 whitespace-nowrap";
 export const dangerGhost =
   "text-sm text-danger/80 transition-colors duration-150 hover:text-danger disabled:opacity-50";

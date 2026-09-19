@@ -7,6 +7,7 @@ import { ContactDetailModal } from "./components/ContactDetailModal";
 import { ContactForm } from "./components/ContactForm";
 import { DeleteContactModal } from "./components/DeleteContactModal";
 import { Modal } from "./components/Modal";
+import { SettingsView } from "./components/SettingsView";
 import {
   deleteContact,
   ensureDefaultAddressBook,
@@ -102,6 +103,26 @@ function SearchIcon() {
       <path
         fillRule="evenodd"
         d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function ContactsIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+      <path d="M10 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm-7 9a7 7 0 1 1 14 0H3Z" />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+      <path
+        fillRule="evenodd"
+        d="M8.34 1.804A1 1 0 0 1 9.32 1h1.36a1 1 0 0 1 .98.804l.295 1.473c.497.144.971.342 1.416.587l1.25-.834a1 1 0 0 1 1.262.125l.962.962a1 1 0 0 1 .125 1.262l-.834 1.25c.245.445.443.919.587 1.416l1.473.294a1 1 0 0 1 .804.98v1.361a1 1 0 0 1-.804.98l-1.473.295a6.95 6.95 0 0 1-.587 1.416l.834 1.25a1 1 0 0 1-.125 1.262l-.962.962a1 1 0 0 1-1.262.125l-1.25-.834a6.953 6.953 0 0 1-1.416.587l-.294 1.473a1 1 0 0 1-.98.804H9.32a1 1 0 0 1-.98-.804l-.295-1.473a6.957 6.957 0 0 1-1.416-.587l-1.25.834a1 1 0 0 1-1.262-.125l-.962-.962a1 1 0 0 1-.125-1.262l.834-1.25a6.957 6.957 0 0 1-.587-1.416l-1.473-.294A1 1 0 0 1 1 10.68V9.32a1 1 0 0 1 .804-.98l1.473-.295c.144-.497.342-.971.587-1.416l-.834-1.25a1 1 0 0 1 .125-1.262l.962-.962A1 1 0 0 1 5.08 3.03l1.25.834c.445-.245.919-.443 1.416-.587l.294-1.473ZM13 10a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
         clipRule="evenodd"
       />
     </svg>
@@ -239,6 +260,7 @@ export default function App() {
   const [adding, setAdding] = useState(false);
   const [copied, setCopied] = useState(false);
   const [search, setSearch] = useState("");
+  const [activeTab, setActiveTab] = useState<"contacts" | "settings">("contacts");
 
   const locked = Boolean(stored);
 
@@ -1202,6 +1224,35 @@ export default function App() {
                 <p className="text-xs text-mute">{session.state.username}</p>
               </div>
             </div>
+
+            {/* Navigation Tabs */}
+            <nav className="flex items-center rounded-xl bg-surface/80 p-1 border border-line" aria-label="Main Navigation">
+              <button
+                type="button"
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 cursor-pointer ${
+                  activeTab === "contacts"
+                    ? "bg-accent text-bg shadow-sm"
+                    : "text-mute hover:text-text hover:bg-surface/50"
+                }`}
+                onClick={() => setActiveTab("contacts")}
+              >
+                <ContactsIcon />
+                Contacts
+              </button>
+              <button
+                type="button"
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 cursor-pointer ${
+                  activeTab === "settings"
+                    ? "bg-accent text-bg shadow-sm"
+                    : "text-mute hover:text-text hover:bg-surface/50"
+                }`}
+                onClick={() => setActiveTab("settings")}
+              >
+                <SettingsIcon />
+                Settings
+              </button>
+            </nav>
+
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -1232,6 +1283,7 @@ export default function App() {
                   setDeletingContact(null);
                   setError(null);
                   setSearch("");
+                  setActiveTab("contacts");
                 }}
               >
                 Lock
@@ -1241,91 +1293,103 @@ export default function App() {
         </header>
       </div>
 
-      <main className="mx-auto max-w-2xl px-5 pb-24 pt-6">
-        {/* Address books + search */}
-        <div className="relative z-20 mb-6 animate-fade-in-up">
-          <div className="flex items-center gap-3">
-            <AddressBookMenu
-              books={addressBooks}
-              selectedId={bookFilter}
-              onSelect={setBookFilter}
-              onCreate={onCreateBook}
-              busy={busy}
-            />
-            <button
-              type="button"
-              className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl bg-accent text-bg transition-all duration-150 hover:brightness-110 active:scale-95"
-              onClick={openComposer}
-              aria-label="Add contact"
-            >
-              <PlusIcon />
-            </button>
-          </div>
-          {contacts.length > 0 ? (
-            <div className="relative mt-3">
-              <SearchIcon />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search contacts…"
-                className={`${searchField} pl-10`}
-              />
-            </div>
-          ) : null}
-        </div>
-
-        {error && !composing && !editingContact ? (
-          <p className="mt-4 text-sm text-danger">{error}</p>
-        ) : null}
-
-        {filtered.length === 0 && !search.trim() ? (
-          <EmptyContacts
-            bookName={
-              bookFilter === ALL_ADDRESS_BOOKS
-                ? undefined
-                : bookNameById(addressBooks, bookFilter)
-            }
-            onAdd={openComposer}
+      {activeTab === "settings" ? (
+        <main className="mx-auto max-w-2xl px-5 pb-24 pt-6">
+          <SettingsView
+            session={session}
+            onSessionUpdate={(updated) => setSession(updated)}
+            onAccountDeleted={() => {
+              signOut();
+            }}
           />
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center py-16 animate-fade-in-up">
-            <p className="text-sm text-mute">
-              No contacts matching "{search}"
-            </p>
-          </div>
-        ) : (
-          <>
-            <p className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-mute/60">
-              {filtered.length} {filtered.length === 1 ? "contact" : "contacts"}
-              {search.trim() ? " found" : ""}
-            </p>
-            <ul className="divide-y divide-line">
-              {filtered.map((card) => (
-                <ContactCard
-                  key={card.id}
-                  contact={card}
-                  bookName={
-                    bookFilter === ALL_ADDRESS_BOOKS
-                      ? bookNameById(addressBooks, card.addressBookId)
-                      : undefined
-                  }
-                  onSelect={(contact) => {
-                    setError(null);
-                    setViewingContact(contact);
-                  }}
-                  onEdit={(contact) => {
-                    startEditing(contact);
-                  }}
-                  onDelete={(contact) => {
-                    promptDelete(contact);
-                  }}
+        </main>
+      ) : (
+        <main className="mx-auto max-w-2xl px-5 pb-24 pt-6">
+          {/* Address books + search */}
+          <div className="relative z-20 mb-6 animate-fade-in-up">
+            <div className="flex items-center gap-3">
+              <AddressBookMenu
+                books={addressBooks}
+                selectedId={bookFilter}
+                onSelect={setBookFilter}
+                onCreate={onCreateBook}
+                busy={busy}
+              />
+              <button
+                type="button"
+                className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl bg-accent text-bg transition-all duration-150 hover:brightness-110 active:scale-95"
+                onClick={openComposer}
+                aria-label="Add contact"
+              >
+                <PlusIcon />
+              </button>
+            </div>
+            {contacts.length > 0 ? (
+              <div className="relative mt-3">
+                <SearchIcon />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search contacts…"
+                  className={`${searchField} pl-10`}
                 />
-              ))}
-            </ul>
-          </>
-        )}
-      </main>
+              </div>
+            ) : null}
+          </div>
+
+          {error && !composing && !editingContact ? (
+            <p className="mt-4 text-sm text-danger">{error}</p>
+          ) : null}
+
+          {filtered.length === 0 && !search.trim() ? (
+            <EmptyContacts
+              bookName={
+                bookFilter === ALL_ADDRESS_BOOKS
+                  ? undefined
+                  : bookNameById(addressBooks, bookFilter)
+              }
+              onAdd={openComposer}
+            />
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center py-16 animate-fade-in-up">
+              <p className="text-sm text-mute">
+                No contacts matching "{search}"
+              </p>
+            </div>
+          ) : (
+            <>
+              <p className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-mute/60">
+                {filtered.length} {filtered.length === 1 ? "contact" : "contacts"}
+                {search.trim() ? " found" : ""}
+              </p>
+              <ul className="divide-y divide-line">
+                {filtered.map((card) => (
+                  <ContactCard
+                    key={card.id}
+                    contact={card}
+                    bookName={
+                      bookFilter === ALL_ADDRESS_BOOKS
+                        ? bookNameById(addressBooks, card.addressBookId)
+                        : undefined
+                    }
+                    onSelect={(contact) => {
+                      setError(null);
+                      setViewingContact(contact);
+                    }}
+                    onEdit={(contact) => {
+                      startEditing(contact);
+                    }}
+                    onDelete={(contact) => {
+                      promptDelete(contact);
+                    }}
+                  />
+                ))}
+              </ul>
+            </>
+          )}
+        </main>
+      )}
 
       {/* Contact detail modal */}
       {viewingContact ? (

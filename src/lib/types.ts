@@ -138,3 +138,18 @@ export type EncryptedOut = {
   ciphertext: string;
   padded_size: number;
 };
+
+export type PasswordWrapOut = {
+  kdf_salt: string;
+  recovery_nonce: string;
+  recovery_wrapped_ck: string;
+  recovery_ciphersuite: string;
+};
+
+export type PhraseWrapOut = {
+  phrase: string;
+  phrase_nonce: string;
+  phrase_wrapped_ck: string;
+  phrase_verifier: string;
+  phrase_ciphersuite: string;
+};

@@ -14,6 +14,8 @@ import {
   unwrapCk,
   unwrapPhrase,
   wrapCkForDevice,
+  wrapCkForPassword,
+  generateNewPhrase,
 } from "./wasm";
 import { parseContact, serializeCard } from "./contact";
 import {
@@ -95,6 +97,18 @@ async function getJson<T>(url: string, token?: string): Promise<T> {
     headers.authorization = `Bearer ${token}`;
   }
   return parse<T>(await fetch(url, { headers }));
+}
+
+async function deleteJson<T>(url: string, token: string): Promise<T> {
+  return parse<T>(
+    await fetch(url, {
+      method: "DELETE",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`,
+      },
+    }),
+  );
 }
 
 export type Session = {
@@ -553,5 +567,91 @@ function isAddressBookPayload(raw: string): boolean {
   } catch {
     return false;
   }
+}
+
+export async function changeUsername(
+  session: Session,
+  newUsername: string,
+  currentPassword: string,
+): Promise<Session> {
+  const root = apiRoot(session.state.server);
+  const start = opaqueRegisterStart(currentPassword);
+  const startRes = await postJson<{ response: string }>(
+    `${root}/v1/opaque/register/start`,
+    {
+      username: newUsername,
+      request: start.request,
+    },
+  );
+  const upload = opaqueRegisterFinish(
+    start.state,
+    currentPassword,
+    startRes.response,
+  );
+  await postJson<{ status: string }>(
+    `${root}/v1/account/username`,
+    {
+      new_username: newUsername,
+      upload,
+    },
+    session.token,
+  );
+  const updatedState = { ...session.state, username: newUsername };
+  return { ...session, state: updatedState };
+}
+
+export async function changePassword(
+  session: Session,
+  newPassword: string,
+): Promise<Session> {
+  const root = apiRoot(session.state.server);
+  const start = opaqueRegisterStart(newPassword);
+  const startRes = await postJson<{ response: string }>(
+    `${root}/v1/account/password/start`,
+    {
+      request: start.request,
+    },
+    session.token,
+  );
+  const upload = opaqueRegisterFinish(
+    start.state,
+    newPassword,
+    startRes.response,
+  );
+  const wrap = wrapCkForPassword(session.collectionKey, newPassword);
+  await postJson<{ status: string }>(
+    `${root}/v1/account/password`,
+    {
+      upload,
+      kdf_salt: wrap.kdf_salt,
+      recovery_nonce: wrap.recovery_nonce,
+      recovery_wrapped_ck: wrap.recovery_wrapped_ck,
+      recovery_ciphersuite: wrap.recovery_ciphersuite,
+    },
+    session.token,
+  );
+  const updatedState = { ...session.state, kdf_salt: wrap.kdf_salt };
+  return { ...session, state: updatedState };
+}
+
+export async function rotatePhrase(session: Session): Promise<string> {
+  const root = apiRoot(session.state.server);
+  const phraseOut = generateNewPhrase(session.collectionKey);
+  await postJson<{ status: string }>(
+    `${root}/v1/account/phrase`,
+    {
+      phrase_verifier: phraseOut.phrase_verifier,
+      phrase_nonce: phraseOut.phrase_nonce,
+      phrase_wrapped_ck: phraseOut.phrase_wrapped_ck,
+      phrase_ciphersuite: phraseOut.phrase_ciphersuite,
+    },
+    session.token,
+  );
+  return phraseOut.phrase;
+}
+
+export async function deleteAccount(session: Session): Promise<void> {
+  const root = apiRoot(session.state.server);
+  await deleteJson<{ status: string }>(`${root}/v1/account`, session.token);
 }
 

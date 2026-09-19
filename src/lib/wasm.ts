@@ -3,6 +3,7 @@ import init, {
   create_enrollment,
   decrypt_contact,
   encrypt_contact,
+  generate_new_phrase,
   new_uuid,
   opaque_login_finish,
   opaque_login_start,
@@ -13,11 +14,28 @@ import init, {
   unwrap_ck,
   unwrap_phrase,
   wrap_ck_for_device,
+  wrap_ck_for_password,
 } from "../pkg/sealbook_wasm.js";
-import type { DeviceOut, Enrollment, LoginProof, OpaqueStart, EncryptedOut } from "./types";
+import type {
+  DeviceOut,
+  Enrollment,
+  LoginProof,
+  OpaqueStart,
+  EncryptedOut,
+  PasswordWrapOut,
+  PhraseWrapOut,
+} from "./types";
 
 export async function initWasm(): Promise<void> {
   await init();
+}
+
+export function wrapCkForPassword(ck: string, password: string): PasswordWrapOut {
+  return JSON.parse(wrap_ck_for_password(ck, password)) as PasswordWrapOut;
+}
+
+export function generateNewPhrase(ck: string): PhraseWrapOut {
+  return JSON.parse(generate_new_phrase(ck)) as PhraseWrapOut;
 }
 
 export function opaqueRegisterStart(password: string): OpaqueStart {

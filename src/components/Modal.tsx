@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { iconButton } from "../lib/styles";
 
 type Props = {
@@ -23,7 +24,7 @@ export function Modal({ title, children, onClose }: Props) {
     };
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 sm:p-6 animate-fade-in"
       onClick={onClose}
@@ -59,6 +60,7 @@ export function Modal({ title, children, onClose }: Props) {
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
