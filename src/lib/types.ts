@@ -105,6 +105,7 @@ export type CalendarEvent = {
   start: string;
   end?: string;
   notes?: string;
+  calendarId?: string;
 };
 
 export type Calendar = {

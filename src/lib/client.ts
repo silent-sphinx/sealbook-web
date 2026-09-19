@@ -469,8 +469,8 @@ export async function listVault(
       obj.padded_size,
     );
     if (obj.content_type === CALENDAR_EVENT_CONTENT_TYPE || isCalendarEventPayload(raw)) {
-      const value = JSON.parse(raw) as { title?: string; start?: string; end?: string; notes?: string };
-      calendarEvents.push({ id: obj.id, title: value.title?.trim() || "Untitled event", start: value.start ?? "", end: value.end, notes: value.notes });
+      const value = JSON.parse(raw) as { title?: string; start?: string; end?: string; notes?: string; calendarId?: string };
+      calendarEvents.push({ id: obj.id, title: value.title?.trim() || "Untitled event", start: value.start ?? "", end: value.end, notes: value.notes, calendarId: value.calendarId });
     } else if (obj.content_type === CALENDAR_CONTENT_TYPE || isCalendarPayload(raw)) {
       const value = JSON.parse(raw) as { name?: string; color?: string };
       calendars.push({ id: obj.id, name: value.name?.trim() || "Untitled calendar", color: value.color || "#7aa2f7" });
