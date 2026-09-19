@@ -310,6 +310,15 @@ export function serializeCard(draft: ContactDraft): string {
     body.notes = { n1: { note: notes } };
   }
 
+  if (draft.avatar) {
+    body.media = {
+      avatar: {
+        kind: "photo",
+        uri: draft.avatar,
+      },
+    };
+  }
+
   const nowIso = new Date().toISOString();
   body.created = draft.createdAt || nowIso;
   body.updated = nowIso;
@@ -365,6 +374,10 @@ type RawCard = {
     }
   >;
   notes?: Record<string, { note?: string }> | string;
+  media?: Record<string, { kind?: string; uri?: string; href?: string }>;
+  photos?: Record<string, { href?: string; uri?: string }>;
+  photo?: { href?: string; uri?: string } | string;
+  avatar?: string;
   created?: string;
   createdAt?: string;
   updated?: string;
@@ -513,6 +526,35 @@ function parseNotes(card: RawCard): string | undefined {
   return undefined;
 }
 
+function parseAvatar(card: RawCard): string | undefined {
+  if (card.media) {
+    for (const item of Object.values(card.media)) {
+      const uri = trim(item.uri ?? item.href);
+      if (uri) return uri;
+    }
+  }
+  if (card.photos) {
+    for (const item of Object.values(card.photos)) {
+      const uri = trim(item.href ?? item.uri);
+      if (uri) return uri;
+    }
+  }
+  if (card.photo) {
+    if (typeof card.photo === "string") {
+      const uri = trim(card.photo);
+      if (uri) return uri;
+    } else {
+      const uri = trim(card.photo.href ?? card.photo.uri);
+      if (uri) return uri;
+    }
+  }
+  if (card.avatar) {
+    const uri = trim(card.avatar);
+    if (uri) return uri;
+  }
+  return undefined;
+}
+
 export function parseDraft(raw: string): ContactDraft {
   const card = JSON.parse(raw) as RawCard;
   const emails = parseChannels(card.emails, (entry) => entry.address, "home");
@@ -533,6 +575,7 @@ export function parseDraft(raw: string): ContactDraft {
     dates: parseDates(card),
     socials: parseSocials(card),
     notes: parseNotes(card),
+    avatar: parseAvatar(card),
     addressBookId: resolveAddressBookId(card[ADDRESS_BOOK_ID_PROP]),
     createdAt: card.created ?? card.createdAt,
     updatedAt: card.updated ?? card.updatedAt,

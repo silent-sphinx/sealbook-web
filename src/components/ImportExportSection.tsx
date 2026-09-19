@@ -4,6 +4,7 @@ import type { Session } from "../lib/client";
 import { putContact } from "../lib/client";
 import { DEFAULT_ADDRESS_BOOK_ID, bookNameById, resolveAddressBookId } from "../lib/addressBook";
 import { sortContacts } from "../lib/contact";
+import { optimizeAvatar } from "../lib/image";
 import {
   parseImportContent,
   generateExportData,
@@ -151,6 +152,13 @@ export function ImportExportSection({
       for (let i = 0; i < parsedContacts.length; i++) {
         const draft = parsedContacts[i];
         draft.addressBookId = finalBookId;
+        if (draft.avatar && (draft.avatar.startsWith("data:") || draft.avatar.startsWith("blob:"))) {
+          try {
+            draft.avatar = await optimizeAvatar(draft.avatar);
+          } catch (e) {
+            console.warn("Could not optimize imported avatar, preserving or skipping", e);
+          }
+        }
         await putContact(session, draft);
         setImportProgress({ current: i + 1, total: parsedContacts.length });
       }

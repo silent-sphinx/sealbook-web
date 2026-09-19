@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { addressLines, channelKindLabel, dateKindLabel } from "../lib/contact";
 import { btnPrimary, btnSecondary, sectionBar } from "../lib/styles";
 import type { Contact } from "../lib/types";
-import { Initials } from "./ContactCard";
+import { Avatar } from "./ContactCard";
 import { Modal } from "./Modal";
 
 type Props = {
@@ -88,7 +88,7 @@ export function ContactDetailModal({
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 space-y-5">
           {/* Header identity card */}
           <div className="flex items-center gap-4 rounded-xl border border-line bg-surface/40 p-4">
-            <Initials name={contact.name} size="lg" />
+            <Avatar name={contact.name} avatar={contact.avatar} size="lg" />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="truncate text-lg font-semibold tracking-tight text-text">

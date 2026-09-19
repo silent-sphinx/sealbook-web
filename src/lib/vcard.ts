@@ -135,6 +135,7 @@ function buildContactFromProps(
   let nickname = "";
   let pronouns = "";
   let notes = "";
+  let avatar: string | undefined = undefined;
   let createdAt: string | undefined = undefined;
   let updatedAt: string | undefined = undefined;
   const emails: ContactChannel[] = [];
@@ -329,6 +330,29 @@ function buildContactFromProps(
       case "CREATED":
         createdAt = unescapeVCard(prop.value);
         break;
+
+      case "PHOTO": {
+        const rawVal = prop.value.trim();
+        if (rawVal) {
+          if (
+            rawVal.startsWith("data:") ||
+            rawVal.startsWith("http://") ||
+            rawVal.startsWith("https://")
+          ) {
+            avatar = rawVal;
+          } else {
+            const typeParam = (prop.params["TYPE"] || "jpeg").toLowerCase();
+            const mime = typeParam.includes("png")
+              ? "image/png"
+              : typeParam.includes("webp")
+                ? "image/webp"
+                : "image/jpeg";
+            const cleanB64 = rawVal.replace(/\s+/g, "");
+            avatar = `data:${mime};base64,${cleanB64}`;
+          }
+        }
+        break;
+      }
     }
   }
 
@@ -374,6 +398,7 @@ function buildContactFromProps(
     dates,
     socials,
     notes: notes || undefined,
+    avatar,
     addressBookId,
     createdAt,
     updatedAt,
@@ -470,6 +495,21 @@ export function serializeVCard(contacts: Contact[] | ContactDraft[]): string {
       }
       if (w.title?.trim()) {
         lines.push(`TITLE:${escapeVCard(w.title.trim())}`);
+      }
+    }
+
+    if (c.avatar) {
+      if (c.avatar.startsWith("data:")) {
+        const match = c.avatar.match(/^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/);
+        if (match) {
+          const format = match[1].toUpperCase();
+          const b64 = match[2];
+          lines.push(`PHOTO;ENCODING=b;TYPE=${format}:${b64}`);
+        } else {
+          lines.push(`PHOTO:${c.avatar}`);
+        }
+      } else {
+        lines.push(`PHOTO;VALUE=uri:${c.avatar}`);
       }
     }
 

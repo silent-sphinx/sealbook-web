@@ -1,4 +1,6 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, useRef, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { optimizeAvatar } from "../lib/image";
+import { Avatar } from "./ContactCard";
 import {
   CHANNEL_KINDS,
   addressLines,
@@ -101,6 +103,22 @@ export function ContactForm({
   }
 
   const addressOpen = showAddress || addressLines(draft.address).length > 0;
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleAvatarSelect(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const dataUrl = await optimizeAvatar(file);
+      patch({ avatar: dataUrl });
+    } catch (err) {
+      console.error("Failed to process avatar", err);
+    } finally {
+      if (avatarInputRef.current) {
+        avatarInputRef.current.value = "";
+      }
+    }
+  }
 
   return (
     <form
@@ -109,6 +127,64 @@ export function ContactForm({
     >
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">
         <Section title="Identity" first>
+          {/* Avatar Upload Card */}
+          <div className="mb-4 flex flex-col sm:flex-row items-center sm:items-start gap-4 p-3.5 rounded-xl border border-line bg-surface/30">
+            <div
+              className="relative group cursor-pointer shrink-0"
+              onClick={() => avatarInputRef.current?.click()}
+              title="Click to upload profile picture"
+            >
+              <Avatar name={draft.name || "New Contact"} avatar={draft.avatar} size="lg" />
+              <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
+                <svg className="h-5 w-5 text-white" viewBox="0 0 20 20" fill="currentColor">
+                  <path
+                    fillRule="evenodd"
+                    d="M1 8a2 2 0 0 1 2-2h.93a2 2 0 0 0 1.664-.89l.812-1.22A2 2 0 0 1 8.07 3h3.86a2 2 0 0 1 1.664.89l.812 1.22A2 2 0 0 0 16.07 6H17a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8Zm13.5 3a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM10 14a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </div>
+            </div>
+
+            <div className="flex-1 text-center sm:text-left">
+              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  onClick={() => avatarInputRef.current?.click()}
+                >
+                  <svg className="h-3.5 w-3.5 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                    <path
+                      fillRule="evenodd"
+                      d="M1 8a2 2 0 0 1 2-2h.93a2 2 0 0 0 1.664-.89l.812-1.22A2 2 0 0 1 8.07 3h3.86a2 2 0 0 1 1.664.89l.812 1.22A2 2 0 0 0 16.07 6H17a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8Zm13.5 3a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM10 14a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                  {draft.avatar ? "Change photo" : "Upload photo"}
+                </button>
+                {draft.avatar ? (
+                  <button
+                    type="button"
+                    className="inline-flex items-center rounded-lg px-2.5 py-1.5 text-xs font-medium text-danger/80 hover:bg-danger/10 hover:text-danger transition-colors cursor-pointer"
+                    onClick={() => patch({ avatar: undefined })}
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+              <p className="mt-1 text-xs text-mute">
+                JPG, PNG, or WebP. Automatically optimized for fast, secure vault sync.
+              </p>
+            </div>
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleAvatarSelect}
+            />
+          </div>
+
           {addressBooks.length > 0 ? (
             <label className={`${labelClass} mb-3`}>
               Address book

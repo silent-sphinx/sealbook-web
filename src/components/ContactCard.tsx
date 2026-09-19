@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Contact } from "../lib/types";
 
 export function ContactCard({
@@ -23,7 +24,7 @@ export function ContactCard({
       className="group flex items-center gap-3 py-3 px-2 -mx-2 rounded-xl transition-colors duration-150 hover:bg-surface/60 cursor-pointer"
       onClick={() => onSelect?.(contact)}
     >
-      <Initials name={contact.name} />
+      <Avatar name={contact.name} avatar={contact.avatar} />
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium tracking-tight text-text">
           {contact.name}
@@ -79,6 +80,40 @@ export function ContactCard({
       ) : null}
     </li>
   );
+}
+
+export function Avatar({
+  name,
+  avatar,
+  size = "md",
+}: {
+  name: string;
+  avatar?: string;
+  size?: "sm" | "md" | "lg" | "xl";
+}) {
+  const [imgError, setImgError] = useState(false);
+
+  const sizeClasses =
+    size === "xl"
+      ? "h-20 w-20 text-2xl font-bold"
+      : size === "lg"
+        ? "h-14 w-14 text-lg font-bold"
+        : size === "sm"
+          ? "h-7 w-7 text-xs font-semibold"
+          : "h-9 w-9 text-xs font-semibold";
+
+  if (avatar && !imgError) {
+    return (
+      <img
+        src={avatar}
+        alt={name}
+        onError={() => setImgError(true)}
+        className={`shrink-0 rounded-full object-cover border border-line/60 bg-surface/50 ${sizeClasses}`}
+      />
+    );
+  }
+
+  return <Initials name={name} size={size === "xl" ? "lg" : size} />;
 }
 
 export function Initials({
@@ -148,4 +183,3 @@ function TrashIcon({ className = "h-4 w-4" }: { className?: string }) {
     </svg>
   );
 }
-

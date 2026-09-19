@@ -47,6 +47,7 @@ export function parseImportContent(
           dates: Array.isArray(item.dates) ? item.dates : [],
           socials: Array.isArray(item.socials) ? item.socials : [],
           notes: item.notes || undefined,
+          avatar: item.avatar || undefined,
           address: item.address || undefined,
           work: Array.isArray(item.work) ? item.work : [],
           addressBookId: resolveAddressBookId(

@@ -79,6 +79,7 @@ export type ContactDraft = {
   dates: ContactDate[];
   socials: ContactSocial[];
   notes?: string;
+  avatar?: string;
   addressBookId: string;
   createdAt?: string;
   updatedAt?: string;
