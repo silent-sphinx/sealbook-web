@@ -2,6 +2,8 @@
 
 Browser UI for the Sealbook vault.
 
+![](Overview.png)
+
 > [!IMPORTANT]
 This ia a web client only. A working [sealbook](https://github.com/silent-sphinx/sealbook) server is required for operation.
 
