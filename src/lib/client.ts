@@ -469,8 +469,8 @@ export async function listVault(
       obj.padded_size,
     );
     if (obj.content_type === CALENDAR_EVENT_CONTENT_TYPE || isCalendarEventPayload(raw)) {
-      const value = JSON.parse(raw) as { title?: string; start?: string; end?: string; notes?: string; calendarId?: string };
-      calendarEvents.push({ id: obj.id, title: value.title?.trim() || "Untitled event", start: value.start ?? "", end: value.end, notes: value.notes, calendarId: value.calendarId });
+      const value = JSON.parse(raw) as { title?: string; start?: string; end?: string; notes?: string; location?: string; participants?: string[]; timezone?: string; calendarId?: string };
+      calendarEvents.push({ id: obj.id, title: value.title?.trim() || "Untitled event", start: value.start ?? "", end: value.end, notes: value.notes, location: value.location, participants: value.participants, timezone: value.timezone, calendarId: value.calendarId });
     } else if (obj.content_type === CALENDAR_CONTENT_TYPE || isCalendarPayload(raw)) {
       const value = JSON.parse(raw) as { name?: string; color?: string };
       calendars.push({ id: obj.id, name: value.name?.trim() || "Untitled calendar", color: value.color || "#7aa2f7" });
@@ -581,8 +581,8 @@ export async function putCalendarEvent(session: Session, event: Omit<CalendarEve
   return id;
 }
 
-export async function putCalendar(session: Session, calendar: Omit<Calendar, "id">): Promise<string> {
-  const id = newUuid();
+export async function putCalendar(session: Session, calendar: Omit<Calendar, "id">, existingId?: string): Promise<string> {
+  const id = existingId ?? newUuid();
   const plaintext = JSON.stringify({ "@type": "Calendar", version: "1.0", ...calendar });
   const enc = encryptContact(session.collectionKey, id, session.state.collection_id, plaintext);
   await putJson(`${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`, {

@@ -15,6 +15,7 @@ import {
   field,
 } from "../lib/styles";
 import type { AddressBook, Contact } from "../lib/types";
+import { commonTimezones } from "../lib/timezone";
 import { Modal } from "./Modal";
 import { ImportExportSection } from "./ImportExportSection";
 
@@ -26,6 +27,8 @@ type Props = {
   onAccountDeleted: () => void;
   onRefresh: () => Promise<void>;
   onCreateBook?: (name: string) => Promise<string | undefined>;
+  timezone: string;
+  onTimezoneChange: (timezone: string) => void;
 };
 
 export function SettingsView({
@@ -36,6 +39,8 @@ export function SettingsView({
   onAccountDeleted,
   onRefresh,
   onCreateBook,
+  timezone,
+  onTimezoneChange,
 }: Props) {
   // Username state
   const [newUsername, setNewUsername] = useState("");
@@ -273,6 +278,15 @@ export function SettingsView({
       </div>
 
       {/* Section 1: Username */}
+      <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
+        <h3 className="text-base font-semibold text-text">Calendar timezone</h3>
+        <p className="mt-1 text-xs text-mute">Timed events are stored as UTC ISO 8601 timestamps and displayed in this timezone.</p>
+        <select value={timezone} onChange={(event) => onTimezoneChange(event.target.value)} className={`${field} mt-5`}>
+          {[...new Set([timezone, ...commonTimezones])].map((zone) => <option key={zone} value={zone}>{zone}</option>)}
+        </select>
+      </section>
+
+      {/* Section 2: Username */}
       <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
         <div className="flex items-center justify-between gap-4">
           <div>

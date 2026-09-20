@@ -105,6 +105,9 @@ export type CalendarEvent = {
   start: string;
   end?: string;
   notes?: string;
+  location?: string;
+  participants?: string[];
+  timezone?: string;
   calendarId?: string;
 };
 

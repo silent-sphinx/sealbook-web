@@ -37,6 +37,7 @@ import {
 } from "./lib/phrase";
 import { findInvalidBip39Words } from "./lib/bip39Words";
 import { clearDevice, loadDevice, saveDevice } from "./lib/storage";
+import { browserTimezone } from "./lib/timezone";
 import { field, ghost, primary, secondary, searchField } from "./lib/styles";
 import type { AddressBook, Calendar, CalendarEvent, Contact, ContactDraft, DeviceState } from "./lib/types";
 
@@ -45,6 +46,15 @@ type Screen = "auth" | "phrase" | "pair" | "recover";
 type MainTab = "contacts" | "calendar" | "settings";
 
 const LAST_TAB_KEY = "sealbook.last-tab";
+const TIMEZONE_KEY = "sealbook.timezone";
+
+function loadTimezone(): string {
+  try {
+    return localStorage.getItem(TIMEZONE_KEY) || browserTimezone();
+  } catch {
+    return browserTimezone();
+  }
+}
 
 function loadLastTab(): MainTab {
   try {
@@ -60,6 +70,7 @@ function saveLastTab(tab: MainTab): void {
   try {
     sessionStorage.setItem(LAST_TAB_KEY, tab);
   } catch {
+    // storage unavailable; ignore
   }
 }
 
@@ -69,8 +80,11 @@ function friendlyError(err: unknown): string {
   if (text.includes("username taken")) {
     return "That name is taken.";
   }
-  if (text.includes("invalid credentials") || text.includes("unauthorized")) {
+  if (text.includes("invalid credentials")) {
     return "Wrong password.";
+  }
+  if (text.includes("unauthorized")) {
+    return "Your session expired. Lock and unlock again.";
   }
   if (text.includes("rate limited")) {
     return "Too many tries. Wait a moment.";
@@ -218,6 +232,12 @@ function UploadIcon() {
   );
 }
 
+const TABS: { id: MainTab; label: string; icon: React.ReactNode }[] = [
+  { id: "contacts", label: "Contacts", icon: <ContactsIcon /> },
+  { id: "calendar", label: "Calendar", icon: <CalendarIcon /> },
+  { id: "settings", label: "Settings", icon: <SettingsIcon /> },
+];
+
 // Empty state illustration
 function EmptyContacts({
   onAdd,
@@ -292,10 +312,20 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTabState] = useState<MainTab>(loadLastTab);
+  const [timezone, setTimezoneState] = useState(loadTimezone);
 
   function setActiveTab(tab: MainTab) {
     setActiveTabState(tab);
     saveLastTab(tab);
+  }
+
+  function setTimezone(value: string) {
+    setTimezoneState(value);
+    try {
+      localStorage.setItem(TIMEZONE_KEY, value);
+    } catch {
+      // storage unavailable; ignore
+    }
   }
 
   const locked = Boolean(stored);
@@ -305,34 +335,37 @@ export default function App() {
       bookFilter === ALL_ADDRESS_BOOKS
         ? contacts
         : contacts.filter(
-            (contact) => resolveAddressBookId(contact.addressBookId) === bookFilter,
-          );
+          (contact) => resolveAddressBookId(contact.addressBookId) === bookFilter,
+        );
     const query = search.trim().toLowerCase();
     const matches = !query
       ? inBook
       : inBook.filter((contact) => {
-          const haystack = [
-            contact.name,
-            contact.nickname,
-            contact.email,
-            ...contact.emails.map((e) => e.value),
-            ...contact.phones.map((p) => p.value),
-            ...contact.work.map((w) => `${w.organization} ${w.title ?? ""}`),
-            bookNameById(addressBooks, contact.addressBookId),
-          ]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase();
-          return haystack.includes(query);
-        });
+        const haystack = [
+          contact.name,
+          contact.nickname,
+          contact.email,
+          ...contact.emails.map((e) => e.value),
+          ...contact.phones.map((p) => p.value),
+          ...contact.work.map((w) => `${w.organization} ${w.title ?? ""}`),
+          bookNameById(addressBooks, contact.addressBookId),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(query);
+      });
     return sortContacts(matches);
   }, [addressBooks, bookFilter, contacts, search]);
 
+  // Poll for pairing approval. Stops when the request expires.
   useEffect(() => {
     if (screen !== "pair" || !pairId || pairApproved) {
       return;
     }
     let cancelled = false;
+    let intervalId = 0;
+
     const tick = async () => {
       try {
         const ready = await pairReady("", pairId);
@@ -340,19 +373,23 @@ export default function App() {
           setPairApproved(true);
         }
       } catch (err) {
+        if (cancelled) return;
         const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
-        if (!cancelled && msg.includes("expired")) {
+        if (msg.includes("expired") || msg.includes("not found")) {
+          window.clearInterval(intervalId);
           setError(friendlyError(err));
         }
+        // other errors are treated as transient; keep polling
       }
     };
-    const id = window.setInterval(() => {
+
+    intervalId = window.setInterval(() => {
       void tick();
     }, 2000);
     void tick();
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      window.clearInterval(intervalId);
     };
   }, [screen, pairId, pairApproved]);
 
@@ -378,13 +415,52 @@ export default function App() {
     });
   }
 
-  function backToAuth() {
-    setScreen("auth");
+  // Refresh after a successful write. A refresh failure is reported separately
+  // so it isn't mistaken for a failed save. Returns whether the refresh worked.
+  async function refreshAfterSave(next: Session): Promise<boolean> {
+    try {
+      await refresh(next);
+      return true;
+    } catch {
+      setError("Saved, but the list couldn't refresh. Reload to see the change.");
+      return false;
+    }
+  }
+
+  function resetPair() {
     setPairId("");
     setPairConfirm("");
     setPairState(null);
     setPairApproved(false);
     setCopied(false);
+  }
+
+  function resetVaultState() {
+    setContacts([]);
+    setCalendarEvents([]);
+    setCalendars([]);
+    setAddressBooks([]);
+    setBookFilter(ALL_ADDRESS_BOOKS);
+    setAdding(false);
+    setAddConfirm(null);
+    setAddCode("");
+    setComposing(false);
+    setEditingContact(null);
+    setViewingContact(null);
+    setDeletingContact(null);
+    setSearch("");
+    setError(null);
+  }
+
+  function lock() {
+    setSession(null);
+    setPassword("");
+    resetVaultState();
+  }
+
+  function backToAuth() {
+    setScreen("auth");
+    resetPair();
     setPhrase("");
     setError(null);
     if (stored) {
@@ -396,30 +472,23 @@ export default function App() {
     clearDevice();
     setStored(null);
     setSession(null);
-    setContacts([]);
-    setCalendarEvents([]);
-    setCalendars([]);
-    setAddressBooks([]);
-    setBookFilter(ALL_ADDRESS_BOOKS);
+    resetVaultState();
+    resetPair();
     setUsername("");
     setPassword("");
     setPhrase("");
-    setPairId("");
-    setPairConfirm("");
-    setPairState(null);
-    setPairApproved(false);
-    setCopied(false);
-    setAdding(false);
-    setAddConfirm(null);
-    setAddCode("");
-    setComposing(false);
-    setEditingContact(null);
-    setViewingContact(null);
-    setDeletingContact(null);
-    setError(null);
-    setSearch("");
     setMode("register");
     setScreen("auth");
+  }
+
+  function confirmSignOut() {
+    if (
+      window.confirm(
+        "Sign out and remove this device's keys? You'll need to pair again or use your recovery words.",
+      )
+    ) {
+      signOut();
+    }
   }
 
   async function onUnlock(event: FormEvent) {
@@ -494,6 +563,7 @@ export default function App() {
     try {
       await openSession(await loginAccount(pairState, password));
       setScreen("auth");
+      resetPair();
     } catch (err) {
       setError(friendlyError(err));
     } finally {
@@ -562,7 +632,7 @@ export default function App() {
       await putContact(session, draft);
       setFormKey((key) => key + 1);
       setComposing(false);
-      await refresh(session);
+      await refreshAfterSave(session);
     } catch (err) {
       setError(friendlyError(err));
     } finally {
@@ -580,7 +650,7 @@ export default function App() {
       await putContact(session, draft, editingContact.id);
       setEditingContact(null);
       setViewingContact(null);
-      await refresh(session);
+      await refreshAfterSave(session);
     } catch (err) {
       setError(friendlyError(err));
     } finally {
@@ -630,7 +700,7 @@ export default function App() {
         setViewingContact(null);
       }
       setDeletingContact(null);
-      await refresh(session);
+      await refreshAfterSave(session);
     } catch (err) {
       setError(friendlyError(err));
     } finally {
@@ -646,8 +716,9 @@ export default function App() {
     setError(null);
     try {
       const id = await putAddressBook(session, name.trim());
-      await refresh(session);
-      setBookFilter(id);
+      if (await refreshAfterSave(session)) {
+        setBookFilter(id);
+      }
       return id;
     } catch (err) {
       setError(friendlyError(err));
@@ -688,23 +759,37 @@ export default function App() {
     }
 
     function printWords() {
-      const lines = words.map((w, i) => `<tr><td style="text-align:right;padding-right:12px;color:#888;font-variant-numeric:tabular-nums">${i + 1}</td><td style="font-family:monospace">${w}</td></tr>`);
-      const html = `
-        <html>
-          <head><title>Sealbook Recovery Words</title></head>
-          <body style="font-family:system-ui,sans-serif;padding:40px;max-width:480px;margin:0 auto">
-            <h2 style="margin:0 0 4px">Sealbook Recovery Words</h2>
-            <p style="color:#666;margin:0 0 24px;font-size:14px">Keep this document safe and secret.</p>
-            <table style="border-collapse:collapse;font-size:15px">${lines.join("")}</table>
-          </body>
-        </html>`;
       const win = window.open("", "_blank");
-      if (win) {
-        win.document.write(html);
-        win.document.close();
-        win.focus();
-        win.print();
-      }
+      if (!win) return;
+      const doc = win.document;
+      doc.title = "Sealbook Recovery Words";
+      doc.body.style.cssText =
+        "font-family:system-ui,sans-serif;padding:40px;max-width:480px;margin:0 auto";
+
+      const heading = doc.createElement("h2");
+      heading.style.margin = "0 0 4px";
+      heading.textContent = "Sealbook Recovery Words";
+
+      const note = doc.createElement("p");
+      note.style.cssText = "color:#666;margin:0 0 24px;font-size:14px";
+      note.textContent = "Keep this document safe and secret.";
+
+      const table = doc.createElement("table");
+      table.style.cssText = "border-collapse:collapse;font-size:15px";
+      words.forEach((word, index) => {
+        const row = table.insertRow();
+        const numCell = row.insertCell();
+        numCell.style.cssText =
+          "text-align:right;padding-right:12px;color:#888;font-variant-numeric:tabular-nums";
+        numCell.textContent = String(index + 1);
+        const wordCell = row.insertCell();
+        wordCell.style.fontFamily = "monospace";
+        wordCell.textContent = word;
+      });
+
+      doc.body.append(heading, note, table);
+      win.focus();
+      win.print();
     }
 
     return (
@@ -846,10 +931,11 @@ export default function App() {
               <span>Pairing approved! Enter your password to finish unlocking your vault.</span>
             </div>
             <div className="mt-4">
-              <label className="block text-sm font-medium text-text mb-1.5">
+              <label htmlFor="pair-password" className="block text-sm font-medium text-text mb-1.5">
                 Password
               </label>
               <input
+                id="pair-password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -985,15 +1071,14 @@ export default function App() {
               />
               <div className="flex items-center justify-between border-t border-line/60 bg-surface/30 px-3 py-2">
                 <span
-                  className={`inline-flex items-center gap-1.5 font-mono text-xs whitespace-nowrap ${
-                    invalidWords.length > 0
+                  className={`inline-flex items-center gap-1.5 font-mono text-xs whitespace-nowrap ${invalidWords.length > 0
                       ? "text-danger font-medium"
                       : count === 24
-                      ? "text-accent font-semibold"
-                      : count > 24
-                      ? "text-danger font-medium"
-                      : "text-mute"
-                  }`}
+                        ? "text-accent font-semibold"
+                        : count > 24
+                          ? "text-danger font-medium"
+                          : "text-mute"
+                    }`}
                 >
                   {invalidWords.length > 0 ? (
                     <span>
@@ -1094,7 +1179,7 @@ export default function App() {
               {busy ? "Please wait…" : "Unlock"}
             </button>
           </form>
-          <button type="button" className={`${ghost} mt-4`} onClick={signOut}>
+          <button type="button" className={`${ghost} mt-4`} onClick={confirmSignOut}>
             Sign out
           </button>
         </AuthCard>
@@ -1119,9 +1204,8 @@ export default function App() {
               setMode("register");
               setError(null);
             }}
-            className={`rounded-md py-1.5 transition-colors duration-150 cursor-pointer ${
-              mode === "register" ? "bg-surface text-text font-medium" : "text-mute hover:text-text"
-            }`}
+            className={`rounded-md py-1.5 transition-colors duration-150 cursor-pointer ${mode === "register" ? "bg-surface text-text font-medium" : "text-mute hover:text-text"
+              }`}
           >
             Create account
           </button>
@@ -1131,9 +1215,8 @@ export default function App() {
               setMode("signin");
               setError(null);
             }}
-            className={`rounded-md py-1.5 transition-colors duration-150 cursor-pointer ${
-              mode === "signin" ? "bg-surface text-text font-medium" : "text-mute hover:text-text"
-            }`}
+            className={`rounded-md py-1.5 transition-colors duration-150 cursor-pointer ${mode === "signin" ? "bg-surface text-text font-medium" : "text-mute hover:text-text"
+              }`}
           >
             Set up device
           </button>
@@ -1141,10 +1224,11 @@ export default function App() {
         {mode === "register" ? (
           <form onSubmit={onRegister} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-text mb-1.5">
+              <label htmlFor="register-username" className="block text-sm font-medium text-text mb-1.5">
                 Username
               </label>
               <input
+                id="register-username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 autoComplete="username"
@@ -1154,10 +1238,11 @@ export default function App() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-text mb-1.5">
+              <label htmlFor="register-password" className="block text-sm font-medium text-text mb-1.5">
                 Password
               </label>
               <input
+                id="register-password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -1194,10 +1279,11 @@ export default function App() {
                   </p>
 
                   <div className="mt-3.5">
-                    <label className="block text-xs font-medium text-text mb-1.5">
+                    <label htmlFor="pair-username" className="block text-xs font-medium text-text mb-1.5">
                       Username
                     </label>
                     <input
+                      id="pair-username"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
                       autoComplete="username"
@@ -1258,7 +1344,7 @@ export default function App() {
       <div className="sticky top-0 z-40">
         <div className="h-[2px] bg-gradient-to-r from-accent/60 via-accent to-accent/60" />
         <header className="border-b border-line bg-bg/80 backdrop-blur-lg">
-          <div className="mx-auto flex items-center justify-between px-5 py-4">
+          <div className="mx-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-3 px-5 py-4">
             <div className="flex items-center gap-2.5">
               <Logo className="h-8 w-8" />
               <div>
@@ -1268,43 +1354,25 @@ export default function App() {
             </div>
 
             {/* Navigation Tabs */}
-            <nav className="flex items-center rounded-xl bg-surface/80 p-1 border border-line" aria-label="Main Navigation">
-              <button
-                type="button"
-                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 cursor-pointer ${
-                  activeTab === "contacts"
-                    ? "bg-accent text-bg shadow-sm"
-                    : "text-mute hover:text-text hover:bg-surface/50"
-                }`}
-                onClick={() => setActiveTab("contacts")}
-              >
-                <ContactsIcon />
-                Contacts
-              </button>
-              <button
-                type="button"
-                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 cursor-pointer ${
-                  activeTab === "calendar"
-                    ? "bg-accent text-bg shadow-sm"
-                    : "text-mute hover:text-text hover:bg-surface/50"
-                }`}
-                onClick={() => setActiveTab("calendar")}
-              >
-                <CalendarIcon />
-                Calendar
-              </button>
-              <button
-                type="button"
-                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 cursor-pointer ${
-                  activeTab === "settings"
-                    ? "bg-accent text-bg shadow-sm"
-                    : "text-mute hover:text-text hover:bg-surface/50"
-                }`}
-                onClick={() => setActiveTab("settings")}
-              >
-                <SettingsIcon />
-                Settings
-              </button>
+            <nav
+              className="order-3 flex w-full items-center justify-center rounded-xl border border-line bg-surface/80 p-1 sm:order-none sm:w-auto"
+              aria-label="Main Navigation"
+            >
+              {TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  aria-current={activeTab === tab.id ? "page" : undefined}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 cursor-pointer ${activeTab === tab.id
+                      ? "bg-accent text-bg shadow-sm"
+                      : "text-mute hover:text-text hover:bg-surface/50"
+                    }`}
+                  onClick={() => setActiveTab(tab.id)}
+                >
+                  {tab.icon}
+                  {tab.label}
+                </button>
+              ))}
             </nav>
 
             <div className="flex items-center gap-2">
@@ -1323,23 +1391,7 @@ export default function App() {
               <button
                 type="button"
                 className="rounded-lg px-3 py-1.5 text-sm text-mute transition-colors duration-150 hover:bg-surface hover:text-text"
-                onClick={() => {
-                  setSession(null);
-                  setContacts([]);
-                  setCalendarEvents([]);
-                  setCalendars([]);
-                  setAddressBooks([]);
-                  setBookFilter(ALL_ADDRESS_BOOKS);
-                  setPassword("");
-                  setAdding(false);
-                  setAddConfirm(null);
-                  setComposing(false);
-                  setEditingContact(null);
-                  setViewingContact(null);
-                  setDeletingContact(null);
-                  setError(null);
-                  setSearch("");
-                }}
+                onClick={lock}
               >
                 Lock
               </button>
@@ -1360,11 +1412,13 @@ export default function App() {
             }}
             onRefresh={() => refresh(session)}
             onCreateBook={onCreateBook}
+            timezone={timezone}
+            onTimezoneChange={setTimezone}
           />
         </main>
       ) : activeTab === "calendar" ? (
         <div className="mx-auto pt-6">
-          <CalendarView session={session} calendars={calendars} events={calendarEvents} busy={busy} onRefresh={() => refresh(session)} />
+          <CalendarView session={session} calendars={calendars} events={calendarEvents} busy={busy} timezone={timezone} onRefresh={() => refresh(session)} />
         </div>
       ) : (
         <main className="mx-auto px-5 pb-24 pt-6">
@@ -1395,13 +1449,14 @@ export default function App() {
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search contacts…"
+                  aria-label="Search contacts"
                   className={`${searchField} pl-10`}
                 />
               </div>
             ) : null}
           </div>
 
-          {error && !composing && !editingContact ? (
+          {error && !composing && !editingContact && !deletingContact ? (
             <p className="mt-4 text-sm text-danger">{error}</p>
           ) : null}
 
