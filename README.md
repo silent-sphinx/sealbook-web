@@ -29,8 +29,8 @@ Open `http://localhost:5173`. Vite proxies `/v1` to the local server (self-signe
 
 ## Docker
 
-Build the web image from the `sealbook-web` directory. Run `npm run wasm`
-first so the generated WASM package exists under `src/pkg`:
+Build the web image from the `sealbook-web` directory. The generated WASM
+package must exist under `src/pkg`:
 
 ```bash
 npm run wasm

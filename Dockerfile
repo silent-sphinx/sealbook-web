@@ -5,7 +5,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . ./
-RUN SKIP_WASM=1 npm run build
+RUN npm run build
 
 FROM nginx:1.27-alpine AS runtime
 

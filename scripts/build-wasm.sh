@@ -1,21 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "${SKIP_WASM:-0}" == "1" ]]; then
-  exit 0
-fi
-
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SEALBOOK="$(cd "$ROOT/../sealbook" && pwd)"
-export PATH="$HOME/.cargo/bin:$PATH"
-if ! command -v rustup >/dev/null 2>&1; then
-  echo "rustup is required to build the WASM crypto module" >&2
+if [[ ! -f "$ROOT/src/pkg/sealbook_wasm.js" || ! -f "$ROOT/src/pkg/sealbook_wasm_bg.wasm" ]]; then
+  echo "src/pkg is missing the generated WASM package" >&2
   exit 1
 fi
-rustup target add wasm32-unknown-unknown >/dev/null
-if ! command -v wasm-pack >/dev/null 2>&1; then
-  cargo install wasm-pack --locked
-fi
-wasm-pack build "$SEALBOOK/crates/sealbook-wasm" \
-  --target web \
-  --release \
-  --out-dir "$ROOT/src/pkg"
