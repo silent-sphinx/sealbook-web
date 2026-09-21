@@ -79,9 +79,15 @@ export function expandCalendarEvents(events: CalendarEvent[], from: Date, to: Da
       if (anchor <= to && anchor >= from) output.push({ ...event, sourceId: event.id, occurrenceKey: dateKey(anchor) });
       continue;
     }
-    const cursor = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+    const until = rule.until ? new Date(`${rule.until}T23:59:59`) : null;
+    let occurrenceCount = 0;
+    const cursor = new Date(Math.min(anchor.getTime(), from.getTime()));
+    cursor.setHours(0, 0, 0, 0);
     while (cursor <= to) {
-      if (matchesRule(cursor, anchor, rule)) output.push(sameTime(event, cursor, timezone));
+      if (matchesRule(cursor, anchor, rule)) {
+        occurrenceCount += 1;
+        if (cursor >= from && (!until || cursor <= until) && (!rule.count || occurrenceCount <= rule.count)) output.push(sameTime(event, cursor, timezone));
+      }
       cursor.setDate(cursor.getDate() + 1);
     }
   }

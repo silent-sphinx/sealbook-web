@@ -616,6 +616,14 @@ export async function deleteCalendarEvent(session: Session, id: string): Promise
   }, session.token);
 }
 
+export async function deleteCalendar(session: Session, id: string): Promise<void> {
+  const enc = encryptContact(session.collectionKey, id, session.state.collection_id, "");
+  await putJson(`${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`, {
+    id, nonce: enc.nonce, ciphertext: enc.ciphertext, padded_size: enc.padded_size,
+    content_type: CALENDAR_CONTENT_TYPE, tombstone: true,
+  }, session.token);
+}
+
 
 function isAddressBookPayload(raw: string): boolean {
   try {

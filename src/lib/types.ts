@@ -117,6 +117,8 @@ export type RecurrenceFrequency = "daily" | "weekly" | "monthly" | "yearly";
 export type RecurrenceRule = {
   frequency: RecurrenceFrequency;
   interval?: number;
+  until?: string;
+  count?: number;
   weekdays?: number[];
   dayOfMonth?: number;
   nthWeekday?: {
