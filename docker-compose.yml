@@ -1,8 +1,8 @@
 services:
   sealbookweb:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: sealbook-web/Dockerfile
     container_name: sealbook-web
     restart: unless-stopped
     ports:

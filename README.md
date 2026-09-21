@@ -7,9 +7,9 @@ Browser UI for the Sealbook vault.
 > [!IMPORTANT]
 This ia a web client only. A working [sealbook](https://github.com/silent-sphinx/sealbook) server is required for operation.
 
-## Running sealbook
+## Development
 
-An existing [sealbook](https://github.com/silent-sphinx/sealbook) server is required for operation, ensure you have setup sealbook server before continuing.
+An existing [sealbook](https://github.com/silent-sphinx/sealbook) server is required for operation.
 
 ### 1. Clone sealbook-web
 
@@ -17,7 +17,28 @@ An existing [sealbook](https://github.com/silent-sphinx/sealbook) server is requ
 git clone https://github.com/silent-sphinx/sealbook-web.git
 ```
 
-### 2. Install and run the NPM webserver
+### 2. Generate the WASM package
+
+The browser cryptography module is generated from the `sealbook` repository and
+written to `src/pkg`. The repositories should be next to each other:
+
+```text
+sealbook/
+sealbook-web/
+```
+
+From `sealbook-web`, install the Rust target and generate the package:
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-pack --locked
+wasm-pack build ../sealbook/crates/sealbook-wasm \
+  --target web \
+  --release \
+  --out-dir src/pkg
+```
+
+### 3. Install and run the NPM webserver
 
 ```bash
 npm install
@@ -29,12 +50,13 @@ Open `http://localhost:5173`. Vite proxies `/v1` to the local server (self-signe
 
 ## Docker
 
-Build the web image from the `sealbook-web` directory. The generated WASM
-package must exist under `src/pkg`:
+The final Docker image contains only the web client, but the build generates
+the WASM package from the sibling `sealbook` repository. Build from the
+directory containing both repositories:
 
 ```bash
-npm run wasm
-docker build -f Dockerfile -t sealbook-web .
+cd ..
+docker build -f sealbook-web/Dockerfile -t sealbook-web .
 ```
 
 Run the web client:
@@ -44,4 +66,7 @@ docker compose up --build
 ```
 
 Open `http://localhost:8080`.
+
+The Docker Compose file also contains only the web client. Configure a
+reachable Sealbook server in the web UI's connection settings.
 
