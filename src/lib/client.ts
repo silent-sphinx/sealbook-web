@@ -55,8 +55,24 @@ async function parse<T>(res: Response): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+export function normalizeServer(server: string): string {
+  const trimmed = server.trim().replace(/\/$/u, "");
+  if (!trimmed) {
+    return "";
+  }
+  const candidate = /^https?:\/\//iu.test(trimmed) ? trimmed : `https://${trimmed}`;
+  const parsed = new URL(candidate);
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("Connection domain must use http or https.");
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("Connection domain cannot contain credentials.");
+  }
+  return `${parsed.origin}${parsed.pathname.replace(/\/$/u, "")}`;
+}
+
 function apiRoot(server: string): string {
-  const trimmed = server.replace(/\/$/u, "");
+  const trimmed = normalizeServer(server);
   if (
     !trimmed ||
     trimmed === "https://127.0.0.1:8443" ||

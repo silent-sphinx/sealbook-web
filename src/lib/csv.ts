@@ -9,7 +9,7 @@ import type {
   ContactWork,
 } from "./types";
 import { emptyChannel } from "./contact";
-import { bookNameById } from "./addressBook";
+import { bookNameById, resolveAddressBookId } from "./addressBook";
 
 function newId(): string {
   return crypto.randomUUID();
@@ -123,6 +123,16 @@ export function parseCsvContacts(
       }
       return "";
     };
+
+    function getJson<T>(patterns: string[], fallback: T): T {
+      const value = get(patterns);
+      if (!value) return fallback;
+      try {
+        return JSON.parse(value) as T;
+      } catch {
+        return fallback;
+      }
+    }
 
     // Extract Name
     let name = get(["name", "fullname", "displayname"]);
@@ -267,18 +277,29 @@ export function parseCsvContacts(
       phones.push(emptyChannel("mobile"));
     }
 
+    const fullEmails = getJson<ContactChannel[]>(["emails(json)"], emails);
+    const fullPhones = getJson<ContactChannel[]>(["phones(json)"], phones);
+    const fullDates = getJson<ContactDate[]>(["dates(json)"], dates);
+    const fullSocials = getJson<ContactSocial[]>(["socials(json)"], socials);
+    const fullWork = getJson<ContactWork[]>(["work(json)"], work);
+    const fullAddress = getJson<ContactAddress | null>(["address(json)"], address ?? null);
+    const importedAddressBookId = get(["addressbookid"]) || targetAddressBookId;
+
     contacts.push({
       name,
       nickname: nickname || undefined,
       pronouns: pronouns || undefined,
-      emails,
-      phones,
-      dates,
-      socials,
+      emails: fullEmails,
+      phones: fullPhones,
+      dates: fullDates,
+      socials: fullSocials,
       notes: notes || undefined,
-      address,
-      work,
-      addressBookId: targetAddressBookId,
+      avatar: get(["avatar", "photo"]) || undefined,
+      address: fullAddress ?? undefined,
+      work: fullWork,
+      addressBookId: resolveAddressBookId(importedAddressBookId),
+      createdAt: get(["createdat"]) || undefined,
+      updatedAt: get(["updatedat"]) || undefined,
     });
   }
 
@@ -293,6 +314,7 @@ export function serializeCsvContacts(
     "Name",
     "Nickname",
     "Pronouns",
+    "Avatar",
     "Email (Home)",
     "Email (Work)",
     "Phone (Mobile)",
@@ -311,6 +333,15 @@ export function serializeCsvContacts(
     "Country",
     "Notes",
     "Address Book",
+    "Address Book ID",
+    "Emails (JSON)",
+    "Phones (JSON)",
+    "Dates (JSON)",
+    "Socials (JSON)",
+    "Work (JSON)",
+    "Address (JSON)",
+    "Created At",
+    "Updated At",
   ];
 
   const rows: string[] = [headers.join(",")];
@@ -344,6 +375,7 @@ export function serializeCsvContacts(
       escapeCsv(c.name),
       escapeCsv(c.nickname),
       escapeCsv(c.pronouns),
+      escapeCsv(c.avatar),
       escapeCsv(emailHome),
       escapeCsv(emailWork),
       escapeCsv(phoneMobile),
@@ -362,6 +394,15 @@ export function serializeCsvContacts(
       escapeCsv(country),
       escapeCsv(c.notes),
       escapeCsv(bookName),
+      escapeCsv(c.addressBookId),
+      escapeCsv(JSON.stringify(c.emails)),
+      escapeCsv(JSON.stringify(c.phones)),
+      escapeCsv(JSON.stringify(c.dates ?? [])),
+      escapeCsv(JSON.stringify(c.socials ?? [])),
+      escapeCsv(JSON.stringify(c.work ?? [])),
+      escapeCsv(JSON.stringify(c.address ?? null)),
+      escapeCsv(c.createdAt),
+      escapeCsv(c.updatedAt),
     ];
 
     rows.push(values.join(","));

@@ -14,6 +14,7 @@ import {
   ensureDefaultAddressBook,
   listVault,
   loginAccount,
+  normalizeServer,
   pairApprove,
   pairJoin,
   pairPreview,
@@ -36,9 +37,23 @@ import {
   formatRecoveryWordsFile,
 } from "./lib/phrase";
 import { findInvalidBip39Words } from "./lib/bip39Words";
-import { clearDevice, loadDevice, saveDevice } from "./lib/storage";
+import {
+  clearDevice,
+  loadConnectionDomain,
+  loadDevice,
+  saveConnectionDomain,
+  saveDevice,
+} from "./lib/storage";
 import { browserTimezone } from "./lib/timezone";
-import { field, ghost, primary, secondary, searchField } from "./lib/styles";
+import {
+  btnPrimary,
+  btnSecondary,
+  field,
+  ghost,
+  primary,
+  secondary,
+  searchField,
+} from "./lib/styles";
 import type { AddressBook, Calendar, CalendarEvent, Contact, ContactDraft, DeviceState } from "./lib/types";
 
 type Mode = "register" | "signin";
@@ -117,11 +132,105 @@ function Brand({ title, subtitle }: { title: string; subtitle: string }) {
   );
 }
 
-function AuthCard({ children }: { children: React.ReactNode }) {
+function DomainSettings({
+  value,
+  onSave,
+}: {
+  value: string;
+  onSave: (value: string) => boolean;
+}) {
+  const [open, setOpen] = useState(value.trim() === "");
+  const [draft, setDraft] = useState(value);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  function openSettings() {
+    setDraft(value);
+    setSaveError(null);
+    setOpen(true);
+  }
+
+  function save() {
+    if (onSave(draft)) {
+    setOpen(false);
+    setDraft(value);
+      setSaveError(null);
+    } else {
+      setSaveError("Enter a valid connection domain to continue.");
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="Connection settings"
+        title="Connection settings"
+        onClick={openSettings}
+        className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text"
+      >
+        <SettingsIcon />
+        <svg className="hidden" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+          <path fillRule="evenodd" d="M7.84 1.66a1 1 0 0 1 1.96 0l.2 1.02c.43.13.84.3 1.23.51l.87-.57a1 1 0 0 1 1.27.12l.9.9a1 1 0 0 1 .12 1.27l-.57.87c.21.39.38.8.51 1.23l1.02.2a1 1 0 0 1 .82.98v1.28a1 1 0 0 1-.82.98l-1.02.2c-.13.43-.3.84-.51 1.23l.57.87a1 1 0 0 1-.12 1.27l-.9.9a1 1 0 0 1-1.27.12l-.87-.57c-.39.21-.8.38-1.23.51l-.2 1.02a1 1 0 0 1-.98.82H8.82a1 1 0 0 1-.98-.82l-.2-1.02a7.1 7.1 0 0 1-1.23-.51l-.87.57a1 1 0 0 1-1.27-.12l-.9-.9a1 1 0 0 1-.12-1.27l.57-.87a7.1 7.1 0 0 1-.51-1.23l-1.02-.2a1 1 0 0 1-.82-.98V8.2a1 1 0 0 1 .82-.98l1.02-.2c.13-.43.3-.84.51-1.23l-.57-.87a1 1 0 0 1 .12-1.27l.9-.9a1 1 0 0 1 1.27-.12l.87.57c.39-.21.8-.38 1.23-.51l.2-1.02a1 1 0 0 1 .98-.82H11.2a1 1 0 0 1 .98.82l.2 1.02c.43.13.84.3 1.23.51l.87-.57a1 1 0 0 1 1.27.12l.9.9a1 1 0 0 1 .12 1.27l-.57.87c.21.39.38.8.51 1.23l1.02.2a1 1 0 0 1 .82.98v1.28a1 1 0 0 1-.82.98l-1.02.2c-.13.43-.3.84-.51 1.23l.57.87a1 1 0 0 1-.12 1.27l-.9.9a1 1 0 0 1-1.27.12l-.87-.57c-.39.21-.8.38-1.23.51l-.2 1.02a1 1 0 0 1-.98.82H8.82a1 1 0 0 1-.98-.82l-.2-1.02a7.1 7.1 0 0 1-1.23-.51l-.87.57a1 1 0 0 1-1.27-.12l-.9-.9a1 1 0 0 1-.12-1.27l.57-.87a7.1 7.1 0 0 1-.51-1.23l-1.02-.2a1 1 0 0 1-.82-.98V8.2a1 1 0 0 1 .82-.98l1.02-.2c.13-.43.3-.84.51-1.23l-.57-.87a1 1 0 0 1 .12-1.27l.9-.9a1 1 0 0 1 1.27-.12l.87.57c.39-.21.8-.38 1.23-.51l.2-1.02ZM10 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" clipRule="evenodd" />
+        </svg>
+      </button>
+      {open && (
+        <Modal title="Connection settings" onClose={() => setOpen(false)}>
+          <div className="space-y-4 p-6">
+            <div>
+              <label htmlFor="auth-connection-domain" className="block text-sm font-medium text-text">
+                Sealbook domain
+              </label>
+              <input
+                id="auth-connection-domain"
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder="https://your-sealbook-domain.example"
+                className={field}
+                autoComplete="url"
+                autoFocus
+              />
+              {saveError ? <p className="mt-2 text-xs text-danger">{saveError}</p> : null}
+              <p className="mt-1.5 text-xs text-mute">Leave blank to use this site's server.</p>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button type="button" className={btnSecondary} onClick={() => setOpen(false)}>
+                Cancel
+              </button>
+              <button type="button" className={btnPrimary} onClick={save}>
+                Save domain
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+function AuthCard({
+  children,
+  connectionDomain,
+  onConnectionDomainSave,
+}: {
+  children: React.ReactNode;
+  connectionDomain?: string;
+  onConnectionDomainSave?: (value: string) => boolean;
+}) {
+  const domainConfigured = connectionDomain === undefined || connectionDomain.trim() !== "";
   return (
     <main className="mx-auto flex min-h-screen max-w-[500px] flex-col justify-center px-5 py-8">
-      <div className="animate-fade-in-up rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-7 sm:p-9 shadow-2xl shadow-black/40">
-        {children}
+      <div className="relative animate-fade-in-up rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-7 sm:p-9 shadow-2xl shadow-black/40">
+        {connectionDomain !== undefined && onConnectionDomainSave ? (
+          <DomainSettings value={connectionDomain} onSave={onConnectionDomainSave} />
+        ) : null}
+        {domainConfigured ? (
+          children
+        ) : (
+          <div className="pt-12 text-center">
+            <Brand title="Connect to Sealbook" subtitle="Set your connection domain to continue." />
+            <p className="mt-6 text-sm text-mute">Use the settings cog to choose your Sealbook server.</p>
+          </div>
+        )}
       </div>
     </main>
   );
@@ -287,6 +396,9 @@ export default function App() {
   const [mode, setMode] = useState<Mode>(initial ? "signin" : "register");
   const [screen, setScreen] = useState<Screen>("auth");
   const [username, setUsername] = useState(initial?.username ?? "");
+  const [connectionDomain, setConnectionDomain] = useState(
+    initial?.server ?? loadConnectionDomain(),
+  );
   const [password, setPassword] = useState("");
   const [phrase, setPhrase] = useState("");
   const [busy, setBusy] = useState(false);
@@ -325,6 +437,22 @@ export default function App() {
       localStorage.setItem(TIMEZONE_KEY, value);
     } catch {
       // storage unavailable; ignore
+    }
+  }
+
+  function saveDomain(value: string): boolean {
+    try {
+      if (!value.trim()) {
+        throw new Error("Enter a connection domain to continue.");
+      }
+      const server = normalizeServer(value);
+      setConnectionDomain(server);
+      saveConnectionDomain(server);
+      setError(null);
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      return false;
     }
   }
 
@@ -465,6 +593,7 @@ export default function App() {
     setError(null);
     if (stored) {
       setUsername(stored.username);
+      setConnectionDomain(stored.server);
     }
   }
 
@@ -513,7 +642,7 @@ export default function App() {
     setError(null);
     try {
       const { session: next, phrase: words } = await registerAccount(
-        "",
+        normalizeServer(connectionDomain),
         username.trim(),
         password,
       );
@@ -539,7 +668,7 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
-      const joined = await pairJoin("", username.trim());
+      const joined = await pairJoin(normalizeServer(connectionDomain), username.trim());
       setPairId(joined.pairId);
       setPairConfirm(joined.confirm);
       setPairState(joined.state);
@@ -587,7 +716,12 @@ export default function App() {
     setError(null);
     try {
       await openSession(
-        await recoverAccount("", username.trim(), words.join(" "), password),
+        await recoverAccount(
+          normalizeServer(connectionDomain),
+          username.trim(),
+          words.join(" "),
+          password,
+        ),
       );
       setScreen("auth");
       setPhrase("");
@@ -793,7 +927,10 @@ export default function App() {
     }
 
     return (
-      <AuthCard>
+      <AuthCard
+        connectionDomain={connectionDomain}
+        onConnectionDomainSave={saveDomain}
+      >
         <Brand
           title="Write these down"
           subtitle="They are shown once. You will need them on a new browser."
@@ -831,7 +968,10 @@ export default function App() {
   // ---------- PAIR SCREEN ----------
   if (screen === "pair") {
     return (
-      <AuthCard>
+      <AuthCard
+        connectionDomain={connectionDomain}
+        onConnectionDomainSave={saveDomain}
+      >
         <Brand
           title="Pair this device"
           subtitle="Connect with an active device to transfer encryption keys."
@@ -1020,7 +1160,10 @@ export default function App() {
     }
 
     return (
-      <AuthCard>
+      <AuthCard
+        connectionDomain={connectionDomain}
+        onConnectionDomainSave={saveDomain}
+      >
         <Brand
           title="Restore with words"
           subtitle="Set up this device using your 24 secret recovery words."
@@ -1159,7 +1302,10 @@ export default function App() {
   if (!session) {
     if (locked && stored) {
       return (
-        <AuthCard>
+        <AuthCard
+          connectionDomain={connectionDomain}
+          onConnectionDomainSave={saveDomain}
+        >
           <Brand title="Sealbook" subtitle={stored.username} />
           <form onSubmit={onUnlock} className="mt-8">
             <label className="block text-sm text-mute">
@@ -1188,7 +1334,10 @@ export default function App() {
 
     // ---------- REGISTER / SIGN IN SCREEN ----------
     return (
-      <AuthCard>
+      <AuthCard
+        connectionDomain={connectionDomain}
+        onConnectionDomainSave={saveDomain}
+      >
         <Brand
           title="Sealbook"
           subtitle={

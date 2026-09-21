@@ -112,11 +112,18 @@ export function generateExportData(
     contacts: contacts.map((c) => ({
       name: c.name,
       nickname: c.nickname,
+      pronouns: c.pronouns,
       emails: c.emails,
       phones: c.phones,
       address: c.address,
       work: c.work,
+      dates: c.dates,
+      socials: c.socials,
+      notes: c.notes,
+      avatar: c.avatar,
       addressBookId: c.addressBookId,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
     })),
   };
 
