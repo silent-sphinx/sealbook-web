@@ -109,6 +109,20 @@ export type CalendarEvent = {
   participants?: string[];
   timezone?: string;
   calendarId?: string;
+  recurrence?: RecurrenceRule;
+};
+
+export type RecurrenceFrequency = "daily" | "weekly" | "monthly" | "yearly";
+
+export type RecurrenceRule = {
+  frequency: RecurrenceFrequency;
+  interval?: number;
+  weekdays?: number[];
+  dayOfMonth?: number;
+  nthWeekday?: {
+    ordinal: 1 | 2 | 3 | 4 | 5;
+    weekday: number;
+  };
 };
 
 export type Calendar = {

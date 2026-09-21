@@ -7,8 +7,10 @@ import {
 } from "../lib/client";
 import type { Calendar, CalendarEvent } from "../lib/types";
 import { localInputToUtc, utcToLocalInput } from "../lib/timezone";
+import { expandCalendarEvents } from "../lib/recurrence";
 
 type ViewMode = "day" | "week" | "month" | "year";
+type RepeatChoice = "none" | "daily" | "weekday" | "weekly" | "monthly-date" | "monthly-nth" | "yearly" | "custom";
 
 function hiddenCalendarStorageKey(collectionId: string): string {
   return `sealbook.hidden-calendars.${collectionId}`;
@@ -26,6 +28,28 @@ function loadHiddenCalendarIds(collectionId: string): Set<string> {
 
 function keyFor(day: Date): string {
   return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+}
+
+function shiftEndWithStart(previousStart: string, previousEnd: string, nextStart: string, allDay: boolean): string {
+  if (!previousEnd) return previousEnd;
+  if (allDay) {
+    const startDate = new Date(`${previousStart.slice(0, 10)}T00:00:00Z`);
+    const endDate = new Date(`${previousEnd.slice(0, 10)}T00:00:00Z`);
+    const dayOffset = Math.round((endDate.getTime() - startDate.getTime()) / 86400000);
+    const nextEnd = new Date(`${nextStart.slice(0, 10)}T00:00:00Z`);
+    nextEnd.setUTCDate(nextEnd.getUTCDate() + dayOffset);
+    return `${nextEnd.getUTCFullYear()}-${String(nextEnd.getUTCMonth() + 1).padStart(2, "0")}-${String(nextEnd.getUTCDate()).padStart(2, "0")}T23:59`;
+  }
+  const wallTime = (value: string) => {
+    const [datePart, timePart = "00:00"] = value.slice(0, 16).split("T");
+    const [year, month, day] = datePart.split("-").map(Number);
+    const [hour, minute] = timePart.split(":").map(Number);
+    return Date.UTC(year, month - 1, day, hour, minute);
+  };
+  const duration = wallTime(previousEnd) - wallTime(previousStart);
+  if (!Number.isFinite(duration)) return previousEnd;
+  const shifted = new Date(wallTime(nextStart) + duration);
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}-${String(shifted.getUTCDate()).padStart(2, "0")}T${String(shifted.getUTCHours()).padStart(2, "0")}:${String(shifted.getUTCMinutes()).padStart(2, "0")}`;
 }
 
 /**
@@ -144,6 +168,9 @@ export function CalendarView({
   const [notes, setNotes] = useState("");
   const [location, setLocation] = useState("");
   const [participants, setParticipants] = useState("");
+  const [repeatChoice, setRepeatChoice] = useState<RepeatChoice>("none");
+  const [customFrequency, setCustomFrequency] = useState<"daily" | "weekly" | "monthly" | "yearly">("weekly");
+  const [customInterval, setCustomInterval] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const days = useMemo(() => monthDays(month), [month]);
   const filtered = useMemo(
@@ -159,9 +186,10 @@ export function CalendarView({
       }),
     [events, hiddenCalendarIds, search],
   );
+  const visibleEvents = useMemo(() => expandCalendarEvents(filtered, days[0], days[days.length - 1], timezone), [days, filtered, timezone]);
   const spans = useMemo(
-    () => new Map(filtered.map((event) => [event.id, computeSpan(event, timezone)] as const)),
-    [filtered, timezone],
+    () => new Map(visibleEvents.map((event) => [event.id, computeSpan(event, timezone)] as const)),
+    [visibleEvents, timezone],
   );
 
   function toggleCalendar(calendarId: string) {
@@ -214,6 +242,9 @@ export function CalendarView({
     setParticipants("");
     setAllDay(false);
     setEventCalendarId(calendars[0]?.id ?? "");
+    setRepeatChoice("none");
+    setCustomFrequency("weekly");
+    setCustomInterval(1);
     setError(null);
     setComposer(true);
   }
@@ -228,6 +259,26 @@ export function CalendarView({
     setLocation(event.location ?? "");
     setParticipants(event.participants?.join(", ") ?? "");
     setEventCalendarId(event.calendarId ?? calendars[0]?.id ?? "");
+    const rule = event.recurrence;
+    if (!rule) {
+      setRepeatChoice("none");
+    } else if (rule.frequency === "daily" && (rule.interval ?? 1) === 1) {
+      setRepeatChoice("daily");
+    } else if (rule.frequency === "weekly" && rule.weekdays?.length === 5 && rule.weekdays.every((day, index) => day === index + 1)) {
+      setRepeatChoice("weekday");
+    } else if (rule.frequency === "weekly" && (rule.interval ?? 1) === 1) {
+      setRepeatChoice("weekly");
+    } else if (rule.frequency === "monthly" && rule.nthWeekday) {
+      setRepeatChoice("monthly-nth");
+    } else if (rule.frequency === "monthly") {
+      setRepeatChoice("monthly-date");
+    } else if (rule.frequency === "yearly" && (rule.interval ?? 1) === 1) {
+      setRepeatChoice("yearly");
+    } else {
+      setRepeatChoice("custom");
+      setCustomFrequency(rule.frequency);
+      setCustomInterval(rule.interval ?? 1);
+    }
     setError(null);
     setComposer(true);
   }
@@ -238,11 +289,27 @@ export function CalendarView({
     setError(null);
   }
 
+  function updateStart(nextStart: string) {
+    setEnd((currentEnd) => shiftEndWithStart(start, currentEnd, nextStart, allDay));
+    setStart(nextStart);
+  }
+
   async function saveEvent() {
     if (!title.trim() || calendars.length === 0) return;
     setError(null);
     try {
       const day = start.slice(0, 10);
+      const startDate = new Date(`${day}T00:00`);
+      const weekday = startDate.getDay();
+      const ordinal = Math.ceil(startDate.getDate() / 7) as 1 | 2 | 3 | 4 | 5;
+      const recurrence = repeatChoice === "none" ? undefined
+        : repeatChoice === "daily" ? { frequency: "daily" as const }
+          : repeatChoice === "weekday" ? { frequency: "weekly" as const, weekdays: [1, 2, 3, 4, 5] }
+            : repeatChoice === "weekly" ? { frequency: "weekly" as const, weekdays: [weekday] }
+              : repeatChoice === "monthly-date" ? { frequency: "monthly" as const, dayOfMonth: startDate.getDate() }
+                : repeatChoice === "monthly-nth" ? { frequency: "monthly" as const, nthWeekday: { ordinal, weekday } }
+                  : repeatChoice === "yearly" ? { frequency: "yearly" as const }
+                    : { frequency: customFrequency, interval: Math.max(1, customInterval), ...(customFrequency === "weekly" ? { weekdays: [weekday] } : {}) };
       await putCalendarEvent(
         session,
         {
@@ -254,6 +321,7 @@ export function CalendarView({
           participants: participants.split(",").map((participant) => participant.trim()).filter(Boolean),
           timezone: allDay ? timezone : timezone,
           calendarId: eventCalendarId || undefined,
+          recurrence,
         },
         editingEvent?.id,
       );
@@ -311,11 +379,11 @@ export function CalendarView({
             <div className="flex items-center gap-2"><button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} className="flex h-7 w-7 items-center justify-center rounded-md border border-line text-mute transition-colors hover:bg-surface hover:text-text" aria-label="Previous month"><Icon name="chevron" className="h-3.5 w-3.5 rotate-180" /></button><button type="button" onClick={() => { setMonth(new Date(today.getFullYear(), today.getMonth(), 1)); selectDay(today); }} className="h-7 rounded-md border border-line px-3 text-[11px] font-medium text-mute transition-colors hover:bg-surface hover:text-text">Today</button><button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} className="flex h-7 w-7 items-center justify-center rounded-md border border-line text-mute transition-colors hover:bg-surface hover:text-text" aria-label="Next month"><Icon name="chevron" className="h-3.5 w-3.5" /></button><h1 className="ml-3 text-base font-bold tracking-tight">{month.toLocaleDateString([], { month: "long", year: "numeric" })}</h1><span className="ml-1 rounded-full bg-surface px-2 py-0.5 text-[10px] font-medium text-mute">{filtered.length}</span></div>
             <div className="flex items-center gap-3"><button type="button" onClick={openNewTask} className="flex h-7 items-center gap-1.5 rounded-md bg-accent/10 px-3 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/20"><Icon name="plus" className="h-3.5 w-3.5" />New event</button><div className="relative hidden sm:block"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" className="h-7 w-40 rounded-md border border-line bg-bg pl-8 pr-3 text-[11px] text-text outline-none placeholder:text-mute focus:border-accent" /></div><div className="flex rounded-md border border-line bg-bg p-0.5">{(["day", "week", "month", "year"] as ViewMode[]).map((item) => <button key={item} type="button" onClick={() => setMode(item)} className={`h-6 px-2.5 text-[10px] font-medium capitalize transition-colors ${mode === item ? "rounded bg-accent font-semibold text-bg" : "text-mute hover:text-text"}`}>{item}</button>)}</div></div>
           </header>
-          {mode === "month" ? <MonthGrid month={month} days={days} selected={selected} todayKey={todayKey} events={filtered} spans={spans} calendars={calendars} onSelect={selectDay} onEdit={openEditTask} /> : <div className="flex-1 p-10 text-sm text-mute">{mode[0].toUpperCase() + mode.slice(1)} view is ready for the next calendar iteration.</div>}
+          {mode === "month" ? <MonthGrid month={month} days={days} selected={selected} todayKey={todayKey} events={visibleEvents} spans={spans} calendars={calendars} onSelect={selectDay} onEdit={(event) => openEditTask(events.find((source) => event.id === source.id || event.id.startsWith(`${source.id}:`)) ?? event)} /> : <div className="flex-1 p-10 text-sm text-mute">{mode[0].toUpperCase() + mode.slice(1)} view is ready for the next calendar iteration.</div>}
         </section>
       </div>
 
-      {composer ? <TaskDialog editing={editingEvent !== null} title={title} start={start} end={end} notes={notes} location={location} participants={participants} allDay={allDay} calendarId={eventCalendarId} calendars={calendars} busy={busy} error={error} onClose={closeTaskDialog} onSave={() => void saveEvent()} onDelete={editingEvent ? () => void removeEvent() : undefined} onTitleChange={setTitle} onStartChange={setStart} onEndChange={setEnd} onNotesChange={setNotes} onLocationChange={setLocation} onParticipantsChange={setParticipants} onAllDayChange={setAllDay} onCalendarChange={setEventCalendarId} /> : null}
+      {composer ? <TaskDialog editing={editingEvent !== null} title={title} start={start} end={end} notes={notes} location={location} participants={participants} allDay={allDay} calendarId={eventCalendarId} calendars={calendars} repeatChoice={repeatChoice} customFrequency={customFrequency} customInterval={customInterval} busy={busy} error={error} onClose={closeTaskDialog} onSave={() => void saveEvent()} onDelete={editingEvent ? () => void removeEvent() : undefined} onTitleChange={setTitle} onStartChange={updateStart} onEndChange={setEnd} onNotesChange={setNotes} onLocationChange={setLocation} onParticipantsChange={setParticipants} onAllDayChange={setAllDay} onCalendarChange={setEventCalendarId} onRepeatChange={setRepeatChoice} onCustomFrequencyChange={setCustomFrequency} onCustomIntervalChange={setCustomInterval} /> : null}
       {calendarComposer ? <CalendarDialog editing={editingCalendar !== null} name={calendarName} color={calendarColor} busy={busy} error={error} onClose={() => { setCalendarComposer(false); setEditingCalendar(null); }} onSave={() => void saveCalendar()} onNameChange={setCalendarName} onColorChange={setCalendarColor} /> : null}
     </main>
   );
@@ -394,7 +462,7 @@ function LegacyEventDialog({ editing, title, start, end, notes, allDay, calendar
 
 void LegacyEventDialog;
 
-function TaskDialog({ editing, title, start, end, notes, location, participants, allDay, calendarId, calendars, busy, error, onClose, onSave, onDelete, onTitleChange, onStartChange, onEndChange, onNotesChange, onLocationChange, onParticipantsChange, onAllDayChange, onCalendarChange }: { editing: boolean; title: string; start: string; end: string; notes: string; location: string; participants: string; allDay: boolean; calendarId: string; calendars: Calendar[]; busy: boolean; error: string | null; onClose: () => void; onSave: () => void; onDelete?: () => void; onTitleChange: (value: string) => void; onStartChange: (value: string) => void; onEndChange: (value: string) => void; onNotesChange: (value: string) => void; onLocationChange: (value: string) => void; onParticipantsChange: (value: string) => void; onAllDayChange: (value: boolean) => void; onCalendarChange: (value: string) => void }) {
+function TaskDialog({ editing, title, start, end, notes, location, participants, allDay, calendarId, calendars, repeatChoice, customFrequency, customInterval, busy, error, onClose, onSave, onDelete, onTitleChange, onStartChange, onEndChange, onNotesChange, onLocationChange, onParticipantsChange, onAllDayChange, onCalendarChange, onRepeatChange, onCustomFrequencyChange, onCustomIntervalChange }: { editing: boolean; title: string; start: string; end: string; notes: string; location: string; participants: string; allDay: boolean; calendarId: string; calendars: Calendar[]; repeatChoice: RepeatChoice; customFrequency: "daily" | "weekly" | "monthly" | "yearly"; customInterval: number; busy: boolean; error: string | null; onClose: () => void; onSave: () => void; onDelete?: () => void; onTitleChange: (value: string) => void; onStartChange: (value: string) => void; onEndChange: (value: string) => void; onNotesChange: (value: string) => void; onLocationChange: (value: string) => void; onParticipantsChange: (value: string) => void; onAllDayChange: (value: boolean) => void; onCalendarChange: (value: string) => void; onRepeatChange: (value: RepeatChoice) => void; onCustomFrequencyChange: (value: "daily" | "weekly" | "monthly" | "yearly") => void; onCustomIntervalChange: (value: number) => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/60 p-4 sm:items-center" onClick={onClose}>
       <section className="event-dialog w-full max-w-[480px] animate-scale-in rounded-xl border border-line bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -448,6 +516,24 @@ function TaskDialog({ editing, title, start, end, notes, location, participants,
               </label>
             </div>
           </div>
+
+          <label className="block text-[11px] font-medium text-mute">
+            Repeat event
+            <select value={repeatChoice} onChange={(e) => onRepeatChange(e.target.value as RepeatChoice)} className="mt-1 h-9 w-full rounded-lg border border-line bg-bg px-2.5 text-xs outline-none focus:border-accent">
+              <option value="none">Does not repeat</option>
+              <option value="daily">Every day</option>
+              <option value="weekday">Every weekday Monday - Friday</option>
+              <option value="weekly">Every week on the selected weekday</option>
+              <option value="monthly-date">Every month on the selected date</option>
+              <option value="monthly-nth">Every month on the ordinal weekday</option>
+              <option value="yearly">Every year</option>
+              <option value="custom">Custom...</option>
+            </select>
+          </label>
+          {repeatChoice === "custom" ? <div className="grid grid-cols-[1fr_1.4fr] gap-2.5 rounded-lg border border-line bg-bg p-2.5">
+            <label className="text-[11px] font-medium text-mute">Every<input type="number" min="1" max="99" value={customInterval} onChange={(e) => onCustomIntervalChange(Number(e.target.value) || 1)} className="mt-1 h-8 w-full rounded border border-line bg-panel px-2 text-xs text-text outline-none focus:border-accent" /></label>
+            <label className="text-[11px] font-medium text-mute">Period<select value={customFrequency} onChange={(e) => onCustomFrequencyChange(e.target.value as typeof customFrequency)} className="mt-1 h-8 w-full rounded border border-line bg-panel px-2 text-xs outline-none focus:border-accent"><option value="daily">day(s)</option><option value="weekly">week(s)</option><option value="monthly">month(s)</option><option value="yearly">year(s)</option></select></label>
+          </div> : null}
 
           {/* Notes */}
           <label className="block text-[11px] font-medium text-mute">
