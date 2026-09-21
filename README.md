@@ -29,14 +29,15 @@ Open `http://localhost:5173`. Vite proxies `/v1` to the local server (self-signe
 
 ## Docker
 
-Build the web image from the directory containing both repositories:
+Build the web image from the `sealbook-web` directory. Run `npm run wasm`
+first so the generated WASM package exists under `src/pkg`:
 
 ```bash
-cd /Users/legion/Documents
-docker build -f sealbook-web/Dockerfile -t sealbook-web .
+npm run wasm
+docker build -f Dockerfile -t sealbook-web .
 ```
 
-Start the server and web client together:
+Run the web client:
 
 ```bash
 docker compose up --build
