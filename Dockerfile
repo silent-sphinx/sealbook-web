@@ -15,7 +15,7 @@ RUN rustup target add wasm32-unknown-unknown \
 FROM node:22-bookworm AS web-builder
 
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY sealbook-web/package.json sealbook-web/package-lock.json ./
 RUN npm ci
 
 COPY sealbook-web/ ./
