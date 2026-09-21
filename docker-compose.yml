@@ -1,0 +1,14 @@
+services:
+  sealbookweb:
+    build:
+      context: ..
+      dockerfile: sealbook-web/Dockerfile
+    container_name: sealbook-web
+    depends_on:
+      - sealbook
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+
+volumes:
+  sealbook-data:

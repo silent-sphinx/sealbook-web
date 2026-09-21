@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${SKIP_WASM:-0}" == "1" ]]; then
+  exit 0
+fi
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SEALBOOK="$(cd "$ROOT/../sealbook" && pwd)"
 export PATH="$HOME/.cargo/bin:$PATH"

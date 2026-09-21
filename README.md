@@ -27,3 +27,20 @@ npm run dev
 
 Open `http://localhost:5173`. Vite proxies `/v1` to the local server (self-signed TLS is handled by the proxy).
 
+## Docker
+
+Build the web image from the directory containing both repositories:
+
+```bash
+cd /Users/legion/Documents
+docker build -f sealbook-web/Dockerfile -t sealbook-web .
+```
+
+Start the server and web client together:
+
+```bash
+docker compose up --build
+```
+
+Open `http://localhost:8080`.
+
