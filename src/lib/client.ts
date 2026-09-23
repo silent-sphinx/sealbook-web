@@ -544,6 +544,25 @@ export async function putAddressBook(
   return id;
 }
 
+export async function deleteAddressBook(
+  session: Session,
+  id: string,
+): Promise<void> {
+  const enc = encryptContact(session.collectionKey, id, session.state.collection_id, "");
+  await putJson(
+    `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`,
+    {
+      id,
+      nonce: enc.nonce,
+      ciphertext: enc.ciphertext,
+      padded_size: enc.padded_size,
+      content_type: ADDRESS_BOOK_CONTENT_TYPE,
+      tombstone: true,
+    },
+    session.token,
+  );
+}
+
 export async function putContact(
   session: Session,
   draft: ContactDraft,

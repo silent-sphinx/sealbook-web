@@ -7,9 +7,11 @@ import { ContactDetailModal } from "./components/ContactDetailModal";
 import { ContactForm } from "./components/ContactForm";
 import { CalendarView } from "./components/CalendarView";
 import { DeleteContactModal } from "./components/DeleteContactModal";
+import { DeleteAddressBookModal } from "./components/DeleteAddressBookModal";
 import { Modal } from "./components/Modal";
 import { SettingsView } from "./components/SettingsView";
 import {
+  deleteAddressBook,
   deleteContact,
   ensureDefaultAddressBook,
   listVault,
@@ -396,8 +398,8 @@ export default function App() {
   const [mode, setMode] = useState<Mode>(initial ? "signin" : "register");
   const [screen, setScreen] = useState<Screen>("auth");
   const [username, setUsername] = useState(initial?.username ?? "");
-  const [connectionDomain, setConnectionDomain] = useState(
-    initial?.server ?? loadConnectionDomain(),
+  const [connectionDomain, setConnectionDomain] = useState(() =>
+    loadConnectionDomain() ?? initial?.server ?? "",
   );
   const [password, setPassword] = useState("");
   const [phrase, setPhrase] = useState("");
@@ -414,6 +416,7 @@ export default function App() {
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [viewingContact, setViewingContact] = useState<Contact | null>(null);
   const [deletingContact, setDeletingContact] = useState<Contact | null>(null);
+  const [deletingAddressBook, setDeletingAddressBook] = useState<AddressBook | null>(null);
   const [pairId, setPairId] = useState("");
   const [pairConfirm, setPairConfirm] = useState("");
   const [pairState, setPairState] = useState<DeviceState | null>(null);
@@ -442,9 +445,6 @@ export default function App() {
 
   function saveDomain(value: string): boolean {
     try {
-      if (!value.trim()) {
-        throw new Error("Enter a connection domain to continue.");
-      }
       const server = normalizeServer(value);
       setConnectionDomain(server);
       saveConnectionDomain(server);
@@ -576,6 +576,7 @@ export default function App() {
     setEditingContact(null);
     setViewingContact(null);
     setDeletingContact(null);
+    setDeletingAddressBook(null);
     setSearch("");
     setError(null);
   }
@@ -593,7 +594,7 @@ export default function App() {
     setError(null);
     if (stored) {
       setUsername(stored.username);
-      setConnectionDomain(stored.server);
+      setConnectionDomain(loadConnectionDomain() ?? stored.server);
     }
   }
 
@@ -857,6 +858,59 @@ export default function App() {
     } catch (err) {
       setError(friendlyError(err));
       return undefined;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onRenameBook(id: string, name: string): Promise<void> {
+    if (!session) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await putAddressBook(session, name, id);
+      await refreshAfterSave(session);
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function onDeleteBook(book: AddressBook): void {
+    if (!session || book.id === DEFAULT_ADDRESS_BOOK_ID) return;
+    setError(null);
+    setDeletingAddressBook(book);
+  }
+
+  function closeDeleteBook() {
+    if (busy) return;
+    setDeletingAddressBook(null);
+    setError(null);
+  }
+
+  async function onConfirmDeleteBook(destinationId: string | null): Promise<void> {
+    if (!session || !deletingAddressBook) return;
+    const book = deletingAddressBook;
+    const containedContacts = contacts.filter(
+      (item) => resolveAddressBookId(item.addressBookId) === book.id,
+    );
+    setBusy(true);
+    setError(null);
+    try {
+      for (const contact of containedContacts) {
+        if (destinationId) {
+          await putContact(session, { ...contact, addressBookId: destinationId }, contact.id);
+        } else {
+          await deleteContact(session, contact.id);
+        }
+      }
+      await deleteAddressBook(session, book.id);
+      if (bookFilter === book.id) setBookFilter(ALL_ADDRESS_BOOKS);
+      setDeletingAddressBook(null);
+      await refreshAfterSave(session);
+    } catch (err) {
+      setError(friendlyError(err));
     } finally {
       setBusy(false);
     }
@@ -1579,6 +1633,8 @@ export default function App() {
                 selectedId={bookFilter}
                 onSelect={setBookFilter}
                 onCreate={onCreateBook}
+                onRename={onRenameBook}
+                onDelete={onDeleteBook}
                 busy={busy}
               />
               <button
@@ -1605,7 +1661,7 @@ export default function App() {
             ) : null}
           </div>
 
-          {error && !composing && !editingContact && !deletingContact ? (
+          {error && !composing && !editingContact && !deletingContact && !deletingAddressBook ? (
             <p className="mt-4 text-sm text-danger">{error}</p>
           ) : null}
 
@@ -1714,6 +1770,21 @@ export default function App() {
           error={error}
           onConfirm={onConfirmDelete}
           onClose={closeDelete}
+        />
+      ) : null}
+
+      {/* Delete address book modal */}
+      {deletingAddressBook ? (
+        <DeleteAddressBookModal
+          book={deletingAddressBook}
+          destinationBooks={addressBooks.filter((book) => book.id !== deletingAddressBook.id)}
+          contactCount={contacts.filter(
+            (contact) => resolveAddressBookId(contact.addressBookId) === deletingAddressBook.id,
+          ).length}
+          busy={busy}
+          error={error}
+          onConfirm={(destinationId) => void onConfirmDeleteBook(destinationId)}
+          onClose={closeDeleteBook}
         />
       ) : null}
 
