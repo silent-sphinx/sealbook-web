@@ -535,6 +535,34 @@ export default function App() {
     };
   }, [screen, pairId, pairApproved]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("pair") !== "1" || stored || session) {
+      return;
+    }
+    const linkedUsername = params.get("username")?.trim();
+    const linkedServer = params.get("server") ?? "";
+    if (!linkedUsername) {
+      return;
+    }
+    setMode("signin");
+    setUsername(linkedUsername);
+    setConnectionDomain(linkedServer);
+    setError(null);
+    setBusy(true);
+    void pairJoin(normalizeServer(linkedServer), linkedUsername)
+      .then((joined) => {
+        setPairId(joined.pairCode);
+        setPairConfirm(joined.confirm);
+        setPairState(joined.state);
+        setPairApproved(false);
+        setPassword("");
+        setScreen("pair");
+      })
+      .catch((err) => setError(friendlyError(err)))
+      .finally(() => setBusy(false));
+  }, [session, stored]);
+
   async function openSession(next: Session) {
     saveDevice(next.state);
     setStored(next.state);
@@ -686,7 +714,7 @@ export default function App() {
     setError(null);
     try {
       const joined = await pairJoin(normalizeServer(connectionDomain), username.trim());
-      setPairId(joined.pairId);
+      setPairId(joined.pairCode);
       setPairConfirm(joined.confirm);
       setPairState(joined.state);
       setPairApproved(false);

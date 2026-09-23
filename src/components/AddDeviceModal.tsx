@@ -62,7 +62,7 @@ export function AddDeviceModal({
                   2
                 </span>
                 <p className="text-sm text-mute leading-snug">
-                  Copy the pairing code displayed there and paste it below.
+                  Type the eight-word pairing code displayed there below.
                 </p>
               </div>
             </div>
@@ -89,7 +89,7 @@ export function AddDeviceModal({
                 type="text"
                 value={addCode}
                 onChange={(e) => onCodeChange(e.target.value)}
-                placeholder="e.g. 5d92a184-…"
+                placeholder="e.g. river velvet ..."
                 className="box-border w-full rounded-xl border border-line bg-bg px-3.5 py-2.5 font-mono text-sm text-text outline-none transition-all duration-150 placeholder:text-mute/50 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
                 autoFocus
                 required

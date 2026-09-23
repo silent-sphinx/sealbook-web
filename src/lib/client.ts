@@ -292,47 +292,49 @@ export async function registerAccount(
 export async function pairJoin(
   server: string,
   username: string,
-): Promise<{ pairId: string; confirm: string; state: DeviceState }> {
+): Promise<{ pairId: string; pairCode: string; confirm: string; state: DeviceState }> {
   const root = apiRoot(server);
   const device = createDevice();
-  const joined = await postJson<{ pair_id: string; confirm: string }>(`${root}/v1/pair/join`, {
+  const joined = await postJson<{ pair_id: string; pair_code: string; confirm: string }>(`${root}/v1/pair/join`, {
     username,
     device: deviceBody(device),
     enrollment_signature: enrollSig(device),
   });
   return {
     pairId: joined.pair_id,
+    pairCode: joined.pair_code,
     confirm: joined.confirm,
     state: deviceFromKeys(root, username, "", "", device),
   };
 }
 
-export async function pairReady(server: string, pairId: string): Promise<boolean> {
-  const status = await getJson<{ status: string }>(`${apiRoot(server)}/v1/pair/${pairId}`);
+export async function pairReady(server: string, pairCode: string): Promise<boolean> {
+  const status = await getJson<{ status: string }>(`${apiRoot(server)}/v1/pair/${encodeURIComponent(pairCode)}`);
   return status.status === "ready";
 }
 
 export async function pairPreview(
   session: Session,
-  pairId: string,
-): Promise<{ confirm: string; device: DevicePublic }> {
+  pairCode: string,
+): Promise<{ pairId: string; confirm: string; device: DevicePublic }> {
   const resp = await getJson<{
+    pair_id: string;
     confirm: string;
     device?: DevicePublic | null;
-  }>(`${apiRoot(session.state.server)}/v1/pair/${pairId}`, session.token);
+  }>(`${apiRoot(session.state.server)}/v1/pair/${encodeURIComponent(pairCode)}`, session.token);
   if (!resp.device) {
     throw new Error("expired");
   }
-  return { confirm: resp.confirm, device: resp.device };
+  return { pairId: resp.pair_id, confirm: resp.confirm, device: resp.device };
 }
 
-export async function pairApprove(session: Session, pairId: string): Promise<string> {
-  const preview = await pairPreview(session, pairId);
+export async function pairApprove(session: Session, pairCode: string): Promise<string> {
+  const preview = await pairPreview(session, pairCode);
   const wrap = wrapCkForDevice(session.collectionKey, preview.device.xwing_hpke_pk);
   const grant = pairGrantSign(
     bytesFromJson(session.state.mldsa_seed),
     bytesFromJson(session.state.ed25519_sk),
-    pairId,
+    preview.pairId,
     session.state.device_id,
     preview.device.device_id,
     preview.device.mldsa_pk,
@@ -341,7 +343,7 @@ export async function pairApprove(session: Session, pairId: string): Promise<str
     preview.confirm,
   );
   await postJson(
-    `${apiRoot(session.state.server)}/v1/pair/${pairId}/approve`,
+    `${apiRoot(session.state.server)}/v1/pair/${encodeURIComponent(pairCode)}/approve`,
     {
       wrap: {
         recipient_kind: "device",
@@ -395,7 +397,10 @@ export async function recoverAccount(
   return loginAccount(state, password);
 }
 
-export async function loginAccount(state: DeviceState, password: string): Promise<Session> {
+export async function loginAccount(
+  state: DeviceState,
+  password: string,
+): Promise<Session> {
   const root = apiRoot(state.server);
   const hpkeSk = bytesFromJson(state.hpke_sk);
   const mldsaSeed = bytesFromJson(state.mldsa_seed);
