@@ -38,6 +38,18 @@ export function browserTimezone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
 
+export function utcOffsetLabel(timezone: string, date = new Date()): string {
+  const offset = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    timeZoneName: "longOffset",
+  })
+    .formatToParts(date)
+    .find((part) => part.type === "timeZoneName")?.value;
+  const match = offset?.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/u);
+  if (!match) return "UTC+00:00";
+  return `UTC${match[1]}${match[2].padStart(2, "0")}:${match[3] ?? "00"}`;
+}
+
 export const commonTimezones = [
   "UTC",
   "Europe/London",
@@ -51,4 +63,14 @@ export const commonTimezones = [
   "Asia/Tokyo",
   "Australia/Sydney",
 ] as const;
+
+const supportedValuesOf = (
+  Intl as typeof Intl & {
+    supportedValuesOf?: (key: "timeZone") => string[];
+  }
+).supportedValuesOf;
+
+export const allTimezones = supportedValuesOf
+  ? ["UTC", ...supportedValuesOf("timeZone")]
+  : [...commonTimezones];
 

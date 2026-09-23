@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   deleteCalendarEvent,
   deleteCalendar,
@@ -9,7 +9,6 @@ import {
 import type { Calendar, CalendarEvent } from "../lib/types";
 import { localInputToUtc, utcToLocalInput } from "../lib/timezone";
 import { expandCalendarEvents } from "../lib/recurrence";
-import { parseIcs } from "../lib/ics";
 
 type ViewMode = "day" | "week" | "month" | "year";
 type RepeatChoice = "none" | "daily" | "weekday" | "weekly" | "monthly-date" | "monthly-nth" | "yearly" | "custom";
@@ -173,14 +172,8 @@ export function CalendarView({
   const [repeatChoice, setRepeatChoice] = useState<RepeatChoice>("none");
   const [customFrequency, setCustomFrequency] = useState<"daily" | "weekly" | "monthly" | "yearly">("weekly");
   const [customInterval, setCustomInterval] = useState(1);
-  const icsInputRef = useRef<HTMLInputElement | null>(null);
-  const [pendingIcsFile, setPendingIcsFile] = useState<File | null>(null);
-  const [icsCalendarId, setIcsCalendarId] = useState("");
-  const [importingIcs, setImportingIcs] = useState(false);
-  const [icsProgress, setIcsProgress] = useState({ current: 0, total: 0 });
   const [deletingCalendar, setDeletingCalendar] = useState(false);
   const [deleteProgress, setDeleteProgress] = useState({ current: 0, total: 0 });
-  const [icsMessage, setIcsMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const days = useMemo(() => monthDays(month), [month]);
   const filtered = useMemo(
@@ -396,38 +389,6 @@ export function CalendarView({
     }
   }
 
-  async function importIcs(file: File) {
-    setImportingIcs(true);
-    setIcsProgress({ current: 0, total: 0 });
-    setIcsMessage(null);
-    try {
-      const imported = parseIcs(await file.text(), timezone, icsCalendarId);
-      if (imported.length === 0) throw new Error("No VEVENT entries were found in that file.");
-      setIcsProgress({ current: 0, total: imported.length });
-      for (let index = 0; index < imported.length; index += 1) {
-        await putCalendarEvent(session, imported[index]);
-        setIcsProgress({ current: index + 1, total: imported.length });
-      }
-      await onRefresh();
-      setIcsMessage(`Imported ${imported.length} event${imported.length === 1 ? "" : "s"}.`);
-    } catch (err) {
-      setIcsMessage(`ICS import failed: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setImportingIcs(false);
-      setIcsProgress({ current: 0, total: 0 });
-    }
-  }
-
-  function chooseIcsFile(file: File) {
-    setIcsCalendarId(calendars[0]?.id ?? "");
-    setPendingIcsFile(file);
-  }
-
-  function closeIcsChooser() {
-    setPendingIcsFile(null);
-    setIcsCalendarId("");
-  }
-
   return (
     <main className="calendar-view -mt-6 h-[calc(100vh-74px)] overflow-hidden bg-bg text-text">
       <div className="grid h-full lg:grid-cols-[244px_minmax(0,1fr)]">
@@ -446,18 +407,15 @@ export function CalendarView({
         <section className="flex min-w-0 flex-col overflow-hidden">
           <header className="flex flex-wrap items-center justify-between gap-4 border-b border-line bg-panel px-5 py-3 lg:px-8">
             <div className="flex items-center gap-2"><button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} className="flex h-7 w-7 items-center justify-center rounded-md border border-line text-mute transition-colors hover:bg-surface hover:text-text" aria-label="Previous month"><Icon name="chevron" className="h-3.5 w-3.5 rotate-180" /></button><button type="button" onClick={() => { setMonth(new Date(today.getFullYear(), today.getMonth(), 1)); selectDay(today); }} className="h-7 rounded-md border border-line px-3 text-[11px] font-medium text-mute transition-colors hover:bg-surface hover:text-text">Today</button><button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} className="flex h-7 w-7 items-center justify-center rounded-md border border-line text-mute transition-colors hover:bg-surface hover:text-text" aria-label="Next month"><Icon name="chevron" className="h-3.5 w-3.5" /></button><h1 className="ml-3 text-base font-bold tracking-tight">{month.toLocaleDateString([], { month: "long", year: "numeric" })}</h1><span className="ml-1 rounded-full bg-surface px-2 py-0.5 text-[10px] font-medium text-mute">{filtered.length}</span></div>
-            <div className="flex items-center gap-3"><input ref={icsInputRef} type="file" accept=".ics,text/calendar" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) chooseIcsFile(file); }} /><button type="button" onClick={() => icsInputRef.current?.click()} disabled={importingIcs || calendars.length === 0} className="h-7 rounded-md border border-line px-2.5 text-[11px] font-medium text-mute transition-colors hover:bg-surface hover:text-text disabled:opacity-50">{importingIcs ? "Importing..." : "Import ICS"}</button><button type="button" onClick={openNewTask} className="flex h-7 items-center gap-1.5 rounded-md bg-accent/10 px-3 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/20"><Icon name="plus" className="h-3.5 w-3.5" />New event</button><div className="relative hidden sm:block"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" className="h-7 w-40 rounded-md border border-line bg-bg pl-8 pr-3 text-[11px] text-text outline-none placeholder:text-mute focus:border-accent" /></div><div className="flex rounded-md border border-line bg-bg p-0.5">{(["day", "week", "month", "year"] as ViewMode[]).map((item) => <button key={item} type="button" onClick={() => setMode(item)} className={`h-6 px-2.5 text-[10px] font-medium capitalize transition-colors ${mode === item ? "rounded bg-accent font-semibold text-bg" : "text-mute hover:text-text"}`}>{item}</button>)}</div></div>
+            <div className="flex items-center gap-3"><button type="button" onClick={openNewTask} className="flex h-7 items-center gap-1.5 rounded-md bg-accent/10 px-3 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/20"><Icon name="plus" className="h-3.5 w-3.5" />New event</button><div className="relative hidden sm:block"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" className="h-7 w-40 rounded-md border border-line bg-bg pl-8 pr-3 text-[11px] text-text outline-none placeholder:text-mute focus:border-accent" /></div><div className="flex rounded-md border border-line bg-bg p-0.5">{(["day", "week", "month", "year"] as ViewMode[]).map((item) => <button key={item} type="button" onClick={() => setMode(item)} className={`h-6 px-2.5 text-[10px] font-medium capitalize transition-colors ${mode === item ? "rounded bg-accent font-semibold text-bg" : "text-mute hover:text-text"}`}>{item}</button>)}</div></div>
           </header>
-          {icsMessage ? <p className="border-b border-line bg-panel px-5 py-2 text-xs text-mute lg:px-8">{icsMessage}</p> : null}
           {mode === "month" ? <MonthGrid month={month} days={days} selected={selected} todayKey={todayKey} events={visibleEvents} spans={spans} calendars={calendars} onSelect={selectDay} onEdit={(event) => openEditTask(events.find((source) => event.id === source.id || event.id.startsWith(`${source.id}:`)) ?? event)} /> : <div className="flex-1 p-10 text-sm text-mute">{mode[0].toUpperCase() + mode.slice(1)} view is ready for the next calendar iteration.</div>}
         </section>
       </div>
 
       {composer ? <TaskDialog editing={editingEvent !== null} title={title} start={start} end={end} notes={notes} location={location} participants={participants} allDay={allDay} calendarId={eventCalendarId} calendars={calendars} repeatChoice={repeatChoice} customFrequency={customFrequency} customInterval={customInterval} busy={busy} error={error} onClose={closeTaskDialog} onSave={() => void saveEvent()} onDelete={editingEvent ? () => void removeEvent() : undefined} onTitleChange={setTitle} onStartChange={updateStart} onEndChange={setEnd} onNotesChange={setNotes} onLocationChange={setLocation} onParticipantsChange={setParticipants} onAllDayChange={setAllDay} onCalendarChange={setEventCalendarId} onRepeatChange={setRepeatChoice} onCustomFrequencyChange={setCustomFrequency} onCustomIntervalChange={setCustomInterval} /> : null}
       {calendarComposer ? <CalendarDialog editing={editingCalendar !== null} name={calendarName} color={calendarColor} busy={busy} error={error} onClose={() => { setCalendarComposer(false); setEditingCalendar(null); }} onSave={() => void saveCalendar()} onDelete={editingCalendar ? () => void removeCalendar() : undefined} onNameChange={setCalendarName} onColorChange={setCalendarColor} /> : null}
-      {importingIcs ? <ImportProgressModal title="Importing calendar" description="Encrypting and saving events. Keep this window open." current={icsProgress.current} total={icsProgress.total} /> : null}
       {deletingCalendar ? <ImportProgressModal title="Deleting calendar" description="Removing events and calendar data. Keep this window open." current={deleteProgress.current} total={deleteProgress.total} /> : null}
-      {pendingIcsFile ? <IcsCalendarChooser file={pendingIcsFile} calendarId={icsCalendarId} calendars={calendars} onCalendarChange={setIcsCalendarId} onCancel={closeIcsChooser} onImport={() => { const file = pendingIcsFile; closeIcsChooser(); void importIcs(file); }} /> : null}
     </main>
   );
 }
@@ -634,10 +592,6 @@ function CalendarDialog({ editing, name, color, busy, error, onClose, onSave, on
 function ImportProgressModal({ title, description, current, total }: { title: string; description: string; current: number; total: number }) {
   const percent = total > 0 ? Math.round((current / total) * 100) : 0;
   return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4"><section role="dialog" aria-modal="true" className="w-full max-w-sm rounded-xl border border-line bg-panel p-6 shadow-2xl"><h3 className="text-base font-semibold text-text">{title}</h3><p className="mt-1 text-xs text-mute">{description}</p><div className="mt-5 h-2 overflow-hidden rounded-full bg-surface"><div className="h-full rounded-full bg-accent transition-all" style={{ width: `${percent}%` }} /></div><p className="mt-2 text-right text-[11px] tabular-nums text-mute">{total ? `${current} of ${total}` : "Preparing..."}</p></section></div>;
-}
-
-function IcsCalendarChooser({ file, calendarId, calendars, onCalendarChange, onCancel, onImport }: { file: File; calendarId: string; calendars: Calendar[]; onCalendarChange: (value: string) => void; onCancel: () => void; onImport: () => void }) {
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onCancel}><section role="dialog" aria-modal="true" className="w-full max-w-sm rounded-xl border border-line bg-panel p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-mute">Import calendar</p><h3 className="mt-1 text-base font-semibold text-text">Choose destination</h3></div><button type="button" onClick={onCancel} className="text-mute hover:text-text" aria-label="Close"><Icon name="x" /></button></div><p className="mt-4 truncate rounded-md bg-bg px-3 py-2 text-xs text-mute" title={file.name}>{file.name}</p><label className="mt-4 block text-xs font-medium text-mute">Add events to<select autoFocus value={calendarId} onChange={(event) => onCalendarChange(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-line bg-bg px-3 text-sm text-text outline-none focus:border-accent">{calendars.map((calendar) => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}</select></label><div className="mt-5 flex justify-end gap-2.5"><button type="button" onClick={onCancel} className="h-9 rounded-lg border border-line px-3.5 text-xs font-semibold text-mute hover:bg-surface hover:text-text">Cancel</button><button type="button" onClick={onImport} disabled={!calendarId} className="h-9 rounded-lg bg-accent px-4 text-xs font-semibold text-bg hover:brightness-110 disabled:opacity-50">Import events</button></div></section></div>;
 }
 
 function MiniMonth({ month, selected, events, spans, onSelect }: { month: Date; selected: string; events: CalendarEvent[]; spans: Map<string, EventSpan>; onSelect: (day: Date) => void }) {

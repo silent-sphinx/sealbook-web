@@ -73,6 +73,20 @@ function loadTimezone(): string {
   }
 }
 
+function rememberBrowserTimezone(): string {
+  const timezone = browserTimezone();
+  try {
+    const stored = localStorage.getItem(TIMEZONE_KEY);
+    if (stored) {
+      return stored;
+    }
+    localStorage.setItem(TIMEZONE_KEY, timezone);
+  } catch {
+    // storage unavailable; use the browser timezone for this session
+  }
+  return timezone;
+}
+
 function loadLastTab(): MainTab {
   try {
     const stored = sessionStorage.getItem(LAST_TAB_KEY);
@@ -647,6 +661,8 @@ export default function App() {
         username.trim(),
         password,
       );
+      const defaultTimezone = rememberBrowserTimezone();
+      setTimezoneState(defaultTimezone);
       saveDevice(next.state);
       setStored(next.state);
       setSession(next);
@@ -1609,6 +1625,7 @@ export default function App() {
             session={session}
             contacts={contacts}
             addressBooks={addressBooks}
+            calendars={calendars}
             onSessionUpdate={(updated) => setSession(updated)}
             onAccountDeleted={() => {
               signOut();

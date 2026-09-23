@@ -1,11 +1,14 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import type { Session } from "../lib/client";
 import {
   changePassword,
   changeUsername,
   deleteAccount,
+  putCalendar,
+  putCalendarEvent,
   rotatePhrase,
 } from "../lib/client";
+import { parseIcs } from "../lib/ics";
 import { formatRecoveryWordsFile } from "../lib/phrase";
 import { clearDevice, saveDevice } from "../lib/storage";
 import {
@@ -14,8 +17,8 @@ import {
   btnSecondary,
   field,
 } from "../lib/styles";
-import type { AddressBook, Contact } from "../lib/types";
-import { commonTimezones } from "../lib/timezone";
+import type { AddressBook, Calendar, Contact } from "../lib/types";
+import { allTimezones, utcOffsetLabel } from "../lib/timezone";
 import { Modal } from "./Modal";
 import { ImportExportSection } from "./ImportExportSection";
 
@@ -23,6 +26,7 @@ type Props = {
   session: Session;
   contacts: Contact[];
   addressBooks: AddressBook[];
+  calendars: Calendar[];
   onSessionUpdate: (updated: Session) => void;
   onAccountDeleted: () => void;
   onRefresh: () => Promise<void>;
@@ -31,10 +35,13 @@ type Props = {
   onTimezoneChange: (timezone: string) => void;
 };
 
+type SettingsSection = "account" | "contacts" | "calendar";
+
 export function SettingsView({
   session,
   contacts,
   addressBooks,
+  calendars,
   onSessionUpdate,
   onAccountDeleted,
   onRefresh,
@@ -42,6 +49,14 @@ export function SettingsView({
   timezone,
   onTimezoneChange,
 }: Props) {
+  const [activeSection, setActiveSection] = useState<SettingsSection>("account");
+  const icsInputRef = useRef<HTMLInputElement | null>(null);
+  const [pendingIcsFile, setPendingIcsFile] = useState<File | null>(null);
+  const [icsCalendarId, setIcsCalendarId] = useState("");
+  const [importingIcs, setImportingIcs] = useState(false);
+  const [icsProgress, setIcsProgress] = useState({ current: 0, total: 0 });
+  const [icsMessage, setIcsMessage] = useState<string | null>(null);
+
   // Username state
   const [newUsername, setNewUsername] = useState("");
   const [usernamePassword, setUsernamePassword] = useState("");
@@ -264,29 +279,126 @@ export function SettingsView({
     }
   }
 
+  async function importIcs(file: File) {
+    setImportingIcs(true);
+    setIcsProgress({ current: 0, total: 0 });
+    setIcsMessage(null);
+    try {
+      const imported = parseIcs(await file.text(), timezone, icsCalendarId);
+      if (imported.length === 0) throw new Error("No VEVENT entries were found in that file.");
+      setIcsProgress({ current: 0, total: imported.length });
+      for (let index = 0; index < imported.length; index += 1) {
+        await putCalendarEvent(session, imported[index]);
+        setIcsProgress({ current: index + 1, total: imported.length });
+      }
+      await onRefresh();
+      setIcsMessage(`Imported ${imported.length} event${imported.length === 1 ? "" : "s"}.`);
+    } catch (err) {
+      setIcsMessage(`ICS import failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setImportingIcs(false);
+      setIcsProgress({ current: 0, total: 0 });
+    }
+  }
+
+  function chooseIcsFile(file: File) {
+    setIcsCalendarId(calendars[0]?.id ?? "");
+    setPendingIcsFile(file);
+  }
+
+  function closeIcsChooser() {
+    setPendingIcsFile(null);
+    setIcsCalendarId("");
+  }
+
+  async function createIcsCalendar(name: string): Promise<string> {
+    const id = await putCalendar(session, { name, color: "#7aa2f7" });
+    await onRefresh();
+    setIcsCalendarId(id);
+    return id;
+  }
+
   return (
-    <div className="space-y-8 animate-fade-in-up">
-      {/* Header Info */}
-      <div className="border-b border-line pb-4">
-        <h2 className="text-xl font-semibold tracking-tight text-text">
-          Account Settings
-        </h2>
-        <p className="mt-1 text-sm text-mute">
-          Manage your identity, cryptographic credentials, backup recovery
-          phrase, and data.
-        </p>
-      </div>
+    <div className="grid gap-8 animate-fade-in-up lg:grid-cols-[220px_minmax(0,1fr)]">
+      <aside className="h-fit rounded-2xl border border-line bg-panel/75 p-3 shadow-sm lg:sticky lg:top-6">
+        <div className="px-3 pb-3 pt-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-mute/70">
+            Settings
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-mute">
+            Manage your Sealbook workspace
+          </p>
+        </div>
+        <nav className="flex gap-1 overflow-x-auto lg:flex-col" aria-label="Settings sections">
+          {([
+            ["account", "Account settings", "Identity, security, and recovery"],
+            ["contacts", "Contacts settings", "Import and export contacts"],
+            ["calendar", "Calendar settings", "Timezone and event display"],
+          ] as const).map(([id, label, description]) => (
+            <button
+              key={id}
+              type="button"
+              aria-current={activeSection === id ? "page" : undefined}
+              onClick={() => setActiveSection(id)}
+              className={`min-w-[190px] rounded-xl border px-3 py-3 text-left transition-colors lg:min-w-0 ${activeSection === id
+                ? "border-accent/30 bg-accent/10 text-text"
+                : "border-transparent text-mute hover:border-line hover:bg-surface/60 hover:text-text"
+                }`}
+            >
+              <span className="block text-sm font-semibold">{label}</span>
+              <span className="mt-1 block text-[11px] leading-relaxed text-mute">
+                {description}
+              </span>
+            </button>
+          ))}
+        </nav>
+      </aside>
 
-      {/* Section 1: Username */}
-      <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
-        <h3 className="text-base font-semibold text-text">Calendar timezone</h3>
-        <p className="mt-1 text-xs text-mute">Timed events are stored as UTC ISO 8601 timestamps and displayed in this timezone.</p>
-        <select value={timezone} onChange={(event) => onTimezoneChange(event.target.value)} className={`${field} mt-5`}>
-          {[...new Set([timezone, ...commonTimezones])].map((zone) => <option key={zone} value={zone}>{zone}</option>)}
-        </select>
-      </section>
+      <div className="min-w-0 space-y-8">
+        <div className="border-b border-line pb-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">
+            Preferences
+          </p>
+          <h2 className="mt-2 text-xl font-semibold tracking-tight text-text">
+            {activeSection === "account"
+              ? "Account settings"
+              : activeSection === "contacts"
+                ? "Contacts settings"
+                : "Calendar settings"}
+          </h2>
+          <p className="mt-1 text-sm text-mute">
+            {activeSection === "account"
+              ? "Manage your identity, cryptographic credentials, recovery phrase, and account data."
+              : activeSection === "contacts"
+                ? "Move contact data in and out of Sealbook while keeping your address books organized."
+                : "Choose how dates and times are displayed throughout your calendar."}
+          </p>
+        </div>
 
-      {/* Section 2: Username */}
+      {activeSection === "calendar" && (
+        <section className="rounded-2xl border border-line bg-panel/75 p-6 shadow-sm">
+          <h3 className="text-base font-semibold text-text">Calendar timezone</h3>
+          <select value={timezone} onChange={(event) => onTimezoneChange(event.target.value)} className={`${field} mt-5`}>
+            {[...new Set([timezone, ...allTimezones])].map((zone) => <option key={zone} value={zone}>{zone} [{utcOffsetLabel(zone)}]</option>)}
+          </select>
+          <div className="mt-8 border-t border-line pt-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-base font-semibold text-text">Import calendar</h3>
+                <p className="mt-1 text-xs leading-relaxed text-mute">Import events from an ICS file into one of your calendars.</p>
+              </div>
+              <input ref={icsInputRef} type="file" accept=".ics,text/calendar" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) chooseIcsFile(file); }} />
+              <button type="button" onClick={() => icsInputRef.current?.click()} disabled={importingIcs || calendars.length === 0} className={btnSecondary}>
+                {importingIcs ? "Importing..." : "Choose ICS file"}
+              </button>
+            </div>
+            {calendars.length === 0 ? <p className="mt-3 text-xs text-mute">Create a calendar before importing events.</p> : null}
+            {icsMessage ? <p className="mt-4 rounded-lg border border-line bg-bg px-3 py-2 text-xs text-mute">{icsMessage}</p> : null}
+          </div>
+        </section>
+      )}
+
+      {activeSection === "account" && <>
       <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -349,7 +461,6 @@ export function SettingsView({
         </form>
       </section>
 
-      {/* Section 2: Password */}
       <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
         <div>
           <h3 className="text-base font-semibold text-text">Change Password</h3>
@@ -406,7 +517,6 @@ export function SettingsView({
         </form>
       </section>
 
-      {/* Section 3: Backup Recovery Codes */}
       <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -531,16 +641,19 @@ export function SettingsView({
         )}
       </section>
 
-      {/* Section 4: Import & Export Contacts */}
-      <ImportExportSection
-        session={session}
-        contacts={contacts}
-        addressBooks={addressBooks}
-        onRefresh={onRefresh}
-        onCreateBook={onCreateBook}
-      />
+      </>}
 
-      {/* Section 5: Danger Zone - Delete Account */}
+      {activeSection === "contacts" && (
+        <ImportExportSection
+          session={session}
+          contacts={contacts}
+          addressBooks={addressBooks}
+          onRefresh={onRefresh}
+          onCreateBook={onCreateBook}
+        />
+      )}
+
+      {activeSection === "account" && <>
       <section className="rounded-2xl border border-danger/40 bg-danger/5 backdrop-blur-md p-6 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -621,6 +734,96 @@ export function SettingsView({
           </Modal>
         )}
       </section>
+      </>}
+      {importingIcs ? <ImportProgressModal current={icsProgress.current} total={icsProgress.total} /> : null}
+      {pendingIcsFile ? <IcsCalendarChooser file={pendingIcsFile} calendarId={icsCalendarId} calendars={calendars} onCalendarChange={setIcsCalendarId} onCreateCalendar={createIcsCalendar} onCancel={closeIcsChooser} onImport={() => { const file = pendingIcsFile; closeIcsChooser(); void importIcs(file); }} /> : null}
+      </div>
     </div>
+  );
+}
+
+function ImportProgressModal({ current, total }: { current: number; total: number }) {
+  const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+  return (
+    <Modal title="Importing calendar" onClose={() => undefined}>
+      <div className="p-6">
+        <p className="text-xs text-mute">Encrypting and saving events. Keep this window open.</p>
+        <div className="mt-5 h-2 overflow-hidden rounded-full bg-surface">
+          <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${percent}%` }} />
+        </div>
+        <p className="mt-2 text-right text-[11px] tabular-nums text-mute">
+          {total ? `${current} of ${total}` : "Preparing..."}
+        </p>
+      </div>
+    </Modal>
+  );
+}
+
+function IcsCalendarChooser({ file, calendarId, calendars, onCalendarChange, onCreateCalendar, onCancel, onImport }: { file: File; calendarId: string; calendars: Calendar[]; onCalendarChange: (value: string) => void; onCreateCalendar: (name: string) => Promise<string>; onCancel: () => void; onImport: () => void }) {
+  const [creatingCalendar, setCreatingCalendar] = useState(false);
+  const [newCalendarName, setNewCalendarName] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createBusy, setCreateBusy] = useState(false);
+
+  async function createCalendar() {
+    const name = newCalendarName.trim();
+    if (!name) return;
+    setCreateBusy(true);
+    setCreateError(null);
+    try {
+      await onCreateCalendar(name);
+      setNewCalendarName("");
+      setCreatingCalendar(false);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCreateBusy(false);
+    }
+  }
+
+  return (
+    <Modal title="Choose destination" onClose={onCancel}>
+      <div className="space-y-4 p-6">
+        <p className="truncate rounded-lg border border-line bg-bg px-3 py-2 text-xs text-mute" title={file.name}>
+          {file.name}
+        </p>
+        <label className="block text-xs font-medium text-mute">
+          Add events to
+          <select autoFocus value={calendarId} onChange={(event) => onCalendarChange(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-line bg-bg px-3 text-sm text-text outline-none focus:border-accent">
+            {calendars.map((calendar) => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}
+          </select>
+        </label>
+        {creatingCalendar ? (
+          <div className="rounded-lg border border-line bg-surface/50 p-3">
+            <label className="block text-xs font-medium text-mute">
+              New calendar name
+              <input
+                autoFocus
+                value={newCalendarName}
+                onChange={(event) => setNewCalendarName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void createCalendar();
+                }}
+                placeholder="Personal"
+                className={field}
+              />
+            </label>
+            {createError ? <p className="mt-2 text-xs text-danger">{createError}</p> : null}
+            <div className="mt-3 flex justify-end gap-2">
+              <button type="button" onClick={() => setCreatingCalendar(false)} className={btnSecondary} disabled={createBusy}>Cancel</button>
+              <button type="button" onClick={() => void createCalendar()} className={btnPrimary} disabled={createBusy || !newCalendarName.trim()}>{createBusy ? "Creating..." : "Create calendar"}</button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" onClick={() => setCreatingCalendar(true)} className="text-left text-xs font-medium text-accent transition-colors hover:text-text">
+            + Create a new calendar
+          </button>
+        )}
+        <div className="flex justify-end gap-2.5 pt-2">
+          <button type="button" onClick={onCancel} className={btnSecondary}>Cancel</button>
+          <button type="button" onClick={onImport} disabled={!calendarId} className={btnPrimary}>Import events</button>
+        </div>
+      </div>
+    </Modal>
   );
 }
