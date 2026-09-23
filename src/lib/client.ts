@@ -328,7 +328,11 @@ export async function pairPreview(
   return { pairId: resp.pair_id, confirm: resp.confirm, device: resp.device };
 }
 
-export async function pairApprove(session: Session, pairCode: string): Promise<string> {
+export async function pairApprove(
+  session: Session,
+  pairCode: string,
+  confirmation: string,
+): Promise<string> {
   const preview = await pairPreview(session, pairCode);
   const wrap = wrapCkForDevice(session.collectionKey, preview.device.xwing_hpke_pk);
   const grant = pairGrantSign(
@@ -353,6 +357,7 @@ export async function pairApprove(session: Session, pairCode: string): Promise<s
         ciphersuite: wrap.ciphersuite,
       },
       grant,
+      confirmation: confirmation.trim(),
     },
     session.token,
   );

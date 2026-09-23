@@ -790,7 +790,7 @@ export default function App() {
         setAddConfirm(preview.confirm);
         return;
       }
-      await pairApprove(session, addCode.trim());
+      await pairApprove(session, addCode.trim(), addConfirm);
       setAddCode("");
       setAddConfirm(null);
       setAdding(false);
