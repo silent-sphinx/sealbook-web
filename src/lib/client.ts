@@ -9,8 +9,10 @@ import {
   opaqueLoginStart,
   opaqueRegisterFinish,
   opaqueRegisterStart,
+  pairConfirmationCode,
   pairGrantSign,
   phraseVerifierB64,
+  phraseRecoveryProofB64,
   unwrapCk,
   unwrapPhrase,
   wrapCkForDevice,
@@ -273,7 +275,7 @@ export async function registerAccount(
           ciphersuite: enrollment.phrase_ciphersuite,
         },
       ],
-      phrase_verifier: enrollment.phrase_verifier,
+      phrase_recovery_pk: enrollment.phrase_recovery_pk,
     },
   );
   const state = deviceFromEnrollment(
@@ -300,10 +302,20 @@ export async function pairJoin(
     device: deviceBody(device),
     enrollment_signature: enrollSig(device),
   });
+  const confirm = pairConfirmationCode(
+    joined.pair_id,
+    device.device_id,
+    device.mldsa_pk,
+    device.ed25519_pk,
+    device.hpke_pk,
+  );
+  if (joined.confirm !== confirm) {
+    throw new Error("Pairing confirmation mismatch");
+  }
   return {
     pairId: joined.pair_id,
     pairCode: joined.pair_code,
-    confirm: joined.confirm,
+    confirm,
     state: deviceFromKeys(root, username, "", "", device),
   };
 }
@@ -313,10 +325,16 @@ export async function pairReady(server: string, pairCode: string): Promise<boole
   return status.status === "ready";
 }
 
+export type PairPreview = {
+  pairId: string;
+  confirm: string;
+  device: DevicePublic;
+};
+
 export async function pairPreview(
   session: Session,
   pairCode: string,
-): Promise<{ pairId: string; confirm: string; device: DevicePublic }> {
+): Promise<PairPreview> {
   const resp = await getJson<{
     pair_id: string;
     confirm: string;
@@ -331,10 +349,20 @@ export async function pairPreview(
 export async function pairApprove(
   session: Session,
   pairCode: string,
+  preview: PairPreview,
   confirmation: string,
 ): Promise<string> {
-  const preview = await pairPreview(session, pairCode);
   const wrap = wrapCkForDevice(session.collectionKey, preview.device.xwing_hpke_pk);
+  const confirm = pairConfirmationCode(
+    preview.pairId,
+    preview.device.device_id,
+    preview.device.mldsa_pk,
+    preview.device.ed25519_pk,
+    preview.device.xwing_hpke_pk,
+  );
+  if (preview.confirm !== confirm || confirmation.trim() !== confirm) {
+    throw new Error("Pairing confirmation mismatch");
+  }
   const grant = pairGrantSign(
     bytesFromJson(session.state.mldsa_seed),
     bytesFromJson(session.state.ed25519_sk),
@@ -344,7 +372,7 @@ export async function pairApprove(
     preview.device.mldsa_pk,
     preview.device.ed25519_pk,
     preview.device.xwing_hpke_pk,
-    preview.confirm,
+    confirm,
   );
   await postJson(
     `${apiRoot(session.state.server)}/v1/pair/${encodeURIComponent(pairCode)}/approve`,
@@ -357,7 +385,7 @@ export async function pairApprove(
         ciphersuite: wrap.ciphersuite,
       },
       grant,
-      confirmation: confirmation.trim(),
+      confirmation: confirm,
     },
     session.token,
   );
@@ -371,8 +399,15 @@ export async function recoverAccount(
   password: string,
 ): Promise<Session> {
   const root = apiRoot(server);
-  const started = await postJson<{ wrap: KeyWrap }>(`${root}/v1/recover/start`, { username });
   const words = phrase.trim().toLowerCase().split(/\s+/u).join(" ");
+  const started = await postJson<{
+    wrap: KeyWrap;
+    recovery_id: string;
+    challenge: string;
+  }>(`${root}/v1/recover/start`, {
+    username,
+    phrase_recovery_pk: phraseVerifierB64(words),
+  });
   const ck = unwrapPhrase(words, started.wrap.hpke_enc, started.wrap.wrapped_ck);
   const device = createDevice();
   const wrap = wrapCkForDevice(ck, device.hpke_pk);
@@ -380,7 +415,18 @@ export async function recoverAccount(
     `${root}/v1/recover/finish`,
     {
       username,
-      phrase_verifier: phraseVerifierB64(words),
+      recovery_id: started.recovery_id,
+      challenge: started.challenge,
+      phrase_proof: phraseRecoveryProofB64(
+        words,
+        username,
+        started.recovery_id,
+        started.challenge,
+        device.device_id,
+        device.mldsa_pk,
+        device.ed25519_pk,
+        device.hpke_pk,
+      ),
       device: deviceBody(device),
       enrollment_signature: enrollSig(device),
       wrap: {
@@ -716,7 +762,7 @@ export async function changePassword(
 ): Promise<Session> {
   const root = apiRoot(session.state.server);
   const start = opaqueRegisterStart(newPassword);
-  const startRes = await postJson<{ response: string }>(
+  const startRes = await postJson<{ password_change_id: string; response: string }>(
     `${root}/v1/account/password/start`,
     {
       request: start.request,
@@ -732,6 +778,7 @@ export async function changePassword(
   await postJson<{ status: string }>(
     `${root}/v1/account/password`,
     {
+      password_change_id: startRes.password_change_id,
       upload,
       kdf_salt: wrap.kdf_salt,
       recovery_nonce: wrap.recovery_nonce,
@@ -750,7 +797,7 @@ export async function rotatePhrase(session: Session): Promise<string> {
   await postJson<{ status: string }>(
     `${root}/v1/account/phrase`,
     {
-      phrase_verifier: phraseOut.phrase_verifier,
+      phrase_recovery_pk: phraseOut.phrase_recovery_pk,
       phrase_nonce: phraseOut.phrase_nonce,
       phrase_wrapped_ck: phraseOut.phrase_wrapped_ck,
       phrase_ciphersuite: phraseOut.phrase_ciphersuite,

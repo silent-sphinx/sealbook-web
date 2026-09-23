@@ -437,6 +437,7 @@ export default function App() {
   const [pairApproved, setPairApproved] = useState(false);
   const [addCode, setAddCode] = useState("");
   const [addConfirm, setAddConfirm] = useState<string | null>(null);
+  const [addPreview, setAddPreview] = useState<Awaited<ReturnType<typeof pairPreview>> | null>(null);
   const [adding, setAdding] = useState(false);
   const [copied, setCopied] = useState(false);
   const [search, setSearch] = useState("");
@@ -787,12 +788,17 @@ export default function App() {
     try {
       if (!addConfirm) {
         const preview = await pairPreview(session, addCode.trim());
+        setAddPreview(preview);
         setAddConfirm(preview.confirm);
         return;
       }
-      await pairApprove(session, addCode.trim(), addConfirm);
+      if (!addPreview) {
+        throw new Error("Pairing preview expired");
+      }
+      await pairApprove(session, addCode.trim(), addPreview, addConfirm);
       setAddCode("");
       setAddConfirm(null);
+      setAddPreview(null);
       setAdding(false);
     } catch (err) {
       setError(friendlyError(err));

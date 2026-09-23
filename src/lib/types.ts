@@ -157,7 +157,7 @@ export type Enrollment = {
   phrase: string;
   phrase_nonce: string;
   phrase_wrapped_ck: string;
-  phrase_verifier: string;
+  phrase_recovery_pk: string;
   phrase_ciphersuite: string;
   xwing_ciphersuite: string;
   recovery_ciphersuite: string;
@@ -206,6 +206,6 @@ export type PhraseWrapOut = {
   phrase: string;
   phrase_nonce: string;
   phrase_wrapped_ck: string;
-  phrase_verifier: string;
+  phrase_recovery_pk: string;
   phrase_ciphersuite: string;
 };

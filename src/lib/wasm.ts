@@ -9,8 +9,10 @@ import init, {
   opaque_login_start,
   opaque_register_finish,
   opaque_register_start,
+  pair_confirmation_code,
   pair_grant_sign,
-  phrase_verifier_b64,
+  phrase_recovery_pk_b64,
+  phrase_recovery_proof_b64,
   unwrap_ck,
   unwrap_phrase,
   wrap_ck_for_device,
@@ -32,6 +34,16 @@ export async function initWasm(): Promise<void> {
 
 export function wrapCkForPassword(ck: string, password: string): PasswordWrapOut {
   return JSON.parse(wrap_ck_for_password(ck, password)) as PasswordWrapOut;
+}
+
+export function pairConfirmationCode(
+  pairId: string,
+  deviceId: string,
+  mldsaPk: string,
+  ed25519Pk: string,
+  hpkePk: string,
+): string {
+  return pair_confirmation_code(pairId, deviceId, mldsaPk, ed25519Pk, hpkePk);
 }
 
 export function generateNewPhrase(ck: string): PhraseWrapOut {
@@ -70,7 +82,29 @@ export function unwrapPhrase(phrase: string, nonce: string, wrappedCk: string): 
 }
 
 export function phraseVerifierB64(phrase: string): string {
-  return phrase_verifier_b64(phrase);
+  return phrase_recovery_pk_b64(phrase);
+}
+
+export function phraseRecoveryProofB64(
+  phrase: string,
+  username: string,
+  recoveryId: string,
+  challenge: string,
+  deviceId: string,
+  mldsaPk: string,
+  ed25519Pk: string,
+  hpkePk: string,
+): string {
+  return phrase_recovery_proof_b64(
+    phrase,
+    username,
+    recoveryId,
+    challenge,
+    deviceId,
+    mldsaPk,
+    ed25519Pk,
+    hpkePk,
+  );
 }
 
 export function pairGrantSign(
