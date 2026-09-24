@@ -734,6 +734,7 @@ export async function changeUsername(
   newUsername: string,
   currentPassword: string,
 ): Promise<Session> {
+  const freshSession = await loginAccount(session.state, currentPassword);
   const root = apiRoot(session.state.server);
   const start = opaqueRegisterStart(currentPassword);
   const startRes = await postJson<{ response: string }>(
@@ -754,31 +755,33 @@ export async function changeUsername(
       new_username: newUsername,
       upload,
     },
-    session.token,
+    freshSession.token,
   );
-  const updatedState = { ...session.state, username: newUsername };
-  return { ...session, state: updatedState };
+  const updatedState = { ...freshSession.state, username: newUsername };
+  return loginAccount(updatedState, currentPassword);
 }
 
 export async function changePassword(
   session: Session,
+  currentPassword: string,
   newPassword: string,
 ): Promise<Session> {
-  const root = apiRoot(session.state.server);
+  const freshSession = await loginAccount(session.state, currentPassword);
+  const root = apiRoot(freshSession.state.server);
   const start = opaqueRegisterStart(newPassword);
   const startRes = await postJson<{ password_change_id: string; response: string }>(
     `${root}/v1/account/password/start`,
     {
       request: start.request,
     },
-    session.token,
+    freshSession.token,
   );
   const upload = opaqueRegisterFinish(
     start.state,
     newPassword,
     startRes.response,
   );
-  const wrap = wrapCkForPassword(session.collectionKey, newPassword);
+  const wrap = wrapCkForPassword(freshSession.collectionKey, newPassword);
   await postJson<{ status: string }>(
     `${root}/v1/account/password`,
     {
@@ -789,10 +792,10 @@ export async function changePassword(
       recovery_wrapped_ck: wrap.recovery_wrapped_ck,
       recovery_ciphersuite: wrap.recovery_ciphersuite,
     },
-    session.token,
+    freshSession.token,
   );
-  const updatedState = { ...session.state, kdf_salt: wrap.kdf_salt };
-  return { ...session, state: updatedState };
+  const updatedState = { ...freshSession.state, kdf_salt: wrap.kdf_salt };
+  return loginAccount(updatedState, newPassword);
 }
 
 export async function rotatePhrase(session: Session): Promise<string> {
@@ -811,8 +814,9 @@ export async function rotatePhrase(session: Session): Promise<string> {
   return phraseOut.phrase;
 }
 
-export async function deleteAccount(session: Session): Promise<void> {
-  const root = apiRoot(session.state.server);
-  await deleteJson<{ status: string }>(`${root}/v1/account`, session.token);
+export async function deleteAccount(session: Session, currentPassword: string): Promise<void> {
+  const freshSession = await loginAccount(session.state, currentPassword);
+  const root = apiRoot(freshSession.state.server);
+  await deleteJson<{ status: string }>(`${root}/v1/account`, freshSession.token);
 }
 

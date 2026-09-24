@@ -69,7 +69,9 @@ export function SettingsView({
   } | null>(null);
 
   // Password state
+  const [passwordCurrent, setPasswordCurrent] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [passwordCurrent, setPasswordCurrent] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [passwordMsg, setPasswordMsg] = useState<{
@@ -90,6 +92,7 @@ export function SettingsView({
   // Delete account state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deletePassword, setDeletePassword] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -155,6 +158,10 @@ export function SettingsView({
     e.preventDefault();
     setPasswordMsg(null);
     if (!newPassword) return;
+    if (!passwordCurrent) {
+      setPasswordMsg({ type: "error", text: "Please enter your current password to confirm." });
+      return;
+    }
     if (newPassword.length < 8) {
       setPasswordMsg({
         type: "error",
@@ -172,9 +179,10 @@ export function SettingsView({
 
     setPasswordBusy(true);
     try {
-      const updated = await changePassword(session, newPassword);
+      const updated = await changePassword(session, passwordCurrent, newPassword);
       await onPersistSession(updated, newPassword);
       onSessionUpdate(updated);
+      setPasswordCurrent("");
       setNewPassword("");
       setConfirmPassword("");
       setPasswordMsg({
@@ -267,10 +275,14 @@ export function SettingsView({
       );
       return;
     }
+    if (!deletePassword) {
+      setDeleteError("Please enter your current password to confirm deletion.");
+      return;
+    }
     setDeleteBusy(true);
     setDeleteError(null);
     try {
-      await deleteAccount(session);
+      await deleteAccount(session, deletePassword);
       clearDevice();
       setShowDeleteModal(false);
       onAccountDeleted();
@@ -470,6 +482,20 @@ export function SettingsView({
         <form onSubmit={handleChangePassword} className="mt-6 space-y-4">
           <div>
             <label className="block text-xs font-medium text-text">
+              Current Password
+            </label>
+            <input
+              type="password"
+              value={passwordCurrent}
+              onChange={(e) => setPasswordCurrent(e.target.value)}
+              placeholder="Current password"
+              className={field}
+              autoComplete="current-password"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-text">
               New Password
             </label>
             <input
@@ -510,7 +536,7 @@ export function SettingsView({
           <div className="flex justify-end pt-1">
             <button
               type="submit"
-              disabled={passwordBusy || !newPassword || !confirmPassword}
+              disabled={passwordBusy || !passwordCurrent || !newPassword || !confirmPassword}
               className={btnPrimary}
             >
               {passwordBusy ? "Updating…" : "Change Password"}
@@ -669,6 +695,7 @@ export function SettingsView({
             type="button"
             onClick={() => {
               setDeleteConfirmText("");
+              setDeletePassword("");
               setDeleteError(null);
               setShowDeleteModal(true);
             }}
@@ -707,6 +734,15 @@ export function SettingsView({
                 autoFocus
               />
 
+              <input
+                type="password"
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                placeholder="Current password"
+                className={field}
+                autoComplete="current-password"
+              />
+
               {deleteError && (
                 <p className="text-xs text-danger">{deleteError}</p>
               )}
@@ -724,7 +760,8 @@ export function SettingsView({
                   type="button"
                   disabled={
                     deleteBusy ||
-                    deleteConfirmText.trim() !== session.state.username
+                    deleteConfirmText.trim() !== session.state.username ||
+                    !deletePassword
                   }
                   className={`${btnDanger} px-5`}
                   onClick={handleDeleteAccount}
