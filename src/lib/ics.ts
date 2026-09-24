@@ -134,3 +134,33 @@ export function parseIcs(input: string, timezone: string, calendarId?: string): 
   }
   return events;
 }
+
+export function parseCalendarImport(input: string, timezone: string, calendarId?: string): Omit<CalendarEvent, "id">[] {
+  if (!input.trimStart().startsWith("[") && !input.trimStart().startsWith("{")) {
+    return parseIcs(input, timezone, calendarId);
+  }
+
+  const parsed: unknown = JSON.parse(input);
+  const entries = Array.isArray(parsed) ? parsed : [parsed];
+  return entries.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const record = entry as Record<string, unknown>;
+    const payload = typeof record.payload === "string" ? JSON.parse(record.payload) : record;
+    if (!payload || typeof payload !== "object") return [];
+    const event = payload as Record<string, unknown>;
+    if (typeof event.title !== "string" || typeof event.start !== "string") return [];
+    return [{
+      title: event.title,
+      start: event.start,
+      end: typeof event.end === "string" ? event.end : undefined,
+      notes: typeof event.notes === "string" ? event.notes : undefined,
+      location: typeof event.location === "string" ? event.location : undefined,
+      participants: Array.isArray(event.participants)
+        ? event.participants.filter((participant): participant is string => typeof participant === "string")
+        : undefined,
+      timezone: typeof event.timezone === "string" ? event.timezone : timezone,
+      calendarId: calendarId || (typeof event.calendarId === "string" ? event.calendarId : undefined),
+      recurrence: event.recurrence as CalendarEvent["recurrence"],
+    }];
+  });
+}

@@ -177,7 +177,9 @@ export function CalendarView({
   const [error, setError] = useState<string | null>(null);
   const days = useMemo(() => monthDays(month), [month]);
   const filtered = useMemo(
-    () => events.filter((event) => !event.calendarId || !hiddenCalendarIds.has(event.calendarId))
+    () => events
+      .filter((event) => !event.calendarId || calendars.some((calendar) => calendar.id === event.calendarId))
+      .filter((event) => !event.calendarId || !hiddenCalendarIds.has(event.calendarId))
       .filter((event) => event.title.toLowerCase().includes(search.trim().toLowerCase()))
       .sort((a, b) => {
         const aStart = a.start;
@@ -187,7 +189,7 @@ export function CalendarView({
         const bEnd = b.end || b.start;
         return bEnd.localeCompare(aEnd);
       }),
-    [events, hiddenCalendarIds, search],
+    [calendars, events, hiddenCalendarIds, search],
   );
   const visibleEvents = useMemo(() => expandCalendarEvents(filtered, days[0], days[days.length - 1], timezone), [days, filtered, timezone]);
   const spans = useMemo(
@@ -298,7 +300,7 @@ export function CalendarView({
   }
 
   async function saveEvent() {
-    if (!title.trim() || calendars.length === 0) return;
+    if (!title.trim() || calendars.length === 0 || !calendars.some((calendar) => calendar.id === eventCalendarId)) return;
     setError(null);
     try {
       const day = start.slice(0, 10);

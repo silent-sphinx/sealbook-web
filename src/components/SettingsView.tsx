@@ -8,7 +8,7 @@ import {
   putCalendarEvent,
   rotatePhrase,
 } from "../lib/client";
-import { parseIcs } from "../lib/ics";
+import { parseCalendarImport } from "../lib/ics";
 import { formatRecoveryWordsFile } from "../lib/phrase";
 import { clearDevice } from "../lib/storage";
 import {
@@ -22,8 +22,8 @@ import { allTimezones, utcOffsetLabel } from "../lib/timezone";
 import { Modal } from "./Modal";
 import { ImportExportSection } from "./ImportExportSection";
 
-const MAX_ICS_FILE_BYTES = 5 * 1024 * 1024;
-const MAX_ICS_EVENTS = 1_000;
+const MAX_CALENDAR_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_CALENDAR_EVENTS = 1_000;
 
 type Props = {
   session: Session;
@@ -309,10 +309,10 @@ export function SettingsView({
     setIcsProgress({ current: 0, total: 0 });
     setIcsMessage(null);
     try {
-      if (file.size > MAX_ICS_FILE_BYTES) throw new Error("ICS files must be 5 MB or smaller.");
-      const imported = parseIcs(await file.text(), timezone, icsCalendarId);
-      if (imported.length === 0) throw new Error("No VEVENT entries were found in that file.");
-      if (imported.length > MAX_ICS_EVENTS) throw new Error("ICS files may contain at most 1,000 events.");
+      if (file.size > MAX_CALENDAR_FILE_BYTES) throw new Error("Calendar files must be 5 MB or smaller.");
+      const imported = parseCalendarImport(await file.text(), timezone, icsCalendarId);
+      if (imported.length === 0) throw new Error("No calendar events were found in that file.");
+      if (imported.length > MAX_CALENDAR_EVENTS) throw new Error("Calendar files may contain at most 1,000 events.");
       setIcsProgress({ current: 0, total: imported.length });
       for (let index = 0; index < imported.length; index += 1) {
         await putCalendarEvent(session, imported[index]);
@@ -412,11 +412,11 @@ export function SettingsView({
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-base font-semibold text-text">Import calendar</h3>
-                <p className="mt-1 text-xs leading-relaxed text-mute">Import events from an ICS file into one of your calendars.</p>
+                <p className="mt-1 text-xs leading-relaxed text-mute">Import events from an ICS or JSON file into one of your calendars.</p>
               </div>
-              <input ref={icsInputRef} type="file" accept=".ics,text/calendar" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) chooseIcsFile(file); }} />
+              <input ref={icsInputRef} type="file" accept=".ics,.json,text/calendar,application/json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) chooseIcsFile(file); }} />
               <button type="button" onClick={() => icsInputRef.current?.click()} disabled={importingIcs || calendars.length === 0} className={btnSecondary}>
-                {importingIcs ? "Importing..." : "Choose ICS file"}
+                {importingIcs ? "Importing..." : "Choose calendar file"}
               </button>
             </div>
             {calendars.length === 0 ? <p className="mt-3 text-xs text-mute">Create a calendar before importing events.</p> : null}

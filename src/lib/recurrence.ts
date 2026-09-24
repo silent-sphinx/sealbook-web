@@ -81,21 +81,27 @@ export function expandCalendarEvents(events: CalendarEvent[], from: Date, to: Da
       if (anchor <= to && anchor >= from) output.push({ ...event, sourceId: event.id, occurrenceKey: dateKey(anchor) });
       continue;
     }
-    const until = rule.until ? new Date(`${rule.until}T23:59:59`) : null;
+    const untilKey = rule.until?.slice(0, 10);
     let occurrenceCount = 0;
-    const cursor = new Date(Math.max(anchor.getTime(), from.getTime()));
+    const cursor = new Date(anchor);
     cursor.setHours(0, 0, 0, 0);
     let iterations = 0;
     while (cursor <= to && iterations < MAX_RECURRENCE_ITERATIONS) {
       iterations += 1;
-      if (until && cursor > until) break;
+      if (untilKey && dateKey(cursor) > untilKey) break;
       if (matchesRule(cursor, anchor, rule)) {
         occurrenceCount += 1;
-        if (cursor >= from && (!rule.count || occurrenceCount <= rule.count)) output.push(sameTime(event, cursor, timezone));
+        if (cursor >= from && (!rule.count || occurrenceCount <= rule.count)) {
+          const occurrence = sameTime(event, cursor, timezone);
+          output.push(occurrence);
+        }
         if (rule.count && occurrenceCount >= rule.count) break;
       }
       cursor.setDate(cursor.getDate() + 1);
     }
   }
-  return output;
+  return output.filter((event) => {
+    const untilKey = event.recurrence?.until?.slice(0, 10);
+    return !untilKey || event.occurrenceKey <= untilKey;
+  });
 }
