@@ -367,49 +367,6 @@ const TABS: { id: MainTab; label: string; icon: React.ReactNode }[] = [
   { id: "settings", label: "Settings", icon: <SettingsIcon /> },
 ];
 
-// Empty state illustration
-function EmptyContacts({
-  onAdd,
-  bookName,
-}: {
-  onAdd: () => void;
-  bookName?: string;
-}) {
-  return (
-    <div className="flex flex-col items-center justify-center py-20 animate-fade-in-up">
-      <div className="flex h-20 w-20 items-center justify-center rounded-full bg-surface border border-line">
-        <svg
-          className="h-9 w-9 text-mute/50"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
-        </svg>
-      </div>
-      <p className="mt-5 text-[15px] font-medium text-text">
-        {bookName ? `No contacts in ${bookName}` : "No contacts yet"}
-      </p>
-      <p className="mt-1 text-sm text-mute">
-        {bookName
-          ? "Add a contact to this address book."
-          : "Add your first contact to get started."}
-      </p>
-      <button
-        type="button"
-        className="mt-6 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98]"
-        onClick={onAdd}
-      >
-        <PlusIcon />
-        Add contact
-      </button>
-    </div>
-  );
-}
-
 export default function App() {
   const initial = loadDeviceMetadata();
   const [stored, setStored] = useState<DeviceMetadata | null>(initial);
@@ -549,21 +506,12 @@ export default function App() {
         void lock();
       }, IDLE_TIMEOUT_MS);
     };
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        void lock();
-      } else {
-        resetIdleTimer();
-      }
-    };
     const events = ["pointerdown", "keydown", "touchstart"] as const;
     events.forEach((event) => window.addEventListener(event, resetIdleTimer));
-    document.addEventListener("visibilitychange", onVisibilityChange);
     resetIdleTimer();
     return () => {
       window.clearTimeout(timeoutId);
       events.forEach((event) => window.removeEventListener(event, resetIdleTimer));
-      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [session]);
 
@@ -1725,7 +1673,7 @@ export default function App() {
       ) : (
         <main className="mx-auto px-5 pb-24 pt-6">
           {/* Address books + search */}
-          <div className="relative z-20 mb-6 animate-fade-in-up">
+          <div className="relative z-20 mb-[14px] grid gap-3 animate-fade-in-up">
             <div className="flex items-center gap-3">
               <AddressBookMenu
                 books={addressBooks}
@@ -1745,35 +1693,28 @@ export default function App() {
                 <PlusIcon />
               </button>
             </div>
-            {contacts.length > 0 ? (
-              <div className="relative mt-3">
-                <SearchIcon />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search contacts…"
-                  aria-label="Search contacts"
-                  className={`${searchField} pl-10`}
-                />
-              </div>
-            ) : null}
+            <div className="relative">
+              <SearchIcon />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={
+                  contacts.length > 0
+                    ? `Search ${contacts.length} contacts…`
+                    : "Search contacts…"
+                }
+                aria-label="Search contacts"
+                className={`${searchField} h-[42px] pl-10`}
+              />
+            </div>
           </div>
 
           {error && !composing && !editingContact && !deletingContact && !deletingAddressBook ? (
             <p className="mt-4 text-sm text-danger">{error}</p>
           ) : null}
 
-          {filtered.length === 0 && !search.trim() ? (
-            <EmptyContacts
-              bookName={
-                bookFilter === ALL_ADDRESS_BOOKS
-                  ? undefined
-                  : bookNameById(addressBooks, bookFilter)
-              }
-              onAdd={openComposer}
-            />
-          ) : filtered.length === 0 ? (
+          {filtered.length === 0 && search.trim() ? (
             <div className="flex flex-col items-center py-16 animate-fade-in-up">
               <p className="text-sm text-mute">
                 No contacts matching "{search}"
@@ -1781,11 +1722,7 @@ export default function App() {
             </div>
           ) : (
             <>
-              <p className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-mute/60">
-                {filtered.length} {filtered.length === 1 ? "contact" : "contacts"}
-                {search.trim() ? " found" : ""}
-              </p>
-              <ul className="divide-y divide-line">
+              <ul className="overflow-hidden rounded-xl border border-line/80 bg-panel/25">
                 {filtered.map((card) => (
                   <ContactCard
                     key={card.id}

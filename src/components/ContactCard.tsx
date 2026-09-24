@@ -21,32 +21,38 @@ export function ContactCard({
 
   return (
     <li
-      className="group flex items-center gap-3 py-3 px-2 -mx-2 rounded-xl transition-colors duration-150 hover:bg-surface/60 cursor-pointer"
-      onClick={() => onSelect?.(contact)}
+      className="group flex items-center gap-3 overflow-hidden border-b border-line/80 transition-colors duration-150 last:border-b-0 hover:bg-surface/60"
     >
-      <Avatar name={contact.name} avatar={contact.avatar} />
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-medium tracking-tight text-text">
-          {contact.name}
-          {contact.nickname ? (
-            <span className="ml-1.5 font-normal text-xs text-mute">
-              "{contact.nickname}"
-            </span>
+      <button
+        type="button"
+        aria-label={`View ${contact.name}`}
+        onClick={() => onSelect?.(contact)}
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-4 py-3 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-accent-ring"
+      >
+        <Avatar name={contact.name} avatar={contact.avatar} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium tracking-tight text-text">
+            {contact.name}
+            {contact.nickname ? (
+              <span className="ml-1.5 font-normal text-xs text-mute">
+                "{contact.nickname}"
+              </span>
+            ) : null}
+          </p>
+          {subtitle ? (
+            <p className="mt-0.5 truncate text-xs text-mute">{subtitle}</p>
           ) : null}
-        </p>
-        {subtitle ? (
-          <p className="truncate text-xs text-mute mt-0.5">{subtitle}</p>
-        ) : null}
-      </div>
+        </div>
 
-      {bookName ? (
-        <span className="max-w-[35%] shrink-0 truncate rounded-full bg-surface border border-line px-2 py-0.5 text-[11px] text-mute font-medium">
-          {bookName}
-        </span>
-      ) : null}
+        {bookName ? (
+          <span className="max-w-[35%] shrink-0 truncate rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium text-mute">
+            {bookName}
+          </span>
+        ) : null}
+      </button>
 
       {onEdit || onDelete ? (
-        <div className="flex items-center gap-0.5 shrink-0 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity">
+        <div className="pointer-events-none flex max-w-0 shrink-0 self-stretch items-stretch justify-end overflow-hidden opacity-0 transition-[max-width,opacity] duration-200 group-hover:pointer-events-auto group-hover:max-w-[5.5rem] group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:max-w-[5.5rem] group-focus-within:opacity-100">
           {onEdit ? (
             <button
               type="button"
@@ -56,7 +62,7 @@ export function ContactCard({
                 e.stopPropagation();
                 onEdit(contact);
               }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-mute transition-all duration-150 hover:bg-surface hover:text-text active:scale-95 cursor-pointer"
+              className="flex h-full w-14 items-center justify-center bg-yellow-400/15 text-yellow-300 transition-colors duration-150 hover:bg-yellow-400/25 active:brightness-125 cursor-pointer"
             >
               <EditIcon className="h-4 w-4" />
             </button>
@@ -71,7 +77,7 @@ export function ContactCard({
                 e.stopPropagation();
                 onDelete(contact);
               }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-mute transition-all duration-150 hover:bg-danger/15 hover:text-danger active:scale-95 cursor-pointer"
+              className="flex h-full w-14 items-center justify-center bg-danger/15 text-danger transition-colors duration-150 hover:bg-danger/25 active:brightness-125 cursor-pointer"
             >
               <TrashIcon className="h-4 w-4" />
             </button>

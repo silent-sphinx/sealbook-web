@@ -599,31 +599,37 @@ export async function listVault(
   for (const obj of latestByObject.values()) {
     let raw: string;
     let contentType = obj.content_type;
+    let tombstone = obj.tombstone;
     try {
       const decrypted = decryptContact(collectionKey, obj.id, state.collection_id, obj.nonce, obj.ciphertext, obj.padded_size);
       const envelope = JSON.parse(decrypted) as Partial<SealedPayload>;
       if (envelope.version === 1) {
-        if (envelope.contentType !== obj.content_type || envelope.tombstone !== obj.tombstone || envelope.revision !== obj.revision || typeof envelope.payload !== "string") continue;
+        if (typeof envelope.payload !== "string" || typeof envelope.contentType !== "string" || typeof envelope.tombstone !== "boolean") continue;
         raw = envelope.payload;
         contentType = envelope.contentType;
+        tombstone = envelope.tombstone;
       } else {
         raw = decrypted;
       }
     } catch {
       continue;
     }
-    if (obj.tombstone) continue;
-    sealed.push(obj);
-    if (contentType === CALENDAR_EVENT_CONTENT_TYPE || isCalendarEventPayload(raw)) {
-      const value = JSON.parse(raw) as { title?: string; start?: string; end?: string; notes?: string; location?: string; participants?: string[]; timezone?: string; calendarId?: string; recurrence?: CalendarEvent["recurrence"] };
-      calendarEvents.push({ id: obj.id, title: value.title?.trim() || "Untitled event", start: value.start ?? "", end: value.end, notes: value.notes, location: value.location, participants: value.participants, timezone: value.timezone, calendarId: value.calendarId, recurrence: value.recurrence });
-    } else if (contentType === CALENDAR_CONTENT_TYPE || isCalendarPayload(raw)) {
-      const value = JSON.parse(raw) as { name?: string; color?: string };
-      calendars.push({ id: obj.id, name: value.name?.trim() || "Untitled calendar", color: value.color || "#7aa2f7" });
-    } else if (contentType === ADDRESS_BOOK_CONTENT_TYPE || isAddressBookPayload(raw)) {
-      addressBooks.push(parseAddressBook(obj.id, raw));
-    } else {
-      contacts.push(parseContact(obj.id, raw, obj.ciphertext, obj.padded_size));
+    if (tombstone) continue;
+    try {
+      sealed.push(obj);
+      if (contentType === CALENDAR_EVENT_CONTENT_TYPE || isCalendarEventPayload(raw)) {
+        const value = JSON.parse(raw) as { title?: string; start?: string; end?: string; notes?: string; location?: string; participants?: string[]; timezone?: string; calendarId?: string; recurrence?: CalendarEvent["recurrence"] };
+        calendarEvents.push({ id: obj.id, title: value.title?.trim() || "Untitled event", start: value.start ?? "", end: value.end, notes: value.notes, location: value.location, participants: value.participants, timezone: value.timezone, calendarId: value.calendarId, recurrence: value.recurrence });
+      } else if (contentType === CALENDAR_CONTENT_TYPE || isCalendarPayload(raw)) {
+        const value = JSON.parse(raw) as { name?: string; color?: string };
+        calendars.push({ id: obj.id, name: value.name?.trim() || "Untitled calendar", color: value.color || "#7aa2f7" });
+      } else if (contentType === ADDRESS_BOOK_CONTENT_TYPE || isAddressBookPayload(raw)) {
+        addressBooks.push(parseAddressBook(obj.id, raw));
+      } else {
+        contacts.push(parseContact(obj.id, raw, obj.ciphertext, obj.padded_size));
+      }
+    } catch {
+      sealed.pop();
     }
   }
   return { sealed, addressBooks: sortAddressBooks(addressBooks), contacts: sortContacts(contacts), calendars, calendarEvents };
