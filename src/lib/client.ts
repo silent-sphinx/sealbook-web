@@ -138,6 +138,10 @@ export type Session = {
   token: string;
 };
 
+export async function revokeSession(session: Session): Promise<void> {
+  await deleteJson(`${apiRoot(session.state.server)}/v1/session`, session.token);
+}
+
 function deviceFromSecrets(
   server: string,
   username: string,

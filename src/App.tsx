@@ -25,6 +25,7 @@ import {
   putContact,
   recoverAccount,
   registerAccount,
+  revokeSession,
   type Session,
 } from "./lib/client";
 import {
@@ -43,8 +44,10 @@ import {
   clearDevice,
   loadConnectionDomain,
   loadDevice,
+  loadDeviceMetadata,
   saveConnectionDomain,
   saveDevice,
+  type DeviceMetadata,
 } from "./lib/storage";
 import { browserTimezone } from "./lib/timezone";
 import {
@@ -64,6 +67,7 @@ type MainTab = "contacts" | "calendar" | "settings";
 
 const LAST_TAB_KEY = "sealbook.last-tab";
 const TIMEZONE_KEY = "sealbook.timezone";
+const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
 function loadTimezone(): string {
   try {
@@ -407,8 +411,8 @@ function EmptyContacts({
 }
 
 export default function App() {
-  const initial = loadDevice();
-  const [stored, setStored] = useState<DeviceState | null>(initial);
+  const initial = loadDeviceMetadata();
+  const [stored, setStored] = useState<DeviceMetadata | null>(initial);
   const [mode, setMode] = useState<Mode>(initial ? "signin" : "register");
   const [screen, setScreen] = useState<Screen>("auth");
   const [username, setUsername] = useState(initial?.username ?? "");
@@ -537,6 +541,33 @@ export default function App() {
   }, [screen, pairId, pairApproved]);
 
   useEffect(() => {
+    if (!session) return;
+    let timeoutId = 0;
+    const resetIdleTimer = () => {
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => {
+        void lock();
+      }, IDLE_TIMEOUT_MS);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        void lock();
+      } else {
+        resetIdleTimer();
+      }
+    };
+    const events = ["pointerdown", "keydown", "touchstart"] as const;
+    events.forEach((event) => window.addEventListener(event, resetIdleTimer));
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    resetIdleTimer();
+    return () => {
+      window.clearTimeout(timeoutId);
+      events.forEach((event) => window.removeEventListener(event, resetIdleTimer));
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [session]);
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("pair") !== "1" || stored || session) {
       return;
@@ -562,11 +593,17 @@ export default function App() {
       .finally(() => setBusy(false));
   }, [connectionDomain, session, stored]);
 
-  async function openSession(next: Session) {
-    saveDevice(next.state);
+  async function openSession(next: Session, passwordForStorage: string) {
+    await saveDevice(next.state, passwordForStorage);
     setStored(next.state);
     setSession(next);
     await refresh(next);
+  }
+
+  async function persistSession(next: Session, passwordForStorage: string) {
+    await saveDevice(next.state, passwordForStorage);
+    setStored(next.state);
+    setSession(next);
   }
 
   async function refresh(next: Session) {
@@ -622,10 +659,18 @@ export default function App() {
     setError(null);
   }
 
-  function lock() {
+  async function lock() {
+    const active = session;
     setSession(null);
     setPassword("");
     resetVaultState();
+    if (active) {
+      try {
+        await revokeSession(active);
+      } catch {
+        // Local lock still protects the in-memory vault if the server is unavailable.
+      }
+    }
   }
 
   function backToAuth() {
@@ -639,11 +684,10 @@ export default function App() {
     }
   }
 
-  function signOut() {
+  async function signOut() {
+    await lock();
     clearDevice();
     setStored(null);
-    setSession(null);
-    resetVaultState();
     resetPair();
     setUsername("");
     setPassword("");
@@ -658,7 +702,7 @@ export default function App() {
         "Sign out and remove this device's keys? You'll need to pair again or use your recovery words.",
       )
     ) {
-      signOut();
+      void signOut();
     }
   }
 
@@ -670,7 +714,11 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
-      await openSession(await loginAccount(stored, password));
+      const unlocked = await loadDevice(password);
+      if (!unlocked) {
+        throw new Error("Wrong password");
+      }
+      await openSession(await loginAccount(unlocked, password), password);
     } catch (err) {
       setError(friendlyError(err));
     } finally {
@@ -690,7 +738,7 @@ export default function App() {
       );
       const defaultTimezone = rememberBrowserTimezone();
       setTimezoneState(defaultTimezone);
-      saveDevice(next.state);
+      await saveDevice(next.state, password);
       setStored(next.state);
       setSession(next);
       setPhrase(words);
@@ -734,7 +782,7 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
-      await openSession(await loginAccount(pairState, password));
+      await openSession(await loginAccount(pairState, password), password);
       setScreen("auth");
       resetPair();
     } catch (err) {
@@ -766,6 +814,7 @@ export default function App() {
           words.join(" "),
           password,
         ),
+        password,
       );
       setScreen("auth");
       setPhrase("");
@@ -1659,6 +1708,7 @@ export default function App() {
             addressBooks={addressBooks}
             calendars={calendars}
             onSessionUpdate={(updated) => setSession(updated)}
+            onPersistSession={persistSession}
             onAccountDeleted={() => {
               signOut();
             }}

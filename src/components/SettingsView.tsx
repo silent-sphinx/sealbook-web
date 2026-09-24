@@ -10,7 +10,7 @@ import {
 } from "../lib/client";
 import { parseIcs } from "../lib/ics";
 import { formatRecoveryWordsFile } from "../lib/phrase";
-import { clearDevice, saveDevice } from "../lib/storage";
+import { clearDevice } from "../lib/storage";
 import {
   btnDanger,
   btnPrimary,
@@ -28,6 +28,7 @@ type Props = {
   addressBooks: AddressBook[];
   calendars: Calendar[];
   onSessionUpdate: (updated: Session) => void;
+  onPersistSession: (updated: Session, password: string) => Promise<void>;
   onAccountDeleted: () => void;
   onRefresh: () => Promise<void>;
   onCreateBook?: (name: string) => Promise<string | undefined>;
@@ -43,6 +44,7 @@ export function SettingsView({
   addressBooks,
   calendars,
   onSessionUpdate,
+  onPersistSession,
   onAccountDeleted,
   onRefresh,
   onCreateBook,
@@ -126,7 +128,7 @@ export function SettingsView({
         targetName,
         usernamePassword,
       );
-      saveDevice(updated.state);
+      await onPersistSession(updated, usernamePassword);
       onSessionUpdate(updated);
       setNewUsername("");
       setUsernamePassword("");
@@ -171,7 +173,7 @@ export function SettingsView({
     setPasswordBusy(true);
     try {
       const updated = await changePassword(session, newPassword);
-      saveDevice(updated.state);
+      await onPersistSession(updated, newPassword);
       onSessionUpdate(updated);
       setNewPassword("");
       setConfirmPassword("");
