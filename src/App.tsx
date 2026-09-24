@@ -1044,7 +1044,7 @@ export default function App() {
     }
 
     function printWords() {
-      const win = window.open("", "_blank");
+      const win = window.open("", "_blank", "noopener,noreferrer");
       if (!win) return;
       const doc = win.document;
       doc.title = "Sealbook Recovery Words";

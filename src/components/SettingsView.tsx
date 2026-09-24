@@ -240,23 +240,29 @@ export function SettingsView({
 
   function printWords() {
     if (!newWords) return;
-    const lines = newWords.map(
-      (w, i) =>
-        `<tr><td style="text-align:right;padding-right:12px;color:#888;font-variant-numeric:tabular-nums">${i + 1}</td><td style="font-family:monospace">${w}</td></tr>`,
-    );
-    const html = `
-      <html>
-        <head><title>Sealbook Recovery Words</title></head>
-        <body style="font-family:system-ui,sans-serif;padding:40px;max-width:480px;margin:0 auto">
-          <h2 style="margin:0 0 4px">Sealbook Recovery Words</h2>
-          <p style="color:#666;margin:0 0 24px;font-size:14px">Keep this document safe and secret. Replaces all previous phrases.</p>
-          <table style="border-collapse:collapse;font-size:15px">${lines.join("")}</table>
-        </body>
-      </html>`;
-    const win = window.open("", "_blank");
+    const win = window.open("", "_blank", "noopener,noreferrer");
     if (win) {
-      win.document.write(html);
-      win.document.close();
+      const doc = win.document;
+      doc.title = "Sealbook Recovery Words";
+      doc.body.style.cssText = "font-family:system-ui,sans-serif;padding:40px;max-width:480px;margin:0 auto";
+      const heading = doc.createElement("h2");
+      heading.textContent = "Sealbook Recovery Words";
+      heading.style.margin = "0 0 4px";
+      const note = doc.createElement("p");
+      note.textContent = "Keep this document safe and secret. Replaces all previous phrases.";
+      note.style.cssText = "color:#666;margin:0 0 24px;font-size:14px";
+      const table = doc.createElement("table");
+      table.style.cssText = "border-collapse:collapse;font-size:15px";
+      newWords.forEach((word, index) => {
+        const row = table.insertRow();
+        const number = row.insertCell();
+        number.textContent = String(index + 1);
+        number.style.cssText = "text-align:right;padding-right:12px;color:#888;font-variant-numeric:tabular-nums";
+        const value = row.insertCell();
+        value.textContent = word;
+        value.style.fontFamily = "monospace";
+      });
+      doc.body.append(heading, note, table);
       win.focus();
       win.print();
     }
@@ -266,7 +272,10 @@ export function SettingsView({
     if (!newWords) return;
     navigator.clipboard.writeText(newWords.join(" ")).then(() => {
       setCopiedPhrase(true);
-      setTimeout(() => setCopiedPhrase(false), 2500);
+      setTimeout(() => {
+        void navigator.clipboard.writeText("").catch(() => undefined);
+        setCopiedPhrase(false);
+      }, 2500);
     });
   }
 
