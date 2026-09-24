@@ -542,16 +542,14 @@ export default function App() {
       return;
     }
     const linkedUsername = params.get("username")?.trim();
-    const linkedServer = params.get("server") ?? "";
     if (!linkedUsername) {
       return;
     }
     setMode("signin");
     setUsername(linkedUsername);
-    setConnectionDomain(linkedServer);
     setError(null);
     setBusy(true);
-    void pairJoin(normalizeServer(linkedServer), linkedUsername)
+    void pairJoin(normalizeServer(connectionDomain), linkedUsername)
       .then((joined) => {
         setPairId(joined.pairCode);
         setPairConfirm(joined.confirm);
@@ -562,7 +560,7 @@ export default function App() {
       })
       .catch((err) => setError(friendlyError(err)))
       .finally(() => setBusy(false));
-  }, [session, stored]);
+  }, [connectionDomain, session, stored]);
 
   async function openSession(next: Session) {
     saveDevice(next.state);
