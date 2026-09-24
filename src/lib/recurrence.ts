@@ -6,6 +6,8 @@ export type CalendarOccurrence = CalendarEvent & {
   occurrenceKey: string;
 };
 
+const MAX_RECURRENCE_ITERATIONS = 10_000;
+
 function dateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
@@ -81,12 +83,16 @@ export function expandCalendarEvents(events: CalendarEvent[], from: Date, to: Da
     }
     const until = rule.until ? new Date(`${rule.until}T23:59:59`) : null;
     let occurrenceCount = 0;
-    const cursor = new Date(Math.min(anchor.getTime(), from.getTime()));
+    const cursor = new Date(Math.max(anchor.getTime(), from.getTime()));
     cursor.setHours(0, 0, 0, 0);
-    while (cursor <= to) {
+    let iterations = 0;
+    while (cursor <= to && iterations < MAX_RECURRENCE_ITERATIONS) {
+      iterations += 1;
+      if (until && cursor > until) break;
       if (matchesRule(cursor, anchor, rule)) {
         occurrenceCount += 1;
-        if (cursor >= from && (!until || cursor <= until) && (!rule.count || occurrenceCount <= rule.count)) output.push(sameTime(event, cursor, timezone));
+        if (cursor >= from && (!rule.count || occurrenceCount <= rule.count)) output.push(sameTime(event, cursor, timezone));
+        if (rule.count && occurrenceCount >= rule.count) break;
       }
       cursor.setDate(cursor.getDate() + 1);
     }

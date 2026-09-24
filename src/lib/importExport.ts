@@ -10,11 +10,29 @@ export type ImportResult = {
 
 export type ExportFormat = "vcf" | "csv" | "json";
 
+const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
+const MAX_IMPORTED_CONTACTS = 1_000;
+const MAX_CONTACT_LIST_ITEMS = 100;
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === "string" && value.length <= 100_000 ? value : undefined;
+}
+
+function objectList(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .slice(0, MAX_CONTACT_LIST_ITEMS)
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object");
+}
+
 export function parseImportContent(
   filename: string,
   content: string,
   targetAddressBookId: string,
 ): ImportResult {
+  if (content.length > MAX_IMPORT_BYTES) {
+    throw new Error("Import file is too large (maximum 5 MB). ");
+  }
   const trimmed = content.trim();
   const lowerName = filename.toLowerCase();
 
@@ -31,30 +49,33 @@ export function parseImportContent(
         : Array.isArray(parsed.contacts)
           ? parsed.contacts
           : [parsed];
+      if (list.length > MAX_IMPORTED_CONTACTS) {
+        throw new Error("Import contains too many contacts (maximum 1,000).");
+      }
 
       const drafts: ContactDraft[] = [];
       for (const item of list) {
         if (!item || typeof item !== "object") continue;
-        const name = (item.name || "").trim();
+        const name = stringField(item.name)?.trim() ?? "";
         if (!name) continue;
 
         drafts.push({
           name,
-          nickname: item.nickname || undefined,
-          pronouns: item.pronouns || undefined,
-          emails: Array.isArray(item.emails) ? item.emails : [],
-          phones: Array.isArray(item.phones) ? item.phones : [],
-          dates: Array.isArray(item.dates) ? item.dates : [],
-          socials: Array.isArray(item.socials) ? item.socials : [],
-          notes: item.notes || undefined,
-          avatar: item.avatar || undefined,
-          address: item.address || undefined,
-          work: Array.isArray(item.work) ? item.work : [],
+          nickname: stringField(item.nickname),
+          pronouns: stringField(item.pronouns),
+          emails: objectList(item.emails) as ContactDraft["emails"],
+          phones: objectList(item.phones) as ContactDraft["phones"],
+          dates: objectList(item.dates) as ContactDraft["dates"],
+          socials: objectList(item.socials) as ContactDraft["socials"],
+          notes: stringField(item.notes),
+          avatar: stringField(item.avatar),
+          address: item.address && typeof item.address === "object" ? item.address as ContactDraft["address"] : undefined,
+          work: objectList(item.work) as ContactDraft["work"],
           addressBookId: resolveAddressBookId(
-            item.addressBookId || targetAddressBookId,
+            stringField(item.addressBookId) || targetAddressBookId,
           ),
-          createdAt: item.createdAt || undefined,
-          updatedAt: item.updatedAt || undefined,
+          createdAt: stringField(item.createdAt),
+          updatedAt: stringField(item.updatedAt),
         });
       }
 

@@ -22,6 +22,9 @@ import { allTimezones, utcOffsetLabel } from "../lib/timezone";
 import { Modal } from "./Modal";
 import { ImportExportSection } from "./ImportExportSection";
 
+const MAX_ICS_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_ICS_EVENTS = 1_000;
+
 type Props = {
   session: Session;
   contacts: Contact[];
@@ -297,8 +300,10 @@ export function SettingsView({
     setIcsProgress({ current: 0, total: 0 });
     setIcsMessage(null);
     try {
+      if (file.size > MAX_ICS_FILE_BYTES) throw new Error("ICS files must be 5 MB or smaller.");
       const imported = parseIcs(await file.text(), timezone, icsCalendarId);
       if (imported.length === 0) throw new Error("No VEVENT entries were found in that file.");
+      if (imported.length > MAX_ICS_EVENTS) throw new Error("ICS files may contain at most 1,000 events.");
       setIcsProgress({ current: 0, total: imported.length });
       for (let index = 0; index < imported.length; index += 1) {
         await putCalendarEvent(session, imported[index]);

@@ -18,6 +18,8 @@ import {
   selectField,
 } from "../lib/styles";
 
+const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
+
 type Props = {
   session: Session;
   contacts: Contact[];
@@ -65,6 +67,10 @@ export function ImportExportSection({
   // File loading and parsing
   function handleFileRead(file: File) {
     setImportMsg(null);
+    if (file.size > MAX_IMPORT_FILE_BYTES) {
+      setImportMsg({ type: "error", text: "Import files must be 5 MB or smaller." });
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (event) => {
       const content = event.target?.result;
