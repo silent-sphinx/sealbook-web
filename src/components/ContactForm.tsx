@@ -128,7 +128,7 @@ export function ContactForm({
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">
         <Section title="Identity" first>
           {/* Avatar Upload Card */}
-          <div className="mb-4 flex flex-col sm:flex-row items-center sm:items-start gap-4 p-3.5 rounded-xl border border-line bg-surface/30">
+          <div className="mb-4 flex flex-col items-center gap-4 rounded-xl border border-line bg-surface/30 p-3.5 sm:flex-row">
             <div
               className="relative group cursor-pointer shrink-0"
               onClick={() => avatarInputRef.current?.click()}
@@ -172,9 +172,6 @@ export function ContactForm({
                   </button>
                 ) : null}
               </div>
-              <p className="mt-1 text-xs text-mute">
-                JPG, PNG, or WebP. Automatically optimized for fast, secure vault sync.
-              </p>
             </div>
             <input
               ref={avatarInputRef}
