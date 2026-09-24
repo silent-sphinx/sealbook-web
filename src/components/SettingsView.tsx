@@ -71,7 +71,6 @@ export function SettingsView({
   // Password state
   const [passwordCurrent, setPasswordCurrent] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [passwordCurrent, setPasswordCurrent] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [passwordMsg, setPasswordMsg] = useState<{

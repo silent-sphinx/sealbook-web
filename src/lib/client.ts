@@ -136,7 +136,59 @@ export type Session = {
   state: DeviceState;
   collectionKey: string;
   token: string;
+  latestRevision: number;
 };
+
+type SealedPayload = {
+  version: 1;
+  contentType: string;
+  tombstone: boolean;
+  revision: number;
+  payload: string;
+};
+
+function sealPayload(
+  session: Session,
+  id: string,
+  contentType: string,
+  tombstone: boolean,
+  payload: string,
+) {
+  const revision = session.latestRevision + 1;
+  const envelope: SealedPayload = {
+    version: 1,
+    contentType,
+    tombstone,
+    revision,
+    payload,
+  };
+  return { revision, encrypted: encryptContact(session.collectionKey, id, session.state.collection_id, JSON.stringify(envelope)) };
+}
+
+async function putSealed(
+  session: Session,
+  id: string,
+  contentType: string,
+  tombstone: boolean,
+  payload: string,
+): Promise<number> {
+  const sealed = sealPayload(session, id, contentType, tombstone, payload);
+  const response = await putJson<{ revision: number }>(
+    `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`,
+    {
+      id,
+      revision: sealed.revision,
+      nonce: sealed.encrypted.nonce,
+      ciphertext: sealed.encrypted.ciphertext,
+      padded_size: sealed.encrypted.padded_size,
+      content_type: contentType,
+      tombstone,
+    },
+    session.token,
+  );
+  session.latestRevision = response.revision;
+  return response.revision;
+}
 
 export async function revokeSession(session: Session): Promise<void> {
   await deleteJson(`${apiRoot(session.state.server)}/v1/session`, session.token);
@@ -511,6 +563,7 @@ export async function loginAccount(
   return {
     collectionKey,
     token: finished.session_token,
+    latestRevision: 0,
     state: {
       ...state,
       server: root,
@@ -526,31 +579,48 @@ export async function listVault(
   session: Session,
 ): Promise<{ sealed: SealedObject[]; addressBooks: AddressBook[]; contacts: Contact[]; calendars: Calendar[]; calendarEvents: CalendarEvent[] }> {
   const { state, token, collectionKey } = session;
-  const resp = await getJson<{ objects: SealedObject[] }>(
+  const resp = await getJson<{ latest_revision: number; objects: SealedObject[] }>(
     `${apiRoot(state.server)}/v1/collections/${state.collection_id}/changes?after=0`,
     token,
   );
-  const sealed = resp.objects.filter((obj) => !obj.tombstone);
+  session.latestRevision = resp.latest_revision;
+  const sealed: SealedObject[] = [];
   const addressBooks: AddressBook[] = [];
   const contacts: Contact[] = [];
   const calendarEvents: CalendarEvent[] = [];
   const calendars: Calendar[] = [];
-  for (const obj of sealed) {
-    const raw = decryptContact(
-      collectionKey,
-      obj.id,
-      state.collection_id,
-      obj.nonce,
-      obj.ciphertext,
-      obj.padded_size,
-    );
-    if (obj.content_type === CALENDAR_EVENT_CONTENT_TYPE || isCalendarEventPayload(raw)) {
+  const latestByObject = new Map<string, SealedObject>();
+  for (const obj of resp.objects) {
+    const previous = latestByObject.get(obj.id);
+    if (!previous || obj.revision > previous.revision) {
+      latestByObject.set(obj.id, obj);
+    }
+  }
+  for (const obj of latestByObject.values()) {
+    let raw: string;
+    let contentType = obj.content_type;
+    try {
+      const decrypted = decryptContact(collectionKey, obj.id, state.collection_id, obj.nonce, obj.ciphertext, obj.padded_size);
+      const envelope = JSON.parse(decrypted) as Partial<SealedPayload>;
+      if (envelope.version === 1) {
+        if (envelope.contentType !== obj.content_type || envelope.tombstone !== obj.tombstone || envelope.revision !== obj.revision || typeof envelope.payload !== "string") continue;
+        raw = envelope.payload;
+        contentType = envelope.contentType;
+      } else {
+        raw = decrypted;
+      }
+    } catch {
+      continue;
+    }
+    if (obj.tombstone) continue;
+    sealed.push(obj);
+    if (contentType === CALENDAR_EVENT_CONTENT_TYPE || isCalendarEventPayload(raw)) {
       const value = JSON.parse(raw) as { title?: string; start?: string; end?: string; notes?: string; location?: string; participants?: string[]; timezone?: string; calendarId?: string; recurrence?: CalendarEvent["recurrence"] };
       calendarEvents.push({ id: obj.id, title: value.title?.trim() || "Untitled event", start: value.start ?? "", end: value.end, notes: value.notes, location: value.location, participants: value.participants, timezone: value.timezone, calendarId: value.calendarId, recurrence: value.recurrence });
-    } else if (obj.content_type === CALENDAR_CONTENT_TYPE || isCalendarPayload(raw)) {
+    } else if (contentType === CALENDAR_CONTENT_TYPE || isCalendarPayload(raw)) {
       const value = JSON.parse(raw) as { name?: string; color?: string };
       calendars.push({ id: obj.id, name: value.name?.trim() || "Untitled calendar", color: value.color || "#7aa2f7" });
-    } else if (obj.content_type === ADDRESS_BOOK_CONTENT_TYPE || isAddressBookPayload(raw)) {
+    } else if (contentType === ADDRESS_BOOK_CONTENT_TYPE || isAddressBookPayload(raw)) {
       addressBooks.push(parseAddressBook(obj.id, raw));
     } else {
       contacts.push(parseContact(obj.id, raw, obj.ciphertext, obj.padded_size));
@@ -588,19 +658,7 @@ export async function putAddressBook(
   id = newUuid(),
 ): Promise<string> {
   const plaintext = serializeAddressBook(name);
-  const enc = encryptContact(session.collectionKey, id, session.state.collection_id, plaintext);
-  await putJson(
-    `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`,
-    {
-      id,
-      nonce: enc.nonce,
-      ciphertext: enc.ciphertext,
-      padded_size: enc.padded_size,
-      content_type: ADDRESS_BOOK_CONTENT_TYPE,
-      tombstone: false,
-    },
-    session.token,
-  );
+  await putSealed(session, id, ADDRESS_BOOK_CONTENT_TYPE, false, plaintext);
   return id;
 }
 
@@ -608,19 +666,7 @@ export async function deleteAddressBook(
   session: Session,
   id: string,
 ): Promise<void> {
-  const enc = encryptContact(session.collectionKey, id, session.state.collection_id, "");
-  await putJson(
-    `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`,
-    {
-      id,
-      nonce: enc.nonce,
-      ciphertext: enc.ciphertext,
-      padded_size: enc.padded_size,
-      content_type: ADDRESS_BOOK_CONTENT_TYPE,
-      tombstone: true,
-    },
-    session.token,
-  );
+  await putSealed(session, id, ADDRESS_BOOK_CONTENT_TYPE, true, "");
 }
 
 export async function putContact(
@@ -630,19 +676,7 @@ export async function putContact(
 ): Promise<string> {
   const id = existingId ?? newUuid();
   const plaintext = serializeCard(draft);
-  const enc = encryptContact(session.collectionKey, id, session.state.collection_id, plaintext);
-  await putJson(
-    `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`,
-    {
-      id,
-      nonce: enc.nonce,
-      ciphertext: enc.ciphertext,
-      padded_size: enc.padded_size,
-      content_type: JSCONTACT_CONTENT_TYPE,
-      tombstone: false,
-    },
-    session.token,
-  );
+  await putSealed(session, id, JSCONTACT_CONTENT_TYPE, false, plaintext);
   return id;
 }
 
@@ -650,57 +684,29 @@ export async function deleteContact(
   session: Session,
   id: string,
 ): Promise<void> {
-  const enc = encryptContact(session.collectionKey, id, session.state.collection_id, "");
-  await putJson(
-    `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`,
-    {
-      id,
-      nonce: enc.nonce,
-      ciphertext: enc.ciphertext,
-      padded_size: enc.padded_size,
-      content_type: JSCONTACT_CONTENT_TYPE,
-      tombstone: true,
-    },
-    session.token,
-  );
+  await putSealed(session, id, JSCONTACT_CONTENT_TYPE, true, "");
 }
 
 export async function putCalendarEvent(session: Session, event: Omit<CalendarEvent, "id">, existingId?: string): Promise<string> {
   const id = existingId ?? newUuid();
   const plaintext = JSON.stringify({ "@type": "CalendarEvent", version: "1.0", ...event });
-  const enc = encryptContact(session.collectionKey, id, session.state.collection_id, plaintext);
-  await putJson(`${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`, {
-    id, nonce: enc.nonce, ciphertext: enc.ciphertext, padded_size: enc.padded_size,
-    content_type: CALENDAR_EVENT_CONTENT_TYPE, tombstone: false,
-  }, session.token);
+  await putSealed(session, id, CALENDAR_EVENT_CONTENT_TYPE, false, plaintext);
   return id;
 }
 
 export async function putCalendar(session: Session, calendar: Omit<Calendar, "id">, existingId?: string): Promise<string> {
   const id = existingId ?? newUuid();
   const plaintext = JSON.stringify({ "@type": "Calendar", version: "1.0", ...calendar });
-  const enc = encryptContact(session.collectionKey, id, session.state.collection_id, plaintext);
-  await putJson(`${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`, {
-    id, nonce: enc.nonce, ciphertext: enc.ciphertext, padded_size: enc.padded_size,
-    content_type: CALENDAR_CONTENT_TYPE, tombstone: false,
-  }, session.token);
+  await putSealed(session, id, CALENDAR_CONTENT_TYPE, false, plaintext);
   return id;
 }
 
 export async function deleteCalendarEvent(session: Session, id: string): Promise<void> {
-  const enc = encryptContact(session.collectionKey, id, session.state.collection_id, "");
-  await putJson(`${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`, {
-    id, nonce: enc.nonce, ciphertext: enc.ciphertext, padded_size: enc.padded_size,
-    content_type: CALENDAR_EVENT_CONTENT_TYPE, tombstone: true,
-  }, session.token);
+  await putSealed(session, id, CALENDAR_EVENT_CONTENT_TYPE, true, "");
 }
 
 export async function deleteCalendar(session: Session, id: string): Promise<void> {
-  const enc = encryptContact(session.collectionKey, id, session.state.collection_id, "");
-  await putJson(`${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`, {
-    id, nonce: enc.nonce, ciphertext: enc.ciphertext, padded_size: enc.padded_size,
-    content_type: CALENDAR_CONTENT_TYPE, tombstone: true,
-  }, session.token);
+  await putSealed(session, id, CALENDAR_CONTENT_TYPE, true, "");
 }
 
 
