@@ -1,116 +1,259 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { addressLines, channelKindLabel, dateKindLabel } from "../lib/contact";
+import { optimizeAvatar } from "../lib/image";
 import { btnPrimary, btnSecondary, sectionBar } from "../lib/styles";
-import type { Contact } from "../lib/types";
+import type { AddressBook, Contact, ContactDraft } from "../lib/types";
 import { Avatar } from "./ContactCard";
-import { Modal } from "./Modal";
+import { ContactForm } from "./ContactForm";
 
 type Props = {
   contact: Contact;
   bookName?: string;
-  onEdit: () => void;
   onDelete?: () => void;
   onClose: () => void;
+  addressBooks: AddressBook[];
+  busy: boolean;
+  error?: string | null;
+  onSave: (draft: ContactDraft) => void | Promise<void>;
 };
 
 function formatTimestamp(iso?: string): string | null {
   if (!iso) return null;
-  try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return iso;
-    return d.toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return iso;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
-function formatDate(val: string): string {
-  if (!val) return "";
-  try {
-    const parts = val.split("-");
-    if (parts.length === 3) {
-      const year = parseInt(parts[0], 10);
-      const month = parseInt(parts[1], 10) - 1;
-      const day = parseInt(parts[2], 10);
-      const d = new Date(year, month, day);
-      return d.toLocaleDateString(undefined, {
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      });
-    }
-    const d = new Date(val);
-    if (isNaN(d.getTime())) return val;
-    return d.toLocaleDateString(undefined, {
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return val;
-  }
+function formatDate(value: string): string {
+  if (!value) return "";
+  const parts = value.split("-");
+  const date = parts.length === 3
+    ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]))
+    : new Date(value);
+  if (isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 function socialUrl(platform: string, handle: string): string | null {
-  const h = handle.trim();
-  if (h.startsWith("http://") || h.startsWith("https://")) {
-    return h;
-  }
-  const cleanHandle = h.replace(/^@/, "");
-  const p = platform.toLowerCase();
-  if (p.includes("github")) return `https://github.com/${cleanHandle}`;
-  if (p.includes("twitter") || p === "x" || p.includes("x/")) return `https://x.com/${cleanHandle}`;
-  if (p.includes("linkedin")) return `https://linkedin.com/in/${cleanHandle}`;
-  if (p.includes("instagram")) return `https://instagram.com/${cleanHandle}`;
-  if (p.includes("bluesky") || p.includes("bsky")) return `https://bsky.app/profile/${cleanHandle}`;
-  if (p.includes("telegram") || p === "tg") return `https://t.me/${cleanHandle}`;
+  const value = handle.trim();
+  if (value.startsWith("http://") || value.startsWith("https://")) return value;
+  const clean = value.replace(/^@/, "");
+  const name = platform.toLowerCase();
+  if (name.includes("github")) return `https://github.com/${clean}`;
+  if (name.includes("twitter") || name === "x" || name.includes("x/")) return `https://x.com/${clean}`;
+  if (name.includes("linkedin")) return `https://linkedin.com/in/${clean}`;
+  if (name.includes("instagram")) return `https://instagram.com/${clean}`;
+  if (name.includes("bluesky") || name.includes("bsky")) return `https://bsky.app/profile/${clean}`;
+  if (name.includes("telegram") || name === "tg") return `https://t.me/${clean}`;
   return null;
 }
 
 export function ContactDetailModal({
   contact,
   bookName,
-  onEdit,
   onDelete,
   onClose,
+  addressBooks,
+  busy,
+  error,
+  onSave,
 }: Props) {
   const addresses = addressLines(contact.address);
+  const [editing, setEditing] = useState(false);
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const avatarMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!avatarMenuOpen) return;
+
+    function closeMenu(event: MouseEvent) {
+      if (!avatarMenuRef.current?.contains(event.target as Node)) {
+        setAvatarMenuOpen(false);
+      }
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setAvatarMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", closeMenu);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeMenu);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [avatarMenuOpen]);
+
+  async function handleAvatarUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const avatar = await optimizeAvatar(file);
+      onSave({ ...contact, avatar });
+      setAvatarMenuOpen(false);
+    } finally {
+      event.target.value = "";
+    }
+  }
 
   return (
-    <Modal title={contact.name} onClose={onClose}>
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 space-y-5">
-          {/* Header identity card */}
-          <div className="flex items-center gap-4 rounded-xl border border-line bg-surface/40 p-4">
+    <aside
+      aria-label={`${contact.name} details`}
+      className="flex min-h-[28rem] min-w-0 flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-xl shadow-black/10 animate-fade-in-up max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:h-dvh max-lg:min-h-0 max-lg:max-h-none max-lg:w-screen max-lg:rounded-none max-lg:border-0 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7rem)]"
+    >
+      <div className="relative z-30 shrink-0 overflow-visible border-b border-line bg-surface/40 px-6 py-4">
+        <div className="flex items-center gap-4 pr-36">
+            <div ref={avatarMenuRef} className="relative z-40 shrink-0">
             <Avatar name={contact.name} avatar={contact.avatar} size="lg" />
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="truncate text-lg font-semibold tracking-tight text-text">
-                  {contact.name}
-                </h3>
-                {contact.pronouns ? (
-                  <span className="rounded-md border border-line bg-surface px-2 py-0.5 text-xs text-mute font-medium">
-                    {contact.pronouns}
-                  </span>
-                ) : null}
+            <button
+              type="button"
+              className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-panel bg-surface text-mute shadow-md transition-colors hover:bg-accent/15 hover:text-accent"
+              aria-label="Change profile picture"
+              title="Change profile picture"
+              onClick={() => setAvatarMenuOpen((open) => !open)}
+            >
+              <CameraIcon />
+            </button>
+            {avatarMenuOpen ? (
+              <div className="absolute left-0 top-full z-50 mt-2 w-40 overflow-hidden rounded-lg border border-line bg-elevated p-1 shadow-xl">
+                <button
+                  type="button"
+                  className="w-full rounded-md px-3 py-2 text-left text-xs text-text transition-colors hover:bg-surface"
+                  onClick={() => avatarInputRef.current?.click()}
+                >
+                  {contact.avatar ? "Replace photo" : "Upload photo"}
+                </button>
+                <button
+                  type="button"
+                  className="w-full rounded-md px-3 py-2 text-left text-xs text-danger transition-colors hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={!contact.avatar || busy}
+                  onClick={() => {
+                    onSave({ ...contact, avatar: undefined });
+                    setAvatarMenuOpen(false);
+                  }}
+                >
+                  Remove photo
+                </button>
               </div>
-              {contact.nickname ? (
-                <p className="text-sm text-mute">"{contact.nickname}"</p>
-              ) : null}
-              {bookName ? (
-                <span className="mt-1.5 inline-block rounded-full bg-surface border border-line px-2.5 py-0.5 text-xs text-mute font-medium">
-                  {bookName}
+            ) : null}
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleAvatarUpload}
+            />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="truncate text-xl font-semibold tracking-tight text-text">
+                {contact.name}
+              </h2>
+              {contact.pronouns ? (
+                <span className="rounded-md border border-line bg-panel px-2 py-0.5 text-xs text-mute font-medium">
+                  {contact.pronouns}
                 </span>
               ) : null}
             </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-mute">
+              {contact.nickname ? <span>"{contact.nickname}"</span> : null}
+              {bookName ? <span>{bookName}</span> : null}
+            </div>
           </div>
+        </div>
 
+        <div className="absolute right-4 top-4 flex items-center gap-1.5">
+          {editing ? (
+            <>
+              <button
+                type="button"
+                className="h-8 rounded-md border border-line bg-surface px-2.5 text-xs font-medium text-mute transition-colors hover:border-line-light hover:text-text disabled:opacity-50"
+                onClick={() => setEditing(false)}
+                disabled={busy}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="contact-detail-form"
+                className="h-8 rounded-md border border-accent-dim/60 bg-accent/15 px-2.5 text-xs font-semibold text-accent transition-colors hover:bg-accent/25 disabled:opacity-50"
+                disabled={busy}
+              >
+                {busy ? "Saving" : "Save"}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-accent-dim/40 bg-accent/10 text-accent transition-colors hover:border-accent-dim hover:bg-accent/20 disabled:opacity-50"
+              aria-label="Edit contact"
+              title="Edit contact"
+              onClick={() => setEditing(true)}
+            >
+              <EditIcon />
+            </button>
+          )}
+          {onDelete ? (
+            <button
+              type="button"
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-danger/20 bg-danger/5 text-danger/70 transition-colors hover:border-danger/40 hover:bg-danger/10 hover:text-danger disabled:opacity-50"
+              aria-label="Delete contact"
+              title="Delete contact"
+              onClick={onDelete}
+              disabled={busy}
+            >
+              <TrashIcon />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line bg-surface/40 text-mute transition-colors hover:border-line-light hover:text-text disabled:opacity-50"
+            aria-label="Close contact details"
+            title="Close contact details"
+            onClick={onClose}
+            disabled={busy}
+          >
+            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path d="M6.28 5.22a.75.75 0 1 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06l3.72-3.72 3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {editing ? (
+        <>
+          {error ? <p className="border-b border-danger/30 bg-danger/10 px-5 py-2.5 text-xs text-danger">{error}</p> : null}
+        <ContactForm
+          formId="contact-detail-form"
+          hideFooter
+          busy={busy}
+          error={error}
+          addressBooks={addressBooks}
+          initialDraft={contact}
+          submitLabel="Save changes"
+          onSubmit={async (draft) => {
+            await onSave(draft);
+            setEditing(false);
+          }}
+          onCancel={() => setEditing(false)}
+        />
+        </>
+      ) : (
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 space-y-5">
           {/* Emails */}
           {contact.emails.length > 0 ? (
             <Section title="Emails">
@@ -311,25 +454,26 @@ export function ContactDetailModal({
             </Section>
           ) : null}
 
-          {/* Metadata timestamps */}
-          {contact.createdAt || contact.updatedAt ? (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-2 text-[11px] text-mute/80 border-t border-line/50">
-              {contact.createdAt ? (
-                <span>
-                  Created: <span className="text-text/70">{formatTimestamp(contact.createdAt)}</span>
-                </span>
-              ) : null}
-              {contact.updatedAt && contact.updatedAt !== contact.createdAt ? (
-                <span>
-                  Modified: <span className="text-text/70">{formatTimestamp(contact.updatedAt)}</span>
-                </span>
-              ) : null}
-            </div>
-          ) : null}
         </div>
 
+        {/* Metadata timestamps */}
+        {contact.createdAt || contact.updatedAt ? (
+          <div className="flex shrink-0 flex-wrap items-baseline gap-x-6 gap-y-1 border-t border-line/50 px-5 py-3 text-[11px] text-mute/80">
+            {contact.createdAt ? (
+              <span>
+                Created: <span className="text-text/70">{formatTimestamp(contact.createdAt)}</span>
+              </span>
+            ) : null}
+            {contact.updatedAt && contact.updatedAt !== contact.createdAt ? (
+              <span>
+                Modified: <span className="text-text/70">{formatTimestamp(contact.updatedAt)}</span>
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+
         {/* Footer actions */}
-        <div className="shrink-0 border-t border-line bg-panel">
+        <div className="hidden shrink-0 border-t border-line bg-panel">
           <div className="flex items-center justify-between gap-3 px-5 py-4">
             {onDelete ? (
               <button
@@ -368,7 +512,7 @@ export function ContactDetailModal({
               <button
                 type="button"
                 className={btnPrimary}
-                onClick={onEdit}
+                onClick={() => setEditing(true)}
               >
                 <svg className="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor">
                   <path d="m5.433 13.917 1.262-3.155A4 4 0 0 1 7.58 9.42l6.92-6.918a2.121 2.121 0 0 1 3 3l-6.92 6.918c-.383.383-.84.685-1.343.886l-3.154 1.262a.5.5 0 0 1-.65-.65Z" />
@@ -380,7 +524,8 @@ export function ContactDetailModal({
           </div>
         </div>
       </div>
-    </Modal>
+      )}
+    </aside>
   );
 }
 
@@ -400,5 +545,38 @@ function Section({
       </h4>
       {children}
     </section>
+  );
+}
+
+function CameraIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M1 8a2 2 0 0 1 2-2h.93a2 2 0 0 0 1.664-.89l.812-1.22A2 2 0 0 1 8.07 3h3.86a2 2 0 0 1 1.664.89l.812 1.22A2 2 0 0 0 16.07 6H17a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8Zm13.5 3a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM10 14a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function EditIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path d="m5.433 13.917 1.262-3.155A4 4 0 0 1 7.58 9.42l6.92-6.918a2.121 2.121 0 0 1 3 3l-6.92 6.918c-.383.383-.84.685-1.343.886l-3.154 1.262a.5.5 0 0 1-.65-.65Z" />
+      <path d="M3.5 5.75c0-.69.56-1.25 1.25-1.25H10A.75.75 0 0 0 10 3H4.75A2.75 2.75 0 0 0 2 5.75v9.5A2.75 2.75 0 0 0 4.75 18h9.5A2.75 2.75 0 0 0 17 15.25V10a.75.75 0 0 0-1.5 0v5.25c0 .69-.56 1.25-1.25 1.25h-9.5c-.69 0-1.25-.56-1.25-1.25v-9.5Z" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 6h18" />
+      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+      <line x1="10" y1="11" x2="10" y2="17" />
+      <line x1="14" y1="11" x2="14" y2="17" />
+    </svg>
   );
 }

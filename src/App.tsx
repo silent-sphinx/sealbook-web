@@ -838,10 +838,23 @@ export default function App() {
     }
   }
 
-  function startEditing(contact: Contact) {
+  async function onSaveViewedContact(draft: ContactDraft) {
+    if (!session || !viewingContact || !draft.name.trim()) {
+      return;
+    }
+    setBusy(true);
     setError(null);
-    setViewingContact(null);
-    setEditingContact(contact);
+    try {
+      await putContact(session, draft, viewingContact.id);
+      setViewingContact((current) =>
+        current?.id === viewingContact.id ? { ...current, ...draft } : current,
+      );
+      await refreshAfterSave(session);
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setBusy(false);
+    }
   }
 
   function closeEditor() {
@@ -1672,57 +1685,58 @@ export default function App() {
         </div>
       ) : (
         <main className="mx-auto px-5 pb-24 pt-6">
-          {/* Address books + search */}
-          <div className="relative z-20 mb-[14px] grid gap-3 animate-fade-in-up">
-            <div className="flex items-center gap-3">
-              <AddressBookMenu
-                books={addressBooks}
-                selectedId={bookFilter}
-                onSelect={setBookFilter}
-                onCreate={onCreateBook}
-                onRename={onRenameBook}
-                onDelete={onDeleteBook}
-                busy={busy}
-              />
-              <button
-                type="button"
-                className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl bg-accent text-bg transition-all duration-150 hover:brightness-110 active:scale-95"
-                onClick={openComposer}
-                aria-label="Add contact"
-              >
-                <PlusIcon />
-              </button>
-            </div>
-            <div className="relative">
-              <SearchIcon />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={
-                  contacts.length > 0
-                    ? `Search ${contacts.length} contacts…`
-                    : "Search contacts…"
-                }
-                aria-label="Search contacts"
-                className={`${searchField} h-[42px] pl-10`}
-              />
-            </div>
-          </div>
+          <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(30rem,40rem)] lg:items-start xl:grid-cols-[minmax(0,1fr)_minmax(34rem,44rem)]">
+            <div className={`min-w-0 ${viewingContact ? "hidden lg:block" : ""}`}>
+              {/* Address books + search */}
+              <div className="relative z-20 mb-4 grid gap-3 animate-fade-in-up">
+                <div className="flex items-center gap-3">
+                  <AddressBookMenu
+                    books={addressBooks}
+                    selectedId={bookFilter}
+                    onSelect={setBookFilter}
+                    onCreate={onCreateBook}
+                    onRename={onRenameBook}
+                    onDelete={onDeleteBook}
+                    busy={busy}
+                  />
+                  <button
+                    type="button"
+                    className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl bg-accent text-bg transition-all duration-150 hover:brightness-110 active:scale-95"
+                    onClick={openComposer}
+                    aria-label="Add contact"
+                  >
+                    <PlusIcon />
+                  </button>
+                </div>
+                <div className="relative">
+                  <SearchIcon />
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder={
+                      contacts.length > 0
+                        ? `Search ${contacts.length} contacts…`
+                        : "Search contacts…"
+                    }
+                    aria-label="Search contacts"
+                    className={`${searchField} h-[42px] pl-10`}
+                  />
+                </div>
+              </div>
 
-          {error && !composing && !editingContact && !deletingContact && !deletingAddressBook ? (
-            <p className="mt-4 text-sm text-danger">{error}</p>
-          ) : null}
+              {error && !composing && !editingContact && !deletingContact && !deletingAddressBook ? (
+                <p className="mb-4 text-sm text-danger">{error}</p>
+              ) : null}
 
-          {filtered.length === 0 && search.trim() ? (
-            <div className="flex flex-col items-center py-16 animate-fade-in-up">
-              <p className="text-sm text-mute">
-                No contacts matching "{search}"
-              </p>
-            </div>
-          ) : (
-            <>
-              <ul className="overflow-hidden rounded-xl border border-line/80 bg-panel/25">
+              {filtered.length === 0 && search.trim() ? (
+                <div className="flex flex-col items-center py-16 animate-fade-in-up">
+                  <p className="text-sm text-mute">
+                    No contacts matching "{search}"
+                  </p>
+                </div>
+              ) : (
+                <ul className="min-w-0 overflow-hidden rounded-xl border border-line/80 bg-panel/25">
                 {filtered.map((card) => (
                   <ContactCard
                     key={card.id}
@@ -1736,30 +1750,33 @@ export default function App() {
                       setError(null);
                       setViewingContact(contact);
                     }}
-                    onEdit={(contact) => {
-                      startEditing(contact);
-                    }}
-                    onDelete={(contact) => {
-                      promptDelete(contact);
-                    }}
                   />
                 ))}
-              </ul>
-            </>
-          )}
+                </ul>
+              )}
+            </div>
+
+            {viewingContact ? (
+              <ContactDetailModal
+                contact={viewingContact}
+                bookName={bookNameById(addressBooks, viewingContact.addressBookId)}
+                onDelete={() => promptDelete(viewingContact)}
+                onClose={() => setViewingContact(null)}
+                addressBooks={addressBooks}
+                busy={busy}
+                error={error}
+                onSave={onSaveViewedContact}
+              />
+            ) : (
+              <div className="hidden min-h-56 items-center justify-center rounded-xl border border-dashed border-line bg-panel/20 px-6 text-center lg:flex">
+                <p className="max-w-xs text-sm leading-relaxed text-mute">
+                  Select a contact to view their details.
+                </p>
+              </div>
+            )}
+            </div>
         </main>
       )}
-
-      {/* Contact detail modal */}
-      {viewingContact ? (
-        <ContactDetailModal
-          contact={viewingContact}
-          bookName={bookNameById(addressBooks, viewingContact.addressBookId)}
-          onEdit={() => startEditing(viewingContact)}
-          onDelete={() => promptDelete(viewingContact)}
-          onClose={() => setViewingContact(null)}
-        />
-      ) : null}
 
       {/* Compose modal */}
       {composing ? (

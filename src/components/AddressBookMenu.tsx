@@ -126,7 +126,7 @@ export function AddressBookMenu({
               setCreating(false);
             }}
           />
-          <div className="my-1 border-t border-line" />
+          <div className="border-t border-line" />
           {books.map((book) => (
             editingId === book.id ? (
               <form key={book.id} onSubmit={(event) => void submitRename(event, book.id)} className="px-3 py-3">
@@ -171,7 +171,7 @@ export function AddressBookMenu({
               />
             )
           ))}
-          <div className="my-1 border-t border-line" />
+          <div className="border-t border-line" />
           {creating ? (
             <form onSubmit={submitNew} className="px-3 py-3">
               <label className="block text-sm text-mute">
@@ -209,13 +209,13 @@ export function AddressBookMenu({
             <button
               type="button"
               role="menuitem"
-              className="flex w-full items-center gap-2 px-3.5 py-2.5 text-left text-sm text-accent transition-colors duration-150 hover:bg-surface"
+              className="flex h-10 w-full items-center gap-2.5 px-3.5 py-0 text-left text-sm leading-5 text-accent transition-colors duration-150 hover:bg-surface"
               onClick={() => {
                 setCreating(true);
                 setName("");
               }}
             >
-              <span className="text-base leading-none">+</span>
+              <PlusIcon />
               New address book
             </button>
           )}
@@ -287,4 +287,12 @@ function PencilIcon() {
 
 function TrashIcon() {
   return <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4.5 6h11M8 3.5h4M6 6l.6 9.5h6.8L14 6M8.5 9v4M11.5 9v4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function PlusIcon() {
+  return (
+    <svg className="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path d="M10 4a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 10 4Z" />
+    </svg>
+  );
 }
