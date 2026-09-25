@@ -186,7 +186,7 @@ function DomainSettings({
         aria-label="Connection settings"
         title="Connection settings"
         onClick={openSettings}
-        className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text"
+        className="absolute right-7 top-7 flex h-9 w-9 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text sm:right-9 sm:top-9"
       >
         <SettingsIcon />
         <svg className="hidden" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -210,7 +210,7 @@ function DomainSettings({
                 autoFocus
               />
               {saveError ? <p className="mt-2 text-xs text-danger">{saveError}</p> : null}
-              <p className="mt-1.5 text-xs text-mute">Leave blank to use this site's server.</p>
+              <p className="mt-1.5 text-xs text-mute">Enter the domain of your Sealbook instance.</p>
             </div>
             <div className="flex justify-end gap-3">
               <button type="button" className={btnSecondary} onClick={() => setOpen(false)}>
