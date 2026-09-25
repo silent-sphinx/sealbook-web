@@ -137,6 +137,7 @@ export type Session = {
   collectionKey: string;
   token: string;
   latestRevision: number;
+  offline?: boolean;
 };
 
 type SealedPayload = {

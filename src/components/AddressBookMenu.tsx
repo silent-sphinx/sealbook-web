@@ -10,6 +10,7 @@ type Props = {
   onCreate: (name: string) => Promise<unknown> | void;
   onRename: (id: string, name: string) => Promise<unknown> | void;
   onDelete: (book: AddressBook) => void;
+  readOnly?: boolean;
   busy?: boolean;
 };
 
@@ -20,6 +21,7 @@ export function AddressBookMenu({
   onCreate,
   onRename,
   onDelete,
+  readOnly = false,
   busy = false,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -154,7 +156,7 @@ export function AddressBookMenu({
                 key={book.id}
                 label={book.name}
                 selected={selectedId === book.id}
-                editable={book.id !== DEFAULT_ADDRESS_BOOK_ID}
+                editable={!readOnly && book.id !== DEFAULT_ADDRESS_BOOK_ID}
                 onClick={() => {
                   onSelect(book.id);
                   setOpen(false);
@@ -205,7 +207,7 @@ export function AddressBookMenu({
                 </button>
               </div>
             </form>
-          ) : (
+          ) : !readOnly ? (
             <button
               type="button"
               role="menuitem"
@@ -218,7 +220,7 @@ export function AddressBookMenu({
               <PlusIcon />
               New address book
             </button>
-          )}
+          ) : null}
         </div>
       ) : null}
     </div>

@@ -15,6 +15,7 @@ type Props = {
   busy: boolean;
   error?: string | null;
   onSave: (draft: ContactDraft) => boolean | Promise<boolean>;
+  readOnly?: boolean;
 };
 
 function formatTimestamp(iso?: string): string | null {
@@ -67,6 +68,7 @@ export function ContactDetailModal({
   busy,
   error,
   onSave,
+  readOnly = false,
 }: Props) {
   const addresses = addressLines(contact.address);
   const [editing, setEditing] = useState(false);
@@ -124,7 +126,7 @@ export function ContactDetailModal({
         <div className="flex items-center gap-4 pr-36">
             <div ref={avatarMenuRef} className="relative z-40 shrink-0">
             <Avatar name={contact.name} avatar={contact.avatar} size="lg" />
-            <button
+            {!readOnly ? <button
               type="button"
               className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-panel bg-surface text-mute shadow-md transition-colors hover:bg-accent/15 hover:text-accent"
               aria-label="Change profile picture"
@@ -132,7 +134,7 @@ export function ContactDetailModal({
               onClick={() => setAvatarMenuOpen((open) => !open)}
             >
               <CameraIcon />
-            </button>
+            </button> : null}
             {avatarMenuOpen ? (
               <div className="absolute left-0 top-full z-50 mt-2 w-40 overflow-hidden rounded-lg border border-line bg-elevated p-1 shadow-xl">
                 <button
@@ -213,7 +215,7 @@ export function ContactDetailModal({
               <EditIcon />
             </button>
           )}
-          {onDelete ? (
+          {!readOnly && onDelete ? (
             <button
               type="button"
               className="flex h-8 w-8 items-center justify-center rounded-md border border-danger/20 bg-danger/5 text-danger/70 transition-colors hover:border-danger/40 hover:bg-danger/10 hover:text-danger disabled:opacity-50"

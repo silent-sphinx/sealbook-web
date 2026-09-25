@@ -1,10 +1,18 @@
 import { b64ToByteArray, b64encode } from "./bytes";
-import type { DeviceState } from "./types";
+import type { AddressBook, Calendar, CalendarEvent, Contact, DeviceState } from "./types";
 
 const KEY = "sealbook.device";
+const VAULT_KEY = "sealbook.vault";
 const DOMAIN_KEY = "sealbook.connection-domain";
 const STORAGE_VERSION = 1;
 const PBKDF2_ITERATIONS = 600_000;
+
+export type VaultSnapshot = {
+  contacts: Contact[];
+  addressBooks: AddressBook[];
+  calendars: Calendar[];
+  calendarEvents: CalendarEvent[];
+};
 
 export type DeviceMetadata = Pick<
   DeviceState,
@@ -14,6 +22,13 @@ export type DeviceMetadata = Pick<
 type DeviceEnvelope = {
   version: number;
   metadata: DeviceMetadata;
+  salt: string;
+  iv: string;
+  ciphertext: string;
+};
+
+type VaultEnvelope = {
+  version: number;
   salt: string;
   iv: string;
   ciphertext: string;
@@ -47,6 +62,22 @@ function readStored(): DeviceEnvelope | DeviceState | null {
   }
   try {
     return JSON.parse(raw) as DeviceEnvelope | DeviceState;
+  } catch {
+    return null;
+  }
+}
+
+function readVault(): VaultEnvelope | null {
+  let raw: string | null;
+  try {
+    raw = localStorage.getItem(VAULT_KEY);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  try {
+    const stored = JSON.parse(raw) as VaultEnvelope;
+    return stored.version === STORAGE_VERSION ? stored : null;
   } catch {
     return null;
   }
@@ -136,8 +167,58 @@ export async function loadDevice(password: string): Promise<DeviceState | null> 
   }
 }
 
+export async function saveVaultSnapshot(snapshot: VaultSnapshot, password: string): Promise<void> {
+  if (!password) return;
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveStorageKey(password, salt);
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    new TextEncoder().encode(JSON.stringify(snapshot)),
+  );
+  const envelope: VaultEnvelope = {
+    version: STORAGE_VERSION,
+    salt: b64encode(salt),
+    iv: b64encode(iv),
+    ciphertext: b64encode(new Uint8Array(ciphertext)),
+  };
+  try {
+    localStorage.setItem(VAULT_KEY, JSON.stringify(envelope));
+  } catch {
+    // A full or unavailable storage area must not block normal online use.
+  }
+}
+
+export async function loadVaultSnapshot(password: string): Promise<VaultSnapshot | null> {
+  const stored = readVault();
+  if (!stored) return null;
+  try {
+    const salt = Uint8Array.from(b64ToByteArray(stored.salt));
+    const key = await deriveStorageKey(password, salt);
+    const plaintext = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: Uint8Array.from(b64ToByteArray(stored.iv)) },
+      key,
+      Uint8Array.from(b64ToByteArray(stored.ciphertext)),
+    );
+    const snapshot = JSON.parse(new TextDecoder().decode(plaintext)) as VaultSnapshot;
+    if (
+      !Array.isArray(snapshot.contacts) ||
+      !Array.isArray(snapshot.addressBooks) ||
+      !Array.isArray(snapshot.calendars) ||
+      !Array.isArray(snapshot.calendarEvents)
+    ) {
+      return null;
+    }
+    return snapshot;
+  } catch {
+    return null;
+  }
+}
+
 export function clearDevice(): void {
   localStorage.removeItem(KEY);
+  localStorage.removeItem(VAULT_KEY);
 }
 
 export function downloadDevice(state: DeviceState): void {

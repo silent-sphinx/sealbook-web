@@ -46,8 +46,10 @@ import {
   loadConnectionDomain,
   loadDevice,
   loadDeviceMetadata,
+  loadVaultSnapshot,
   saveConnectionDomain,
   saveDevice,
+  saveVaultSnapshot,
   type DeviceMetadata,
 } from "./lib/storage";
 import { browserTimezone } from "./lib/timezone";
@@ -400,6 +402,7 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTabState] = useState<MainTab>(loadLastTab);
   const [timezone, setTimezoneState] = useState(loadTimezone);
+  const [online, setOnline] = useState(() => navigator.onLine);
 
   function setActiveTab(tab: MainTab) {
     setActiveTabState(tab);
@@ -429,6 +432,7 @@ export default function App() {
   }
 
   const locked = Boolean(stored);
+  const isOffline = !online || session?.offline === true;
 
   const filtered = useMemo(() => {
     const inBook =
@@ -541,6 +545,28 @@ export default function App() {
       .finally(() => setBusy(false));
   }, [connectionDomain, session, stored]);
 
+  useEffect(() => {
+    const handleOffline = () => setOnline(false);
+    const handleOnline = () => {
+      setOnline(true);
+      if (!session?.offline || !password) return;
+      void loginAccount(session.state, password)
+        .then(async (reconnected) => {
+          setSession(reconnected);
+          await refresh(reconnected);
+        })
+        .catch(() => {
+          // Keep showing the last local snapshot until the server is reachable.
+        });
+    };
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [password, session]);
+
   async function openSession(next: Session, passwordForStorage: string) {
     await saveDevice(next.state, passwordForStorage);
     setStored(next.state);
@@ -550,6 +576,7 @@ export default function App() {
 
   async function persistSession(next: Session, passwordForStorage: string) {
     await saveDevice(next.state, passwordForStorage);
+    setPassword(passwordForStorage);
     setStored(next.state);
     setSession(next);
   }
@@ -561,6 +588,17 @@ export default function App() {
     setContacts(listed.contacts);
     setCalendarEvents(listed.calendarEvents);
     setCalendars(listed.calendars);
+    if (password) {
+      await saveVaultSnapshot(
+        {
+          addressBooks: books,
+          contacts: listed.contacts,
+          calendars: listed.calendars,
+          calendarEvents: listed.calendarEvents,
+        },
+        password,
+      );
+    }
     setBookFilter((current) => {
       if (current === ALL_ADDRESS_BOOKS) {
         return current;
@@ -666,7 +704,19 @@ export default function App() {
       if (!unlocked) {
         throw new Error("Wrong password");
       }
-      await openSession(await loginAccount(unlocked, password), password);
+      if (!navigator.onLine) {
+        const snapshot = await loadVaultSnapshot(password);
+        if (!snapshot) {
+          throw new Error("Connect to the server once before using the vault offline.");
+        }
+        setAddressBooks(snapshot.addressBooks);
+        setContacts(snapshot.contacts);
+        setCalendars(snapshot.calendars);
+        setCalendarEvents(snapshot.calendarEvents);
+        setSession({ state: unlocked, collectionKey: "", token: "", latestRevision: 0, offline: true });
+      } else {
+        await openSession(await loginAccount(unlocked, password), password);
+      }
     } catch (err) {
       setError(friendlyError(err));
     } finally {
@@ -1613,7 +1663,12 @@ export default function App() {
     <div className="min-h-screen">
       {/* Sticky header with accent top line */}
       <div className="sticky top-0 z-40">
-        <div className="h-[2px] bg-gradient-to-r from-accent/60 via-accent to-accent/60" />
+        {isOffline ? (
+          <div className="border-b border-red-400/20 bg-red-500/10 px-5 py-2 text-center text-xs font-medium text-red-300" role="status">
+            App is offline. Showing your last synced vault; editing is unavailable.
+          </div>
+        ) : null}
+        <div className={isOffline ? "h-[2px] bg-red-500" : "h-[2px] bg-gradient-to-r from-accent/60 via-accent to-accent/60"} />
         <header className="border-b border-line bg-bg/80 backdrop-blur-lg">
           <div className="mx-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-3 px-5 py-4">
             <div className="flex items-center gap-2.5">
@@ -1647,7 +1702,7 @@ export default function App() {
             </nav>
 
             <div className="flex items-center gap-2">
-              <button
+              {!isOffline ? <button
                 type="button"
                 className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface/70 px-3 py-1.5 text-xs font-medium text-text transition-all duration-150 hover:bg-surface hover:border-line-light cursor-pointer"
                 onClick={() => {
@@ -1658,7 +1713,7 @@ export default function App() {
               >
                 <DevicePlusIcon />
                 Add device
-              </button>
+              </button> : null}
               <button
                 type="button"
                 className="rounded-lg px-3 py-1.5 text-sm text-mute transition-colors duration-150 hover:bg-surface hover:text-text"
@@ -1671,7 +1726,13 @@ export default function App() {
         </header>
       </div>
 
-      {activeTab === "settings" ? (
+      {activeTab === "settings" && isOffline ? (
+        <main className="mx-auto px-5 pb-24 pt-6">
+          <div className="rounded-xl border border-line bg-panel/25 p-6 text-sm text-mute">
+            Settings are unavailable while offline.
+          </div>
+        </main>
+      ) : activeTab === "settings" ? (
         <main className="mx-auto px-5 pb-24 pt-6">
           <SettingsView
             session={session}
@@ -1684,14 +1745,14 @@ export default function App() {
               signOut();
             }}
             onRefresh={() => refresh(session)}
-            onCreateBook={onCreateBook}
+            onCreateBook={isOffline ? undefined : onCreateBook}
             timezone={timezone}
             onTimezoneChange={setTimezone}
           />
         </main>
       ) : activeTab === "calendar" ? (
         <div className="mx-auto pt-6">
-          <CalendarView session={session} calendars={calendars} events={calendarEvents} busy={busy} timezone={timezone} onRefresh={() => refresh(session)} />
+          <CalendarView session={session} calendars={calendars} events={calendarEvents} busy={busy} timezone={timezone} onRefresh={() => refresh(session)} readOnly={isOffline} />
         </div>
       ) : (
         <main className="mx-auto px-5 pb-24 pt-6">
@@ -1707,16 +1768,17 @@ export default function App() {
                     onCreate={onCreateBook}
                     onRename={onRenameBook}
                     onDelete={onDeleteBook}
+                    readOnly={isOffline}
                     busy={busy}
                   />
-                  <button
+                  {!isOffline ? <button
                     type="button"
                     className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl bg-accent text-bg transition-all duration-150 hover:brightness-110 active:scale-95"
                     onClick={openComposer}
                     aria-label="Add contact"
                   >
                     <PlusIcon />
-                  </button>
+                  </button> : null}
                 </div>
                 <div className="relative">
                   <SearchIcon />
@@ -1787,6 +1849,7 @@ export default function App() {
                 busy={busy}
                 error={error}
                 onSave={onSaveViewedContact}
+                readOnly={isOffline}
               />
             ) : (
               <div className="hidden min-h-56 items-center justify-center rounded-xl border border-dashed border-line bg-panel/20 px-6 text-center lg:flex">
