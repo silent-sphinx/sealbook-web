@@ -10,6 +10,7 @@ import { DeleteContactModal } from "./components/DeleteContactModal";
 import { DeleteAddressBookModal } from "./components/DeleteAddressBookModal";
 import { Modal } from "./components/Modal";
 import { SettingsView } from "./components/SettingsView";
+import { PasswordField } from "./components/PasswordField";
 import {
   deleteAddressBook,
   deleteContact,
@@ -50,6 +51,7 @@ import {
   type DeviceMetadata,
 } from "./lib/storage";
 import { browserTimezone } from "./lib/timezone";
+import { friendlyError } from "./lib/errors";
 import {
   btnPrimary,
   btnSecondary,
@@ -68,6 +70,17 @@ type MainTab = "contacts" | "calendar" | "settings";
 const LAST_TAB_KEY = "sealbook.last-tab";
 const TIMEZONE_KEY = "sealbook.timezone";
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+const IDLE_WARNING_MS = IDLE_TIMEOUT_MS - 60 * 1000;
+
+function passwordStrength(value: string): { score: number; label: string } {
+  if (!value) return { score: 0, label: "" };
+  let score = 0;
+  if (value.length >= 8) score += 1;
+  if (value.length >= 12) score += 1;
+  if (/[a-z]/.test(value) && /[A-Z]/.test(value)) score += 1;
+  if (/\d/.test(value) || /[^A-Za-z0-9]/.test(value)) score += 1;
+  return { score, label: ["Weak", "Fair", "Good", "Strong"][Math.max(0, score - 1)] };
+}
 
 function loadTimezone(): string {
   try {
@@ -107,33 +120,6 @@ function saveLastTab(tab: MainTab): void {
   } catch {
     // storage unavailable; ignore
   }
-}
-
-function friendlyError(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err);
-  const text = raw.toLowerCase();
-  if (text.includes("username taken")) {
-    return "That name is taken.";
-  }
-  if (text.includes("invalid credentials")) {
-    return "Wrong password.";
-  }
-  if (text.includes("unauthorized")) {
-    return "Your session expired. Lock and unlock again.";
-  }
-  if (text.includes("rate limited")) {
-    return "Too many tries. Wait a moment.";
-  }
-  if (text.includes("hasn't signed in") || text.includes("this browser")) {
-    return "This browser isn't signed in yet. Pair it, or use your recovery words.";
-  }
-  if (text.includes("expired") || text.includes("not found")) {
-    return "That request expired. Start again.";
-  }
-  if (text.includes("phrase") || text.includes("unwrap") || text.includes("aead")) {
-    return "Those words didn't match.";
-  }
-  return "Something went wrong. Try again.";
 }
 
 function Logo({ className }: { className: string }) {
@@ -231,15 +217,17 @@ function AuthCard({
   children,
   connectionDomain,
   onConnectionDomainSave,
+  wide = false,
 }: {
   children: React.ReactNode;
   connectionDomain?: string;
   onConnectionDomainSave?: (value: string) => boolean;
+  wide?: boolean;
 }) {
   const domainConfigured = connectionDomain === undefined || connectionDomain.trim() !== "";
   return (
-    <main className="mx-auto flex min-h-screen max-w-[500px] flex-col justify-center px-5 py-8">
-      <div className="relative animate-fade-in-up rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-7 sm:p-9 shadow-2xl shadow-black/40">
+    <main className={`mx-auto flex min-h-screen w-full ${wide ? "max-w-[980px]" : "max-w-[500px]"} flex-col justify-center px-5 py-8`}>
+      <div className={`relative w-full ${wide ? "max-w-[900px]" : "max-w-[500px]"} animate-fade-in-up rounded-2xl border border-line bg-panel/75 p-7 shadow-2xl shadow-black/40 backdrop-blur-md sm:p-9`}>
         {connectionDomain !== undefined && onConnectionDomainSave ? (
           <DomainSettings value={connectionDomain} onSave={onConnectionDomainSave} />
         ) : null}
@@ -269,6 +257,14 @@ function SearchIcon() {
         d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z"
         clipRule="evenodd"
       />
+    </svg>
+  );
+}
+
+function ClearIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path d="M5.22 4.16a.75.75 0 0 0-1.06 1.06L8.94 10l-4.78 4.78a.75.75 0 1 0 1.06 1.06L10 11.06l4.78 4.78a.75.75 0 0 0 1.06-1.06L11.06 10l4.78-4.78a.75.75 0 0 0-1.06-1.06L10 8.94 5.22 4.16Z" />
     </svg>
   );
 }
@@ -503,8 +499,12 @@ export default function App() {
     const resetIdleTimer = () => {
       window.clearTimeout(timeoutId);
       timeoutId = window.setTimeout(() => {
+        if (window.confirm("Your vault will lock in one minute due to inactivity. Stay signed in?")) {
+          resetIdleTimer();
+          return;
+        }
         void lock();
-      }, IDLE_TIMEOUT_MS);
+      }, IDLE_WARNING_MS);
     };
     const events = ["pointerdown", "keydown", "touchstart"] as const;
     events.forEach((event) => window.addEventListener(event, resetIdleTimer));
@@ -840,7 +840,7 @@ export default function App() {
 
   async function onSaveViewedContact(draft: ContactDraft) {
     if (!session || !viewingContact || !draft.name.trim()) {
-      return;
+      return false;
     }
     setBusy(true);
     setError(null);
@@ -850,8 +850,10 @@ export default function App() {
         current?.id === viewingContact.id ? { ...current, ...draft } : current,
       );
       await refreshAfterSave(session);
+      return true;
     } catch (err) {
       setError(friendlyError(err));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -1083,23 +1085,25 @@ export default function App() {
       <AuthCard
         connectionDomain={connectionDomain}
         onConnectionDomainSave={saveDomain}
+        wide
       >
         <Brand
           title="Pair this device"
           subtitle="Connect with an active device to transfer encryption keys."
         />
 
-        <div className="mt-7 space-y-4">
+        <div className="mt-7 grid gap-4 sm:grid-cols-2 sm:items-start">
+          <div className="min-w-0 space-y-4">
           {/* Step 1 */}
-          <div className="rounded-xl border border-line bg-surface/30 p-4">
+          <div className="min-w-0 rounded-xl border border-line bg-surface/30 p-4">
             <div className="flex items-start gap-3">
               <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent font-semibold text-xs mt-0.5">
                 1
               </span>
               <div>
                 <p className="text-sm font-semibold text-text">Open your signed-in device</p>
-                <p className="mt-1 text-sm text-mute leading-relaxed">
-                  On your phone, laptop, or browser where Sealbook is open, click <strong className="text-text font-semibold">Add device</strong> at the top.
+                <p className="mt-1 text-sm leading-relaxed text-mute">
+                  On your signed-in device, click <strong className="font-semibold text-text">Add device</strong> at the top.
                 </p>
               </div>
             </div>
@@ -1112,7 +1116,7 @@ export default function App() {
                 2
               </span>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-semibold text-text">Enter this pairing code</p>
                   <button
                     type="button"
@@ -1121,53 +1125,47 @@ export default function App() {
                       setCopied(true);
                       setTimeout(() => setCopied(false), 2000);
                     }}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1 text-xs font-medium text-accent transition-colors hover:border-line-light cursor-pointer"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-accent transition-colors hover:border-line-light cursor-pointer"
+                    aria-label={copied ? "Pairing code copied" : "Copy pairing code"}
+                    title={copied ? "Pairing code copied" : "Copy pairing code"}
                   >
-                    {copied ? (
-                      <>
-                        <CheckIcon />
-                        <span>Copied!</span>
-                      </>
-                    ) : (
-                      <>
-                        <CopyIcon />
-                        <span>Copy code</span>
-                      </>
-                    )}
+                    {copied ? <CheckIcon /> : <CopyIcon />}
                   </button>
                 </div>
-                <p className="mt-2.5 break-all select-all rounded-lg border border-line bg-bg/90 px-3.5 py-2.5 font-mono text-xs text-accent">
+                <p className="mt-2.5 max-w-full select-all whitespace-normal rounded-lg border border-line bg-bg/90 px-3.5 py-2.5 font-mono text-[10px] leading-relaxed text-accent [overflow-wrap:normal]">
                   {pairId}
                 </p>
               </div>
             </div>
           </div>
 
+          </div>
+
           {/* Step 3: Confirmation Code */}
-          <div className="rounded-xl border border-line bg-surface/30 p-4">
+          <div className="min-w-0 rounded-xl border border-line bg-surface/30 p-4">
             <div className="flex items-start gap-3">
               <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent font-semibold text-xs mt-0.5">
                 3
               </span>
               <div className="flex-1 min-w-0 text-center">
-                <p className="text-sm font-semibold text-text text-left">Verify confirmation code</p>
+                <p className="text-sm font-semibold text-left text-text">Verify code</p>
                 <p className="mt-1 text-sm text-mute text-left leading-relaxed">
-                  Both devices must display this exact confirmation number:
+                  Confirm both devices show this code:
                 </p>
-                <div className="my-3 rounded-xl border border-accent/25 bg-bg/90 py-3">
-                  <p className="font-mono text-3xl font-bold tracking-[0.35em] text-accent">
+                <div className="my-3 overflow-hidden rounded-xl border border-accent/25 bg-bg/90 px-2 py-3">
+                  <p className="text-center font-mono text-base font-bold leading-relaxed tracking-[0.05em] text-accent">
                     {pairConfirm}
                   </p>
                 </div>
-                <p className="text-xs text-mute">
-                  Check that your other device displays this code, then approve it there.
+                <p className="text-xs leading-relaxed text-mute">
+                  Check the other device, then approve the pairing there.
                 </p>
               </div>
             </div>
           </div>
         </div>
 
-        {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
+        {error ? <p className="mt-4 text-sm text-danger sm:col-span-2">{error}</p> : null}
 
         {/* Step 4: Live status / Password completion */}
         {pairApproved ? (
@@ -1186,9 +1184,8 @@ export default function App() {
               <label htmlFor="pair-password" className="block text-sm font-medium text-text mb-1.5">
                 Password
               </label>
-              <input
+              <PasswordField
                 id="pair-password"
-                type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
@@ -1376,9 +1373,8 @@ export default function App() {
             <label htmlFor="recover-password" className="block text-sm font-medium text-text mb-1.5">
               Password
             </label>
-            <input
+            <PasswordField
               id="recover-password"
-              type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
@@ -1422,8 +1418,7 @@ export default function App() {
           <form onSubmit={onUnlock} className="mt-8">
             <label className="block text-sm text-mute">
               Password
-              <input
-                type="password"
+              <PasswordField
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
@@ -1497,14 +1492,29 @@ export default function App() {
                 className="box-border w-full rounded-xl border border-line bg-bg px-3.5 py-2.5 text-sm text-text outline-none transition-all placeholder:text-mute/50 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
                 required
               />
+              {password ? (() => {
+                const strength = passwordStrength(password);
+                return (
+                  <div className="mt-2" aria-live="polite">
+                    <div className="flex gap-1" aria-hidden="true">
+                      {[1, 2, 3, 4].map((segment) => (
+                        <span
+                          key={segment}
+                          className={`h-1 flex-1 rounded-full ${segment <= strength.score ? "bg-accent" : "bg-surface"}`}
+                        />
+                      ))}
+                    </div>
+                    <p className="mt-1 text-[11px] text-mute">Password strength: {strength.label}</p>
+                  </div>
+                );
+              })() : null}
             </div>
             <div>
               <label htmlFor="register-password" className="block text-sm font-medium text-text mb-1.5">
                 Password
               </label>
-              <input
+              <PasswordField
                 id="register-password"
-                type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password"
@@ -1720,8 +1730,19 @@ export default function App() {
                         : "Search contacts…"
                     }
                     aria-label="Search contacts"
-                    className={`${searchField} h-[42px] pl-10`}
+                    className={`${searchField} h-[42px] pl-10 pr-10`}
                   />
+                  {search ? (
+                    <button
+                      type="button"
+                      onClick={() => setSearch("")}
+                      className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text"
+                      aria-label="Clear search"
+                      title="Clear search"
+                    >
+                      <ClearIcon />
+                    </button>
+                  ) : null}
                 </div>
               </div>
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { addressLines, channelKindLabel, dateKindLabel } from "../lib/contact";
 import { optimizeAvatar } from "../lib/image";
-import { btnPrimary, btnSecondary, sectionBar } from "../lib/styles";
+import { sectionBar } from "../lib/styles";
 import type { AddressBook, Contact, ContactDraft } from "../lib/types";
 import { Avatar } from "./ContactCard";
 import { ContactForm } from "./ContactForm";
@@ -14,7 +14,7 @@ type Props = {
   addressBooks: AddressBook[];
   busy: boolean;
   error?: string | null;
-  onSave: (draft: ContactDraft) => void | Promise<void>;
+  onSave: (draft: ContactDraft) => boolean | Promise<boolean>;
 };
 
 function formatTimestamp(iso?: string): string | null {
@@ -71,6 +71,7 @@ export function ContactDetailModal({
   const addresses = addressLines(contact.address);
   const [editing, setEditing] = useState(false);
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const avatarMenuRef = useRef<HTMLDivElement>(null);
 
@@ -100,9 +101,14 @@ export function ContactDetailModal({
   async function handleAvatarUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
+    setAvatarError(null);
     try {
       const avatar = await optimizeAvatar(file);
-      onSave({ ...contact, avatar });
+      if (await onSave({ ...contact, avatar })) {
+        setAvatarMenuOpen(false);
+      }
+    } catch {
+      setAvatarError("Couldn't process that image. Try a different file.");
       setAvatarMenuOpen(false);
     } finally {
       event.target.value = "";
@@ -141,6 +147,7 @@ export function ContactDetailModal({
                   className="w-full rounded-md px-3 py-2 text-left text-xs text-danger transition-colors hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-40"
                   disabled={!contact.avatar || busy}
                   onClick={() => {
+                    if (!window.confirm("Remove this profile photo?")) return;
                     onSave({ ...contact, avatar: undefined });
                     setAvatarMenuOpen(false);
                   }}
@@ -233,6 +240,8 @@ export function ContactDetailModal({
         </div>
       </div>
 
+      {avatarError ? <p className="border-b border-danger/30 bg-danger/10 px-5 py-2.5 text-xs text-danger">{avatarError}</p> : null}
+
       {editing ? (
         <>
           {error ? <p className="border-b border-danger/30 bg-danger/10 px-5 py-2.5 text-xs text-danger">{error}</p> : null}
@@ -245,8 +254,9 @@ export function ContactDetailModal({
           initialDraft={contact}
           submitLabel="Save changes"
           onSubmit={async (draft) => {
-            await onSave(draft);
-            setEditing(false);
+            if (await onSave(draft)) {
+              setEditing(false);
+            }
           }}
           onCancel={() => setEditing(false)}
         />
@@ -472,57 +482,6 @@ export function ContactDetailModal({
           </div>
         ) : null}
 
-        {/* Footer actions */}
-        <div className="hidden shrink-0 border-t border-line bg-panel">
-          <div className="flex items-center justify-between gap-3 px-5 py-4">
-            {onDelete ? (
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-danger/80 transition-colors hover:bg-danger/10 hover:text-danger active:scale-[0.98] cursor-pointer"
-                onClick={onDelete}
-              >
-                <svg
-                  className="h-4 w-4"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M3 6h18" />
-                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                  <line x1="10" y1="11" x2="10" y2="17" />
-                  <line x1="14" y1="11" x2="14" y2="17" />
-                </svg>
-                Delete
-              </button>
-            ) : (
-              <div />
-            )}
-            <div className="flex items-center gap-2.5">
-              <button
-                type="button"
-                className={btnSecondary}
-                onClick={onClose}
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                className={btnPrimary}
-                onClick={() => setEditing(true)}
-              >
-                <svg className="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor">
-                  <path d="m5.433 13.917 1.262-3.155A4 4 0 0 1 7.58 9.42l6.92-6.918a2.121 2.121 0 0 1 3 3l-6.92 6.918c-.383.383-.84.685-1.343.886l-3.154 1.262a.5.5 0 0 1-.65-.65Z" />
-                  <path d="M3.5 5.75c0-.69.56-1.25 1.25-1.25H10A.75.75 0 0 0 10 3H4.75A2.75 2.75 0 0 0 2 5.75v9.5A2.75 2.75 0 0 0 4.75 18h9.5A2.75 2.75 0 0 0 17 15.25V10a.75.75 0 0 0-1.5 0v5.25c0 .69-.56 1.25-1.25 1.25h-9.5c-.69 0-1.25-.56-1.25-1.25v-9.5Z" />
-                </svg>
-                <span>Edit contact</span>
-              </button>
-            </div>
-          </div>
-        </div>
       </div>
       )}
     </aside>

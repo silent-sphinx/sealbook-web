@@ -615,10 +615,9 @@ function DatesList({
           </select>
           <div className="grid min-w-0 gap-2">
             <input
-              type="text"
+              type="date"
               value={row.date}
               onChange={(e) => update(row.id, { date: e.target.value })}
-              placeholder="YYYY-MM-DD"
               aria-label="Date"
               className={fieldBase}
             />

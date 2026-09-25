@@ -11,6 +11,7 @@ import {
 import { parseCalendarImport } from "../lib/ics";
 import { formatRecoveryWordsFile } from "../lib/phrase";
 import { clearDevice } from "../lib/storage";
+import { friendlyError } from "../lib/errors";
 import {
   btnDanger,
   btnPrimary,
@@ -21,6 +22,7 @@ import type { AddressBook, Calendar, Contact } from "../lib/types";
 import { allTimezones, utcOffsetLabel } from "../lib/timezone";
 import { Modal } from "./Modal";
 import { ImportExportSection } from "./ImportExportSection";
+import { PasswordField } from "./PasswordField";
 
 const MAX_CALENDAR_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_CALENDAR_EVENTS = 1_000;
@@ -142,14 +144,9 @@ export function SettingsView({
         text: `Username successfully updated to "${targetName}".`,
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
       setUsernameMsg({
         type: "error",
-        text: msg.includes("taken")
-          ? "That username is already taken."
-          : msg.includes("invalid credentials")
-            ? "Incorrect password."
-            : `Failed to update username: ${msg}`,
+        text: friendlyError(err),
       });
     } finally {
       setUsernameBusy(false);
@@ -192,10 +189,9 @@ export function SettingsView({
         text: "Password updated successfully. Encryption keys have been re-wrapped.",
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
       setPasswordMsg({
         type: "error",
-        text: `Failed to change password: ${msg}`,
+        text: friendlyError(err),
       });
     } finally {
       setPasswordBusy(false);
@@ -216,10 +212,9 @@ export function SettingsView({
         text: "New recovery phrase generated. Previous recovery words have been invalidated on the server.",
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
       setPhraseMsg({
         type: "error",
-        text: `Failed to rotate recovery phrase: ${msg}`,
+        text: friendlyError(err),
       });
     } finally {
       setPhraseBusy(false);
@@ -298,8 +293,7 @@ export function SettingsView({
       setShowDeleteModal(false);
       onAccountDeleted();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setDeleteError(`Failed to delete account: ${msg}`);
+      setDeleteError(friendlyError(err));
       setDeleteBusy(false);
     }
   }
@@ -321,7 +315,7 @@ export function SettingsView({
       await onRefresh();
       setIcsMessage(`Imported ${imported.length} event${imported.length === 1 ? "" : "s"}.`);
     } catch (err) {
-      setIcsMessage(`ICS import failed: ${err instanceof Error ? err.message : String(err)}`);
+      setIcsMessage(friendlyError(err));
     } finally {
       setImportingIcs(false);
       setIcsProgress({ current: 0, total: 0 });
@@ -455,8 +449,7 @@ export function SettingsView({
             <label className="block text-xs font-medium text-text">
               Current Password (to confirm)
             </label>
-            <input
-              type="password"
+            <PasswordField
               value={usernamePassword}
               onChange={(e) => setUsernamePassword(e.target.value)}
               placeholder="Current password"
@@ -497,8 +490,7 @@ export function SettingsView({
             <label className="block text-xs font-medium text-text">
               Current Password
             </label>
-            <input
-              type="password"
+            <PasswordField
               value={passwordCurrent}
               onChange={(e) => setPasswordCurrent(e.target.value)}
               placeholder="Current password"
@@ -511,8 +503,7 @@ export function SettingsView({
             <label className="block text-xs font-medium text-text">
               New Password
             </label>
-            <input
-              type="password"
+            <PasswordField
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="At least 8 characters"
@@ -525,8 +516,7 @@ export function SettingsView({
             <label className="block text-xs font-medium text-text">
               Confirm New Password
             </label>
-            <input
-              type="password"
+            <PasswordField
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Re-type new password"
@@ -747,8 +737,7 @@ export function SettingsView({
                 autoFocus
               />
 
-              <input
-                type="password"
+              <PasswordField
                 value={deletePassword}
                 onChange={(e) => setDeletePassword(e.target.value)}
                 placeholder="Current password"
@@ -827,7 +816,7 @@ function IcsCalendarChooser({ file, calendarId, calendars, onCalendarChange, onC
       setNewCalendarName("");
       setCreatingCalendar(false);
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : String(err));
+      setCreateError(friendlyError(err));
     } finally {
       setCreateBusy(false);
     }
