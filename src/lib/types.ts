@@ -131,6 +131,7 @@ export type Calendar = {
   id: string;
   name: string;
   color: string;
+  favorite?: boolean;
 };
 
 export type OpaqueStart = {

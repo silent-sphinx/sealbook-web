@@ -117,7 +117,7 @@ function monthDays(month: Date): Date[] {
   });
 }
 
-function Icon({ name, className = "h-4 w-4" }: { name: "plus" | "search" | "chevron" | "x" | "eye" | "eyeOff" | "pencil"; className?: string }) {
+function Icon({ name, className = "h-4 w-4" }: { name: "plus" | "search" | "chevron" | "x" | "eye" | "eyeOff" | "pencil" | "star"; className?: string }) {
   const content = {
     plus: <path d="M8 2.5v11M2.5 8h11" />,
     search: <><circle cx="6.5" cy="6.5" r="4" /><path d="m10 10 3.5 3.5" /></>,
@@ -126,6 +126,7 @@ function Icon({ name, className = "h-4 w-4" }: { name: "plus" | "search" | "chev
     eye: <><path d="M1.5 8s2.25-4 6.5-4 6.5 4 6.5 4-2.25 4-6.5 4-6.5-4-6.5-4Z" /><circle cx="8" cy="8" r="1.75" /></>,
     eyeOff: <><path d="m2.5 2.5 11 11M6.6 4.2C7.05 4.07 7.52 4 8 4c4.25 0 6.5 4 6.5 4a12.5 12.5 0 0 1-2.08 2.48M4.3 5.3C2.57 6.3 1.5 8 1.5 8s2.25 4 6.5 4c.48 0 .95-.07 1.4-.2" /></>,
     pencil: <><path d="m10.75 2.75 2.5 2.5M3 13l1.5-3.75 6.25-6.25a1.77 1.77 0 0 1 2.5 2.5L7 11.75 3 13Z" /></>,
+    star: <path d="m8 1.75 1.9 3.85 4.25.62-3.08 3 .73 4.23L8 11.45l-3.8 2 .73-4.23-3.08-3 4.25-.62L8 1.75Z" fill="currentColor" />,
   }[name];
   const resolvedClassName = name === "search"
     ? `${className} pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-mute`
@@ -239,7 +240,9 @@ export function CalendarView({
     }
   }
 
-  function openNewTask() {
+  function openNewTask(day?: Date) {
+    const dayKey = day ? keyFor(day) : todayKey;
+    if (day) selectDay(day);
     setEditingEvent(null);
     setTitle("");
     setNotes("");
@@ -247,6 +250,8 @@ export function CalendarView({
     setParticipants("");
     setAllDay(false);
     setEventCalendarId(calendars[0]?.id ?? "");
+    setStart(`${dayKey}T09:00`);
+    setEnd(`${dayKey}T10:00`);
     setRepeatChoice("none");
     setCustomFrequency("weekly");
     setCustomInterval(1);
@@ -353,11 +358,21 @@ export function CalendarView({
     if (!calendarName.trim()) return;
     setError(null);
     try {
-      await putCalendar(session, { name: calendarName.trim(), color: calendarColor }, editingCalendar?.id);
+      await putCalendar(session, { name: calendarName.trim(), color: calendarColor, favorite: editingCalendar?.favorite ?? false }, editingCalendar?.id);
       setCalendarName("");
       setCalendarColor("#7aa2f7");
       setEditingCalendar(null);
       setCalendarComposer(false);
+      await onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function toggleFavorite(calendar: Calendar) {
+    setError(null);
+    try {
+      await putCalendar(session, { name: calendar.name, color: calendar.color, favorite: !calendar.favorite }, calendar.id);
       await onRefresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -397,21 +412,21 @@ export function CalendarView({
         <aside className="overflow-y-auto bg-panel px-6 py-7">
           <div className="flex items-center justify-between">
             <div><p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-mute">My calendar</p><h2 className="mt-1 text-lg font-semibold">Calendar</h2></div>
-            <button type="button" onClick={openNewTask} className="flex h-8 w-8 items-center justify-center rounded-md bg-surface text-text hover:bg-elevated" aria-label="Create event"><Icon name="plus" /></button>
+            <button type="button" onClick={() => openNewTask()} className="flex h-8 w-8 items-center justify-center rounded-md bg-surface text-text hover:bg-elevated" aria-label="Create event"><Icon name="plus" /></button>
           </div>
           <MiniMonth month={month} selected={selected} events={filtered} spans={spans} onSelect={selectDay} />
           <div className="mt-8 border-t border-line pt-5">
             <div className="flex items-center justify-between"><p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-mute">Calendars</p><button type="button" onClick={openNewCalendar} className="flex h-6 w-6 items-center justify-center rounded-md text-mute hover:bg-surface hover:text-text" aria-label="Add calendar"><Icon name="plus" /></button></div>
-            <div className="mt-3 space-y-2.5">{calendars.length === 0 ? <p className="text-xs text-mute">No calendars yet.</p> : calendars.map((calendar) => { const hidden = hiddenCalendarIds.has(calendar.id); return <div key={calendar.id} className={`flex items-center gap-2.5 rounded-md px-1.5 py-1 text-xs transition-colors hover:bg-surface/50 ${hidden ? "text-mute opacity-50" : "text-text"}`}><i className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-white/10" style={{ backgroundColor: calendar.color }} /><span className="min-w-0 flex-1 truncate font-medium">{calendar.name}</span><button type="button" onClick={() => openEditCalendar(calendar)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text" aria-label={`Edit ${calendar.name} calendar`} title="Edit calendar"><Icon name="pencil" className="h-3.5 w-3.5" /></button><button type="button" onClick={() => toggleCalendar(calendar.id)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text" aria-label={`${hidden ? "Show" : "Hide"} ${calendar.name} calendar`} title={`${hidden ? "Show" : "Hide"} calendar`}><Icon name={hidden ? "eyeOff" : "eye"} className="h-3.5 w-3.5" /></button></div>; })}</div>
+            <div className="mt-3 space-y-2.5">{calendars.length === 0 ? <p className="text-xs text-mute">No calendars yet.</p> : [...calendars].sort((a, b) => Number(b.favorite === true) - Number(a.favorite === true)).map((calendar) => { const hidden = hiddenCalendarIds.has(calendar.id); return <div key={calendar.id} className={`flex items-center gap-2.5 rounded-md px-1.5 py-1 text-xs transition-colors hover:bg-surface/50 ${hidden ? "text-mute opacity-50" : "text-text"}`}><i className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-white/10" style={{ backgroundColor: calendar.color }} /><span className="min-w-0 flex-1 truncate font-medium">{calendar.name}</span><span className="flex shrink-0 items-center gap-0"><button type="button" onClick={() => void toggleFavorite(calendar)} aria-pressed={calendar.favorite === true} className={`flex h-5 w-5 items-center justify-center rounded-md transition-colors hover:bg-surface ${calendar.favorite ? "text-accent" : "text-mute hover:text-text"}`} aria-label={`${calendar.favorite ? "Remove" : "Add"} ${calendar.name} ${calendar.favorite ? "from" : "to"} favourites`} title={`${calendar.favorite ? "Unfavourite" : "Favourite"} calendar`}><Icon name="star" className="h-3.5 w-3.5" /></button><button type="button" onClick={() => openEditCalendar(calendar)} className="flex h-5 w-5 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text" aria-label={`Edit ${calendar.name} calendar`} title="Edit calendar"><Icon name="pencil" className="h-3.5 w-3.5" /></button><button type="button" onClick={() => toggleCalendar(calendar.id)} className="flex h-5 w-5 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text" aria-label={`${hidden ? "Show" : "Hide"} ${calendar.name} calendar`} title={`${hidden ? "Show" : "Hide"} calendar`}><Icon name={hidden ? "eyeOff" : "eye"} className="h-3.5 w-3.5" /></button></span></div>; })}</div>
           </div>
         </aside>
 
         <section className="flex min-w-0 flex-col overflow-hidden">
           <header className="flex flex-wrap items-center justify-between gap-4 border-b border-line bg-panel px-5 py-3 lg:px-8">
             <div className="flex items-center gap-2"><button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} className="flex h-7 w-7 items-center justify-center rounded-md border border-line text-mute transition-colors hover:bg-surface hover:text-text" aria-label="Previous month"><Icon name="chevron" className="h-3.5 w-3.5 rotate-180" /></button><button type="button" onClick={() => { setMonth(new Date(today.getFullYear(), today.getMonth(), 1)); selectDay(today); }} className="h-7 rounded-md border border-line px-3 text-[11px] font-medium text-mute transition-colors hover:bg-surface hover:text-text">Today</button><button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} className="flex h-7 w-7 items-center justify-center rounded-md border border-line text-mute transition-colors hover:bg-surface hover:text-text" aria-label="Next month"><Icon name="chevron" className="h-3.5 w-3.5" /></button><h1 className="ml-3 text-base font-bold tracking-tight">{month.toLocaleDateString([], { month: "long", year: "numeric" })}</h1><span className="ml-1 rounded-full bg-surface px-2 py-0.5 text-[10px] font-medium text-mute">{filtered.length}</span></div>
-            <div className="flex items-center gap-3"><button type="button" onClick={openNewTask} className="flex h-7 items-center gap-1.5 rounded-md bg-accent/10 px-3 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/20"><Icon name="plus" className="h-3.5 w-3.5" />New event</button><div className="relative hidden sm:block"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" className="h-7 w-40 rounded-md border border-line bg-bg pl-8 pr-3 text-[11px] text-text outline-none placeholder:text-mute focus:border-accent" /></div><div className="flex rounded-md border border-line bg-bg p-0.5">{(["day", "week", "month", "year"] as ViewMode[]).map((item) => <button key={item} type="button" onClick={() => setMode(item)} className={`h-6 px-2.5 text-[10px] font-medium capitalize transition-colors ${mode === item ? "rounded bg-accent font-semibold text-bg" : "text-mute hover:text-text"}`}>{item}</button>)}</div></div>
+            <div className="flex items-center gap-3"><button type="button" onClick={() => openNewTask()} className="flex h-7 items-center gap-1.5 rounded-md bg-accent/10 px-3 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/20"><Icon name="plus" className="h-3.5 w-3.5" />New event</button><div className="relative hidden sm:block"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" className="h-7 w-40 rounded-md border border-line bg-bg pl-8 pr-3 text-[11px] text-text outline-none placeholder:text-mute focus:border-accent" /></div><div className="flex rounded-md border border-line bg-bg p-0.5">{(["day", "week", "month", "year"] as ViewMode[]).map((item) => <button key={item} type="button" onClick={() => setMode(item)} className={`h-6 px-2.5 text-[10px] font-medium capitalize transition-colors ${mode === item ? "rounded bg-accent font-semibold text-bg" : "text-mute hover:text-text"}`}>{item}</button>)}</div></div>
           </header>
-          {mode === "month" ? <MonthGrid month={month} days={days} selected={selected} todayKey={todayKey} events={visibleEvents} spans={spans} calendars={calendars} onSelect={selectDay} onEdit={(event) => openEditTask(events.find((source) => event.id === source.id || event.id.startsWith(`${source.id}:`)) ?? event)} /> : <div className="flex-1 p-10 text-sm text-mute">{mode[0].toUpperCase() + mode.slice(1)} view is ready for the next calendar iteration.</div>}
+          {mode === "month" ? <MonthGrid month={month} days={days} selected={selected} todayKey={todayKey} events={visibleEvents} spans={spans} calendars={calendars} onSelect={selectDay} onAdd={openNewTask} onEdit={(event) => openEditTask(events.find((source) => event.id === source.id || event.id.startsWith(`${source.id}:`)) ?? event)} /> : <div className="flex-1 p-10 text-sm text-mute">{mode[0].toUpperCase() + mode.slice(1)} view is ready for the next calendar iteration.</div>}
         </section>
       </div>
 
@@ -439,7 +454,7 @@ function eventSegmentClass(span: EventSpan, day: Date): string {
   return `relative z-10 block h-4 truncate text-[10px] font-semibold leading-4 text-black transition-opacity hover:opacity-90 ${left} ${right}`;
 }
 
-function MonthGrid({ month, days, selected, todayKey, events, spans, calendars, onSelect, onEdit }: { month: Date; days: Date[]; selected: string; todayKey: string; events: CalendarEvent[]; spans: Map<string, EventSpan>; calendars: Calendar[]; onSelect: (day: Date) => void; onEdit: (event: CalendarEvent) => void }) {
+function MonthGrid({ month, days, selected, todayKey, events, spans, calendars, onSelect, onAdd, onEdit }: { month: Date; days: Date[]; selected: string; todayKey: string; events: CalendarEvent[]; spans: Map<string, EventSpan>; calendars: Calendar[]; onSelect: (day: Date) => void; onAdd: (day: Date) => void; onEdit: (event: CalendarEvent) => void }) {
   const daySlotsMap = useMemo(() => {
     const map = new Map<string, (CalendarEvent | null)[]>();
     const activeSlots: (CalendarEvent | null)[] = [];
@@ -486,7 +501,7 @@ function MonthGrid({ month, days, selected, todayKey, events, spans, calendars, 
     return map;
   }, [days, events, spans]);
 
-  return <div className="flex min-w-0 flex-1 flex-col overflow-x-auto"><div className="flex min-w-[720px] flex-1 flex-col"><div className="grid grid-cols-7 border-b border-line bg-panel">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day, i) => <div key={day} className={`py-2 text-center text-[10px] font-semibold uppercase tracking-widest ${i === 0 || i === 6 ? "text-mute/60" : "text-mute"}`}>{day}</div>)}</div><div className="cal-grid grid flex-1 grid-cols-7 grid-rows-6">{days.map((day) => { const key = keyFor(day); const isWeekend = day.getDay() === 0 || day.getDay() === 6; const isOtherMonth = day.getMonth() !== month.getMonth(); const isToday = key === todayKey; const isSelected = key === selected; const slots = daySlotsMap.get(key) || []; return <button key={key} type="button" onClick={() => onSelect(day)} className={`cal-cell relative flex min-h-0 flex-col items-stretch justify-start border-b border-r border-line p-1.5 text-left transition-colors ${isOtherMonth ? "bg-[#191919] text-mute/30" : isWeekend ? "bg-[#1a1a1c] text-text/70" : "bg-bg text-text"} ${isToday ? "cal-today" : ""} ${isSelected ? "z-10 ring-2 ring-inset ring-accent" : "hover:brightness-125"}`}><span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${isToday ? "bg-accent font-bold text-bg" : ""}`}>{day.getDate()}</span><span className="mt-0.5 block space-y-0.5">{slots.slice(0, 4).map((event, slotIndex) => { if (!event) return <span key={`empty-${slotIndex}`} className="block h-4 w-full" />; const span = spans.get(event.id); if (!span) return <span key={`missing-${slotIndex}`} className="block h-4 w-full" />; const color = calendars.find((calendar) => calendar.id === event.calendarId)?.color; const startsHere = span.startKey === key; const showText = startsHere || day.getDay() === 0 || !span.bar; return <span key={event.id} role="button" tabIndex={0} onClick={(click) => { click.stopPropagation(); onEdit(event); }} onKeyDown={(keyEvent) => { if (keyEvent.key === "Enter" || keyEvent.key === " ") { keyEvent.preventDefault(); keyEvent.stopPropagation(); onEdit(event); } }} className={eventSegmentClass(span, day)} style={span.bar ? { backgroundColor: color ?? "var(--color-accent)" } : undefined}>{!span.bar && <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color ?? "var(--color-accent)" }} />}{!span.bar && <span className="mr-1 opacity-60">{span.timeLabel}</span>}{showText ? event.title : "\u00A0"}</span>; })}</span></button>; })}</div></div></div>;
+  return <div className="flex min-w-0 flex-1 flex-col overflow-x-auto"><div className="flex min-w-[720px] flex-1 flex-col"><div className="grid grid-cols-7 border-b border-line bg-panel">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day, i) => <div key={day} className={`py-2 text-center text-[10px] font-semibold uppercase tracking-widest ${i === 0 || i === 6 ? "text-mute/60" : "text-mute"}`}>{day}</div>)}</div><div className="cal-grid grid flex-1 grid-cols-7 grid-rows-6">{days.map((day) => { const key = keyFor(day); const isWeekend = day.getDay() === 0 || day.getDay() === 6; const isOtherMonth = day.getMonth() !== month.getMonth(); const isToday = key === todayKey; const isSelected = key === selected; const slots = daySlotsMap.get(key) || []; return <button key={key} type="button" onClick={() => onSelect(day)} onDoubleClick={() => onAdd(day)} className={`cal-cell relative flex min-h-0 flex-col items-stretch justify-start border-b border-r border-line p-1.5 text-left transition-colors ${isOtherMonth ? "bg-[#191919] text-mute/30" : isWeekend ? "bg-[#1a1a1c] text-text/70" : "bg-bg text-text"} ${isToday ? "cal-today" : ""} ${isSelected ? "z-10 ring-2 ring-inset ring-accent" : "hover:brightness-125"}`}><span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${isToday ? "bg-accent font-bold text-bg" : ""}`}>{day.getDate()}</span><span className="mt-0.5 block space-y-0.5">{slots.slice(0, 4).map((event, slotIndex) => { if (!event) return <span key={`empty-${slotIndex}`} className="block h-4 w-full" />; const span = spans.get(event.id); if (!span) return <span key={`missing-${slotIndex}`} className="block h-4 w-full" />; const color = calendars.find((calendar) => calendar.id === event.calendarId)?.color; const startsHere = span.startKey === key; const showText = startsHere || day.getDay() === 0 || !span.bar; return <span key={event.id} role="button" tabIndex={0} onClick={(click) => { click.stopPropagation(); onEdit(event); }} onKeyDown={(keyEvent) => { if (keyEvent.key === "Enter" || keyEvent.key === " ") { keyEvent.preventDefault(); keyEvent.stopPropagation(); onEdit(event); } }} className={eventSegmentClass(span, day)} style={span.bar ? { backgroundColor: color ?? "var(--color-accent)" } : undefined}>{!span.bar && <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color ?? "var(--color-accent)" }} />}{!span.bar && <span className="mr-1 opacity-60">{span.timeLabel}</span>}{showText ? event.title : "\u00A0"}</span>; })}</span></button>; })}</div></div></div>;
 }
 
 function LegacyEventDialog({ editing, title, start, end, notes, allDay, calendarId, calendars, busy, error, onClose, onSave, onDelete, onTitleChange, onStartChange, onEndChange, onNotesChange, onAllDayChange, onCalendarChange }: { editing: boolean; title: string; start: string; end: string; notes: string; allDay: boolean; calendarId: string; calendars: Calendar[]; busy: boolean; error: string | null; onClose: () => void; onSave: () => void; onDelete?: () => void; onTitleChange: (value: string) => void; onStartChange: (value: string) => void; onEndChange: (value: string) => void; onNotesChange: (value: string) => void; onAllDayChange: (value: boolean) => void; onCalendarChange: (value: string) => void }) {

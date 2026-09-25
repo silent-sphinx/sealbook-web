@@ -621,8 +621,8 @@ export async function listVault(
         const value = JSON.parse(raw) as { title?: string; start?: string; end?: string; notes?: string; location?: string; participants?: string[]; timezone?: string; calendarId?: string; recurrence?: CalendarEvent["recurrence"] };
         calendarEvents.push({ id: obj.id, title: value.title?.trim() || "Untitled event", start: value.start ?? "", end: value.end, notes: value.notes, location: value.location, participants: value.participants, timezone: value.timezone, calendarId: value.calendarId, recurrence: value.recurrence });
       } else if (contentType === CALENDAR_CONTENT_TYPE || isCalendarPayload(raw)) {
-        const value = JSON.parse(raw) as { name?: string; color?: string };
-        calendars.push({ id: obj.id, name: value.name?.trim() || "Untitled calendar", color: value.color || "#7aa2f7" });
+        const value = JSON.parse(raw) as { name?: string; color?: string; favorite?: boolean };
+        calendars.push({ id: obj.id, name: value.name?.trim() || "Untitled calendar", color: value.color || "#7aa2f7", favorite: value.favorite === true });
       } else if (contentType === ADDRESS_BOOK_CONTENT_TYPE || isAddressBookPayload(raw)) {
         addressBooks.push(parseAddressBook(obj.id, raw));
       } else {
