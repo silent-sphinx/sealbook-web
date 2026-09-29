@@ -7,6 +7,25 @@ Browser UI for the Sealbook vault.
 > [!IMPORTANT]
 This ia a web client only. A working [sealbook](https://github.com/silent-sphinx/sealbook) server is required for operation.
 
+> [!CAUTION]
+> **Requires a protocol v2 server.** This client speaks the three-message login
+> flow, the hybrid ML-DSA-65 + Ed25519 recovery-phrase proof and the
+> `key_epoch` collection-key rotation introduced in Sealbook v2, and will not
+> work against an older server. Rebuild `src/pkg` with `npm run wasm` whenever
+> the `sealbook` repository changes.
+
+> [!NOTE]
+> Device management (listing and revoking devices) has no UI here yet. The
+> crypto for it is in place — `rotation_sign` and `new_collection_key` — but
+> revocation currently has to be done from the CLI (`sealbook devices revoke`).
+> This client does handle a rotation performed elsewhere: it notices the
+> `key_epoch` change and re-fetches its key wrap.
+
+> [!NOTE]
+> The server requires TLS 1.3 with the hybrid `X25519MLKEM768` key exchange, so
+> the browser must support it: Chrome/Edge 131+, Firefox 132+, or Safari 26+.
+> Older browsers cannot connect at all.
+
 ## Development
 
 An existing [sealbook](https://github.com/silent-sphinx/sealbook) server is required for operation.

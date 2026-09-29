@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# The WebAssembly package in src/pkg is built from the sealbook repository and
+# is not committed here, so a full `tsc -b` / `vite build` cannot run without
+# first building it. The unit tests cover pure logic that does not touch wasm,
+# so they run directly. The Docker image build is what exercises the full
+# compile, wasm included.
+#
+# To add full typechecking here, check out the sealbook repository, install the
+# wasm32-unknown-unknown target and wasm-pack, and run the same wasm-pack
+# command as sealbook-web/Dockerfile before the typecheck step.
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Development-only advisories should not fail the build; what ships to a
+      # browser is what matters.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=moderate

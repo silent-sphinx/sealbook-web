@@ -13,15 +13,19 @@ export function extractRecoveryWords(input: string): string[] {
   }
 
   // 1. If input contains "Raw phrase:", grab that if it contains 24 words
-  const rawMatch = input.match(/Raw phrase(?:\s*\([^)]*\))?\s*:\s*([a-zA-Z\s]+)/i);
+  const rawMatch = input.match(/Raw phrase(?:\s*\([^)]*\))?\s*:\s*([\s\S]+)/i);
   if (rawMatch && rawMatch[1]) {
+    // Take the first 24 words that follow the marker rather than requiring the
+    // match to end there. Sealbook's own recovery file prints "Keep this file
+    // safe and secret." after the phrase, so insisting on exactly 24 words made
+    // this branch miss the very format it exists to read.
     const rawWords = rawMatch[1]
       .trim()
       .toLowerCase()
       .split(/\s+/u)
       .filter((w) => /^[a-z]+$/u.test(w));
-    if (rawWords.length === 24) {
-      return rawWords;
+    if (rawWords.length >= 24) {
+      return rawWords.slice(0, 24);
     }
   }
 
@@ -69,13 +73,6 @@ export function extractRecoveryWords(input: string): string[] {
   return words;
 }
 
-/**
- * Returns a normalized space-separated recovery phrase from any format.
- */
-export function cleanRecoveryPhrase(input: string): string {
-  const words = extractRecoveryWords(input);
-  return words.join(" ");
-}
 
 /**
  * Formats 24 recovery words into a readable text document for download,

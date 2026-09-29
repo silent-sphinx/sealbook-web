@@ -1,14 +1,26 @@
-import { useRef, useState, type FormEvent } from "react";
-import type { Session } from "../lib/client";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+  type FormEvent,
+} from "react";
+import type { DeviceSummary, Session } from "../lib/client";
 import {
   changePassword,
   changeUsername,
   deleteAccount,
   putCalendar,
   putCalendarEvent,
+  listDevices,
+  revokeDevice,
   rotatePhrase,
 } from "../lib/client";
-import { parseCalendarImport } from "../lib/ics";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { formatIcs, parseCalendarImport } from "../lib/ics";
+import { triggerDownload } from "../lib/importExport";
 import { formatRecoveryWordsFile } from "../lib/phrase";
 import { clearDevice } from "../lib/storage";
 import { friendlyError } from "../lib/errors";
@@ -17,8 +29,10 @@ import {
   btnPrimary,
   btnSecondary,
   field,
+  selectField,
 } from "../lib/styles";
-import type { AddressBook, Calendar, Contact } from "../lib/types";
+import type { AddressBook, Calendar, CalendarEvent, Contact } from "../lib/types";
+import { DEFAULT_CALENDAR_COLOR } from "../lib/types";
 import { allTimezones, utcOffsetLabel } from "../lib/timezone";
 import { Modal } from "./Modal";
 import { ImportExportSection } from "./ImportExportSection";
@@ -32,6 +46,7 @@ type Props = {
   contacts: Contact[];
   addressBooks: AddressBook[];
   calendars: Calendar[];
+  calendarEvents: CalendarEvent[];
   onSessionUpdate: (updated: Session) => void;
   onPersistSession: (updated: Session, password: string) => Promise<void>;
   onAccountDeleted: () => void;
@@ -48,6 +63,7 @@ export function SettingsView({
   contacts,
   addressBooks,
   calendars,
+  calendarEvents,
   onSessionUpdate,
   onPersistSession,
   onAccountDeleted,
@@ -57,12 +73,23 @@ export function SettingsView({
   onTimezoneChange,
 }: Props) {
   const [activeSection, setActiveSection] = useState<SettingsSection>("account");
+  // Calendar import state
   const icsInputRef = useRef<HTMLInputElement | null>(null);
-  const [pendingIcsFile, setPendingIcsFile] = useState<File | null>(null);
+  const [icsDragActive, setIcsDragActive] = useState(false);
+  const [icsFile, setIcsFile] = useState<{ name: string; size: number } | null>(null);
+  const [parsedIcsFormat, setParsedIcsFormat] = useState<string | null>(null);
+  const [parsedEvents, setParsedEvents] = useState<Omit<CalendarEvent, "id">[]>([]);
   const [icsCalendarId, setIcsCalendarId] = useState("");
+  const [isCreatingCalendar, setIsCreatingCalendar] = useState(false);
+  const [newCalendarName, setNewCalendarName] = useState("");
   const [importingIcs, setImportingIcs] = useState(false);
-  const [icsProgress, setIcsProgress] = useState({ current: 0, total: 0 });
-  const [icsMessage, setIcsMessage] = useState<string | null>(null);
+  const [icsProgress, setIcsProgress] = useState<{ current: number; total: number } | null>(null);
+  const [icsImportMsg, setIcsImportMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Calendar export state
+  const [exportCalendarId, setExportCalendarId] = useState("all");
+  const [calendarExportFormat, setCalendarExportFormat] = useState<"ics" | "json">("ics");
+  const [icsExportMsg, setIcsExportMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // Username state
   const [newUsername, setNewUsername] = useState("");
@@ -86,13 +113,23 @@ export function SettingsView({
   // Recovery phrase state
   const [phraseBusy, setPhraseBusy] = useState(false);
   const [newWords, setNewWords] = useState<string[] | null>(null);
+  const [devices, setDevices] = useState<DeviceSummary[] | null>(null);
+  const [devicesMsg, setDevicesMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<DeviceSummary | null>(null);
+  const [revokePassword, setRevokePassword] = useState("");
+  const [revokeError, setRevokeError] = useState<string | null>(null);
+  const [revokeBusy, setRevokeBusy] = useState(false);
+  const [revokeProgress, setRevokeProgress] = useState({ done: 0, total: 0 });
   const [copiedPhrase, setCopiedPhrase] = useState(false);
   const [phraseMsg, setPhraseMsg] = useState<{
     type: "success" | "error";
     text: string;
   } | null>(null);
   const [showPhraseConfirm, setShowPhraseConfirm] = useState(false);
+  // Rotating the phrase rotates the vault key, which needs the password to
+  // re-wrap it, so this is no longer a one-click action.
   const [phrasePassword, setPhrasePassword] = useState("");
+  const [phraseProgress, setPhraseProgress] = useState({ done: 0, total: 0 });
 
   // Delete account state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -199,22 +236,82 @@ export function SettingsView({
     }
   }
 
+  const loadDevices = useCallback(async () => {
+    try {
+      setDevices(await listDevices(session));
+    } catch (err) {
+      setDevicesMsg({ type: "error", text: friendlyError(err) });
+    }
+  }, [session]);
+
+  useEffect(() => {
+    void loadDevices();
+  }, [loadDevices]);
+
+  async function handleRevokeDevice() {
+    if (!revokeTarget) return;
+    if (!revokePassword) {
+      setRevokeError("Enter your password to confirm.");
+      return;
+    }
+    setRevokeBusy(true);
+    setRevokeError(null);
+    setDevicesMsg(null);
+    setRevokeProgress({ done: 0, total: 0 });
+    try {
+      const { session: updated, phrase } = await revokeDevice(
+        session,
+        revokeTarget.device_id,
+        revokePassword,
+        (done, total) => setRevokeProgress({ done, total }),
+      );
+      await onPersistSession(updated, revokePassword);
+      onSessionUpdate(updated);
+      // Rotating the key invalidates the old phrase, so surface the new one in
+      // the same place a freshly generated phrase appears.
+      setNewWords(phrase.split(/\s+/u).filter(Boolean));
+      setCopiedPhrase(false);
+      setRevokeTarget(null);
+      setRevokePassword("");
+      setDevicesMsg({
+        type: "success",
+        text: "Device revoked and the vault key rotated. Save the new recovery phrase below — your previous one no longer works.",
+      });
+      await loadDevices();
+      await onRefresh();
+    } catch (err) {
+      setRevokeError(friendlyError(err));
+    } finally {
+      setRevokeBusy(false);
+      setRevokeProgress({ done: 0, total: 0 });
+    }
+  }
+
   async function handleGeneratePhrase() {
+    if (!phrasePassword) {
+      setPhraseMsg({ type: "error", text: "Enter your password to confirm." });
+      return;
+    }
     setPhraseBusy(true);
     setPhraseMsg(null);
-    setShowPhraseConfirm(false);
+    setPhraseProgress({ done: 0, total: 0 });
     try {
-      const rotated = await rotatePhrase(session, phrasePassword);
-      setPhrasePassword("");
-      await onPersistSession(rotated.session, phrasePassword);
-      onSessionUpdate(rotated.session);
-      const words = rotated.phrase.split(/\s+/u).filter(Boolean);
-      setNewWords(words);
+      const { session: updated, phrase } = await rotatePhrase(
+        session,
+        phrasePassword,
+        (done, total) => setPhraseProgress({ done, total }),
+      );
+      await onPersistSession(updated, phrasePassword);
+      onSessionUpdate(updated);
+      setNewWords(phrase.split(/\s+/u).filter(Boolean));
       setCopiedPhrase(false);
+      setShowPhraseConfirm(false);
+      setPhrasePassword("");
       setPhraseMsg({
         type: "success",
-        text: "New recovery phrase generated. Previous recovery words have been invalidated on the server.",
+        text: "New recovery phrase generated and the vault key rotated. Your previous recovery words no longer work.",
       });
+      await onRefresh();
     } catch (err) {
       setPhraseMsg({
         type: "error",
@@ -222,6 +319,7 @@ export function SettingsView({
       });
     } finally {
       setPhraseBusy(false);
+      setPhraseProgress({ done: 0, total: 0 });
     }
   }
 
@@ -302,45 +400,167 @@ export function SettingsView({
     }
   }
 
-  async function importIcs(file: File) {
-    setImportingIcs(true);
-    setIcsProgress({ current: 0, total: 0 });
-    setIcsMessage(null);
-    try {
-      if (file.size > MAX_CALENDAR_FILE_BYTES) throw new Error("Calendar files must be 5 MB or smaller.");
-      const imported = parseCalendarImport(await file.text(), timezone, icsCalendarId);
-      if (imported.length === 0) throw new Error("No calendar events were found in that file.");
-      if (imported.length > MAX_CALENDAR_EVENTS) throw new Error("Calendar files may contain at most 1,000 events.");
-      setIcsProgress({ current: 0, total: imported.length });
-      for (let index = 0; index < imported.length; index += 1) {
-        await putCalendarEvent(session, imported[index]);
-        setIcsProgress({ current: index + 1, total: imported.length });
+  // Events selected for export, mirroring the contacts export filter.
+  const exportEvents = exportCalendarId === "all"
+    ? calendarEvents
+    : calendarEvents.filter((event) => event.calendarId === exportCalendarId);
+
+  function handleIcsFileRead(file: File) {
+    setIcsImportMsg(null);
+    if (file.size > MAX_CALENDAR_FILE_BYTES) {
+      setIcsImportMsg({ type: "error", text: "Calendar files must be 5 MB or smaller." });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result;
+      if (typeof content !== "string" || !content.trim()) {
+        setIcsImportMsg({ type: "error", text: `File "${file.name}" is empty.` });
+        return;
       }
-      await onRefresh();
-      setIcsMessage(`Imported ${imported.length} event${imported.length === 1 ? "" : "s"}.`);
-    } catch (err) {
-      setIcsMessage(friendlyError(err));
-    } finally {
-      setImportingIcs(false);
-      setIcsProgress({ current: 0, total: 0 });
+      try {
+        const trimmed = content.trimStart();
+        const events = parseCalendarImport(content, timezone, icsCalendarId);
+        if (events.length === 0) {
+          setIcsImportMsg({
+            type: "error",
+            text: `No calendar events could be parsed from "${file.name}". Ensure it is a valid .ics or .json file.`,
+          });
+          return;
+        }
+        if (events.length > MAX_CALENDAR_EVENTS) {
+          setIcsImportMsg({ type: "error", text: "Calendar files may contain at most 1,000 events." });
+          return;
+        }
+        setIcsCalendarId((current) => current || calendars[0]?.id || "");
+        setIcsFile({ name: file.name, size: file.size });
+        setParsedIcsFormat(trimmed.startsWith("[") || trimmed.startsWith("{") ? "JSON" : "ICS");
+        setParsedEvents(events);
+      } catch (err) {
+        setIcsImportMsg({ type: "error", text: `Failed to parse file: ${friendlyError(err)}` });
+      }
+    };
+    reader.onerror = () => {
+      setIcsImportMsg({ type: "error", text: "Failed to read file from disk." });
+    };
+    reader.readAsText(file);
+  }
+
+  function onIcsInputChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleIcsFileRead(file);
+    }
+    e.target.value = "";
+  }
+
+  function handleIcsDrag(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setIcsDragActive(true);
+    } else if (e.type === "dragleave") {
+      setIcsDragActive(false);
     }
   }
 
-  function chooseIcsFile(file: File) {
-    setIcsCalendarId(calendars[0]?.id ?? "");
-    setPendingIcsFile(file);
+  function handleIcsDrop(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    setIcsDragActive(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      handleIcsFileRead(file);
+    }
   }
 
-  function closeIcsChooser() {
-    setPendingIcsFile(null);
-    setIcsCalendarId("");
+  function resetIcsImport() {
+    setIcsFile(null);
+    setParsedIcsFormat(null);
+    setParsedEvents([]);
+    setIcsProgress(null);
+    setIsCreatingCalendar(false);
+    setNewCalendarName("");
   }
 
   async function createIcsCalendar(name: string): Promise<string> {
-    const id = await putCalendar(session, { name, color: "#7aa2f7" });
+    const id = await putCalendar(session, { name, color: DEFAULT_CALENDAR_COLOR });
     await onRefresh();
     setIcsCalendarId(id);
     return id;
+  }
+
+  async function handleExecuteIcsImport() {
+    if (parsedEvents.length === 0) return;
+
+    setImportingIcs(true);
+    setIcsImportMsg(null);
+    setIcsProgress({ current: 0, total: parsedEvents.length });
+
+    try {
+      let finalCalendarId = icsCalendarId;
+      const creatingName = newCalendarName.trim();
+
+      if (isCreatingCalendar && creatingName) {
+        finalCalendarId = await createIcsCalendar(creatingName);
+      }
+
+      for (let i = 0; i < parsedEvents.length; i++) {
+        await putCalendarEvent(session, { ...parsedEvents[i], calendarId: finalCalendarId });
+        setIcsProgress({ current: i + 1, total: parsedEvents.length });
+      }
+
+      await onRefresh();
+
+      const calendarName = isCreatingCalendar && creatingName
+        ? creatingName
+        : calendars.find((calendar) => calendar.id === finalCalendarId)?.name ?? "your calendar";
+      setIcsImportMsg({
+        type: "success",
+        text: `Successfully imported ${parsedEvents.length} event${
+          parsedEvents.length === 1 ? "" : "s"
+        } into "${calendarName}".`,
+      });
+
+      resetIcsImport();
+    } catch (err) {
+      setIcsImportMsg({ type: "error", text: `Import failed: ${friendlyError(err)}` });
+    } finally {
+      setImportingIcs(false);
+      setIcsProgress(null);
+    }
+  }
+
+  function exportCalendar() {
+    if (exportEvents.length === 0) {
+      setIcsExportMsg({
+        type: "error",
+        text: "No events available to export in the selected calendar.",
+      });
+      return;
+    }
+    setIcsExportMsg(null);
+    try {
+      const name = exportCalendarId === "all"
+        ? "Sealbook"
+        : calendars.find((calendar) => calendar.id === exportCalendarId)?.name ?? "Sealbook";
+      const stamp = new Date().toISOString().slice(0, 10);
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "calendar";
+      const filename = `${slug}-${stamp}.${calendarExportFormat}`;
+      if (calendarExportFormat === "json") {
+        triggerDownload(filename, "application/json", JSON.stringify(exportEvents, null, 2));
+      } else {
+        triggerDownload(filename, "text/calendar;charset=utf-8", formatIcs(exportEvents, name));
+      }
+      setIcsExportMsg({
+        type: "success",
+        text: `Exported ${exportEvents.length} event${
+          exportEvents.length === 1 ? "" : "s"
+        } as "${filename}".`,
+      });
+    } catch (err) {
+      setIcsExportMsg({ type: "error", text: `Export failed: ${friendlyError(err)}` });
+    }
   }
 
   return (
@@ -400,28 +620,319 @@ export function SettingsView({
           </p>
         </div>
 
-      {activeSection === "calendar" && (
-        <section className="rounded-2xl border border-line bg-panel/75 p-6 shadow-sm">
+      {activeSection === "calendar" && (<>
+        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
           <h3 className="text-base font-semibold text-text">Calendar timezone</h3>
           <select value={timezone} onChange={(event) => onTimezoneChange(event.target.value)} className={`${field} mt-5`}>
             {[...new Set([timezone, ...allTimezones])].map((zone) => <option key={zone} value={zone}>{zone} [{utcOffsetLabel(zone)}]</option>)}
           </select>
-          <div className="mt-8 border-t border-line pt-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h3 className="text-base font-semibold text-text">Import calendar</h3>
-                <p className="mt-1 text-xs leading-relaxed text-mute">Import events from an ICS or JSON file into one of your calendars.</p>
+        </section>
+
+        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm space-y-8">
+          <div>
+            <h3 className="text-base font-semibold text-text">
+              Import &amp; Export Calendars
+            </h3>
+            <p className="mt-1 text-xs text-mute leading-relaxed">
+              Move events between Sealbook and Apple Calendar, Google Calendar, or
+              Outlook using the standard ICS format, or export encrypted backups.
+            </p>
+          </div>
+
+          {/* SUB-SECTION 1: IMPORT */}
+          <div className="rounded-xl border border-line/80 bg-bg/50 p-5 space-y-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent/15 text-accent text-xs font-bold">
+                  ↓
+                </span>
+                <h4 className="text-sm font-semibold text-text">Import Events</h4>
               </div>
-              <input ref={icsInputRef} type="file" accept=".ics,.json,text/calendar,application/json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) chooseIcsFile(file); }} />
-              <button type="button" onClick={() => icsInputRef.current?.click()} disabled={importingIcs || calendars.length === 0} className={btnSecondary}>
-                {importingIcs ? "Importing..." : "Choose calendar file"}
+              <span className="text-[11px] text-mute font-mono">
+                .ics, .json
+              </span>
+            </div>
+
+            {/* Dropzone / File Picker */}
+            {!icsFile ? (
+              <div
+                onDragEnter={handleIcsDrag}
+                onDragLeave={handleIcsDrag}
+                onDragOver={handleIcsDrag}
+                onDrop={handleIcsDrop}
+                onClick={() => icsInputRef.current?.click()}
+                className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-7 text-center transition-all cursor-pointer ${
+                  icsDragActive
+                    ? "border-accent bg-accent/10 scale-[0.99]"
+                    : "border-line/80 hover:border-line-light hover:bg-surface/30"
+                }`}
+              >
+                <input
+                  ref={icsInputRef}
+                  type="file"
+                  accept=".ics,.json,text/calendar,application/json"
+                  onChange={onIcsInputChange}
+                  className="hidden"
+                />
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-surface border border-line text-accent mb-2">
+                  <svg
+                    className="h-5 w-5"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M9.25 13.25a.75.75 0 0 0 1.5 0V4.56l2.22 2.22a.75.75 0 1 0 1.06-1.06l-3.5-3.5a.75.75 0 0 0-1.06 0l-3.5 3.5a.75.75 0 0 0 1.06 1.06l2.22-2.22v8.69ZM3.5 14.25a.75.75 0 0 1 .75.75v1.5c0 .414.336.75.75.75h10a.75.75 0 0 0 .75-.75V15a.75.75 0 0 1 1.5 0v1.5A2.25 2.25 0 0 1 15 18.75H5A2.25 2.25 0 0 1 2.75 16.5V15a.75.75 0 0 1 .75-.75Z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </div>
+                <p className="text-xs font-medium text-text">
+                  Click to select file or drag &amp; drop here
+                </p>
+                <p className="mt-1 text-[11px] text-mute">
+                  Supports Apple Calendar / Google Calendar / Outlook (.ics), or Sealbook (.json)
+                </p>
+              </div>
+            ) : (
+              /* File Preview & Calendar Selection */
+              <div className="space-y-4 rounded-xl border border-accent/30 bg-surface/40 p-4 animate-fade-in">
+                <div className="flex items-center justify-between gap-3 border-b border-line/60 pb-3">
+                  <div>
+                    <p className="text-xs font-semibold text-text truncate max-w-xs sm:max-w-sm">
+                      {icsFile.name}
+                    </p>
+                    <p className="text-[11px] text-accent font-medium mt-0.5">
+                      Detected {parsedIcsFormat} · {parsedEvents.length} event
+                      {parsedEvents.length === 1 ? "" : "s"} found
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={importingIcs}
+                    onClick={resetIcsImport}
+                    className="text-xs text-mute hover:text-text cursor-pointer"
+                  >
+                    Change file
+                  </button>
+                </div>
+
+                {/* Calendar Selection Prompt */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-text">
+                      Target Calendar
+                    </label>
+                    <button
+                      type="button"
+                      disabled={importingIcs}
+                      onClick={() => setIsCreatingCalendar(!isCreatingCalendar)}
+                      className="text-[11px] text-accent hover:underline cursor-pointer"
+                    >
+                      {isCreatingCalendar ? "Select existing calendar" : "+ Create new calendar"}
+                    </button>
+                  </div>
+
+                  {isCreatingCalendar || calendars.length === 0 ? (
+                    <input
+                      type="text"
+                      value={newCalendarName}
+                      onChange={(e) => setNewCalendarName(e.target.value)}
+                      placeholder="e.g. Work, Personal, Travel"
+                      className={field}
+                      disabled={importingIcs}
+                      autoFocus
+                    />
+                  ) : (
+                    <select
+                      value={icsCalendarId}
+                      onChange={(e) => setIcsCalendarId(e.target.value)}
+                      disabled={importingIcs}
+                      className={selectField}
+                    >
+                      {calendars.map((calendar) => (
+                        <option key={calendar.id} value={calendar.id}>
+                          {calendar.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {/* Sample Event Preview */}
+                <div className="rounded-lg border border-line/70 bg-bg/70 p-3">
+                  <p className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
+                    Preview (First {Math.min(parsedEvents.length, 3)} of{" "}
+                    {parsedEvents.length})
+                  </p>
+                  <div className="space-y-1.5 text-xs">
+                    {parsedEvents.slice(0, 3).map((event, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between py-1 border-b border-line/40 last:border-0"
+                      >
+                        <span className="font-medium text-text truncate max-w-[160px]">
+                          {event.title}
+                        </span>
+                        <span className="text-mute truncate max-w-[180px] text-[11px] font-mono">
+                          {event.start.slice(0, 16).replace("T", " ")}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Progress Bar */}
+                {importingIcs && icsProgress && (
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex justify-between text-[11px] text-mute">
+                      <span>Encrypting &amp; uploading events…</span>
+                      <span className="font-mono font-medium text-accent">
+                        {icsProgress.current} / {icsProgress.total}
+                      </span>
+                    </div>
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-surface border border-line">
+                      <div
+                        className="h-full bg-accent transition-all duration-150"
+                        style={{
+                          width: `${(icsProgress.current / icsProgress.total) * 100}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex justify-end gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    disabled={importingIcs}
+                    onClick={resetIcsImport}
+                    className={btnSecondary}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      importingIcs ||
+                      ((isCreatingCalendar || calendars.length === 0) && !newCalendarName.trim()) ||
+                      (!isCreatingCalendar && calendars.length > 0 && !icsCalendarId) ||
+                      parsedEvents.length === 0
+                    }
+                    onClick={handleExecuteIcsImport}
+                    className={btnPrimary}
+                  >
+                    {importingIcs
+                      ? `Importing (${icsProgress?.current || 0}/${parsedEvents.length})…`
+                      : `Import ${parsedEvents.length} Event${
+                          parsedEvents.length === 1 ? "" : "s"
+                        }`}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {icsImportMsg && (
+              <div
+                className={`rounded-lg px-3 py-2 text-xs font-medium ${
+                  icsImportMsg.type === "success"
+                    ? "bg-accent/10 text-accent border border-accent/20"
+                    : "bg-danger/10 text-danger border border-danger/20"
+                }`}
+              >
+                {icsImportMsg.text}
+              </div>
+            )}
+          </div>
+
+          {/* SUB-SECTION 2: EXPORT */}
+          <div className="rounded-xl border border-line/80 bg-bg/50 p-5 space-y-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent/15 text-accent text-xs font-bold">
+                  ↑
+                </span>
+                <h4 className="text-sm font-semibold text-text">Export Events</h4>
+              </div>
+              <span className="text-[11px] text-mute font-mono">
+                {exportEvents.length} event{exportEvents.length === 1 ? "" : "s"}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Source Calendar */}
+              <div>
+                <label className="block text-xs font-medium text-text mb-1">
+                  Source Calendar
+                </label>
+                <select
+                  value={exportCalendarId}
+                  onChange={(e) => setExportCalendarId(e.target.value)}
+                  className={selectField}
+                >
+                  <option value="all">
+                    All Calendars ({calendarEvents.length})
+                  </option>
+                  {calendars.map((calendar) => {
+                    const count = calendarEvents.filter(
+                      (event) => event.calendarId === calendar.id,
+                    ).length;
+                    return (
+                      <option key={calendar.id} value={calendar.id}>
+                        {calendar.name} ({count})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {/* Export Format */}
+              <div>
+                <label className="block text-xs font-medium text-text mb-1">
+                  Export Format
+                </label>
+                <select
+                  value={calendarExportFormat}
+                  onChange={(e) => setCalendarExportFormat(e.target.value as "ics" | "json")}
+                  className={selectField}
+                >
+                  <option value="ics">
+                    iCalendar (.ics) · Apple, Google, Outlook
+                  </option>
+                  <option value="json">
+                    JSON (.json) · Lossless Full Backup
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            {icsExportMsg && (
+              <div
+                className={`rounded-lg px-3 py-2 text-xs font-medium ${
+                  icsExportMsg.type === "success"
+                    ? "bg-accent/10 text-accent border border-accent/20"
+                    : "bg-danger/10 text-danger border border-danger/20"
+                }`}
+              >
+                {icsExportMsg.text}
+              </div>
+            )}
+
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                disabled={exportEvents.length === 0}
+                onClick={exportCalendar}
+                className={btnPrimary}
+              >
+                Export {exportEvents.length} Event
+                {exportEvents.length === 1 ? "" : "s"}
               </button>
             </div>
-            {calendars.length === 0 ? <p className="mt-3 text-xs text-mute">Create a calendar before importing events.</p> : null}
-            {icsMessage ? <p className="mt-4 rounded-lg border border-line bg-bg px-3 py-2 text-xs text-mute">{icsMessage}</p> : null}
           </div>
         </section>
-      )}
+      </>)}
 
       {activeSection === "account" && <>
       <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
@@ -553,6 +1064,64 @@ export function SettingsView({
       </section>
 
       <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
+        <div className="flex flex-col gap-1">
+          <h3 className="text-base font-semibold text-text">Paired devices</h3>
+          <p className="text-xs leading-relaxed text-mute max-w-md">
+            Every device signed in to this account. Revoking one rotates the vault
+            key and re-encrypts your data, so the removed device keeps nothing it
+            can still read.
+          </p>
+        </div>
+
+        <div className="mt-5 space-y-2">
+          {devices === null ? (
+            <p className="text-xs text-mute">Loading devices...</p>
+          ) : devices.length === 0 ? (
+            <p className="text-xs text-mute">No devices found.</p>
+          ) : (
+            devices.map((device) => {
+              const isCurrent = device.device_id === session.state.device_id;
+              return (
+                <div
+                  key={device.device_id}
+                  className="flex items-center gap-3 rounded-xl border border-line bg-bg/60 px-4 py-3"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-mono text-xs text-text">
+                      {device.device_id}
+                    </span>
+                    {isCurrent ? (
+                      <span className="mt-0.5 block text-[11px] text-accent">This device</span>
+                    ) : null}
+                  </span>
+                  {isCurrent ? null : (
+                    <button
+                      type="button"
+                      onClick={() => { setRevokeTarget(device); setRevokePassword(""); setRevokeError(null); setDevicesMsg(null); }}
+                      className={`${btnSecondary} shrink-0`}
+                    >
+                      Revoke
+                    </button>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {devicesMsg ? (
+          <p
+            role="alert"
+            className={`mt-4 rounded-lg border px-3 py-2 text-xs leading-relaxed ${devicesMsg.type === "success"
+              ? "border-line bg-bg text-mute"
+              : "border-danger/30 bg-danger/10 text-danger"}`}
+          >
+            {devicesMsg.text}
+          </p>
+        ) : null}
+      </section>
+
+      <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h3 className="text-base font-semibold text-text">
@@ -647,37 +1216,46 @@ export function SettingsView({
           >
             <div className="p-6 space-y-4">
               <p className="text-sm text-text leading-relaxed">
-                Generating a new recovery phrase replaces your collection key and
-                re-encrypts your vault under it, so the old phrase can no longer
-                open anything.
+                This mints a new vault key, re-encrypts everything under it, and
+                wraps it for your new recovery words. Replacing the words alone
+                would not be enough: anyone who has ever seen your old words could
+                still decrypt, because the key they unlock would not have changed.
               </p>
               <div className="rounded-lg border border-warning/30 bg-warning/10 p-3.5 text-xs text-warning leading-relaxed">
-                ⚠️ <strong>Warning:</strong> Any previously saved backup words
-                will be permanently overwritten on the server and will no longer
-                work to recover your contacts.
+                ⚠️ <strong>Warning:</strong> Your previously saved backup words
+                stop working immediately. Write the new ones down.
               </div>
               <PasswordField
                 value={phrasePassword}
-                onChange={(e) => setPhrasePassword(e.target.value)}
+                onChange={(event) => setPhrasePassword(event.target.value)}
                 placeholder="Current password"
                 className={field}
                 autoComplete="current-password"
               />
+              {phraseBusy && phraseProgress.total > 0 && (
+                <p className="text-xs text-muted">
+                  Re-encrypting {phraseProgress.done} of {phraseProgress.total}…
+                </p>
+              )}
               <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
                   className={btnSecondary}
-                  onClick={() => setShowPhraseConfirm(false)}
+                  onClick={() => {
+                    setShowPhraseConfirm(false);
+                    setPhrasePassword("");
+                  }}
+                  disabled={phraseBusy}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   className={btnPrimary}
-                  disabled={!phrasePassword}
                   onClick={handleGeneratePhrase}
+                  disabled={phraseBusy || !phrasePassword}
                 >
-                  Yes, Generate New Codes
+                  {phraseBusy ? "Rotating…" : "Yes, Generate New Codes"}
                 </button>
               </div>
             </div>
@@ -789,95 +1367,49 @@ export function SettingsView({
         )}
       </section>
       </>}
-      {importingIcs ? <ImportProgressModal current={icsProgress.current} total={icsProgress.total} /> : null}
-      {pendingIcsFile ? <IcsCalendarChooser file={pendingIcsFile} calendarId={icsCalendarId} calendars={calendars} onCalendarChange={setIcsCalendarId} onCreateCalendar={createIcsCalendar} onCancel={closeIcsChooser} onImport={() => { const file = pendingIcsFile; closeIcsChooser(); void importIcs(file); }} /> : null}
+      {revokeTarget ? (
+        <ConfirmDialog
+          title="Revoke device"
+          heading="Revoke this device?"
+          tone="danger"
+          body={
+            <span className="block space-y-3">
+              <span className="block">
+                This device loses access immediately. Your vault key is rotated and
+                every item re-encrypted, so any copy it kept cannot be read.
+              </span>
+              <span className="block">
+                It also replaces your recovery phrase: the current one stops working
+                and the new one is shown once, straight after.
+              </span>
+              <span className="block truncate font-mono text-[11px] text-mute">
+                {revokeTarget.device_id}
+              </span>
+              <label className="block text-xs font-medium text-mute">
+                Confirm your password
+                <input
+                  type="password"
+                  autoFocus
+                  value={revokePassword}
+                  onChange={(event) => { setRevokePassword(event.target.value); setRevokeError(null); }}
+                  disabled={revokeBusy}
+                  className={field}
+                  autoComplete="current-password"
+                />
+              </label>
+            </span>
+          }
+          confirmLabel="Revoke device"
+          busyLabel={revokeProgress.total > 0
+            ? `Re-encrypting ${revokeProgress.done} of ${revokeProgress.total}...`
+            : "Revoking..."}
+          busy={revokeBusy}
+          error={revokeError}
+          onConfirm={() => void handleRevokeDevice()}
+          onClose={() => { if (!revokeBusy) { setRevokeTarget(null); setRevokePassword(""); setRevokeError(null); } }}
+        />
+      ) : null}
       </div>
     </div>
-  );
-}
-
-function ImportProgressModal({ current, total }: { current: number; total: number }) {
-  const percent = total > 0 ? Math.round((current / total) * 100) : 0;
-  return (
-    <Modal title="Importing calendar" onClose={() => undefined}>
-      <div className="p-6">
-        <p className="text-xs text-mute">Encrypting and saving events. Keep this window open.</p>
-        <div className="mt-5 h-2 overflow-hidden rounded-full bg-surface">
-          <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${percent}%` }} />
-        </div>
-        <p className="mt-2 text-right text-[11px] tabular-nums text-mute">
-          {total ? `${current} of ${total}` : "Preparing..."}
-        </p>
-      </div>
-    </Modal>
-  );
-}
-
-function IcsCalendarChooser({ file, calendarId, calendars, onCalendarChange, onCreateCalendar, onCancel, onImport }: { file: File; calendarId: string; calendars: Calendar[]; onCalendarChange: (value: string) => void; onCreateCalendar: (name: string) => Promise<string>; onCancel: () => void; onImport: () => void }) {
-  const [creatingCalendar, setCreatingCalendar] = useState(false);
-  const [newCalendarName, setNewCalendarName] = useState("");
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [createBusy, setCreateBusy] = useState(false);
-
-  async function createCalendar() {
-    const name = newCalendarName.trim();
-    if (!name) return;
-    setCreateBusy(true);
-    setCreateError(null);
-    try {
-      await onCreateCalendar(name);
-      setNewCalendarName("");
-      setCreatingCalendar(false);
-    } catch (err) {
-      setCreateError(friendlyError(err));
-    } finally {
-      setCreateBusy(false);
-    }
-  }
-
-  return (
-    <Modal title="Choose destination" onClose={onCancel}>
-      <div className="space-y-4 p-6">
-        <p className="truncate rounded-lg border border-line bg-bg px-3 py-2 text-xs text-mute" title={file.name}>
-          {file.name}
-        </p>
-        <label className="block text-xs font-medium text-mute">
-          Add events to
-          <select autoFocus value={calendarId} onChange={(event) => onCalendarChange(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-line bg-bg px-3 text-sm text-text outline-none focus:border-accent">
-            {calendars.map((calendar) => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}
-          </select>
-        </label>
-        {creatingCalendar ? (
-          <div className="rounded-lg border border-line bg-surface/50 p-3">
-            <label className="block text-xs font-medium text-mute">
-              New calendar name
-              <input
-                autoFocus
-                value={newCalendarName}
-                onChange={(event) => setNewCalendarName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") void createCalendar();
-                }}
-                placeholder="Personal"
-                className={field}
-              />
-            </label>
-            {createError ? <p className="mt-2 text-xs text-danger">{createError}</p> : null}
-            <div className="mt-3 flex justify-end gap-2">
-              <button type="button" onClick={() => setCreatingCalendar(false)} className={btnSecondary} disabled={createBusy}>Cancel</button>
-              <button type="button" onClick={() => void createCalendar()} className={btnPrimary} disabled={createBusy || !newCalendarName.trim()}>{createBusy ? "Creating..." : "Create calendar"}</button>
-            </div>
-          </div>
-        ) : (
-          <button type="button" onClick={() => setCreatingCalendar(true)} className="text-left text-xs font-medium text-accent transition-colors hover:text-text">
-            + Create a new calendar
-          </button>
-        )}
-        <div className="flex justify-end gap-2.5 pt-2">
-          <button type="button" onClick={onCancel} className={btnSecondary}>Cancel</button>
-          <button type="button" onClick={onImport} disabled={!calendarId} className={btnPrimary}>Import events</button>
-        </div>
-      </div>
-    </Modal>
   );
 }

@@ -5,6 +5,7 @@ import {
   createEnrollment,
   decryptContact,
   encryptContact,
+  generateNewPhrase,
   loginStartProof,
   manifestSign,
   manifestVerify,
@@ -24,10 +25,9 @@ import {
   unwrapPhrase,
   wrapCkForDevice,
   wrapCkForPassword,
-  generateNewPhrase,
-  type AccountOp,
 } from "./wasm";
 import { parseContact, serializeCard, sortContacts } from "./contact";
+import { normalizeConfirmation } from "./pairing";
 import {
   ADDRESS_BOOK_CONTENT_TYPE,
   DEFAULT_ADDRESS_BOOK_ID,
@@ -52,6 +52,7 @@ import type {
   RotatedObject,
   SealedObject,
 } from "./types";
+import { DEFAULT_CALENDAR_COLOR } from "./types";
 
 export const CALENDAR_EVENT_CONTENT_TYPE = "application/sealbook.calendar-event+json";
 export const CALENDAR_CONTENT_TYPE = "application/sealbook.calendar+json";
@@ -160,8 +161,21 @@ export type Session = {
   collectionKey: string;
   token: string;
   latestRevision: number;
-  /** The epoch `collectionKey` belongs to; a newer one on the server means a rotation. */
-  keyEpoch?: number;
+  /**
+   * The collection key epoch this session's key belongs to. Bumped server-side
+   * whenever a device is revoked, which rotates the key; a session holding an
+   * older epoch must re-fetch its wrap before it can decrypt anything.
+   */
+  keyEpoch: number;
+  /**
+   * Highest manifest sequence this session has accepted.
+   *
+   * Remembered so the server cannot serve an older manifest, or claim to have
+   * none, once this device has seen one. It is the only freshness available: the
+   * server is the sole source of manifests, so it can still freeze a client at a
+   * real past state, just not rewind it.
+   */
+  manifestSeq: number;
   offline?: boolean;
 };
 
@@ -173,167 +187,117 @@ export class ManifestError extends Error {
   }
 }
 
-function signingKeys(state: DeviceState): { mldsaSeed: string; ed25519Sk: string } {
+/**
+ * Records the highest manifest sequence this device has accepted.
+ *
+ * Written through to the device state, not just the session, so that closing the
+ * app and reopening it cannot be used to rewind the high-water mark.
+ */
+function rememberManifestSeq(session: Session, seq: number): void {
+  session.manifestSeq = seq;
+  session.state.manifest_seq = seq;
+}
+
+/** The collection's signed manifest and the entries it commits to. */
+type ManifestResponse = {
+  manifest: ManifestBody | null;
+  entries: ManifestEntry[];
+};
+
+/**
+ * Fetches the manifest and checks it against the entries the server serves with it.
+ *
+ * Returns the state a write needs: the sequence to follow, the key epoch to sign
+ * under, the revision to take next, and the entry set to amend.
+ */
+async function manifestState(session: Session): Promise<{
+  seq: number;
+  keyEpoch: number;
+  latestRevision: number;
+  entries: ManifestEntry[];
+}> {
+  const { state, token } = session;
+  const response = await getJson<ManifestResponse>(
+    `${apiRoot(state.server)}/v1/collections/${state.collection_id}/manifest`,
+    token,
+  );
+  if (!response.manifest) {
+    // A collection no v3 client has written yet. Accepted only while this device
+    // has never seen a manifest, so the server cannot pretend one away.
+    if (session.manifestSeq > 0) {
+      throw new ManifestError(
+        `The server has no manifest for this vault, but this device has already seen ` +
+          `sequence ${session.manifestSeq}. Refusing to continue.`,
+      );
+    }
+    const latest = response.entries.reduce((high, entry) => Math.max(high, entry.revision), 0);
+    return { seq: 0, keyEpoch: session.keyEpoch, latestRevision: latest, entries: response.entries };
+  }
+  await verifyManifest(session, response.manifest, response.entries);
   return {
-    mldsaSeed: bytesFromJson(state.mldsa_seed),
-    ed25519Sk: bytesFromJson(state.ed25519_sk),
+    seq: response.manifest.manifest_seq,
+    keyEpoch: response.manifest.key_epoch,
+    latestRevision: response.manifest.latest_revision,
+    entries: response.entries,
   };
 }
 
-function collectionUrl(session: Session, path: string): string {
-  return `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/${path}`;
+/**
+ * Verifies a manifest's signature and that it describes the given entries.
+ *
+ * The signature says an enrolled device vouched for this shape of the collection;
+ * the digest says the shape is the one being served. A valid signature over a
+ * different state is exactly what a rollback looks like, so both are required.
+ */
+async function verifyManifest(
+  session: Session,
+  manifest: ManifestBody,
+  entries: ManifestEntry[],
+): Promise<void> {
+  if (manifest.manifest_seq < session.manifestSeq) {
+    throw new ManifestError(
+      `The vault went backwards: this device has seen manifest ${session.manifestSeq} but the ` +
+        `server served ${manifest.manifest_seq}.`,
+    );
+  }
+  if (manifest.object_count !== entries.length) {
+    throw new ManifestError(
+      `Server sent ${entries.length} objects but the manifest commits to ${manifest.object_count}.`,
+    );
+  }
+  const devices = await listDevices(session);
+  const signer = devices.find((device) => device.device_id === manifest.device_id);
+  if (!signer) {
+    throw new ManifestError("The vault manifest was signed by a device this account does not have.");
+  }
+  try {
+    manifestVerify(
+      signer.mldsa_pk,
+      signer.ed25519_pk,
+      session.state.collection_id,
+      manifest,
+      entries,
+    );
+  } catch (err) {
+    throw new ManifestError(err instanceof Error ? err.message : String(err));
+  }
+  rememberManifestSeq(session, manifest.manifest_seq);
 }
 
-export async function listDevices(session: Session): Promise<DevicePublic[]> {
-  return getJson<DevicePublic[]>(`${apiRoot(session.state.server)}/v1/account/devices`, session.token);
-}
-
-type ObjectChange = SealedObject;
-
-function entryOf(object: ObjectChange): ManifestEntry {
+/** The manifest entry a sealed object contributes. */
+function entryFor(object: {
+  id: string;
+  revision: number;
+  tombstone: boolean;
+  nonce: string;
+  ciphertext: string;
+}): ManifestEntry {
   return {
     id: object.id,
     revision: object.revision,
     tombstone: object.tombstone,
     content_digest: objectContentDigest(object.nonce, object.ciphertext),
   };
-}
-
-/**
- * Checks a served manifest against the entries it should describe: the object
- * count, the digest, the signature of an enrolled device, and that the sequence
- * has not gone backwards from what this device has already seen.
- */
-function verifyManifest(
-  session: Session,
-  manifest: ManifestBody,
-  entries: ManifestEntry[],
-  devices: DevicePublic[],
-): void {
-  if (manifest.object_count !== entries.length) {
-    throw new ManifestError(
-      `Server sent ${entries.length} objects but the manifest commits to ${manifest.object_count}.`,
-    );
-  }
-  const signer = devices.find((device) => device.device_id === manifest.device_id);
-  if (!signer) {
-    throw new ManifestError("Manifest signed by a device this account does not have.");
-  }
-  try {
-    manifestVerify(signer.mldsa_pk, signer.ed25519_pk, session.state.collection_id, manifest, entries);
-  } catch (err) {
-    throw new ManifestError(err instanceof Error ? err.message : String(err));
-  }
-  const seen = session.state.manifest_seq ?? 0;
-  if (manifest.manifest_seq < seen) {
-    throw new ManifestError(
-      `Manifest went backwards: this device has seen sequence ${seen} but was served ${manifest.manifest_seq}.`,
-    );
-  }
-  session.state.manifest_seq = manifest.manifest_seq;
-}
-
-function requireNoManifestYet(session: Session): void {
-  const seen = session.state.manifest_seq ?? 0;
-  if (seen > 0) {
-    throw new ManifestError(
-      `Server has no manifest, but this device has seen sequence ${seen}.`,
-    );
-  }
-}
-
-type ManifestState = {
-  seq: number;
-  keyEpoch: number;
-  latestRevision: number;
-  entries: ManifestEntry[];
-};
-
-/** The collection's verified manifest state, which the next write builds on. */
-async function manifestState(session: Session): Promise<ManifestState> {
-  const resp = await getJson<{ manifest: ManifestBody | null; entries: ManifestEntry[] }>(
-    collectionUrl(session, "manifest"),
-    session.token,
-  );
-  if (resp.manifest) {
-    verifyManifest(session, resp.manifest, resp.entries, await listDevices(session));
-    return {
-      seq: resp.manifest.manifest_seq,
-      keyEpoch: resp.manifest.key_epoch,
-      latestRevision: resp.manifest.latest_revision,
-      entries: resp.entries,
-    };
-  }
-  requireNoManifestYet(session);
-  const keys = await getJson<{ key_epoch: number }>(collectionUrl(session, "keys"), session.token);
-  return {
-    seq: 0,
-    keyEpoch: keys.key_epoch,
-    latestRevision: resp.entries.reduce((max, entry) => Math.max(max, entry.revision), 0),
-    entries: resp.entries,
-  };
-}
-
-/**
- * Every object in the collection (latest revision of each, tombstones
- * included), checked against the signed manifest. Pages are walked to the end
- * first, because the manifest commits to the whole collection, not a page.
- */
-async function fetchVerifiedObjects(
-  session: Session,
-): Promise<{ objects: ObjectChange[]; latestRevision: number; keyEpoch: number }> {
-  const all: ObjectChange[] = [];
-  let after = 0;
-  let manifest: ManifestBody | null = null;
-  let latestRevision = 0;
-  let keyEpoch = 0;
-  for (;;) {
-    const page = await getJson<{
-      latest_revision: number;
-      key_epoch: number;
-      objects: ObjectChange[];
-      has_more: boolean;
-      manifest: ManifestBody | null;
-    }>(collectionUrl(session, `changes?after=${after}&limit=500`), session.token);
-    manifest = page.manifest;
-    latestRevision = page.latest_revision;
-    keyEpoch = page.key_epoch;
-    all.push(...page.objects);
-    const high = page.objects.reduce((max, object) => Math.max(max, object.revision), 0);
-    if (!page.has_more || high <= after) break;
-    after = high;
-  }
-  const latest = new Map<string, ObjectChange>();
-  for (const object of all) {
-    const previous = latest.get(object.id);
-    if (!previous || object.revision > previous.revision) {
-      latest.set(object.id, object);
-    }
-  }
-  const objects = [...latest.values()];
-  if (manifest) {
-    verifyManifest(session, manifest, objects.map(entryOf), await listDevices(session));
-  } else {
-    requireNoManifestYet(session);
-  }
-  return { objects, latestRevision, keyEpoch };
-}
-
-/** Re-fetches this device's collection-key wrap after another device rotated. */
-async function refreshCollectionKey(session: Session): Promise<void> {
-  const resp = await getJson<{ key_epoch: number; key_wraps: KeyWrap[] }>(
-    collectionUrl(session, "keys"),
-    session.token,
-  );
-  // Only the device wrap is needed, so no password.
-  session.collectionKey = unwrapCk(
-    "",
-    "",
-    bytesFromJson(session.state.hpke_sk),
-    session.state.device_id,
-    JSON.stringify(resp.key_wraps.filter((wrap) => wrap.recipient_kind === "device")),
-  );
-  session.keyEpoch = resp.key_epoch;
 }
 
 type SealedPayload = {
@@ -362,6 +326,13 @@ function sealPayload(
   return { revision, encrypted: encryptContact(session.collectionKey, id, session.state.collection_id, JSON.stringify(envelope)) };
 }
 
+/**
+ * Writes one object, signing a manifest for the state the write leaves behind.
+ *
+ * The revision is chosen here rather than by the server, because the manifest has
+ * to commit to it. If another device wrote first the server answers `409` and the
+ * write is retried against the manifest that device left.
+ */
 async function putSealed(
   session: Session,
   id: string,
@@ -369,48 +340,57 @@ async function putSealed(
   tombstone: boolean,
   payload: string,
 ): Promise<number> {
-  const current = await manifestState(session);
-  if (session.keyEpoch !== undefined && current.keyEpoch !== session.keyEpoch) {
-    await refreshCollectionKey(session);
-  }
-  const revision = current.latestRevision + 1;
-  const sealed = sealPayload(session, id, contentType, tombstone, payload, revision);
-  const entry: ManifestEntry = {
-    id,
-    revision,
-    tombstone,
-    content_digest: objectContentDigest(sealed.encrypted.nonce, sealed.encrypted.ciphertext),
-  };
-  const entries = current.entries.filter((existing) => existing.id !== id);
-  entries.push(entry);
-  const { mldsaSeed, ed25519Sk } = signingKeys(session.state);
-  const manifest = manifestSign(
-    mldsaSeed,
-    ed25519Sk,
-    session.state.collection_id,
-    session.state.device_id,
-    current.seq + 1,
-    current.keyEpoch,
-    revision,
-    entries,
-  );
-  const response = await putJson<{ revision: number }>(
-    collectionUrl(session, "objects"),
-    {
+  const attempt = async (): Promise<number> => {
+    const { seq, keyEpoch, latestRevision, entries } = await manifestState(session);
+    const revision = latestRevision + 1;
+    const sealed = sealPayload(session, id, contentType, tombstone, payload, revision);
+    const entry: ManifestEntry = {
       id,
       revision,
-      nonce: sealed.encrypted.nonce,
-      ciphertext: sealed.encrypted.ciphertext,
-      padded_size: sealed.encrypted.padded_size,
-      content_type: contentType,
       tombstone,
-      manifest,
-    },
-    session.token,
-  );
-  session.latestRevision = response.revision;
-  session.state.manifest_seq = manifest.manifest_seq;
-  return response.revision;
+      content_digest: objectContentDigest(sealed.encrypted.nonce, sealed.encrypted.ciphertext),
+    };
+    const next = entries.filter((existing) => existing.id !== id);
+    next.push(entry);
+    const manifest = manifestSign(
+      bytesFromJson(session.state.mldsa_seed),
+      bytesFromJson(session.state.ed25519_sk),
+      session.state.collection_id,
+      session.state.device_id,
+      seq + 1,
+      keyEpoch,
+      revision,
+      next,
+    );
+    const response = await putJson<{ revision: number }>(
+      `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`,
+      {
+        id,
+        revision,
+        nonce: sealed.encrypted.nonce,
+        ciphertext: sealed.encrypted.ciphertext,
+        padded_size: sealed.encrypted.padded_size,
+        content_type: contentType,
+        tombstone,
+        manifest,
+      },
+      session.token,
+    );
+    session.latestRevision = response.revision;
+    rememberManifestSeq(session, seq + 1);
+    return response.revision;
+  };
+
+  try {
+    return await attempt();
+  } catch (error) {
+    // A conflict means another device wrote between reading the manifest and
+    // writing. Rebuild against the new one and try once more.
+    if (error instanceof Error && /stale (revision|manifest)/iu.test(error.message)) {
+      return attempt();
+    }
+    throw error;
+  }
 }
 
 export async function revokeSession(session: Session): Promise<void> {
@@ -508,6 +488,9 @@ export async function registerAccount(
   password: string,
 ): Promise<RegisterResult> {
   const root = apiRoot(server);
+  // Chosen here, not by the server, so the initial manifest can be signed over it
+  // before the account exists.
+  const collectionId = newUuid();
   const start = opaqueRegisterStart(password);
   const started = await postJson<{ response: string }>(`${root}/v1/opaque/register/start`, {
     username,
@@ -515,26 +498,12 @@ export async function registerAccount(
   });
   const upload = opaqueRegisterFinish(start.state, password, started.response);
   const enrollment = createEnrollment(password);
-  // Chosen here rather than by the server so the empty collection's manifest
-  // can be signed before the account exists.
-  const collectionId = newUuid();
-  const manifest = manifestSign(
-    enrollment.mldsa_seed,
-    enrollment.ed25519_sk,
-    collectionId,
-    enrollment.device_id,
-    1,
-    1,
-    0,
-    [],
-  );
   const finished = await postJson<{ account_id: string; collection_id: string }>(
     `${root}/v1/opaque/register/finish`,
     {
       username,
       upload,
       kdf_salt: enrollment.kdf_salt,
-      collection_id: collectionId,
       device: {
         device_id: enrollment.device_id,
         mldsa_pk: enrollment.mldsa_pk,
@@ -574,7 +543,19 @@ export async function registerAccount(
         lookup_id: enrollment.phrase_lookup_id,
         scheme: enrollment.phrase_scheme,
       },
-      manifest,
+      collection_id: collectionId,
+      // An account has a signed manifest from the moment it exists, so a client is
+      // never asked to accept an unsigned "your vault is empty".
+      manifest: manifestSign(
+        enrollment.mldsa_seed,
+        enrollment.ed25519_sk,
+        collectionId,
+        enrollment.device_id,
+        1,
+        1,
+        0,
+        [],
+      ),
     },
   );
   const state = deviceFromEnrollment(
@@ -584,7 +565,6 @@ export async function registerAccount(
     finished.collection_id,
     enrollment,
   );
-  state.manifest_seq = manifest.manifest_seq;
   return {
     session: await loginAccount(state, password),
     phrase: enrollment.phrase,
@@ -660,7 +640,9 @@ export async function pairApprove(
     preview.device.ed25519_pk,
     preview.device.xwing_hpke_pk,
   );
-  if (preview.confirm !== confirm || confirmation.trim() !== confirm) {
+  // Codes are 26 characters and shown in groups, so compare on the normalized
+  // form but always send the canonical one.
+  if (preview.confirm !== confirm || normalizeConfirmation(confirmation) !== confirm) {
     throw new Error("Pairing confirmation mismatch");
   }
   const grant = pairGrantSign(
@@ -692,12 +674,18 @@ export async function pairApprove(
   return preview.confirm;
 }
 
+/**
+ * Recovers an account onto a fresh device and rotates the vault key.
+ *
+ * Returns the **new** recovery phrase, which the caller must show to the user: the
+ * one they just used no longer works.
+ */
 export async function recoverAccount(
   server: string,
   username: string,
   phrase: string,
   password: string,
-): Promise<RotationResult> {
+): Promise<{ session: Session; phrase: string }> {
   const root = apiRoot(server);
   const words = phrase.trim().toLowerCase().split(/\s+/u).join(" ");
   const started = await postJson<{
@@ -745,10 +733,11 @@ export async function recoverAccount(
     finished.collection_id,
     device,
   );
-  // The phrase just used would otherwise keep working, for anyone else holding a
-  // copy of it too, because enrolling a device does not change the key it
-  // unwraps. Rotating issues a fresh phrase and retires the old one.
-  return rotateCollectionKey(await loginAccount(state, password), password);
+  const session = await loginAccount(state, password);
+  // The phrase just used would otherwise keep working, and so would any copy of it
+  // someone else kept: enrolling a device does not change the key the phrase
+  // unwraps. Rotate, which issues a fresh phrase and retires the old one.
+  return rotateVault(session, null, password);
 }
 
 export async function loginAccount(
@@ -759,8 +748,10 @@ export async function loginAccount(
   const hpkeSk = bytesFromJson(state.hpke_sk);
   const mldsaSeed = bytesFromJson(state.mldsa_seed);
   const ed25519Sk = bytesFromJson(state.ed25519_sk);
-  // Step 1: a challenge sealed to this device's X-Wing key.
-  const sealed = await postJson<{
+  const start = opaqueLoginStart(password);
+
+  // Step 1: ask for a challenge sealed to this device's X-Wing key.
+  const challenged = await postJson<{
     challenge_id: string;
     challenge_enc: string;
     challenge_ct: string;
@@ -768,14 +759,15 @@ export async function loginAccount(
     username: state.username,
     device_id: state.device_id,
   });
-  // Step 2: prove device possession before the server releases an OPAQUE
-  // credential response.
-  const start = opaqueLoginStart(password);
+
+  // Step 2: prove device possession. The server withholds the OPAQUE
+  // credential response until this verifies, which is what keeps the password
+  // out of reach of an attacker who can break Ristretto255.
   const startProof = loginStartProof(
     hpkeSk,
-    sealed.challenge_enc,
-    sealed.challenge_ct,
-    sealed.challenge_id,
+    challenged.challenge_enc,
+    challenged.challenge_ct,
+    challenged.challenge_id,
     state.username,
     state.device_id,
     start.request,
@@ -786,7 +778,7 @@ export async function loginAccount(
     login_id: string;
     response: string;
   }>(`${root}/v1/opaque/login/start`, {
-    challenge_id: sealed.challenge_id,
+    challenge_id: challenged.challenge_id,
     username: state.username,
     device_id: state.device_id,
     challenge: startProof.challenge,
@@ -796,6 +788,7 @@ export async function loginAccount(
       ed25519: startProof.ed25519,
     },
   });
+
   // Step 3: complete OPAQUE and bind the finalization to the device.
   const proof = opaqueLoginFinish(
     start.state,
@@ -836,7 +829,12 @@ export async function loginAccount(
     collectionKey,
     token: finished.session_token,
     latestRevision: 0,
+    // Login hands back wraps for the current key, so start in sync: a refresh
+    // should only happen when a rotation actually moves the epoch.
     keyEpoch: finished.key_epoch,
+    // Seeded from the device state, not from zero: the high-water mark has to
+    // outlive the session or a restart would reopen the rollback window.
+    manifestSeq: state.manifest_seq ?? 0,
     state: {
       ...state,
       server: root,
@@ -848,21 +846,101 @@ export async function loginAccount(
   };
 }
 
+/**
+ * Re-fetches this device's collection-key wrap after a rotation.
+ *
+ * Only the device's own X-Wing secret is needed to open it, so unlike a login
+ * this does not require the password.
+ */
+export async function refreshCollectionKey(session: Session): Promise<number> {
+  const { state, token } = session;
+  const resp = await getJson<{ key_epoch: number; key_wraps: KeyWrap[] }>(
+    `${apiRoot(state.server)}/v1/collections/${state.collection_id}/keys`,
+    token,
+  );
+  const deviceWrap = resp.key_wraps.find(
+    (wrap) => wrap.recipient_kind === "device" && wrap.recipient_id === state.device_id,
+  );
+  if (!deviceWrap) {
+    throw new Error(
+      "This device no longer has access to the vault. It may have been revoked; sign in again.",
+    );
+  }
+  // unwrapCk resolves the device wrap first and never touches the password or
+  // salt, so empty values are correct here rather than a placeholder.
+  session.collectionKey = unwrapCk(
+    "",
+    "",
+    bytesFromJson(state.hpke_sk),
+    state.device_id,
+    JSON.stringify([deviceWrap]),
+  );
+  session.keyEpoch = resp.key_epoch;
+  return resp.key_epoch;
+}
+
 export async function listVault(
   session: Session,
 ): Promise<{ sealed: SealedObject[]; addressBooks: AddressBook[]; contacts: Contact[]; calendars: Calendar[]; calendarEvents: CalendarEvent[] }> {
-  const fetched = await fetchVerifiedObjects(session);
-  session.latestRevision = fetched.latestRevision;
-  if (session.keyEpoch === undefined || fetched.keyEpoch !== session.keyEpoch) {
+  const { state, token } = session;
+  // Walk every page before verifying: the manifest commits to the collection, not
+  // to any one page of it.
+  let after = 0;
+  let keyEpoch = session.keyEpoch;
+  let latestRevision = session.latestRevision;
+  let manifest: ManifestBody | null = null;
+  const pageObjects: SealedObject[] = [];
+  for (;;) {
+    const page = await getJson<{
+      latest_revision: number;
+      key_epoch: number;
+      objects: SealedObject[];
+      has_more: boolean;
+      manifest: ManifestBody | null;
+    }>(
+      `${apiRoot(state.server)}/v1/collections/${state.collection_id}/changes?after=${after}&limit=500`,
+      token,
+    );
+    keyEpoch = page.key_epoch;
+    latestRevision = Math.max(latestRevision, page.latest_revision);
+    manifest = page.manifest;
+    pageObjects.push(...page.objects);
+    const high = page.objects.reduce((top, object) => Math.max(top, object.revision), 0);
+    if (!page.has_more || high <= after) break;
+    after = high;
+  }
+  const resp = { latest_revision: latestRevision, key_epoch: keyEpoch, objects: pageObjects };
+  session.latestRevision = resp.latest_revision;
+  // If another device revoked someone, the key was rotated and everything was
+  // re-encrypted. Pick up the new key before decrypting, otherwise every object
+  // would fail to open and the vault would look empty.
+  if (resp.key_epoch !== session.keyEpoch) {
     await refreshCollectionKey(session);
   }
-  const { state, collectionKey } = session;
+  const { collectionKey } = session;
   const sealed: SealedObject[] = [];
   const addressBooks: AddressBook[] = [];
   const contacts: Contact[] = [];
   const calendarEvents: CalendarEvent[] = [];
   const calendars: Calendar[] = [];
-  for (const obj of fetched.objects) {
+  const latestByObject = new Map<string, SealedObject>();
+  for (const obj of resp.objects) {
+    const previous = latestByObject.get(obj.id);
+    if (!previous || obj.revision > previous.revision) {
+      latestByObject.set(obj.id, obj);
+    }
+  }
+  // Check what was served against what a device signed for, before decrypting any
+  // of it. A failure here means an object was withheld, rolled back or
+  // substituted, and must not be presented as an empty or partial vault.
+  if (manifest) {
+    await verifyManifest(session, manifest, [...latestByObject.values()].map(entryFor));
+  } else if (session.manifestSeq > 0) {
+    throw new ManifestError(
+      "The server served this vault with no manifest, but this device has seen one. Refusing to continue.",
+    );
+  }
+  for (const obj of latestByObject.values()) {
     let raw: string;
     let contentType = obj.content_type;
     let tombstone = obj.tombstone;
@@ -888,7 +966,7 @@ export async function listVault(
         calendarEvents.push({ id: obj.id, title: value.title?.trim() || "Untitled event", start: value.start ?? "", end: value.end, notes: value.notes, location: value.location, participants: value.participants, timezone: value.timezone, calendarId: value.calendarId, recurrence: value.recurrence });
       } else if (contentType === CALENDAR_CONTENT_TYPE || isCalendarPayload(raw)) {
         const value = JSON.parse(raw) as { name?: string; color?: string; favorite?: boolean };
-        calendars.push({ id: obj.id, name: value.name?.trim() || "Untitled calendar", color: value.color || "#7aa2f7", favorite: value.favorite === true });
+        calendars.push({ id: obj.id, name: value.name?.trim() || "Untitled calendar", color: value.color || DEFAULT_CALENDAR_COLOR, favorite: value.favorite === true });
       } else if (contentType === ADDRESS_BOOK_CONTENT_TYPE || isAddressBookPayload(raw)) {
         addressBooks.push(parseAddressBook(obj.id, raw));
       } else {
@@ -899,11 +977,6 @@ export async function listVault(
     }
   }
   return { sealed, addressBooks: sortAddressBooks(addressBooks), contacts: sortContacts(contacts), calendars, calendarEvents };
-}
-
-export async function listContacts(session: Session): Promise<{ sealed: SealedObject[]; open: Contact[] }> {
-  const listed = await listVault(session);
-  return { sealed: listed.sealed, open: listed.contacts };
 }
 
 export async function ensureDefaultAddressBook(
@@ -1008,33 +1081,20 @@ function isCalendarPayload(raw: string): boolean {
 }
 
 /**
- * Signs an account mutation. A bearer token alone cannot change or delete an
- * account; the server wants a device signature over its own challenge too.
+ * Asks for a nonce to sign an account mutation over.
+ *
+ * Account changes are authorised by a device signature, not by how recently the
+ * session was created: a bearer token alone must not be able to rename the
+ * account, replace its password verifier or delete it.
  */
-function signAccountOp(
-  session: Session,
-  op: AccountOp,
-  challengeId: string,
-  challenge: string,
-  payload: object,
-) {
-  const { mldsaSeed, ed25519Sk } = signingKeys(session.state);
-  return accountOpSign(
-    mldsaSeed,
-    ed25519Sk,
-    op,
-    challengeId,
-    challenge,
-    session.state.account_id,
-    session.state.device_id,
-    payload,
-  );
-}
-
 async function accountChallenge(
   session: Session,
 ): Promise<{ challenge_id: string; challenge: string }> {
-  return postJson(`${apiRoot(session.state.server)}/v1/account/challenge`, {}, session.token);
+  return postJson<{ challenge_id: string; challenge: string }>(
+    `${apiRoot(session.state.server)}/v1/account/challenge`,
+    {},
+    session.token,
+  );
 }
 
 export async function changeUsername(
@@ -1065,10 +1125,16 @@ export async function changeUsername(
       upload,
       challenge_id: challenge.challenge_id,
       challenge: challenge.challenge,
-      signature: signAccountOp(freshSession, "username", challenge.challenge_id, challenge.challenge, {
-        new_username: newUsername,
-        upload,
-      }),
+      signature: accountOpSign(
+        bytesFromJson(freshSession.state.mldsa_seed),
+        bytesFromJson(freshSession.state.ed25519_sk),
+        "username",
+        challenge.challenge_id,
+        challenge.challenge,
+        freshSession.state.account_id,
+        freshSession.state.device_id,
+        { new_username: newUsername, upload },
+      ),
     },
     freshSession.token,
   );
@@ -1084,7 +1150,11 @@ export async function changePassword(
   const freshSession = await loginAccount(session.state, currentPassword);
   const root = apiRoot(freshSession.state.server);
   const start = opaqueRegisterStart(newPassword);
-  const startRes = await postJson<{ password_change_id: string; response: string; challenge: string }>(
+  const startRes = await postJson<{
+    password_change_id: string;
+    response: string;
+    challenge: string;
+  }>(
     `${root}/v1/account/password/start`,
     {
       request: start.request,
@@ -1097,27 +1167,35 @@ export async function changePassword(
     startRes.response,
   );
   const wrap = wrapCkForPassword(freshSession.collectionKey, newPassword);
-  const payload = {
-    upload,
-    kdf_salt: wrap.kdf_salt,
-    recovery_nonce: wrap.recovery_nonce,
-    recovery_wrapped_ck: wrap.recovery_wrapped_ck,
-    recovery_ciphersuite: wrap.recovery_ciphersuite,
-  };
+  // The signature covers the replacement recovery wrap as well as the new
+  // verifier, so nobody holding only a token can swap in key material the account
+  // holder never produced and quietly destroy password-based recovery.
   await postJson<{ status: string }>(
     `${root}/v1/account/password`,
     {
       password_change_id: startRes.password_change_id,
-      // The start response's challenge doubles as the account-op challenge.
       challenge: startRes.challenge,
-      signature: signAccountOp(
-        freshSession,
+      signature: accountOpSign(
+        bytesFromJson(freshSession.state.mldsa_seed),
+        bytesFromJson(freshSession.state.ed25519_sk),
         "password",
         startRes.password_change_id,
         startRes.challenge,
-        payload,
+        freshSession.state.account_id,
+        freshSession.state.device_id,
+        {
+          upload,
+          kdf_salt: wrap.kdf_salt,
+          recovery_nonce: wrap.recovery_nonce,
+          recovery_wrapped_ck: wrap.recovery_wrapped_ck,
+          recovery_ciphersuite: wrap.recovery_ciphersuite,
+        },
       ),
-      ...payload,
+      upload,
+      kdf_salt: wrap.kdf_salt,
+      recovery_nonce: wrap.recovery_nonce,
+      recovery_wrapped_ck: wrap.recovery_wrapped_ck,
+      recovery_ciphersuite: wrap.recovery_ciphersuite,
     },
     freshSession.token,
   );
@@ -1125,127 +1203,223 @@ export async function changePassword(
   return loginAccount(updatedState, newPassword);
 }
 
-export type RotationResult = {
-  session: Session;
-  /** The new recovery phrase. The previous one no longer opens anything. */
-  phrase: string;
-};
-
 /**
- * Replaces the collection key and re-encrypts the vault under it: the one path
- * for everything that has to invalidate the old key (a phrase change, a
- * completed recovery, revoking a device). Every remaining device, the password
- * and a fresh phrase get a wrap of the new key; the old phrase cannot be
- * re-wrapped because no client holds it.
+ * Issues a new recovery phrase, rotating the vault key onto it.
+ *
+ * Replacing the phrase without rotating would leave anyone who has ever seen the
+ * old one still able to decrypt, because the key their wrap opens would not have
+ * changed. Needs the password, since the new key must be re-wrapped for it.
  */
-export async function rotateCollectionKey(
+export async function rotatePhrase(
   session: Session,
   password: string,
-  revokeDeviceId?: string,
-): Promise<RotationResult> {
-  const { state } = session;
-  if (revokeDeviceId === state.device_id) {
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ session: Session; phrase: string }> {
+  return rotateVault(session, null, password, onProgress);
+}
+
+export async function deleteAccount(session: Session, currentPassword: string): Promise<void> {
+  const freshSession = await loginAccount(session.state, currentPassword);
+  const root = apiRoot(freshSession.state.server);
+  const challenge = await accountChallenge(freshSession);
+  await deleteJson<{ status: string }>(`${root}/v1/account`, freshSession.token, {
+    challenge_id: challenge.challenge_id,
+    challenge: challenge.challenge,
+    signature: accountOpSign(
+      bytesFromJson(freshSession.state.mldsa_seed),
+      bytesFromJson(freshSession.state.ed25519_sk),
+      "delete",
+      challenge.challenge_id,
+      challenge.challenge,
+      freshSession.state.account_id,
+      freshSession.state.device_id,
+      {},
+    ),
+  });
+}
+
+export type DeviceSummary = {
+  device_id: string;
+  mldsa_pk: string;
+  ed25519_pk: string;
+  xwing_hpke_pk: string;
+};
+
+export async function listDevices(session: Session): Promise<DeviceSummary[]> {
+  return getJson<DeviceSummary[]>(
+    `${apiRoot(session.state.server)}/v1/account/devices`,
+    session.token,
+  );
+}
+
+/**
+ * Revokes another device and rotates the vault key away from it.
+ *
+ * Removing a device is not enough on its own: it still holds the collection key
+ * and any copy of the ciphertext it kept. So the key is replaced, every object
+ * is re-encrypted under the new one, and the new key is wrapped afresh for each
+ * device that keeps access. The old recovery phrase was wrapped to the old key,
+ * so a new phrase is issued in the same operation and returned here — the
+ * caller must show it to the user, because the previous one stops working.
+ *
+ * `onProgress` reports re-encryption progress; a large vault takes a while.
+ */
+export async function revokeDevice(
+  session: Session,
+  deviceId: string,
+  password: string,
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ session: Session; phrase: string }> {
+  if (deviceId === session.state.device_id) {
     throw new Error("You cannot revoke the device you are signed in on.");
   }
-  // Read everything under the current key before replacing it.
-  const fetched = await fetchVerifiedObjects(session);
-  if (session.keyEpoch === undefined || fetched.keyEpoch !== session.keyEpoch) {
-    await refreshCollectionKey(session);
+  return rotateVault(session, deviceId, password, onProgress);
+}
+
+/**
+ * Replaces the vault key and re-encrypts everything under it.
+ *
+ * One path for every operation that has to invalidate the old key, because they
+ * all need the same work: revoking a device that already holds it, changing the
+ * recovery phrase, and finishing a recovery — where the phrase just used, and any
+ * copy of it someone else kept, must stop being able to decrypt.
+ *
+ * Returns the replacement recovery phrase. The caller must show it to the user:
+ * the previous one no longer works, and no client holds it to re-wrap.
+ */
+export async function rotateVault(
+  session: Session,
+  revokeDeviceId: string | null,
+  password: string,
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ session: Session; phrase: string }> {
+  // The server requires a recently authenticated session, and re-asking for the
+  // password is what proves intent for a destructive change.
+  const fresh = await loginAccount(session.state, password);
+  rememberManifestSeq(fresh, session.manifestSeq);
+  const root = apiRoot(fresh.state.server);
+  const collectionId = fresh.state.collection_id;
+
+  const { seq, latestRevision } = await manifestState(fresh);
+  const listed = await getJson<{
+    latest_revision: number;
+    key_epoch: number;
+    objects: SealedObject[];
+    has_more: boolean;
+  }>(`${root}/v1/collections/${collectionId}/changes?after=0&limit=2000`, fresh.token);
+  if (listed.has_more) {
+    throw new Error(
+      "This vault is too large to rotate in one request. Rotation cannot yet be split across " +
+        "requests, so it has to be done from a client that can send the whole vault at once.",
+    );
   }
-  const live = fetched.objects.filter((object) => !object.tombstone);
-  const stored = live.map((object) => ({
-    object,
-    plaintext: decryptContact(
-      session.collectionKey,
-      object.id,
-      state.collection_id,
-      object.nonce,
-      object.ciphertext,
-      object.padded_size,
-    ),
-  }));
-  const current = await manifestState(session);
-  const remaining = (await listDevices(session)).filter(
-    (device) => device.device_id !== revokeDeviceId,
-  );
-  if (remaining.length === 0) {
-    throw new Error("You cannot revoke the last device.");
+
+  // Only the newest revision of each object is carried across.
+  const latestByObject = new Map<string, SealedObject>();
+  for (const object of listed.objects) {
+    const previous = latestByObject.get(object.id);
+    if (!previous || object.revision > previous.revision) {
+      latestByObject.set(object.id, object);
+    }
   }
-  if (!remaining.some((device) => device.device_id === state.device_id)) {
-    throw new Error("This device is not enrolled.");
+  // `manifestState` verified the collection above, so what is re-encrypted below
+  // is what a device signed for rather than whatever the server chose to serve.
+  const devices = await listDevices(fresh);
+  if (revokeDeviceId && !devices.some((device) => device.device_id === revokeDeviceId)) {
+    throw new Error("That device has already been removed.");
   }
+  const remaining = devices.filter((device) => device.device_id !== revokeDeviceId);
 
   const newCk = newCollectionKey();
   const passwordWrap = wrapCkForPassword(newCk, password);
   const phraseOut = generateNewPhrase(newCk);
-  const keyWraps: KeyWrap[] = remaining.map((device) => {
-    const wrap = wrapCkForDevice(newCk, device.xwing_hpke_pk);
-    return {
-      recipient_kind: "device",
-      recipient_id: device.device_id,
-      hpke_enc: wrap.enc,
-      wrapped_ck: wrap.wrapped_ck,
-      ciphersuite: wrap.ciphersuite,
-    };
-  });
-  keyWraps.push(
+
+  const keyWraps = [
+    ...remaining.map((device) => {
+      const wrap = wrapCkForDevice(newCk, device.xwing_hpke_pk);
+      return {
+        recipient_kind: "device",
+        recipient_id: device.device_id,
+        hpke_enc: wrap.enc,
+        wrapped_ck: wrap.wrapped_ck,
+        ciphersuite: wrap.ciphersuite,
+      };
+    }),
     {
       recipient_kind: "recovery",
-      recipient_id: state.username,
+      recipient_id: fresh.state.username,
       hpke_enc: passwordWrap.recovery_nonce,
       wrapped_ck: passwordWrap.recovery_wrapped_ck,
       ciphersuite: passwordWrap.recovery_ciphersuite,
     },
     {
       recipient_kind: "phrase",
-      recipient_id: state.username,
+      recipient_id: fresh.state.username,
       hpke_enc: phraseOut.phrase_nonce,
       wrapped_ck: phraseOut.phrase_wrapped_ck,
       ciphersuite: phraseOut.phrase_ciphersuite,
     },
-  );
+  ];
 
-  // Rotation assigns consecutive revisions from the collection's next one.
-  const firstRevision = current.latestRevision + 1;
-  const objects: RotatedObject[] = stored.map(({ object, plaintext }, index) => {
-    const encrypted = encryptContact(newCk, object.id, state.collection_id, plaintext);
-    return {
+  const total = latestByObject.size;
+  // Rotation assigns consecutive revisions from the collection's next one, and the
+  // manifest commits to each of them.
+  const firstRevision = latestRevision + 1;
+  const objects: RotatedObject[] = [];
+  let done = 0;
+  for (const object of latestByObject.values()) {
+    // Decrypt under the old key and immediately re-seal under the new one. The
+    // stored envelope is re-encrypted verbatim, so nothing inside it changes.
+    const plaintext = decryptContact(
+      fresh.collectionKey,
+      object.id,
+      collectionId,
+      object.nonce,
+      object.ciphertext,
+      object.padded_size,
+    );
+    const sealed = encryptContact(newCk, object.id, collectionId, plaintext);
+    objects.push({
       id: object.id,
-      revision: firstRevision + index,
-      nonce: encrypted.nonce,
-      ciphertext: encrypted.ciphertext,
-      padded_size: encrypted.padded_size,
+      revision: firstRevision + objects.length,
+      nonce: sealed.nonce,
+      ciphertext: sealed.ciphertext,
+      padded_size: sealed.padded_size,
       content_type: object.content_type,
-      tombstone: false,
-    };
-  });
-  const keyEpoch = current.keyEpoch + 1;
-  const { mldsaSeed, ed25519Sk } = signingKeys(state);
+      tombstone: object.tombstone,
+    });
+    done += 1;
+    onProgress?.(done, total);
+  }
+
+  const keyEpoch = listed.key_epoch + 1;
   const manifest = manifestSign(
-    mldsaSeed,
-    ed25519Sk,
-    state.collection_id,
-    state.device_id,
-    current.seq + 1,
+    bytesFromJson(fresh.state.mldsa_seed),
+    bytesFromJson(fresh.state.ed25519_sk),
+    collectionId,
+    fresh.state.device_id,
+    seq + 1,
     keyEpoch,
     firstRevision + objects.length - 1,
-    objects.map(entryOf),
+    objects.map(entryFor),
   );
   const rotationSignature = rotationSign(
-    mldsaSeed,
-    ed25519Sk,
-    state.collection_id,
+    // Stored key material may be a legacy byte array rather than base64.
+    bytesFromJson(fresh.state.mldsa_seed),
+    bytesFromJson(fresh.state.ed25519_sk),
+    collectionId,
     revokeDeviceId ?? "",
     keyEpoch,
     keyWraps,
     objects,
     manifest.digest,
   );
+
   const response = await postJson<{ key_epoch: number; latest_revision: number }>(
-    collectionUrl(session, "rotate"),
+    `${root}/v1/collections/${collectionId}/rotate`,
     {
       key_epoch: keyEpoch,
-      revoke_device_id: revokeDeviceId ?? null,
+      revoke_device_id: revokeDeviceId,
       kdf_salt: passwordWrap.kdf_salt,
       key_wraps: keyWraps,
       phrase_recovery: {
@@ -1258,39 +1432,13 @@ export async function rotateCollectionKey(
       manifest,
       rotation_signature: rotationSignature,
     },
-    session.token,
+    fresh.token,
   );
-  return {
-    phrase: phraseOut.phrase,
-    session: {
-      ...session,
-      collectionKey: newCk,
-      keyEpoch: response.key_epoch,
-      latestRevision: response.latest_revision,
-      state: {
-        ...state,
-        kdf_salt: b64ToByteArray(passwordWrap.kdf_salt),
-        manifest_seq: manifest.manifest_seq,
-      },
-    },
-  };
-}
 
-/** Issues a new recovery phrase, rotating the collection key so the old phrase stops working. */
-export async function rotatePhrase(session: Session, password: string): Promise<RotationResult> {
-  // Signing in first proves the password: the rotation wraps the new key under
-  // it, and a typo would silently break password recovery.
-  return rotateCollectionKey(await loginAccount(session.state, password), password);
+  rememberManifestSeq(fresh, seq + 1);
+  fresh.collectionKey = newCk;
+  fresh.keyEpoch = response.key_epoch;
+  fresh.latestRevision = response.latest_revision;
+  fresh.state = { ...fresh.state, kdf_salt: passwordWrap.kdf_salt };
+  return { session: fresh, phrase: phraseOut.phrase };
 }
-
-export async function deleteAccount(session: Session, currentPassword: string): Promise<void> {
-  const freshSession = await loginAccount(session.state, currentPassword);
-  const root = apiRoot(freshSession.state.server);
-  const challenge = await accountChallenge(freshSession);
-  await deleteJson<{ status: string }>(`${root}/v1/account`, freshSession.token, {
-    challenge_id: challenge.challenge_id,
-    challenge: challenge.challenge,
-    signature: signAccountOp(freshSession, "delete", challenge.challenge_id, challenge.challenge, {}),
-  });
-}
-

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Modal } from "./Modal";
+import { confirmationGroups } from "../lib/pairing";
 
 type Props = {
   busy: boolean;
@@ -99,7 +100,7 @@ export function AddDeviceModal({
               ) : null}
             </div>
 
-            {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
+            {error ? <p role="alert" className="mt-4 text-sm text-danger">{error}</p> : null}
 
             <div className="mt-8 flex items-center justify-end gap-3 border-t border-line pt-4">
               <button
@@ -129,8 +130,10 @@ export function AddDeviceModal({
               <p className="text-xs uppercase font-medium tracking-widest text-mute mb-2">
                 Confirmation code
               </p>
-              <p className="font-mono text-4xl font-bold tracking-[0.35em] text-accent">
-                {addConfirm}
+              <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 font-mono text-2xl font-bold tracking-[0.2em] text-accent">
+                {confirmationGroups(addConfirm ?? "").map((group, index) => (
+                  <span key={`${index}-${group}`}>{group}</span>
+                ))}
               </p>
             </div>
 
@@ -138,7 +141,7 @@ export function AddDeviceModal({
               If the code matches the one displayed on your new device screen, click <strong className="text-text font-semibold">Approve device</strong> below to securely transfer your vault encryption keys.
             </p>
 
-            {error ? <p className="mt-4 text-sm text-danger text-center">{error}</p> : null}
+            {error ? <p role="alert" className="mt-4 text-sm text-danger text-center">{error}</p> : null}
 
             <div className="mt-8 flex items-center justify-end gap-3 border-t border-line pt-4">
               <button

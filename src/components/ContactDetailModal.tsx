@@ -4,6 +4,7 @@ import { optimizeAvatar } from "../lib/image";
 import { sectionBar } from "../lib/styles";
 import type { AddressBook, Contact, ContactDraft } from "../lib/types";
 import { Avatar } from "./ContactCard";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { ContactForm } from "./ContactForm";
 
 type Props = {
@@ -73,6 +74,7 @@ export function ContactDetailModal({
   const addresses = addressLines(contact.address);
   const [editing, setEditing] = useState(false);
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
+  const [confirmRemovePhoto, setConfirmRemovePhoto] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const avatarMenuRef = useRef<HTMLDivElement>(null);
@@ -120,7 +122,7 @@ export function ContactDetailModal({
   return (
     <aside
       aria-label={`${contact.name} details`}
-      className="flex min-h-[28rem] min-w-0 flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-xl shadow-black/10 animate-fade-in-up max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:h-dvh max-lg:min-h-0 max-lg:max-h-none max-lg:w-screen max-lg:rounded-none max-lg:border-0 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7rem)]"
+      className="flex min-h-[28rem] min-w-0 flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-xl shadow-black/10 animate-fade-in-up max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:h-dvh max-lg:min-h-0 max-lg:max-h-none max-lg:w-screen max-lg:rounded-none max-lg:border-0 lg:h-full lg:min-h-0"
     >
       <div className="relative z-30 shrink-0 overflow-visible border-b border-line bg-surface/40 px-6 py-4">
         <div className="flex items-center gap-4 pr-36">
@@ -149,9 +151,8 @@ export function ContactDetailModal({
                   className="w-full rounded-md px-3 py-2 text-left text-xs text-danger transition-colors hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-40"
                   disabled={!contact.avatar || busy}
                   onClick={() => {
-                    if (!window.confirm("Remove this profile photo?")) return;
-                    onSave({ ...contact, avatar: undefined });
                     setAvatarMenuOpen(false);
+                    setConfirmRemovePhoto(true);
                   }}
                 >
                   Remove photo
@@ -242,11 +243,11 @@ export function ContactDetailModal({
         </div>
       </div>
 
-      {avatarError ? <p className="border-b border-danger/30 bg-danger/10 px-5 py-2.5 text-xs text-danger">{avatarError}</p> : null}
+      {avatarError ? <p role="alert" className="border-b border-danger/30 bg-danger/10 px-5 py-2.5 text-xs text-danger">{avatarError}</p> : null}
 
       {editing ? (
         <>
-          {error ? <p className="border-b border-danger/30 bg-danger/10 px-5 py-2.5 text-xs text-danger">{error}</p> : null}
+          {error ? <p role="alert" className="border-b border-danger/30 bg-danger/10 px-5 py-2.5 text-xs text-danger">{error}</p> : null}
         <ContactForm
           formId="contact-detail-form"
           hideFooter
@@ -486,6 +487,21 @@ export function ContactDetailModal({
 
       </div>
       )}
+
+      {confirmRemovePhoto ? (
+        <ConfirmDialog
+          title="Remove photo"
+          heading="Remove this profile photo?"
+          body="The photo is deleted from your encrypted vault on every paired device. You can upload a new one at any time."
+          confirmLabel="Remove photo"
+          busy={busy}
+          onConfirm={() => {
+            onSave({ ...contact, avatar: undefined });
+            setConfirmRemovePhoto(false);
+          }}
+          onClose={() => setConfirmRemovePhoto(false)}
+        />
+      ) : null}
     </aside>
   );
 }

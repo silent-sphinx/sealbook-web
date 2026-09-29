@@ -95,6 +95,8 @@ export function loadDeviceMetadata(): DeviceMetadata | null {
     return stored.metadata;
   }
   if ("hpke_sk" in stored) {
+    // Legacy plaintext blob. The metadata is not secret and prefills sign-in;
+    // the secrets it also holds are never returned (see loadDevice).
     return metadataOf(stored);
   }
   return null;
@@ -145,13 +147,38 @@ export async function saveDevice(state: DeviceState, password: string): Promise<
   localStorage.setItem(KEY, JSON.stringify(envelope));
 }
 
+/**
+ * Decrypts the stored device state, or returns null when the password is wrong.
+ *
+ * A pre-v1 install holds the device state — including `hpke_sk` — as plaintext
+ * in localStorage. Such a blob is deliberately *not* returned: handing back
+ * secrets the password has not unlocked would make this function's contract a
+ * lie, and any future caller treating a non-null result as proof of the
+ * password would have an authentication bypass. Callers see null, sign in
+ * against the server instead, and `saveDevice` then replaces the plaintext blob
+ * with an encrypted envelope. `hasLegacyPlaintextDevice` lets the UI explain
+ * why the sign-in is being asked for.
+ */
+/**
+ * A pre-v1 device blob, which localStorage holds as plaintext rather than
+ * encrypted under the password.
+ *
+ * Named to make the danger explicit: nothing here proves the user knows the
+ * password, so the returned state must only be used to drive a server login
+ * that does check it. Deliberately separate from `loadDevice` so a caller
+ * cannot treat "got state back" as "password was correct".
+ */
+export function loadUnverifiedLegacyDevice(): DeviceState | null {
+  const stored = readStored();
+  if (!stored || !("hpke_sk" in stored)) return null;
+  const { session_token: _sessionToken, ...state } = stored;
+  return state;
+}
+
 export async function loadDevice(password: string): Promise<DeviceState | null> {
   const stored = readStored();
   if (!stored) return null;
-  if ("hpke_sk" in stored) {
-    const { session_token: _sessionToken, ...state } = stored;
-    return state;
-  }
+  if ("hpke_sk" in stored) return null;
   if (stored.version !== STORAGE_VERSION) return null;
   try {
     const salt = Uint8Array.from(b64ToByteArray(stored.salt));
@@ -219,14 +246,4 @@ export async function loadVaultSnapshot(password: string): Promise<VaultSnapshot
 export function clearDevice(): void {
   localStorage.removeItem(KEY);
   localStorage.removeItem(VAULT_KEY);
-}
-
-export function downloadDevice(state: DeviceState): void {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = ".sealbook-state.json";
-  a.click();
-  URL.revokeObjectURL(url);
 }

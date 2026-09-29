@@ -49,7 +49,7 @@ export function DeleteContactModal({
         </div>
 
         {error ? (
-          <p className="mt-4 rounded-lg border border-danger/30 bg-danger/10 p-3 text-xs text-danger">
+          <p role="alert" className="mt-4 rounded-lg border border-danger/30 bg-danger/10 p-3 text-xs text-danger">
             {error}
           </p>
         ) : null}

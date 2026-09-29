@@ -123,3 +123,36 @@ export function Initials({
     </span>
   );
 }
+
+/**
+ * Placeholder rows shown while the vault is still being fetched and decrypted.
+ * Argon2 makes that wait long enough that an empty list would otherwise read as
+ * "you have no contacts".
+ */
+export function ContactListSkeleton({ rows = 5 }: { rows?: number }) {
+  return (
+    <ul
+      className="min-w-0 overflow-hidden rounded-xl border border-line/80 bg-panel/25"
+      aria-hidden="true"
+    >
+      {Array.from({ length: rows }, (_, index) => (
+        <li
+          key={index}
+          className="flex items-center gap-3 border-b border-line/80 px-4 py-3 last:border-b-0"
+        >
+          <span className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-surface" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <span
+              className="block h-3.5 animate-pulse rounded bg-surface"
+              style={{ width: `${38 + ((index * 17) % 30)}%` }}
+            />
+            <span
+              className="block h-2.5 animate-pulse rounded bg-surface/70"
+              style={{ width: `${26 + ((index * 23) % 26)}%` }}
+            />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}

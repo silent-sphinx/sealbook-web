@@ -308,7 +308,7 @@ export function ContactForm({
 
       {!hideFooter ? <div className="shrink-0 border-t border-line bg-panel">
         {error ? (
-          <p className="px-5 pt-3 text-sm text-danger">{error}</p>
+          <p role="alert" className="px-5 pt-3 text-sm text-danger">{error}</p>
         ) : null}
         {onDelete ? (
           <div className="flex items-center justify-between gap-3 px-5 py-4">

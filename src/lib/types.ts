@@ -136,6 +136,14 @@ export type Calendar = {
   favorite?: boolean;
 };
 
+/**
+ * Colour a calendar starts life with, and the fallback for one stored without
+ * a colour. Matches `--color-accent`, but is duplicated here on purpose: the
+ * value is persisted per calendar, so it cannot follow the theme token once a
+ * calendar exists. Keep the two in step by hand if the accent ever changes.
+ */
+export const DEFAULT_CALENDAR_COLOR = "#7aa2f7";
+
 export type OpaqueStart = {
   request: string;
   state: string;
@@ -169,6 +177,19 @@ export type Enrollment = {
   recovery_ciphersuite: string;
 };
 
+/** Hybrid recovery-phrase material registered with the server. */
+export type PhraseRecovery = {
+  mldsa_pk: string;
+  ed25519_pk: string;
+  lookup_id: string;
+  scheme: string;
+};
+
+export type DualSignature = {
+  mldsa: string;
+  ed25519: string;
+};
+
 export type DeviceOut = {
   device_id: string;
   hpke_sk: string;
@@ -188,24 +209,14 @@ export type DevicePublic = {
   xwing_hpke_pk: string;
 };
 
-export type DualSignature = {
-  mldsa: string;
-  ed25519: string;
-};
-
+/** Step 2 of login: the opened challenge plus the device's proof of it. */
 export type LoginStartProof = DualSignature & {
   challenge: string;
 };
 
+/** Step 3 of login. */
 export type LoginProof = DualSignature & {
   finalization: string;
-};
-
-export type PhraseRecovery = {
-  mldsa_pk: string;
-  ed25519_pk: string;
-  lookup_id: string;
-  scheme: string;
 };
 
 export type ManifestEntry = {

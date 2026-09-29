@@ -25,6 +25,7 @@ RUN SKIP_WASM=1 npm run build
 FROM nginx:1.27-alpine AS runtime
 
 COPY sealbook-web/nginx.conf /etc/nginx/conf.d/default.conf
+COPY sealbook-web/security-headers.conf /etc/nginx/security-headers.conf
 COPY --from=web-builder /app/dist/ /usr/share/nginx/html/
 
 EXPOSE 80

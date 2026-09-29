@@ -78,7 +78,7 @@ export function DeleteAddressBookModal({
           </label>
         </fieldset>
 
-        {error ? <p className="text-sm text-danger">{error}</p> : null}
+        {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
 
         <div className="flex justify-end gap-3">
           <button type="button" className={btnSecondary} onClick={onClose} disabled={busy}>

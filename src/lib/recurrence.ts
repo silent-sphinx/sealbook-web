@@ -47,9 +47,28 @@ function nthWeekdayDate(year: number, month: number, ordinal: number, weekday: n
   return day <= new Date(year, month + 1, 0).getDate() ? dateAt(year, month, day) : null;
 }
 
+function startOfDay(date: Date): Date {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
+/**
+ * Whole local days between two dates.
+ *
+ * Both ends are normalised to midnight first. Subtracting raw timestamps would
+ * measure from the anchor's wall-clock time, so a 10:00 event compared against
+ * its own midnight came out as -1 day: the first occurrence was dropped and
+ * every later one landed a day late. Rounding rather than flooring also keeps
+ * the 23- and 25-hour days around a DST change on whole-day boundaries.
+ */
+function dayDeltaBetween(date: Date, anchor: Date): number {
+  return Math.round((startOfDay(date).getTime() - startOfDay(anchor).getTime()) / 86400000);
+}
+
 function matchesRule(date: Date, anchor: Date, rule: RecurrenceRule): boolean {
   const interval = Math.max(1, rule.interval ?? 1);
-  const dayDelta = Math.floor((date.getTime() - anchor.getTime()) / 86400000);
+  const dayDelta = dayDeltaBetween(date, anchor);
   if (rule.frequency === "daily") return dayDelta >= 0 && dayDelta % interval === 0;
   if (rule.frequency === "weekly") {
     const weeks = Math.floor(dayDelta / 7);

@@ -164,3 +164,129 @@ export function parseCalendarImport(input: string, timezone: string, calendarId?
     }];
   });
 }
+
+// --- Export -----------------------------------------------------------------
+
+/** RFC 5545 escaping for TEXT values: backslash, semicolon, comma, newline. */
+function escapeText(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,")
+    .replace(/\r?\n/g, "\\n");
+}
+
+/**
+ * Folds a content line to 75 octets as RFC 5545 requires, continuing with a
+ * leading space. Measured in UTF-8 bytes, not characters, so a line of
+ * non-ASCII text is not silently over-long.
+ */
+function foldLine(line: string): string {
+  const encoder = new TextEncoder();
+  if (encoder.encode(line).length <= 75) return line;
+  const out: string[] = [];
+  let current = "";
+  let bytes = 0;
+  for (const char of line) {
+    const size = encoder.encode(char).length;
+    // Continuation lines carry a leading space, so they get one octet less.
+    const limit = out.length === 0 ? 75 : 74;
+    if (bytes + size > limit) {
+      out.push(current);
+      current = "";
+      bytes = 0;
+    }
+    current += char;
+    bytes += size;
+  }
+  if (current) out.push(current);
+  return out.join("\r\n ");
+}
+
+/** `20260927T090000Z` for a timed value, `20260927` for an all-day date. */
+function icsStamp(value: string): string {
+  if (!value.includes("T")) return value.slice(0, 10).replace(/-/g, "");
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.replace(/[-:]/g, "").slice(0, 15) + "Z";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}` +
+    `T${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}Z`
+  );
+}
+
+const ICS_WEEKDAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+
+function recurrenceToRrule(rule: RecurrenceRule): string | null {
+  const frequency = rule.frequency.toUpperCase();
+  if (!["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(frequency)) return null;
+  const parts = [`FREQ=${frequency}`];
+  if (rule.interval && rule.interval > 1) parts.push(`INTERVAL=${rule.interval}`);
+  if (rule.weekdays?.length) {
+    parts.push(`BYDAY=${rule.weekdays.map((day) => ICS_WEEKDAYS[day] ?? "").filter(Boolean).join(",")}`);
+  }
+  if (rule.nthWeekday) {
+    parts.push(`BYDAY=${rule.nthWeekday.ordinal}${ICS_WEEKDAYS[rule.nthWeekday.weekday] ?? "MO"}`);
+  }
+  if (rule.dayOfMonth) parts.push(`BYMONTHDAY=${rule.dayOfMonth}`);
+  if (rule.count) parts.push(`COUNT=${rule.count}`);
+  if (rule.until) parts.push(`UNTIL=${icsStamp(rule.until)}`);
+  return parts.join(";");
+}
+
+/**
+ * Serializes events as an RFC 5545 calendar.
+ *
+ * All-day events use DATE values with the exclusive DTEND the spec requires,
+ * which is one day after the inclusive end Sealbook stores.
+ */
+export function formatIcs(events: CalendarEvent[], calendarName = "Sealbook"): string {
+  const lines: string[] = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Sealbook//Sealbook Web//EN",
+    "CALSCALE:GREGORIAN",
+    `X-WR-CALNAME:${escapeText(calendarName)}`,
+  ];
+  const stamp = icsStamp(new Date().toISOString());
+
+  for (const event of events) {
+    const allDay = !event.start.includes("T");
+    lines.push("BEGIN:VEVENT");
+    lines.push(`UID:${event.id || crypto.randomUUID()}@sealbook`);
+    lines.push(`DTSTAMP:${stamp}`);
+
+    if (allDay) {
+      lines.push(`DTSTART;VALUE=DATE:${icsStamp(event.start)}`);
+      // Sealbook stores an inclusive end date; DTEND is exclusive.
+      const inclusive = (event.end || event.start).slice(0, 10);
+      const exclusive = new Date(`${inclusive}T00:00:00Z`);
+      exclusive.setUTCDate(exclusive.getUTCDate() + 1);
+      lines.push(`DTEND;VALUE=DATE:${exclusive.toISOString().slice(0, 10).replace(/-/g, "")}`);
+    } else {
+      lines.push(`DTSTART:${icsStamp(event.start)}`);
+      if (event.end) lines.push(`DTEND:${icsStamp(event.end)}`);
+    }
+
+    lines.push(`SUMMARY:${escapeText(event.title)}`);
+    if (event.location) lines.push(`LOCATION:${escapeText(event.location)}`);
+    if (event.notes) lines.push(`DESCRIPTION:${escapeText(event.notes)}`);
+    for (const participant of event.participants ?? []) {
+      const trimmed = participant.trim();
+      if (!trimmed) continue;
+      lines.push(
+        trimmed.includes("@")
+          ? `ATTENDEE;CN=${escapeText(trimmed)}:mailto:${trimmed}`
+          : `ATTENDEE;CN=${escapeText(trimmed)}:invalid:nomail`,
+      );
+    }
+    if (event.recurrence) {
+      const rrule = recurrenceToRrule(event.recurrence);
+      if (rrule) lines.push(`RRULE:${rrule}`);
+    }
+    lines.push("END:VEVENT");
+  }
+
+  lines.push("END:VCALENDAR");
+  return lines.map(foldLine).join("\r\n") + "\r\n";
+}

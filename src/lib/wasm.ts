@@ -5,16 +5,17 @@ import init, {
   decrypt_contact,
   encrypt_contact,
   generate_new_phrase,
-  login_start_proof,
-  manifest_sign,
-  manifest_verify,
   new_collection_key,
   new_uuid,
-  object_content_digest,
   opaque_login_finish,
   opaque_login_start,
   opaque_register_finish,
   opaque_register_start,
+  login_start_proof,
+  manifest_digest_of,
+  manifest_sign,
+  manifest_verify,
+  object_content_digest,
   pair_confirmation_code,
   pair_grant_sign,
   phrase_lookup_id_b64,
@@ -96,10 +97,15 @@ export function unwrapPhrase(phrase: string, nonce: string, wrappedCk: string): 
   return unwrap_phrase(phrase, nonce, wrappedCk);
 }
 
+/**
+ * The opaque handle used to look up a phrase key wrap. Safe to send before a
+ * recovery proof, unlike the verification keys.
+ */
 export function phraseLookupId(phrase: string): string {
   return phrase_lookup_id_b64(phrase);
 }
 
+/** The hybrid ML-DSA-65 + Ed25519 recovery material to register for a phrase. */
 export function phraseRecovery(phrase: string): PhraseRecovery {
   return JSON.parse(phrase_recovery_json(phrase)) as PhraseRecovery;
 }
@@ -158,6 +164,11 @@ export function opaqueLoginStart(password: string): OpaqueStart {
   return JSON.parse(opaque_login_start(password)) as OpaqueStart;
 }
 
+/**
+ * Step 2 of login: open the challenge sealed to this device and sign it
+ * together with the OPAQUE request. The server releases no credential response
+ * until this proof verifies.
+ */
 export function loginStartProof(
   hpkeSk: string,
   challengeEnc: string,
@@ -184,6 +195,10 @@ export function loginStartProof(
   ) as LoginStartProof;
 }
 
+/**
+ * Step 3 of login. `challenge` is the value returned by {@link loginStartProof},
+ * so the sealed challenge is opened only once.
+ */
 export function opaqueLoginFinish(
   state: string,
   password: string,
@@ -244,14 +259,57 @@ export function newUuid(): string {
   return new_uuid();
 }
 
+/** A fresh collection key, base64. Used when rotating after a device revocation. */
 export function newCollectionKey(): string {
   return new_collection_key();
 }
 
+/**
+ * Signs a key rotation. The transcript covers the revoked device, the new key
+ * epoch, and digests of every key wrap and re-encrypted object, so the server
+ * can confirm the whole rotation came from a device that holds the signing key.
+ */
+export function rotationSign(
+  mldsaSeed: string,
+  ed25519Sk: string,
+  collectionId: string,
+  /** Empty to rotate without revoking a device, as a phrase change does. */
+  revokedDeviceId: string,
+  keyEpoch: number,
+  wraps: KeyWrap[],
+  objects: RotatedObject[],
+  manifestDigest: string,
+): DualSignature {
+  return JSON.parse(
+    rotation_sign(
+      mldsaSeed,
+      ed25519Sk,
+      collectionId,
+      revokedDeviceId,
+      BigInt(keyEpoch),
+      JSON.stringify(wraps),
+      JSON.stringify(objects),
+      manifestDigest,
+    ),
+  ) as DualSignature;
+}
+
+/** `SHA-256(nonce || ciphertext)`, the per-object commitment in a manifest. */
 export function objectContentDigest(nonce: string, ciphertext: string): string {
   return object_content_digest(nonce, ciphertext);
 }
 
+/**
+ * Digest of a whole collection.
+ *
+ * Computed in Rust so the canonical ordering and length-prefixed framing cannot
+ * drift from what the server computes.
+ */
+export function manifestDigestOf(entries: ManifestEntry[]): string {
+  return manifest_digest_of(JSON.stringify(entries));
+}
+
+/** Signs a manifest describing the state a write produces. */
 export function manifestSign(
   mldsaSeed: string,
   ed25519Sk: string,
@@ -276,7 +334,13 @@ export function manifestSign(
   ) as ManifestBody;
 }
 
-/** Throws if the manifest does not match `entries` or its signature does not verify. */
+/**
+ * Checks a served manifest against the entries it claims to describe.
+ *
+ * Throws when they disagree. That is not a transient error: it means the server
+ * served something no device signed for — an object withheld, rolled back or
+ * substituted.
+ */
 export function manifestVerify(
   signerMldsaPk: string,
   signerEd25519Pk: string,
@@ -298,32 +362,9 @@ export function manifestVerify(
   );
 }
 
-export function rotationSign(
-  mldsaSeed: string,
-  ed25519Sk: string,
-  collectionId: string,
-  revokedDeviceId: string,
-  keyEpoch: number,
-  wraps: KeyWrap[],
-  objects: RotatedObject[],
-  manifestDigest: string,
-): DualSignature {
-  return JSON.parse(
-    rotation_sign(
-      mldsaSeed,
-      ed25519Sk,
-      collectionId,
-      revokedDeviceId,
-      BigInt(keyEpoch),
-      JSON.stringify(wraps),
-      JSON.stringify(objects),
-      manifestDigest,
-    ),
-  ) as DualSignature;
-}
-
 export type AccountOp = "username" | "password" | "delete";
 
+/** Signs an account mutation: `"username"`, `"password"` or `"delete"`. */
 export function accountOpSign(
   mldsaSeed: string,
   ed25519Sk: string,
@@ -332,7 +373,7 @@ export function accountOpSign(
   challenge: string,
   accountId: string,
   deviceId: string,
-  payload: object,
+  payload: Record<string, string>,
 ): DualSignature {
   return JSON.parse(
     account_op_sign(

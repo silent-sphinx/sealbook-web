@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import logo from "./assets/sealbook-white.png";
-import { AddressBookMenu } from "./components/AddressBookMenu";
+import { AddressBookList } from "./components/AddressBookList";
+import { SidebarDrawer, SidebarTrigger } from "./components/SidebarDrawer";
 import { AddDeviceModal } from "./components/AddDeviceModal";
-import { ContactCard } from "./components/ContactCard";
+import { ConfirmDialog } from "./components/ConfirmDialog";
+import { ContactCard, ContactListSkeleton } from "./components/ContactCard";
 import { ContactDetailModal } from "./components/ContactDetailModal";
 import { ContactForm } from "./components/ContactForm";
 import { CalendarView } from "./components/CalendarView";
@@ -41,11 +43,13 @@ import {
   formatRecoveryWordsFile,
 } from "./lib/phrase";
 import { findInvalidBip39Words } from "./lib/bip39Words";
+import { confirmationGroups } from "./lib/pairing";
 import {
   clearDevice,
   loadConnectionDomain,
   loadDevice,
   loadDeviceMetadata,
+  loadUnverifiedLegacyDevice,
   loadVaultSnapshot,
   saveConnectionDomain,
   saveDevice,
@@ -61,7 +65,8 @@ import {
   ghost,
   primary,
   secondary,
-  searchField,
+  shell,
+  focusRing,
 } from "./lib/styles";
 import type { AddressBook, Calendar, CalendarEvent, Contact, ContactDraft, DeviceState } from "./lib/types";
 
@@ -140,6 +145,79 @@ function Brand({ title, subtitle }: { title: string; subtitle: string }) {
   );
 }
 
+/** The server address, shown so it is obvious which instance is being used. */
+function serverLabel(value: string): string {
+  try {
+    return new URL(value).host;
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * First-run gate. Sealbook is self-hosted, so nothing else on the auth screens
+ * can work until an instance is chosen — this is deliberately the only thing
+ * on screen, rather than a dismissible dialog over an inert card.
+ */
+function ServerSetupScreen({
+  onSave,
+  error,
+}: {
+  onSave: (value: string) => boolean;
+  error: string | null;
+}) {
+  const [draft, setDraft] = useState("");
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    onSave(draft);
+  }
+
+  return (
+    <>
+      <Brand title="Connect to Sealbook" subtitle="Choose the server to use on this device." />
+
+      <form onSubmit={submit} className="mt-7">
+        <label htmlFor="setup-domain" className="block text-sm font-medium text-text">
+          Server address
+        </label>
+        <input
+          id="setup-domain"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="sealbook.example.com"
+          className={field}
+          autoComplete="url"
+          inputMode="url"
+          autoFocus
+          spellCheck={false}
+          required
+        />
+        <p className="mt-2 text-xs leading-relaxed text-mute">
+          The address of your own Sealbook server. <code className="text-text/80">https://</code> is
+          assumed if you leave it off.
+        </p>
+
+        {error ? (
+          <p role="alert" className="mt-4 text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
+
+        <button type="submit" className={`${primary} mt-6`}>
+          Continue
+        </button>
+      </form>
+
+      <p className="mt-6 border-t border-line pt-5 text-xs leading-relaxed text-mute">
+        Sealbook has no central service. Your contacts and calendar are encrypted on this device
+        and stored only on the server you run.
+      </p>
+    </>
+  );
+}
+
+/** Changes an already-configured server. */
 function DomainSettings({
   value,
   onSave,
@@ -147,7 +225,7 @@ function DomainSettings({
   value: string;
   onSave: (value: string) => boolean;
 }) {
-  const [open, setOpen] = useState(value.trim() === "");
+  const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -159,53 +237,63 @@ function DomainSettings({
 
   function save() {
     if (onSave(draft)) {
-    setOpen(false);
-    setDraft(value);
+      setOpen(false);
       setSaveError(null);
     } else {
-      setSaveError("Enter a valid connection domain to continue.");
+      setSaveError("Enter a valid server address.");
     }
   }
 
   return (
     <>
-      <button
-        type="button"
-        aria-label="Connection settings"
-        title="Connection settings"
-        onClick={openSettings}
-        className="absolute right-7 top-7 flex h-9 w-9 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text sm:right-9 sm:top-9"
-      >
-        <SettingsIcon />
-        <svg className="hidden" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-          <path fillRule="evenodd" d="M7.84 1.66a1 1 0 0 1 1.96 0l.2 1.02c.43.13.84.3 1.23.51l.87-.57a1 1 0 0 1 1.27.12l.9.9a1 1 0 0 1 .12 1.27l-.57.87c.21.39.38.8.51 1.23l1.02.2a1 1 0 0 1 .82.98v1.28a1 1 0 0 1-.82.98l-1.02.2c-.13.43-.3.84-.51 1.23l.57.87a1 1 0 0 1-.12 1.27l-.9.9a1 1 0 0 1-1.27.12l-.87-.57c-.39.21-.8.38-1.23.51l-.2 1.02a1 1 0 0 1-.98.82H8.82a1 1 0 0 1-.98-.82l-.2-1.02a7.1 7.1 0 0 1-1.23-.51l-.87.57a1 1 0 0 1-1.27-.12l-.9-.9a1 1 0 0 1-.12-1.27l.57-.87a7.1 7.1 0 0 1-.51-1.23l-1.02-.2a1 1 0 0 1-.82-.98V8.2a1 1 0 0 1 .82-.98l1.02-.2c.13-.43.3-.84.51-1.23l-.57-.87a1 1 0 0 1 .12-1.27l.9-.9a1 1 0 0 1 1.27-.12l.87.57c.39-.21.8-.38 1.23-.51l.2-1.02a1 1 0 0 1 .98-.82H11.2a1 1 0 0 1 .98.82l.2 1.02c.43.13.84.3 1.23.51l.87-.57a1 1 0 0 1 1.27.12l.9.9a1 1 0 0 1 .12 1.27l-.57.87c.21.39.38.8.51 1.23l1.02.2a1 1 0 0 1 .82.98v1.28a1 1 0 0 1-.82.98l-1.02.2c-.13.43-.3.84-.51 1.23l.57.87a1 1 0 0 1-.12 1.27l-.9.9a1 1 0 0 1-1.27.12l-.87-.57c-.39.21-.8.38-1.23.51l-.2 1.02a1 1 0 0 1-.98.82H8.82a1 1 0 0 1-.98-.82l-.2-1.02a7.1 7.1 0 0 1-1.23-.51l-.87.57a1 1 0 0 1-1.27-.12l-.9-.9a1 1 0 0 1-.12-1.27l.57-.87a7.1 7.1 0 0 1-.51-1.23l-1.02-.2a1 1 0 0 1-.82-.98V8.2a1 1 0 0 1 .82-.98l1.02-.2c.13-.43.3-.84.51-1.23l-.57-.87a1 1 0 0 1 .12-1.27l.9-.9a1 1 0 0 1 1.27-.12l.87.57c.39-.21.8-.38 1.23-.51l.2-1.02ZM10 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" clipRule="evenodd" />
-        </svg>
-      </button>
+      <div className="mt-5 flex items-center justify-center gap-2 text-xs text-mute">
+        <span className="min-w-0 truncate">
+          Server <span className="text-text/80">{serverLabel(value)}</span>
+        </span>
+        <span aria-hidden="true" className="text-mute/50">
+          ·
+        </span>
+        <button type="button" onClick={openSettings} className={ghost}>
+          Change
+        </button>
+      </div>
+
       {open && (
-        <Modal title="Connection settings" onClose={() => setOpen(false)}>
+        <Modal title="Change server" onClose={() => setOpen(false)}>
           <div className="space-y-4 p-6">
             <div>
-              <label htmlFor="auth-connection-domain" className="block text-sm font-medium text-text">
-                Sealbook domain
+              <label
+                htmlFor="auth-connection-domain"
+                className="block text-sm font-medium text-text"
+              >
+                Server address
               </label>
               <input
                 id="auth-connection-domain"
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
-                placeholder="https://your-sealbook-domain.example"
+                placeholder="sealbook.example.com"
                 className={field}
                 autoComplete="url"
+                inputMode="url"
+                spellCheck={false}
                 autoFocus
               />
-              {saveError ? <p className="mt-2 text-xs text-danger">{saveError}</p> : null}
-              <p className="mt-1.5 text-xs text-mute">Enter the domain of your Sealbook instance.</p>
+              {saveError ? (
+                <p role="alert" className="mt-2 text-xs text-danger">
+                  {saveError}
+                </p>
+              ) : null}
+              <p className="mt-1.5 text-xs text-mute">
+                Signing in sends your credentials to this server, so check it carefully.
+              </p>
             </div>
             <div className="flex justify-end gap-3">
               <button type="button" className={btnSecondary} onClick={() => setOpen(false)}>
                 Cancel
               </button>
               <button type="button" className={btnPrimary} onClick={save}>
-                Save domain
+                Save server
               </button>
             </div>
           </div>
@@ -219,28 +307,39 @@ function AuthCard({
   children,
   connectionDomain,
   onConnectionDomainSave,
+  domainError,
   wide = false,
 }: {
   children: React.ReactNode;
   connectionDomain?: string;
   onConnectionDomainSave?: (value: string) => boolean;
+  domainError?: string | null;
   wide?: boolean;
 }) {
+  const managesDomain = connectionDomain !== undefined && onConnectionDomainSave !== undefined;
   const domainConfigured = connectionDomain === undefined || connectionDomain.trim() !== "";
+  // The setup form is narrow even on screens that would otherwise go wide.
+  const showWide = wide && domainConfigured;
+
   return (
-    <main className={`mx-auto flex min-h-screen w-full ${wide ? "max-w-[980px]" : "max-w-[500px]"} flex-col justify-center px-5 py-8`}>
-      <div className={`relative w-full ${wide ? "max-w-[900px]" : "max-w-[500px]"} animate-fade-in-up rounded-2xl border border-line bg-panel/75 p-7 shadow-2xl shadow-black/40 backdrop-blur-md sm:p-9`}>
-        {connectionDomain !== undefined && onConnectionDomainSave ? (
-          <DomainSettings value={connectionDomain} onSave={onConnectionDomainSave} />
+    <main className="mx-auto flex min-h-dvh w-full max-w-full flex-col justify-center px-5 py-8">
+      <div
+        className={`mx-auto w-full min-w-0 ${showWide ? "max-w-[900px]" : "max-w-[460px]"} animate-fade-in-up`}
+      >
+        <div className="rounded-2xl border border-line bg-panel/75 p-7 shadow-2xl shadow-black/40 backdrop-blur-md sm:p-9">
+          {domainConfigured ? (
+            children
+          ) : managesDomain ? (
+            <ServerSetupScreen
+              onSave={onConnectionDomainSave!}
+              error={domainError ?? null}
+            />
+          ) : null}
+        </div>
+
+        {managesDomain && domainConfigured ? (
+          <DomainSettings value={connectionDomain!} onSave={onConnectionDomainSave!} />
         ) : null}
-        {domainConfigured ? (
-          children
-        ) : (
-          <div className="pt-12 text-center">
-            <Brand title="Connect to Sealbook" subtitle="Set your connection domain to continue." />
-            <p className="mt-6 text-sm text-mute">Use the settings cog to choose your Sealbook server.</p>
-          </div>
-        )}
       </div>
     </main>
   );
@@ -384,6 +483,8 @@ export default function App() {
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [addressBooks, setAddressBooks] = useState<AddressBook[]>([]);
   const [bookFilter, setBookFilter] = useState(ALL_ADDRESS_BOOKS);
+  // Set by the sidebar's "+", read by the address book list to open its input.
+  const [creatingBook, setCreatingBook] = useState(false);
   const [formKey, setFormKey] = useState(0);
   const [composing, setComposing] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
@@ -403,6 +504,31 @@ export default function App() {
   const [activeTab, setActiveTabState] = useState<MainTab>(loadLastTab);
   const [timezone, setTimezoneState] = useState(loadTimezone);
   const [online, setOnline] = useState(() => navigator.onLine);
+  const [loadingVault, setLoadingVault] = useState(false);
+  const [idleCountdown, setIdleCountdown] = useState<number | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const headerRef = useRef<HTMLDivElement>(null);
+  // Below `lg` the contacts sidebar is a slide-over rather than a column.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // The calendar fills the viewport below the header, so it needs the header's
+  // real height. That height is not a constant: the nav wraps to its own row on
+  // narrow screens and the offline banner adds another row, so a hardcoded value
+  // pushed the calendar off the bottom of an `overflow-hidden` box.
+  useEffect(() => {
+    const node = headerRef.current;
+    if (!node) return;
+    const publish = () => {
+      document.documentElement.style.setProperty(
+        "--sb-header-h",
+        `${node.getBoundingClientRect().height}px`,
+      );
+    };
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [session]);
 
   function setActiveTab(tab: MainTab) {
     setActiveTabState(tab);
@@ -421,6 +547,12 @@ export default function App() {
   function saveDomain(value: string): boolean {
     try {
       const server = normalizeServer(value);
+      // normalizeServer returns "" for blank input rather than throwing, which
+      // would otherwise report success and drop the user back on the gate.
+      if (!server) {
+        setError("Enter the address of your Sealbook server.");
+        return false;
+      }
       setConnectionDomain(server);
       saveConnectionDomain(server);
       setError(null);
@@ -497,24 +629,46 @@ export default function App() {
     };
   }, [screen, pairId, pairApproved]);
 
+  // Idle auto-lock. The warning is an in-app countdown, not window.confirm:
+  // a native prompt suspends the event loop, so a user who walked away left the
+  // vault unlocked behind an unanswered dialog forever. The lock timer now runs
+  // to IDLE_TIMEOUT_MS whether or not the warning is acknowledged.
   useEffect(() => {
     if (!session) return;
-    let timeoutId = 0;
-    const resetIdleTimer = () => {
-      window.clearTimeout(timeoutId);
-      timeoutId = window.setTimeout(() => {
-        if (window.confirm("Your vault will lock in one minute due to inactivity. Stay signed in?")) {
-          resetIdleTimer();
-          return;
-        }
-        void lock();
-      }, IDLE_WARNING_MS);
+    let warnTimeout = 0;
+    let lockTimeout = 0;
+    let tick = 0;
+
+    const clearTimers = () => {
+      window.clearTimeout(warnTimeout);
+      window.clearTimeout(lockTimeout);
+      window.clearInterval(tick);
     };
+
+    const resetIdleTimer = () => {
+      clearTimers();
+      setIdleCountdown(null);
+      warnTimeout = window.setTimeout(() => {
+        let remaining = Math.round((IDLE_TIMEOUT_MS - IDLE_WARNING_MS) / 1000);
+        setIdleCountdown(remaining);
+        tick = window.setInterval(() => {
+          remaining -= 1;
+          setIdleCountdown(remaining > 0 ? remaining : 0);
+        }, 1000);
+      }, IDLE_WARNING_MS);
+      lockTimeout = window.setTimeout(() => {
+        clearTimers();
+        setIdleCountdown(null);
+        void lock();
+      }, IDLE_TIMEOUT_MS);
+    };
+
     const events = ["pointerdown", "keydown", "touchstart"] as const;
     events.forEach((event) => window.addEventListener(event, resetIdleTimer));
     resetIdleTimer();
     return () => {
-      window.clearTimeout(timeoutId);
+      clearTimers();
+      setIdleCountdown(null);
       events.forEach((event) => window.removeEventListener(event, resetIdleTimer));
     };
   }, [session]);
@@ -582,8 +736,15 @@ export default function App() {
   }
 
   async function refresh(next: Session) {
-    const listed = await listVault(next);
-    const books = await ensureDefaultAddressBook(next, listed.addressBooks);
+    setLoadingVault(true);
+    let listed;
+    let books;
+    try {
+      listed = await listVault(next);
+      books = await ensureDefaultAddressBook(next, listed.addressBooks);
+    } finally {
+      setLoadingVault(false);
+    }
     setAddressBooks(books);
     setContacts(listed.contacts);
     setCalendarEvents(listed.calendarEvents);
@@ -683,13 +844,7 @@ export default function App() {
   }
 
   function confirmSignOut() {
-    if (
-      window.confirm(
-        "Sign out and remove this device's keys? You'll need to pair again or use your recovery words.",
-      )
-    ) {
-      void signOut();
-    }
+    setSigningOut(true);
   }
 
   async function onUnlock(event: FormEvent) {
@@ -702,7 +857,18 @@ export default function App() {
     try {
       const unlocked = await loadDevice(password);
       if (!unlocked) {
-        throw new Error("Wrong password");
+        // A device stored before storage was encrypted cannot have its password
+        // checked locally, so the server checks it. A successful login re-saves
+        // the state encrypted, replacing the plaintext blob for good.
+        const legacy = loadUnverifiedLegacyDevice();
+        if (!legacy) {
+          throw new Error("Wrong password");
+        }
+        if (!navigator.onLine) {
+          throw new Error("Connect to the server once to finish securing this device's stored keys.");
+        }
+        await openSession(await loginAccount(legacy, password), password);
+        return;
       }
       if (!navigator.onLine) {
         const snapshot = await loadVaultSnapshot(password);
@@ -713,7 +879,7 @@ export default function App() {
         setContacts(snapshot.contacts);
         setCalendars(snapshot.calendars);
         setCalendarEvents(snapshot.calendarEvents);
-        setSession({ state: unlocked, collectionKey: "", token: "", latestRevision: 0, offline: true });
+        setSession({ state: unlocked, collectionKey: "", token: "", latestRevision: 0, keyEpoch: 0, manifestSeq: 0, offline: true });
       } else {
         await openSession(await loginAccount(unlocked, password), password);
       }
@@ -805,16 +971,17 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
-      // Recovery rotates the key, so the phrase just entered stops working and
-      // the user has to write down the new one.
-      const recovered = await recoverAccount(
+      // Recovery rotates the vault key, which retires the phrase just used and
+      // issues a new one. Show it the same way registration does, because the
+      // user has to write it down or they lose their way back in.
+      const { session: recovered, phrase: replacement } = await recoverAccount(
         normalizeServer(connectionDomain),
         username.trim(),
         words.join(" "),
         password,
       );
-      await openSession(recovered.session, password);
-      setPhrase(recovered.phrase);
+      await openSession(recovered, password);
+      setPhrase(replacement);
       setScreen("phrase");
     } catch (err) {
       setError(friendlyError(err));
@@ -1094,6 +1261,7 @@ export default function App() {
       <AuthCard
         connectionDomain={connectionDomain}
         onConnectionDomainSave={saveDomain}
+        domainError={error}
       >
         <Brand
           title="Write these down"
@@ -1135,6 +1303,7 @@ export default function App() {
       <AuthCard
         connectionDomain={connectionDomain}
         onConnectionDomainSave={saveDomain}
+        domainError={error}
         wide
       >
         <Brand
@@ -1202,9 +1371,11 @@ export default function App() {
                 <p className="mt-1 text-sm text-mute text-left leading-relaxed">
                   Confirm both devices show this code:
                 </p>
-                <div className="my-3 overflow-hidden rounded-xl border border-accent/25 bg-bg/90 px-2 py-3">
-                  <p className="text-center font-mono text-base font-bold leading-relaxed tracking-[0.05em] text-accent">
-                    {pairConfirm}
+                <div className="my-3 rounded-xl border border-accent/25 bg-bg/90 px-2 py-3">
+                  <p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 font-mono text-base font-bold leading-relaxed tracking-[0.05em] text-accent">
+                    {confirmationGroups(pairConfirm).map((group, index) => (
+                      <span key={`${index}-${group}`}>{group}</span>
+                    ))}
                   </p>
                 </div>
                 <p className="text-xs leading-relaxed text-mute">
@@ -1215,7 +1386,7 @@ export default function App() {
           </div>
         </div>
 
-        {error ? <p className="mt-4 text-sm text-danger sm:col-span-2">{error}</p> : null}
+        {error ? <p role="alert" className="mt-4 text-sm text-danger sm:col-span-2">{error}</p> : null}
 
         {/* Step 4: Live status / Password completion */}
         {pairApproved ? (
@@ -1231,7 +1402,7 @@ export default function App() {
               <span>Pairing approved! Enter your password to finish unlocking your vault.</span>
             </div>
             <div className="mt-4">
-              <label htmlFor="pair-password" className="block text-sm font-medium text-text mb-1.5">
+              <label htmlFor="pair-password" className="block text-sm font-medium text-text">
                 Password
               </label>
               <PasswordField
@@ -1241,7 +1412,7 @@ export default function App() {
                 autoComplete="current-password"
                 placeholder="Enter your password"
                 autoFocus
-                className="box-border w-full rounded-xl border border-line bg-bg px-3.5 py-2.5 text-sm text-text outline-none transition-all placeholder:text-mute/50 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
+                className={field}
                 required
               />
             </div>
@@ -1322,6 +1493,7 @@ export default function App() {
       <AuthCard
         connectionDomain={connectionDomain}
         onConnectionDomainSave={saveDomain}
+        domainError={error}
       >
         <Brand
           title="Restore with words"
@@ -1329,7 +1501,7 @@ export default function App() {
         />
         <form onSubmit={onRecover} className="mt-7 space-y-4">
           <div>
-            <label htmlFor="recover-username" className="block text-sm font-medium text-text mb-1.5">
+            <label htmlFor="recover-username" className="block text-sm font-medium text-text">
               Username
             </label>
             <input
@@ -1338,7 +1510,9 @@ export default function App() {
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
               placeholder="Enter your username"
-              className="box-border w-full rounded-xl border border-line bg-bg px-3.5 py-2.5 text-sm text-text outline-none transition-all placeholder:text-mute/50 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
+              className={field}
+              autoFocus
+              spellCheck={false}
               required
             />
           </div>
@@ -1347,7 +1521,7 @@ export default function App() {
             <label htmlFor="recovery-phrase" className="block text-sm font-medium text-text mb-1.5">
               Recovery words
             </label>
-            <div className="box-border w-full rounded-xl border border-line bg-bg transition-all focus-within:border-accent-dim focus-within:ring-1 focus-within:ring-accent-ring overflow-hidden">
+            <div className="box-border w-full overflow-hidden rounded-lg border border-line bg-bg transition-all focus-within:border-accent-dim focus-within:ring-1 focus-within:ring-accent-ring">
               <textarea
                 id="recovery-phrase"
                 value={phrase}
@@ -1371,9 +1545,10 @@ export default function App() {
                 className="box-border block w-full bg-transparent px-3.5 py-2.5 font-mono text-sm leading-relaxed text-text outline-none placeholder:text-mute/50 resize-none"
                 required
               />
-              <div className="flex items-center justify-between border-t border-line/60 bg-surface/30 px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-y-2 border-t border-line/60 bg-surface/30 px-3 py-2">
                 <span
-                  className={`inline-flex items-center gap-1.5 font-mono text-xs whitespace-nowrap ${invalidWords.length > 0
+                  aria-live="polite"
+                  className={`inline-flex min-w-0 items-center gap-1.5 font-mono text-xs whitespace-nowrap ${invalidWords.length > 0
                       ? "text-danger font-medium"
                       : count === 24
                         ? "text-accent font-semibold"
@@ -1420,7 +1595,7 @@ export default function App() {
           </div>
 
           <div>
-            <label htmlFor="recover-password" className="block text-sm font-medium text-text mb-1.5">
+            <label htmlFor="recover-password" className="block text-sm font-medium text-text">
               Password
             </label>
             <PasswordField
@@ -1429,24 +1604,24 @@ export default function App() {
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
               placeholder="Enter your password"
-              className="box-border w-full rounded-xl border border-line bg-bg px-3.5 py-2.5 text-sm text-text outline-none transition-all placeholder:text-mute/50 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
+              className={field}
               required
             />
           </div>
 
-          {error ? <p className="text-sm text-danger">{error}</p> : null}
+          {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
 
           <button
             type="submit"
             disabled={busy}
-            className="mt-6 w-full rounded-xl bg-accent py-3 text-sm font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+            className={`${primary} mt-6`}
           >
             {busy ? "Restoring vault…" : "Restore vault on this device"}
           </button>
 
           <button
             type="button"
-            className="mt-3 w-full py-2 text-center text-sm text-mute transition-colors hover:text-text cursor-pointer"
+            className={`${ghost} mt-3 block w-full py-2 text-center`}
             onClick={backToAuth}
           >
             Back to setup options
@@ -1463,6 +1638,7 @@ export default function App() {
         <AuthCard
           connectionDomain={connectionDomain}
           onConnectionDomainSave={saveDomain}
+          domainError={error}
         >
           <Brand title="Sealbook" subtitle={stored.username} />
           <form onSubmit={onUnlock} className="mt-8">
@@ -1477,14 +1653,32 @@ export default function App() {
                 required
               />
             </label>
-            {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
+            {error ? <p role="alert" className="mt-4 text-sm text-danger">{error}</p> : null}
             <button type="submit" disabled={busy} className={`${primary} mt-6`}>
               {busy ? "Please wait…" : "Unlock"}
             </button>
           </form>
-          <button type="button" className={`${ghost} mt-4`} onClick={confirmSignOut}>
+          <button
+            type="button"
+            className={`${ghost} mt-4 block w-full py-2 text-center`}
+            onClick={confirmSignOut}
+          >
             Sign out
           </button>
+          {signingOut ? (
+            <ConfirmDialog
+              title="Sign out"
+              heading="Sign out of this device?"
+              body="This device's keys are removed from this browser. To get back in you'll need to pair from another signed-in device, or use your 24 recovery words."
+              confirmLabel="Sign out"
+              busyLabel="Signing out…"
+              onConfirm={() => {
+                setSigningOut(false);
+                void signOut();
+              }}
+              onClose={() => setSigningOut(false)}
+            />
+          ) : null}
         </AuthCard>
       );
     }
@@ -1494,6 +1688,7 @@ export default function App() {
       <AuthCard
         connectionDomain={connectionDomain}
         onConnectionDomainSave={saveDomain}
+        domainError={error}
       >
         <Brand
           title="Sealbook"
@@ -1503,34 +1698,37 @@ export default function App() {
               : "Your private, end-to-end encrypted contacts."
           }
         />
-        <div className="mt-8 mb-5 grid grid-cols-2 gap-1 rounded-lg bg-bg/60 p-1 text-sm">
-          <button
-            type="button"
-            onClick={() => {
-              setMode("register");
-              setError(null);
-            }}
-            className={`rounded-md py-1.5 transition-colors duration-150 cursor-pointer ${mode === "register" ? "bg-surface text-text font-medium" : "text-mute hover:text-text"
-              }`}
-          >
-            Create account
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMode("signin");
-              setError(null);
-            }}
-            className={`rounded-md py-1.5 transition-colors duration-150 cursor-pointer ${mode === "signin" ? "bg-surface text-text font-medium" : "text-mute hover:text-text"
-              }`}
-          >
-            Set up device
-          </button>
+        <div
+          role="tablist"
+          aria-label="Account setup method"
+          className="mt-8 mb-5 grid grid-cols-2 gap-1 rounded-lg border border-line/60 bg-bg/60 p-1 text-sm"
+        >
+          {([
+            { id: "register", label: "Create account" },
+            { id: "signin", label: "Set up device" },
+          ] as const).map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              role="tab"
+              aria-selected={mode === option.id}
+              onClick={() => {
+                setMode(option.id);
+                setError(null);
+              }}
+              className={`rounded-md py-1.5 transition-colors duration-150 cursor-pointer ${focusRing} ${mode === option.id
+                ? "bg-surface text-text font-medium"
+                : "text-mute hover:text-text"
+                }`}
+            >
+              {option.label}
+            </button>
+          ))}
         </div>
         {mode === "register" ? (
           <form onSubmit={onRegister} className="space-y-4">
             <div>
-              <label htmlFor="register-username" className="block text-sm font-medium text-text mb-1.5">
+              <label htmlFor="register-username" className="block text-sm font-medium text-text">
                 Username
               </label>
               <input
@@ -1539,28 +1737,15 @@ export default function App() {
                 onChange={(e) => setUsername(e.target.value)}
                 autoComplete="username"
                 placeholder="Choose a username"
-                className="box-border w-full rounded-xl border border-line bg-bg px-3.5 py-2.5 text-sm text-text outline-none transition-all placeholder:text-mute/50 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
+                className={field}
+                autoFocus
+                spellCheck={false}
                 required
               />
-              {password ? (() => {
-                const strength = passwordStrength(password);
-                return (
-                  <div className="mt-2" aria-live="polite">
-                    <div className="flex gap-1" aria-hidden="true">
-                      {[1, 2, 3, 4].map((segment) => (
-                        <span
-                          key={segment}
-                          className={`h-1 flex-1 rounded-full ${segment <= strength.score ? "bg-accent" : "bg-surface"}`}
-                        />
-                      ))}
-                    </div>
-                    <p className="mt-1 text-[11px] text-mute">Password strength: {strength.label}</p>
-                  </div>
-                );
-              })() : null}
             </div>
+
             <div>
-              <label htmlFor="register-password" className="block text-sm font-medium text-text mb-1.5">
+              <label htmlFor="register-password" className="block text-sm font-medium text-text">
                 Password
               </label>
               <PasswordField
@@ -1569,16 +1754,36 @@ export default function App() {
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password"
                 placeholder="Choose a password"
-                className="box-border w-full rounded-xl border border-line bg-bg px-3.5 py-2.5 text-sm text-text outline-none transition-all placeholder:text-mute/50 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
+                className={field}
                 required
               />
+              {password ? (() => {
+                const strength = passwordStrength(password);
+                return (
+                  <div className="mt-2">
+                    <div className="flex gap-1" aria-hidden="true">
+                      {[1, 2, 3, 4].map((segment) => (
+                        <span
+                          key={segment}
+                          className={`h-1 flex-1 rounded-full transition-colors ${segment <= strength.score ? "bg-accent" : "bg-surface"}`}
+                        />
+                      ))}
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-mute" aria-live="polite">
+                      Password strength: {strength.label}
+                    </p>
+                  </div>
+                );
+              })() : null}
+              <p className="mt-2 text-xs leading-relaxed text-mute">
+                This password encrypts your vault. Nobody can reset it for you — if you lose it,
+                your 24 recovery words are the only way back in.
+              </p>
             </div>
-            {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
-            <button
-              type="submit"
-              disabled={busy}
-              className="mt-6 w-full rounded-xl bg-accent py-3 text-sm font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 cursor-pointer"
-            >
+
+            {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
+
+            <button type="submit" disabled={busy} className={`${primary} mt-6`}>
               {busy ? "Creating account…" : "Create account"}
             </button>
           </form>
@@ -1600,7 +1805,7 @@ export default function App() {
                   </p>
 
                   <div className="mt-3.5">
-                    <label htmlFor="pair-username" className="block text-xs font-medium text-text mb-1.5">
+                    <label htmlFor="pair-username" className="block text-xs font-medium text-text">
                       Username
                     </label>
                     <input
@@ -1609,17 +1814,18 @@ export default function App() {
                       onChange={(e) => setUsername(e.target.value)}
                       autoComplete="username"
                       placeholder="Enter your username"
-                      className="box-border w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm text-text outline-none transition-all placeholder:text-mute/50 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
+                      className={field}
+                      spellCheck={false}
                       required
                     />
                   </div>
 
-                  {error ? <p className="mt-3 text-xs text-danger">{error}</p> : null}
+                  {error ? <p role="alert" className="mt-3 text-xs text-danger">{error}</p> : null}
 
                   <button
                     type="submit"
                     disabled={busy}
-                    className="mt-4 inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+                    className={`${btnPrimary} mt-4`}
                   >
                     {busy ? "Generating code…" : "Start pairing →"}
                   </button>
@@ -1641,7 +1847,7 @@ export default function App() {
 
                   <button
                     type="button"
-                    className="mt-3.5 inline-flex items-center justify-center rounded-lg border border-line bg-surface px-4 py-2 text-xs font-medium text-mute transition-all duration-150 hover:border-line-light hover:text-text cursor-pointer"
+                    className={`${btnSecondary} mt-3.5`}
                     onClick={() => {
                       setScreen("recover");
                       setError(null);
@@ -1662,7 +1868,7 @@ export default function App() {
   return (
     <div className="min-h-screen">
       {/* Sticky header with accent top line */}
-      <div className="sticky top-0 z-40">
+      <div ref={headerRef} className="sticky top-0 z-40">
         {isOffline ? (
           <div className="border-b border-red-400/20 bg-red-500/10 px-5 py-2 text-center text-xs font-medium text-red-300" role="status">
             App is offline. Showing your last synced vault; editing is unavailable.
@@ -1670,7 +1876,7 @@ export default function App() {
         ) : null}
         <div className={isOffline ? "h-[2px] bg-red-500" : "h-[2px] bg-gradient-to-r from-accent/60 via-accent to-accent/60"} />
         <header className="border-b border-line bg-bg/80 backdrop-blur-lg">
-          <div className="mx-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-3 px-5 py-4">
+          <div className={`${shell} flex flex-wrap items-center justify-between gap-x-3 gap-y-2.5 px-4 py-3 sm:px-5 sm:py-4`}>
             <div className="flex items-center gap-2.5">
               <Logo className="h-8 w-8" />
               <div>
@@ -1689,7 +1895,7 @@ export default function App() {
                   key={tab.id}
                   type="button"
                   aria-current={activeTab === tab.id ? "page" : undefined}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 cursor-pointer ${activeTab === tab.id
+                  className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 cursor-pointer sm:flex-none ${focusRing} ${activeTab === tab.id
                       ? "bg-accent text-bg shadow-sm"
                       : "text-mute hover:text-text hover:bg-surface/50"
                     }`}
@@ -1704,7 +1910,9 @@ export default function App() {
             <div className="flex items-center gap-2">
               {!isOffline ? <button
                 type="button"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface/70 px-3 py-1.5 text-xs font-medium text-text transition-all duration-150 hover:bg-surface hover:border-line-light cursor-pointer"
+                aria-label="Add device"
+                title="Add device"
+                className={`inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface/70 px-2.5 py-1.5 text-xs font-medium text-text transition-all duration-150 hover:bg-surface hover:border-line-light cursor-pointer sm:px-3 ${focusRing}`}
                 onClick={() => {
                   setAdding(true);
                   setAddConfirm(null);
@@ -1712,11 +1920,11 @@ export default function App() {
                 }}
               >
                 <DevicePlusIcon />
-                Add device
+                <span className="hidden sm:inline">Add device</span>
               </button> : null}
               <button
                 type="button"
-                className="rounded-lg px-3 py-1.5 text-sm text-mute transition-colors duration-150 hover:bg-surface hover:text-text"
+                className={`rounded-lg px-3 py-1.5 text-sm text-mute transition-colors duration-150 hover:bg-surface hover:text-text ${focusRing}`}
                 onClick={lock}
               >
                 Lock
@@ -1727,18 +1935,19 @@ export default function App() {
       </div>
 
       {activeTab === "settings" && isOffline ? (
-        <main className="mx-auto px-5 pb-24 pt-6">
+        <main className={`${shell} px-4 pb-24 pt-6 sm:px-5`}>
           <div className="rounded-xl border border-line bg-panel/25 p-6 text-sm text-mute">
             Settings are unavailable while offline.
           </div>
         </main>
       ) : activeTab === "settings" ? (
-        <main className="mx-auto px-5 pb-24 pt-6">
+        <main className={`${shell} px-4 pb-24 pt-6 sm:px-5`}>
           <SettingsView
             session={session}
             contacts={contacts}
             addressBooks={addressBooks}
             calendars={calendars}
+            calendarEvents={calendarEvents}
             onSessionUpdate={(updated) => setSession(updated)}
             onPersistSession={persistSession}
             onAccountDeleted={() => {
@@ -1751,114 +1960,197 @@ export default function App() {
           />
         </main>
       ) : activeTab === "calendar" ? (
-        <div className="mx-auto pt-6">
+        <div>
           <CalendarView session={session} calendars={calendars} events={calendarEvents} busy={busy} timezone={timezone} onRefresh={() => refresh(session)} readOnly={isOffline} />
         </div>
       ) : (
-        <main className="mx-auto px-5 pb-24 pt-6">
-          <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(30rem,40rem)] lg:items-start xl:grid-cols-[minmax(0,1fr)_minmax(34rem,44rem)]">
-            <div className={`min-w-0 ${viewingContact ? "hidden lg:block" : ""}`}>
-              {/* Address books + search */}
-              <div className="relative z-20 mb-4 grid gap-3 animate-fade-in-up">
-                <div className="flex items-center gap-3">
-                  <AddressBookMenu
-                    books={addressBooks}
-                    selectedId={bookFilter}
-                    onSelect={setBookFilter}
-                    onCreate={onCreateBook}
-                    onRename={onRenameBook}
-                    onDelete={onDeleteBook}
-                    readOnly={isOffline}
-                    busy={busy}
-                  />
-                  {!isOffline ? <button
+        // Same shell as the calendar: full-bleed, a 244px sidebar holding the
+        // section title and the address books, and a toolbar above the content.
+        <main className="flex flex-col bg-bg pb-[env(safe-area-inset-bottom)] text-text lg:h-[calc(100dvh-var(--sb-header-h,74px))] lg:overflow-hidden lg:pb-0">
+          <div className="grid min-h-0 flex-1 lg:h-full lg:grid-cols-[244px_minmax(0,1fr)]">
+            <SidebarDrawer title="Contacts and address books" open={sidebarOpen} onClose={() => setSidebarOpen(false)}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">My contacts</p>
+                  <h2 className="mt-1 text-lg font-semibold">Contacts</h2>
+                </div>
+                {!isOffline ? (
+                  <button
                     type="button"
-                    className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl bg-accent text-bg transition-all duration-150 hover:brightness-110 active:scale-95"
                     onClick={openComposer}
                     aria-label="Add contact"
+                    className={`flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface text-text transition-colors hover:border-line-light hover:bg-elevated ${focusRing}`}
                   >
                     <PlusIcon />
-                  </button> : null}
-                </div>
-                <div className="relative">
-                  <SearchIcon />
-                  <input
-                    type="text"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder={
-                      contacts.length > 0
-                        ? `Search ${contacts.length} contacts…`
-                        : "Search contacts…"
-                    }
-                    aria-label="Search contacts"
-                    className={`${searchField} h-[42px] pl-10 pr-10`}
-                  />
-                  {search ? (
+                  </button>
+                ) : null}
+              </div>
+
+              <div className="mt-8 border-t border-line pt-5">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">Address books</p>
+                  {!isOffline ? (
                     <button
                       type="button"
-                      onClick={() => setSearch("")}
-                      className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text"
-                      aria-label="Clear search"
-                      title="Clear search"
+                      onClick={() => setCreatingBook(true)}
+                      aria-label="Add address book"
+                      className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
                     >
-                      <ClearIcon />
+                      <PlusIcon />
                     </button>
                   ) : null}
                 </div>
+                <AddressBookList
+                  books={addressBooks}
+                  selectedId={bookFilter}
+                  creating={creatingBook}
+                  onCreateHandled={() => setCreatingBook(false)}
+                  onSelect={(id) => {
+                    setBookFilter(id);
+                    setSidebarOpen(false);
+                  }}
+                  onCreate={onCreateBook}
+                  onRename={onRenameBook}
+                  onDelete={onDeleteBook}
+                  readOnly={isOffline}
+                  busy={busy}
+                />
               </div>
+            </SidebarDrawer>
 
-              {error && !composing && !editingContact && !deletingContact && !deletingAddressBook ? (
-                <p className="mb-4 text-sm text-danger">{error}</p>
-              ) : null}
-
-              {filtered.length === 0 && search.trim() ? (
-                <div className="flex flex-col items-center py-16 animate-fade-in-up">
-                  <p className="text-sm text-mute">
-                    No contacts matching "{search}"
-                  </p>
+            <section className="order-1 flex min-w-0 flex-col overflow-hidden lg:order-none lg:min-h-0">
+              <header className="flex flex-col gap-2.5 border-b border-line px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4 sm:px-5 sm:py-3.5 lg:px-6">
+                <div className="flex min-w-0 items-center gap-2">
+                  <SidebarTrigger label="Address books" onClick={() => setSidebarOpen(true)} />
+                  <h1 className="truncate text-base font-semibold tracking-tight">
+                    {bookFilter === ALL_ADDRESS_BOOKS ? "All contacts" : bookNameById(addressBooks, bookFilter)}
+                  </h1>
+                  <span
+                    className="ml-1 rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium text-mute"
+                    title={`${filtered.length} contact${filtered.length === 1 ? "" : "s"} shown`}
+                  >
+                    {filtered.length}
+                  </span>
                 </div>
-              ) : (
-                <ul className="min-w-0 overflow-hidden rounded-xl border border-line/80 bg-panel/25">
-                {filtered.map((card) => (
-                  <ContactCard
-                    key={card.id}
-                    contact={card}
-                    bookName={
-                      bookFilter === ALL_ADDRESS_BOOKS
-                        ? bookNameById(addressBooks, card.addressBookId)
-                        : undefined
-                    }
-                    onSelect={(contact) => {
-                      setError(null);
-                      setViewingContact(contact);
-                    }}
-                  />
-                ))}
-                </ul>
-              )}
-            </div>
+                <div className="flex items-center gap-2.5">
+                  {!isOffline ? (
+                    <button
+                      type="button"
+                      onClick={openComposer}
+                      className={`flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-xs font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] ${focusRing}`}
+                    >
+                      <PlusIcon />
+                      New contact
+                    </button>
+                  ) : null}
+                  <div className="relative min-w-0 flex-1 sm:flex-none">
+                    <SearchIcon />
+                    <input
+                      type="text"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Search contacts"
+                      aria-label="Search contacts"
+                      className="h-8 w-full rounded-xl border border-line bg-panel pl-8 pr-7 text-xs text-text outline-none transition-colors duration-150 placeholder:text-mute/60 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring sm:w-52"
+                    />
+                    {search ? (
+                      <button
+                        type="button"
+                        onClick={() => setSearch("")}
+                        className={`absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
+                        aria-label="Clear search"
+                        title="Clear search"
+                      >
+                        <ClearIcon />
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </header>
 
-            {viewingContact ? (
-              <ContactDetailModal
-                contact={viewingContact}
-                bookName={bookNameById(addressBooks, viewingContact.addressBookId)}
-                onDelete={() => promptDelete(viewingContact)}
-                onClose={() => setViewingContact(null)}
-                addressBooks={addressBooks}
-                busy={busy}
-                error={error}
-                onSave={onSaveViewedContact}
-                readOnly={isOffline}
-              />
-            ) : (
-              <div className="hidden min-h-56 items-center justify-center rounded-xl border border-dashed border-line bg-panel/20 px-6 text-center lg:flex">
-                <p className="max-w-xs text-sm leading-relaxed text-mute">
-                  Select a contact to view their details.
-                </p>
+              <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(26rem,36rem)]">
+                <div className={`min-w-0 overflow-y-auto px-4 py-4 sm:px-5 lg:border-r lg:border-line lg:px-6 ${viewingContact ? "hidden lg:block" : ""}`}>
+                  {error && !composing && !editingContact && !deletingContact && !deletingAddressBook ? (
+                    <p className="mb-4 text-sm text-danger" role="alert">{error}</p>
+                  ) : null}
+
+                  {loadingVault && contacts.length === 0 ? (
+                    <ContactListSkeleton />
+                  ) : filtered.length === 0 && search.trim() ? (
+                    <div className="flex flex-col items-center py-16 animate-fade-in-up">
+                      <p className="text-sm text-mute">No contacts matching "{search}"</p>
+                      <button type="button" className={`${ghost} mt-3`} onClick={() => setSearch("")}>
+                        Clear search
+                      </button>
+                    </div>
+                  ) : contacts.length === 0 ? (
+                    <div className="flex flex-col items-center rounded-xl border border-dashed border-line px-6 py-12 text-center animate-fade-in-up sm:py-16">
+                      <p className="text-sm font-medium text-text">No contacts yet</p>
+                      <p className="mt-1.5 max-w-xs text-sm leading-relaxed text-mute">
+                        Everything you add here is encrypted on this device before it
+                        reaches the server.
+                      </p>
+                      {!isOffline ? (
+                        <button type="button" className={`${btnPrimary} mt-5`} onClick={openComposer}>
+                          <PlusIcon />
+                          Add your first contact
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : filtered.length === 0 ? (
+                    <div className="flex flex-col items-center rounded-xl border border-dashed border-line px-6 py-12 text-center animate-fade-in-up sm:py-16">
+                      <p className="text-sm text-mute">
+                        {bookNameById(addressBooks, bookFilter)} has no contacts yet.
+                      </p>
+                      <button type="button" className={`${ghost} mt-3`} onClick={() => setBookFilter(ALL_ADDRESS_BOOKS)}>
+                        Show all address books
+                      </button>
+                    </div>
+                  ) : (
+                    <ul className="min-w-0 overflow-hidden rounded-xl border border-line/80 bg-panel/25">
+                      {filtered.map((card) => (
+                        <ContactCard
+                          key={card.id}
+                          contact={card}
+                          bookName={
+                            bookFilter === ALL_ADDRESS_BOOKS
+                              ? bookNameById(addressBooks, card.addressBookId)
+                              : undefined
+                          }
+                          onSelect={(contact) => {
+                            setError(null);
+                            setViewingContact(contact);
+                          }}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className={`min-w-0 flex-col overflow-hidden px-4 py-4 sm:px-5 lg:flex lg:px-6 ${viewingContact ? "flex" : "hidden"}`}>
+                  {viewingContact ? (
+                    <ContactDetailModal
+                      contact={viewingContact}
+                      bookName={bookNameById(addressBooks, viewingContact.addressBookId)}
+                      onDelete={() => promptDelete(viewingContact)}
+                      onClose={() => setViewingContact(null)}
+                      addressBooks={addressBooks}
+                      busy={busy}
+                      error={error}
+                      onSave={onSaveViewedContact}
+                      readOnly={isOffline}
+                    />
+                  ) : (
+                    <div className="hidden min-h-56 items-center justify-center rounded-xl border border-dashed border-line bg-panel/20 px-6 text-center lg:flex">
+                      <p className="max-w-xs text-sm leading-relaxed text-mute">
+                        Select a contact to view their details.
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
-            )}
-            </div>
+            </section>
+          </div>
         </main>
       )}
 
@@ -1948,6 +2240,35 @@ export default function App() {
             setError(null);
           }}
         />
+      ) : null}
+
+      {/* Idle lock warning. Any pointer/key activity also resets the timer. */}
+      {idleCountdown !== null ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[70] flex justify-center px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="pointer-events-auto flex w-full max-w-md items-center gap-4 rounded-xl border border-line-light bg-elevated px-4 py-3 shadow-2xl shadow-black/50 animate-slide-up">
+            {/* Announced once on mount. The visible seconds sit outside this
+                live region so assistive tech is not re-interrupted every tick. */}
+            <p role="alert" className="sr-only">
+              Your vault locks in one minute due to inactivity. Choose “Stay
+              signed in” to keep working.
+            </p>
+            <div className="min-w-0 flex-1" aria-hidden="true">
+              <p className="text-sm font-semibold text-text">Locking soon</p>
+              <p className="mt-0.5 text-xs text-mute">
+                Your vault locks in{" "}
+                <span className="tabular-nums text-text">{idleCountdown}s</span> due to
+                inactivity.
+              </p>
+            </div>
+            <button
+              type="button"
+              className={btnSecondary}
+              onClick={() => setIdleCountdown(null)}
+            >
+              Stay signed in
+            </button>
+          </div>
+        </div>
       ) : null}
     </div>
   );
