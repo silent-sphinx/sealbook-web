@@ -92,6 +92,7 @@ export function SettingsView({
     text: string;
   } | null>(null);
   const [showPhraseConfirm, setShowPhraseConfirm] = useState(false);
+  const [phrasePassword, setPhrasePassword] = useState("");
 
   // Delete account state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -203,8 +204,11 @@ export function SettingsView({
     setPhraseMsg(null);
     setShowPhraseConfirm(false);
     try {
-      const phraseStr = await rotatePhrase(session);
-      const words = phraseStr.split(/\s+/u).filter(Boolean);
+      const rotated = await rotatePhrase(session, phrasePassword);
+      setPhrasePassword("");
+      await onPersistSession(rotated.session, phrasePassword);
+      onSessionUpdate(rotated.session);
+      const words = rotated.phrase.split(/\s+/u).filter(Boolean);
       setNewWords(words);
       setCopiedPhrase(false);
       setPhraseMsg({
@@ -643,14 +647,22 @@ export function SettingsView({
           >
             <div className="p-6 space-y-4">
               <p className="text-sm text-text leading-relaxed">
-                Generating a new recovery phrase will re-wrap your collection key
-                and upload a new phrase verifier.
+                Generating a new recovery phrase replaces your collection key and
+                re-encrypts your vault under it, so the old phrase can no longer
+                open anything.
               </p>
               <div className="rounded-lg border border-warning/30 bg-warning/10 p-3.5 text-xs text-warning leading-relaxed">
                 ⚠️ <strong>Warning:</strong> Any previously saved backup words
                 will be permanently overwritten on the server and will no longer
                 work to recover your contacts.
               </div>
+              <PasswordField
+                value={phrasePassword}
+                onChange={(e) => setPhrasePassword(e.target.value)}
+                placeholder="Current password"
+                className={field}
+                autoComplete="current-password"
+              />
               <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
@@ -662,6 +674,7 @@ export function SettingsView({
                 <button
                   type="button"
                   className={btnPrimary}
+                  disabled={!phrasePassword}
                   onClick={handleGeneratePhrase}
                 >
                   Yes, Generate New Codes

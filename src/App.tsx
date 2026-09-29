@@ -805,17 +805,17 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
-      await openSession(
-        await recoverAccount(
-          normalizeServer(connectionDomain),
-          username.trim(),
-          words.join(" "),
-          password,
-        ),
+      // Recovery rotates the key, so the phrase just entered stops working and
+      // the user has to write down the new one.
+      const recovered = await recoverAccount(
+        normalizeServer(connectionDomain),
+        username.trim(),
+        words.join(" "),
         password,
       );
-      setScreen("auth");
-      setPhrase("");
+      await openSession(recovered.session, password);
+      setPhrase(recovered.phrase);
+      setScreen("phrase");
     } catch (err) {
       setError(friendlyError(err));
     } finally {

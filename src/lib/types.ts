@@ -9,6 +9,8 @@ export type DeviceState = {
   hpke_sk: number[] | string;
   mldsa_seed: number[] | string;
   ed25519_sk: number[] | string;
+  /** Highest manifest sequence this device has seen; a lower one means rollback. */
+  manifest_seq?: number;
 };
 
 export type KeyWrap = {
@@ -158,7 +160,10 @@ export type Enrollment = {
   phrase: string;
   phrase_nonce: string;
   phrase_wrapped_ck: string;
-  phrase_recovery_pk: string;
+  phrase_mldsa_pk: string;
+  phrase_ed25519_pk: string;
+  phrase_lookup_id: string;
+  phrase_scheme: string;
   phrase_ciphersuite: string;
   xwing_ciphersuite: string;
   recovery_ciphersuite: string;
@@ -183,11 +188,51 @@ export type DevicePublic = {
   xwing_hpke_pk: string;
 };
 
-export type LoginProof = {
-  finalization: string;
-  challenge: string;
+export type DualSignature = {
   mldsa: string;
   ed25519: string;
+};
+
+export type LoginStartProof = DualSignature & {
+  challenge: string;
+};
+
+export type LoginProof = DualSignature & {
+  finalization: string;
+};
+
+export type PhraseRecovery = {
+  mldsa_pk: string;
+  ed25519_pk: string;
+  lookup_id: string;
+  scheme: string;
+};
+
+export type ManifestEntry = {
+  id: string;
+  revision: number;
+  tombstone: boolean;
+  content_digest: string;
+};
+
+export type ManifestBody = {
+  manifest_seq: number;
+  key_epoch: number;
+  latest_revision: number;
+  object_count: number;
+  digest: string;
+  device_id: string;
+  signature: DualSignature;
+};
+
+export type RotatedObject = {
+  id: string;
+  revision: number;
+  nonce: string;
+  ciphertext: string;
+  padded_size: number;
+  content_type: string;
+  tombstone: boolean;
 };
 
 export type EncryptedOut = {
@@ -207,6 +252,9 @@ export type PhraseWrapOut = {
   phrase: string;
   phrase_nonce: string;
   phrase_wrapped_ck: string;
-  phrase_recovery_pk: string;
+  phrase_mldsa_pk: string;
+  phrase_ed25519_pk: string;
+  phrase_lookup_id: string;
+  phrase_scheme: string;
   phrase_ciphersuite: string;
 };
