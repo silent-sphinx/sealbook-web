@@ -1,8 +1,19 @@
 import { b64ToByteArray, b64encode } from "./bytes";
-import type { AddressBook, Calendar, CalendarEvent, Contact, DeviceState } from "./types";
+import { idbDelete, idbGet, idbPut } from "./idb";
+import type {
+  AddressBook,
+  Calendar,
+  CalendarEvent,
+  Contact,
+  DeviceState,
+  Note,
+  Notebook,
+} from "./types";
 
 const KEY = "sealbook.device";
-const VAULT_KEY = "sealbook.vault";
+/** Where the snapshot used to live, before it outgrew localStorage. */
+const LEGACY_VAULT_KEY = "sealbook.vault";
+const VAULT_RECORD = "snapshot";
 const DOMAIN_KEY = "sealbook.connection-domain";
 const STORAGE_VERSION = 1;
 const PBKDF2_ITERATIONS = 600_000;
@@ -12,6 +23,8 @@ export type VaultSnapshot = {
   addressBooks: AddressBook[];
   calendars: Calendar[];
   calendarEvents: CalendarEvent[];
+  notes: Note[];
+  notebooks: Notebook[];
 };
 
 export type DeviceMetadata = Pick<
@@ -67,20 +80,47 @@ function readStored(): DeviceEnvelope | DeviceState | null {
   }
 }
 
-function readVault(): VaultEnvelope | null {
-  let raw: string | null;
+async function readVault(): Promise<VaultEnvelope | null> {
+  // The snapshot moved to IndexedDB when notes raised the per-object ceiling past
+  // what localStorage can hold. Nothing migrates the old item: dropping it costs
+  // one online refresh and avoids carrying a second code path for ever.
   try {
-    raw = localStorage.getItem(VAULT_KEY);
+    localStorage.removeItem(LEGACY_VAULT_KEY);
   } catch {
+    // storage unavailable; nothing to drop
+  }
+  const stored = await idbGet<VaultEnvelope>(VAULT_RECORD);
+  if (!stored) return null;
+  return stored.version === STORAGE_VERSION ? stored : null;
+}
+
+/**
+ * The shape check for a decrypted snapshot, pure so it can be tested without
+ * `crypto.subtle` or a storage area.
+ *
+ * The four original collections are required: a snapshot missing one is corrupt
+ * rather than old. Anything added later defaults to empty, so a snapshot written
+ * by an earlier build still opens instead of silently disabling offline mode.
+ */
+export function normalizeSnapshot(value: unknown): VaultSnapshot | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Partial<VaultSnapshot>;
+  if (
+    !Array.isArray(raw.contacts) ||
+    !Array.isArray(raw.addressBooks) ||
+    !Array.isArray(raw.calendars) ||
+    !Array.isArray(raw.calendarEvents)
+  ) {
     return null;
   }
-  if (!raw) return null;
-  try {
-    const stored = JSON.parse(raw) as VaultEnvelope;
-    return stored.version === STORAGE_VERSION ? stored : null;
-  } catch {
-    return null;
-  }
+  return {
+    contacts: raw.contacts,
+    addressBooks: raw.addressBooks,
+    calendars: raw.calendars,
+    calendarEvents: raw.calendarEvents,
+    notes: Array.isArray(raw.notes) ? raw.notes : [],
+    notebooks: Array.isArray(raw.notebooks) ? raw.notebooks : [],
+  };
 }
 
 function metadataOf(state: DeviceState): DeviceMetadata {
@@ -194,8 +234,12 @@ export async function loadDevice(password: string): Promise<DeviceState | null> 
   }
 }
 
-export async function saveVaultSnapshot(snapshot: VaultSnapshot, password: string): Promise<void> {
-  if (!password) return;
+/** Resolves false when the snapshot could not be stored, so offline is stale. */
+export async function saveVaultSnapshot(
+  snapshot: VaultSnapshot,
+  password: string,
+): Promise<boolean> {
+  if (!password) return false;
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await deriveStorageKey(password, salt);
@@ -210,15 +254,13 @@ export async function saveVaultSnapshot(snapshot: VaultSnapshot, password: strin
     iv: b64encode(iv),
     ciphertext: b64encode(new Uint8Array(ciphertext)),
   };
-  try {
-    localStorage.setItem(VAULT_KEY, JSON.stringify(envelope));
-  } catch {
-    // A full or unavailable storage area must not block normal online use.
-  }
+  // A full or unavailable storage area must not block normal online use, so a
+  // failed write is reported rather than thrown.
+  return idbPut(VAULT_RECORD, envelope);
 }
 
 export async function loadVaultSnapshot(password: string): Promise<VaultSnapshot | null> {
-  const stored = readVault();
+  const stored = await readVault();
   if (!stored) return null;
   try {
     const salt = Uint8Array.from(b64ToByteArray(stored.salt));
@@ -228,16 +270,7 @@ export async function loadVaultSnapshot(password: string): Promise<VaultSnapshot
       key,
       Uint8Array.from(b64ToByteArray(stored.ciphertext)),
     );
-    const snapshot = JSON.parse(new TextDecoder().decode(plaintext)) as VaultSnapshot;
-    if (
-      !Array.isArray(snapshot.contacts) ||
-      !Array.isArray(snapshot.addressBooks) ||
-      !Array.isArray(snapshot.calendars) ||
-      !Array.isArray(snapshot.calendarEvents)
-    ) {
-      return null;
-    }
-    return snapshot;
+    return normalizeSnapshot(JSON.parse(new TextDecoder().decode(plaintext)));
   } catch {
     return null;
   }
@@ -245,5 +278,6 @@ export async function loadVaultSnapshot(password: string): Promise<VaultSnapshot
 
 export function clearDevice(): void {
   localStorage.removeItem(KEY);
-  localStorage.removeItem(VAULT_KEY);
+  localStorage.removeItem(LEGACY_VAULT_KEY);
+  void idbDelete(VAULT_RECORD);
 }

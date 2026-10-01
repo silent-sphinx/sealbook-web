@@ -269,6 +269,14 @@ export function newCollectionKey(): string {
  * epoch, and digests of every key wrap and re-encrypted object, so the server
  * can confirm the whole rotation came from a device that holds the signing key.
  */
+export type RotationRecovery = {
+  kdf_salt: string;
+  phrase_mldsa_pk: string;
+  phrase_ed25519_pk: string;
+  phrase_lookup_id: string;
+  phrase_scheme: string;
+};
+
 export function rotationSign(
   mldsaSeed: string,
   ed25519Sk: string,
@@ -279,6 +287,12 @@ export function rotationSign(
   wraps: KeyWrap[],
   objects: RotatedObject[],
   manifestDigest: string,
+  /**
+   * The KDF salt and phrase record this rotation installs. Signed, so a modified
+   * request body cannot swap in recovery material the account holder never
+   * produced, which is why it is not optional.
+   */
+  recovery: RotationRecovery,
 ): DualSignature {
   return JSON.parse(
     rotation_sign(
@@ -290,6 +304,7 @@ export function rotationSign(
       JSON.stringify(wraps),
       JSON.stringify(objects),
       manifestDigest,
+      JSON.stringify(recovery),
     ),
   ) as DualSignature;
 }

@@ -37,6 +37,18 @@ import {
   serializeAddressBook,
   sortAddressBooks,
 } from "./addressBook";
+import {
+  DEFAULT_NOTEBOOK_ID,
+  DEFAULT_NOTEBOOK_NAME,
+  NOTEBOOK_CONTENT_TYPE,
+  NOTE_CONTENT_TYPE,
+  parseNote,
+  parseNotebook,
+  serializeNote,
+  serializeNotebook,
+  sortNotebooks,
+  sortNotes,
+} from "./note";
 import type {
   AddressBook,
   Calendar,
@@ -49,6 +61,9 @@ import type {
   KeyWrap,
   ManifestBody,
   ManifestEntry,
+  Note,
+  NoteDraft,
+  Notebook,
   RotatedObject,
   SealedObject,
 } from "./types";
@@ -881,7 +896,7 @@ export async function refreshCollectionKey(session: Session): Promise<number> {
 
 export async function listVault(
   session: Session,
-): Promise<{ sealed: SealedObject[]; addressBooks: AddressBook[]; contacts: Contact[]; calendars: Calendar[]; calendarEvents: CalendarEvent[] }> {
+): Promise<{ sealed: SealedObject[]; addressBooks: AddressBook[]; contacts: Contact[]; calendars: Calendar[]; calendarEvents: CalendarEvent[]; notes: Note[]; notebooks: Notebook[] }> {
   const { state, token } = session;
   // Walk every page before verifying: the manifest commits to the collection, not
   // to any one page of it.
@@ -923,6 +938,8 @@ export async function listVault(
   const contacts: Contact[] = [];
   const calendarEvents: CalendarEvent[] = [];
   const calendars: Calendar[] = [];
+  const notes: Note[] = [];
+  const notebooks: Notebook[] = [];
   const latestByObject = new Map<string, SealedObject>();
   for (const obj of resp.objects) {
     const previous = latestByObject.get(obj.id);
@@ -969,14 +986,31 @@ export async function listVault(
         calendars.push({ id: obj.id, name: value.name?.trim() || "Untitled calendar", color: value.color || DEFAULT_CALENDAR_COLOR, favorite: value.favorite === true });
       } else if (contentType === ADDRESS_BOOK_CONTENT_TYPE || isAddressBookPayload(raw)) {
         addressBooks.push(parseAddressBook(obj.id, raw));
-      } else {
+      } else if (contentType === NOTE_CONTENT_TYPE || isPayloadOfType(raw, "Note")) {
+        notes.push(parseNote(obj.id, raw));
+      } else if (contentType === NOTEBOOK_CONTENT_TYPE || isPayloadOfType(raw, "Notebook")) {
+        notebooks.push(parseNotebook(obj.id, raw));
+      } else if (isContactPayload(raw)) {
         contacts.push(parseContact(obj.id, raw, obj.ciphertext, obj.padded_size));
+      } else {
+        // Not a shape this build knows. Skipping it is the only safe answer: the
+        // old behaviour of falling through to a contact turned any newer content
+        // type into a blank contact whose edit or delete destroyed the original.
+        sealed.pop();
       }
     } catch {
       sealed.pop();
     }
   }
-  return { sealed, addressBooks: sortAddressBooks(addressBooks), contacts: sortContacts(contacts), calendars, calendarEvents };
+  return {
+    sealed,
+    addressBooks: sortAddressBooks(addressBooks),
+    contacts: sortContacts(contacts),
+    calendars,
+    calendarEvents,
+    notes: sortNotes(notes),
+    notebooks: sortNotebooks(notebooks),
+  };
 }
 
 export async function ensureDefaultAddressBook(
@@ -1054,11 +1088,83 @@ export async function deleteCalendar(session: Session, id: string): Promise<void
   await putSealed(session, id, CALENDAR_CONTENT_TYPE, true, "");
 }
 
+export async function putNote(
+  session: Session,
+  draft: NoteDraft,
+  existingId?: string,
+): Promise<string> {
+  const id = existingId ?? newUuid();
+  await putSealed(session, id, NOTE_CONTENT_TYPE, false, serializeNote(draft));
+  return id;
+}
+
+export async function deleteNote(session: Session, id: string): Promise<void> {
+  await putSealed(session, id, NOTE_CONTENT_TYPE, true, "");
+}
+
+export async function putNotebook(
+  session: Session,
+  name: string,
+  existingId?: string,
+): Promise<string> {
+  const id = existingId ?? newUuid();
+  await putSealed(session, id, NOTEBOOK_CONTENT_TYPE, false, serializeNotebook(name));
+  return id;
+}
+
+export async function deleteNotebook(session: Session, id: string): Promise<void> {
+  await putSealed(session, id, NOTEBOOK_CONTENT_TYPE, true, "");
+}
+
+/**
+ * Returns the notebook list with the default one present, creating it if needed.
+ *
+ * Unlike `ensureDefaultAddressBook` this is called when the Notes tab is first
+ * opened rather than on every vault refresh. A write here can fail (quota, rate
+ * limit, an older server), and on the refresh path that failure would stop the
+ * whole vault loading, contacts included.
+ */
+export async function ensureDefaultNotebook(
+  session: Session,
+  notebooks: Notebook[],
+): Promise<Notebook[]> {
+  if (notebooks.some((notebook) => notebook.id === DEFAULT_NOTEBOOK_ID)) {
+    return sortNotebooks(notebooks);
+  }
+  await putNotebook(session, DEFAULT_NOTEBOOK_NAME, DEFAULT_NOTEBOOK_ID);
+  return sortNotebooks([
+    {
+      id: DEFAULT_NOTEBOOK_ID,
+      name: DEFAULT_NOTEBOOK_NAME,
+      raw: serializeNotebook(DEFAULT_NOTEBOOK_NAME),
+    },
+    ...notebooks,
+  ]);
+}
+
 
 function isAddressBookPayload(raw: string): boolean {
+  return isPayloadOfType(raw, "AddressBook");
+}
+
+function isPayloadOfType(raw: string, type: string): boolean {
   try {
-    const body = JSON.parse(raw) as { "@type"?: string };
-    return body["@type"] === "AddressBook";
+    return (JSON.parse(raw) as { "@type"?: string })["@type"] === type;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A `Card`, or the untagged legacy shape that predates `@type`. Anything else is
+ * not a contact, which is what keeps a future content type from being rendered,
+ * and then overwritten, as one.
+ */
+function isContactPayload(raw: string): boolean {
+  try {
+    const body = JSON.parse(raw) as { "@type"?: string; name?: unknown };
+    if (typeof body["@type"] === "string") return body["@type"] === "Card";
+    return typeof body.name === "object" && body.name !== null;
   } catch {
     return false;
   }
@@ -1413,6 +1519,13 @@ export async function rotateVault(
     keyWraps,
     objects,
     manifest.digest,
+    {
+      kdf_salt: passwordWrap.kdf_salt,
+      phrase_mldsa_pk: phraseOut.phrase_mldsa_pk,
+      phrase_ed25519_pk: phraseOut.phrase_ed25519_pk,
+      phrase_lookup_id: phraseOut.phrase_lookup_id,
+      phrase_scheme: phraseOut.phrase_scheme,
+    },
   );
 
   const response = await postJson<{ key_epoch: number; latest_revision: number }>(

@@ -136,6 +136,34 @@ export type Calendar = {
   favorite?: boolean;
 };
 
+export type NoteDraft = {
+  title: string;
+  /** Markdown source, as typed. Rendered by `parseMarkdown`, never as HTML. */
+  body: string;
+  notebookId: string;
+  pinned?: boolean;
+  /**
+   * Client-generated, like a contact's. The server keeps no user timestamps, so
+   * an edit that does not carry `createdAt` forward loses it. Both are optional:
+   * the CLI may write a note without them.
+   */
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+/**
+ * `raw` is the payload as stored, kept for parity with `Contact` and for a debug
+ * view. It is not authoritative: a save serialises from the draft, so a field a
+ * build does not know about is dropped on edit, exactly as for contacts.
+ */
+export type Note = NoteDraft & { id: string; raw: string };
+
+export type Notebook = {
+  id: string;
+  name: string;
+  raw: string;
+};
+
 /**
  * Colour a calendar starts life with, and the fallback for one stored without
  * a colour. Matches `--color-accent`, but is duplicated here on purpose: the

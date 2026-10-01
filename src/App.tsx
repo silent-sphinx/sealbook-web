@@ -11,6 +11,7 @@ import { CalendarView } from "./components/CalendarView";
 import { DeleteContactModal } from "./components/DeleteContactModal";
 import { DeleteAddressBookModal } from "./components/DeleteAddressBookModal";
 import { Modal } from "./components/Modal";
+import { NotesView } from "./components/NotesView";
 import { SettingsView } from "./components/SettingsView";
 import { PasswordField } from "./components/PasswordField";
 import {
@@ -68,11 +69,20 @@ import {
   shell,
   focusRing,
 } from "./lib/styles";
-import type { AddressBook, Calendar, CalendarEvent, Contact, ContactDraft, DeviceState } from "./lib/types";
+import type {
+  AddressBook,
+  Calendar,
+  CalendarEvent,
+  Contact,
+  ContactDraft,
+  DeviceState,
+  Note,
+  Notebook,
+} from "./lib/types";
 
 type Mode = "register" | "signin";
 type Screen = "auth" | "phrase" | "pair" | "recover";
-type MainTab = "contacts" | "calendar" | "settings";
+type MainTab = "contacts" | "calendar" | "notes" | "settings";
 
 const LAST_TAB_KEY = "sealbook.last-tab";
 const TIMEZONE_KEY = "sealbook.timezone";
@@ -114,7 +124,9 @@ function rememberBrowserTimezone(): string {
 function loadLastTab(): MainTab {
   try {
     const stored = sessionStorage.getItem(LAST_TAB_KEY);
-    return stored === "calendar" ? "calendar" : "contacts";
+    // Checked against the list rather than one name, so adding a tab does not
+    // silently stop it surviving a reload.
+    return stored === "calendar" || stored === "notes" ? stored : "contacts";
   } catch {
     return "contacts";
   }
@@ -210,8 +222,8 @@ function ServerSetupScreen({
       </form>
 
       <p className="mt-6 border-t border-line pt-5 text-xs leading-relaxed text-mute">
-        Sealbook has no central service. Your contacts and calendar are encrypted on this device
-        and stored only on the server you run.
+        Sealbook has no central service. Your contacts, calendar and notes are encrypted on this
+        device and stored only on the server you run.
       </p>
     </>
   );
@@ -386,6 +398,14 @@ function CalendarIcon() {
   );
 }
 
+function NotesIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M4 3a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V3Zm3.25 2.5a.75.75 0 0 0 0 1.5h5.5a.75.75 0 0 0 0-1.5h-5.5Zm0 3.5a.75.75 0 0 0 0 1.5h5.5a.75.75 0 0 0 0-1.5h-5.5Zm0 3.5a.75.75 0 0 0 0 1.5h3a.75.75 0 0 0 0-1.5h-3Z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
 function SettingsIcon() {
   return (
     <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -461,6 +481,7 @@ function UploadIcon() {
 const TABS: { id: MainTab; label: string; icon: React.ReactNode }[] = [
   { id: "contacts", label: "Contacts", icon: <ContactsIcon /> },
   { id: "calendar", label: "Calendar", icon: <CalendarIcon /> },
+  { id: "notes", label: "Notes", icon: <NotesIcon /> },
   { id: "settings", label: "Settings", icon: <SettingsIcon /> },
 ];
 
@@ -482,6 +503,8 @@ export default function App() {
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [addressBooks, setAddressBooks] = useState<AddressBook[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [bookFilter, setBookFilter] = useState(ALL_ADDRESS_BOOKS);
   // Set by the sidebar's "+", read by the address book list to open its input.
   const [creatingBook, setCreatingBook] = useState(false);
@@ -749,6 +772,8 @@ export default function App() {
     setContacts(listed.contacts);
     setCalendarEvents(listed.calendarEvents);
     setCalendars(listed.calendars);
+    setNotes(listed.notes);
+    setNotebooks(listed.notebooks);
     if (password) {
       await saveVaultSnapshot(
         {
@@ -756,6 +781,8 @@ export default function App() {
           contacts: listed.contacts,
           calendars: listed.calendars,
           calendarEvents: listed.calendarEvents,
+          notes: listed.notes,
+          notebooks: listed.notebooks,
         },
         password,
       );
@@ -793,6 +820,8 @@ export default function App() {
     setCalendarEvents([]);
     setCalendars([]);
     setAddressBooks([]);
+    setNotes([]);
+    setNotebooks([]);
     setBookFilter(ALL_ADDRESS_BOOKS);
     setAdding(false);
     setAddConfirm(null);
@@ -879,6 +908,8 @@ export default function App() {
         setContacts(snapshot.contacts);
         setCalendars(snapshot.calendars);
         setCalendarEvents(snapshot.calendarEvents);
+        setNotes(snapshot.notes);
+        setNotebooks(snapshot.notebooks);
         setSession({ state: unlocked, collectionKey: "", token: "", latestRevision: 0, keyEpoch: 0, manifestSeq: 0, offline: true });
       } else {
         await openSession(await loginAccount(unlocked, password), password);
@@ -1695,7 +1726,7 @@ export default function App() {
           subtitle={
             mode === "signin"
               ? "Set up this device with your existing account."
-              : "Your private, end-to-end encrypted contacts."
+              : "Your private, end-to-end encrypted contacts, calendar and notes."
           }
         />
         <div
@@ -1962,6 +1993,10 @@ export default function App() {
       ) : activeTab === "calendar" ? (
         <div>
           <CalendarView session={session} calendars={calendars} events={calendarEvents} busy={busy} timezone={timezone} onRefresh={() => refresh(session)} readOnly={isOffline} />
+        </div>
+      ) : activeTab === "notes" ? (
+        <div>
+          <NotesView session={session} notes={notes} notebooks={notebooks} busy={busy} onRefresh={() => refresh(session)} readOnly={isOffline} />
         </div>
       ) : (
         // Same shell as the calendar: full-bleed, a 244px sidebar holding the

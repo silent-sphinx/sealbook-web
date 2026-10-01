@@ -1308,8 +1308,8 @@ export function SettingsView({
             <div className="p-6 space-y-4">
               <p className="text-sm text-text leading-relaxed">
                 This action is <strong className="text-danger">irreversible</strong>.
-                All your encrypted contacts, key wraps, sessions, and device
-                enrollments will be purged from the server database immediately.
+                All your encrypted contacts, calendar, notes, key wraps, sessions, and
+                device enrollments will be purged from the server database immediately.
               </p>
               <div className="rounded-lg border border-danger/30 bg-danger/10 p-3.5 text-xs text-danger leading-relaxed">
                 To confirm deletion, type your username{" "}
