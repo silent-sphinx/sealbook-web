@@ -9,6 +9,7 @@ import {
   ALL_NOTEBOOKS,
   DEFAULT_NOTEBOOK_ID,
   emptyNoteDraft,
+  noteFitsObjectLimit,
   noteMatches,
   notePreview,
   notebookNameById,
@@ -178,6 +179,11 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, readOnly
     if (!draft.title.trim() && !draft.body.trim()) {
       closeEditor();
       return true;
+    }
+    if (!noteFitsObjectLimit(draft)) {
+      // Otherwise this is a bare 400 from the server, after the upload.
+      setError("This note is too large to store. One note can hold about 8 MB.");
+      return false;
     }
     setSaving(true);
     setError(null);

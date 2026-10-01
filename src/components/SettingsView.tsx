@@ -31,11 +31,12 @@ import {
   field,
   selectField,
 } from "../lib/styles";
-import type { AddressBook, Calendar, CalendarEvent, Contact } from "../lib/types";
+import type { AddressBook, Calendar, CalendarEvent, Contact, Note, Notebook } from "../lib/types";
 import { DEFAULT_CALENDAR_COLOR } from "../lib/types";
 import { allTimezones, utcOffsetLabel } from "../lib/timezone";
 import { Modal } from "./Modal";
 import { ImportExportSection } from "./ImportExportSection";
+import { NotesImportExportSection } from "./NotesImportExportSection";
 import { PasswordField } from "./PasswordField";
 
 const MAX_CALENDAR_FILE_BYTES = 5 * 1024 * 1024;
@@ -47,16 +48,52 @@ type Props = {
   addressBooks: AddressBook[];
   calendars: Calendar[];
   calendarEvents: CalendarEvent[];
+  notes: Note[];
+  notebooks: Notebook[];
   onSessionUpdate: (updated: Session) => void;
   onPersistSession: (updated: Session, password: string) => Promise<void>;
   onAccountDeleted: () => void;
   onRefresh: () => Promise<void>;
   onCreateBook?: (name: string) => Promise<string | undefined>;
+  onCreateNotebook?: (name: string) => Promise<string | undefined>;
   timezone: string;
   onTimezoneChange: (timezone: string) => void;
 };
 
-type SettingsSection = "account" | "contacts" | "calendar";
+type SettingsSection = "account" | "contacts" | "calendar" | "notes";
+
+/**
+ * One place per section, so adding a fourth feature is a row here rather than an
+ * arm in each of three parallel lists.
+ */
+const SECTIONS: { id: SettingsSection; label: string; nav: string; blurb: string }[] = [
+  {
+    id: "account",
+    label: "Account settings",
+    nav: "Identity, security, and recovery",
+    blurb:
+      "Manage your identity, cryptographic credentials, recovery phrase, and account data.",
+  },
+  {
+    id: "contacts",
+    label: "Contacts settings",
+    nav: "Import and export contacts",
+    blurb:
+      "Move contact data in and out of Sealbook while keeping your address books organized.",
+  },
+  {
+    id: "calendar",
+    label: "Calendar settings",
+    nav: "Timezone and event display",
+    blurb: "Choose how dates and times are displayed throughout your calendar.",
+  },
+  {
+    id: "notes",
+    label: "Notes settings",
+    nav: "Import and export notes",
+    blurb: "Move notes in and out of Sealbook as Markdown or as a full JSON backup.",
+  },
+];
 
 export function SettingsView({
   session,
@@ -64,11 +101,14 @@ export function SettingsView({
   addressBooks,
   calendars,
   calendarEvents,
+  notes,
+  notebooks,
   onSessionUpdate,
   onPersistSession,
   onAccountDeleted,
   onRefresh,
   onCreateBook,
+  onCreateNotebook,
   timezone,
   onTimezoneChange,
 }: Props) {
@@ -575,11 +615,7 @@ export function SettingsView({
           </p>
         </div>
         <nav className="flex gap-1 overflow-x-auto lg:flex-col" aria-label="Settings sections">
-          {([
-            ["account", "Account settings", "Identity, security, and recovery"],
-            ["contacts", "Contacts settings", "Import and export contacts"],
-            ["calendar", "Calendar settings", "Timezone and event display"],
-          ] as const).map(([id, label, description]) => (
+          {SECTIONS.map(({ id, label, nav: description }) => (
             <button
               key={id}
               type="button"
@@ -605,18 +641,10 @@ export function SettingsView({
             Preferences
           </p>
           <h2 className="mt-2 text-xl font-semibold tracking-tight text-text">
-            {activeSection === "account"
-              ? "Account settings"
-              : activeSection === "contacts"
-                ? "Contacts settings"
-                : "Calendar settings"}
+            {SECTIONS.find((section) => section.id === activeSection)?.label}
           </h2>
           <p className="mt-1 text-sm text-mute">
-            {activeSection === "account"
-              ? "Manage your identity, cryptographic credentials, recovery phrase, and account data."
-              : activeSection === "contacts"
-                ? "Move contact data in and out of Sealbook while keeping your address books organized."
-                : "Choose how dates and times are displayed throughout your calendar."}
+            {SECTIONS.find((section) => section.id === activeSection)?.blurb}
           </p>
         </div>
 
@@ -1272,6 +1300,16 @@ export function SettingsView({
           addressBooks={addressBooks}
           onRefresh={onRefresh}
           onCreateBook={onCreateBook}
+        />
+      )}
+
+      {activeSection === "notes" && (
+        <NotesImportExportSection
+          session={session}
+          notes={notes}
+          notebooks={notebooks}
+          onRefresh={onRefresh}
+          onCreateNotebook={onCreateNotebook}
         />
       )}
 

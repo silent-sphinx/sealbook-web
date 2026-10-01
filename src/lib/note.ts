@@ -121,6 +121,32 @@ export function notePreview(body: string, max = 140): string {
   return `${(space > max / 2 ? cut.slice(0, space) : cut).trimEnd()}...`;
 }
 
+/**
+ * Mirrors `MAX_PADDED_OBJECT_SIZE` in `sealbook/crates/sealbook-protocol`. A write
+ * past it is a `400` from the server, so it is worth catching before the upload
+ * rather than halfway through an import.
+ */
+const MAX_PADDED_OBJECT_SIZE = 8 * 1024 * 1024;
+
+/** The envelope's other keys: version, contentType, tombstone, revision. */
+const ENVELOPE_OVERHEAD = 256;
+
+/**
+ * Bytes this note will occupy once sealed.
+ *
+ * The body is JSON-escaped twice, once into the note payload and again into the
+ * sealed envelope that carries it, so a newline costs four bytes rather than
+ * one. Measuring the encoded payload is the only way to get this right.
+ */
+export function noteByteSize(draft: NoteDraft): number {
+  const payload = JSON.stringify(serializeNote(draft));
+  return new TextEncoder().encode(payload).length + ENVELOPE_OVERHEAD;
+}
+
+export function noteFitsObjectLimit(draft: NoteDraft): boolean {
+  return noteByteSize(draft) + 4 <= MAX_PADDED_OBJECT_SIZE;
+}
+
 export function emptyNoteDraft(notebookId: string): NoteDraft {
   return { title: "", body: "", notebookId: resolveNotebookId(notebookId), pinned: false };
 }

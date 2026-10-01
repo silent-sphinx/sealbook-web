@@ -26,6 +26,7 @@ import {
   pairPreview,
   pairReady,
   putAddressBook,
+  putNotebook,
   putContact,
   recoverAccount,
   registerAccount,
@@ -1151,6 +1152,24 @@ export default function App() {
     }
   }
 
+  async function onCreateNotebook(name: string): Promise<string | undefined> {
+    if (!session || !name.trim()) {
+      return undefined;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const id = await putNotebook(session, name.trim());
+      await refreshAfterSave(session);
+      return id;
+    } catch (err) {
+      setError(friendlyError(err));
+      return undefined;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onCreateBook(name: string): Promise<string | undefined> {
     if (!session || !name.trim()) {
       return undefined;
@@ -1979,6 +1998,8 @@ export default function App() {
             addressBooks={addressBooks}
             calendars={calendars}
             calendarEvents={calendarEvents}
+            notes={notes}
+            notebooks={notebooks}
             onSessionUpdate={(updated) => setSession(updated)}
             onPersistSession={persistSession}
             onAccountDeleted={() => {
@@ -1986,6 +2007,7 @@ export default function App() {
             }}
             onRefresh={() => refresh(session)}
             onCreateBook={isOffline ? undefined : onCreateBook}
+            onCreateNotebook={isOffline ? undefined : onCreateNotebook}
             timezone={timezone}
             onTimezoneChange={setTimezone}
           />
