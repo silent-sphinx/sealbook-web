@@ -3,8 +3,6 @@ import {
   accountOpSign,
   createDevice,
   createEnrollment,
-  decryptContact,
-  encryptContact,
   generateNewPhrase,
   loginStartProof,
   manifestSign,
@@ -12,6 +10,7 @@ import {
   newCollectionKey,
   newUuid,
   objectContentDigest,
+  openObject,
   opaqueLoginFinish,
   opaqueLoginStart,
   opaqueRegisterFinish,
@@ -19,7 +18,10 @@ import {
   pairConfirmationCode,
   phraseLookupId,
   phraseRecoveryProof,
+  resealObject,
   rotationSign,
+  sealedContentType,
+  sealObject,
   unwrapCk,
   unwrapPhrase,
   wrapCkForDevice,
@@ -313,30 +315,17 @@ function entryFor(object: {
   };
 }
 
-type SealedPayload = {
-  version: 1;
-  contentType: string;
-  tombstone: boolean;
-  revision: number;
-  payload: string;
-};
-
 function sealPayload(
   session: Session,
   id: string,
   contentType: string,
-  tombstone: boolean,
   payload: string,
   revision: number,
 ) {
-  const envelope: SealedPayload = {
-    version: 1,
-    contentType,
-    tombstone,
+  return {
     revision,
-    payload,
+    encrypted: sealObject(session.collectionKey, id, session.state.collection_id, contentType, payload),
   };
-  return { revision, encrypted: encryptContact(session.collectionKey, id, session.state.collection_id, JSON.stringify(envelope)) };
 }
 
 /**
@@ -356,7 +345,7 @@ async function putSealed(
   const attempt = async (): Promise<number> => {
     const { seq, keyEpoch, latestRevision, entries } = await manifestState(session);
     const revision = latestRevision + 1;
-    const sealed = sealPayload(session, id, contentType, tombstone, payload, revision);
+    const sealed = sealPayload(session, id, contentType, payload, revision);
     const entry: ManifestEntry = {
       id,
       revision,
@@ -383,7 +372,7 @@ async function putSealed(
         nonce: sealed.encrypted.nonce,
         ciphertext: sealed.encrypted.ciphertext,
         padded_size: sealed.encrypted.padded_size,
-        content_type: contentType,
+        content_type: sealedContentType(),
         tombstone,
         manifest,
       },
@@ -956,18 +945,19 @@ export async function listVault(
   }
   for (const obj of latestByObject.values()) {
     let raw: string;
+    // An object stored before the envelope existed has no type of its own, so
+    // the server's label is all there is. The next rotation seals one in.
     let contentType = obj.content_type;
     let tombstone = obj.tombstone;
     try {
-      const decrypted = decryptContact(collectionKey, obj.id, state.collection_id, obj.nonce, obj.ciphertext, obj.padded_size);
-      const envelope = JSON.parse(decrypted) as Partial<SealedPayload>;
-      if (envelope.version === 1) {
-        if (typeof envelope.payload !== "string" || typeof envelope.contentType !== "string" || typeof envelope.tombstone !== "boolean") continue;
-        raw = envelope.payload;
-        contentType = envelope.contentType;
-        tombstone = envelope.tombstone;
-      } else {
-        raw = decrypted;
+      const opened = openObject(collectionKey, obj.id, state.collection_id, obj.nonce, obj.ciphertext, obj.padded_size);
+      raw = opened.payload;
+      if (opened.sealed) {
+        contentType = opened.contentType ?? contentType;
+        // Either flag is enough. The row's is what the signed manifest commits
+        // to, and older envelopes written here carry their own, so a delete is
+        // never read back as live whichever of the two it was recorded in.
+        tombstone = tombstone || opened.tombstone;
       }
     } catch {
       continue;
@@ -1471,24 +1461,28 @@ export async function rotateVault(
   const objects: RotatedObject[] = [];
   let done = 0;
   for (const object of latestByObject.values()) {
-    // Decrypt under the old key and immediately re-seal under the new one. The
-    // stored envelope is re-encrypted verbatim, so nothing inside it changes.
-    const plaintext = decryptContact(
+    // Re-encrypted inside wasm, so the plaintext never becomes a JavaScript
+    // string: decoding it as text would rewrite any payload that is not valid
+    // UTF-8, and a rotation touches the whole vault at once. An object with no
+    // envelope gets one here, under the label the server last served for it,
+    // which is the last point that label matters.
+    const sealed = resealObject(
       fresh.collectionKey,
+      newCk,
       object.id,
       collectionId,
       object.nonce,
       object.ciphertext,
       object.padded_size,
+      object.content_type,
     );
-    const sealed = encryptContact(newCk, object.id, collectionId, plaintext);
     objects.push({
       id: object.id,
       revision: firstRevision + objects.length,
       nonce: sealed.nonce,
       ciphertext: sealed.ciphertext,
       padded_size: sealed.padded_size,
-      content_type: object.content_type,
+      content_type: sealedContentType(),
       tombstone: object.tombstone,
     });
     done += 1;

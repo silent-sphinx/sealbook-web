@@ -16,12 +16,16 @@ import init, {
   manifest_sign,
   manifest_verify,
   object_content_digest,
+  open_object,
   pair_confirmation_code,
   pair_grant_sign,
   phrase_lookup_id_b64,
   phrase_recovery_json,
   phrase_recovery_proof_json,
+  reseal_object,
   rotation_sign,
+  seal_object,
+  sealed_content_type,
   unwrap_ck,
   unwrap_phrase,
   wrap_ck_for_device,
@@ -38,6 +42,7 @@ import type {
   ManifestEntry,
   OpaqueStart,
   EncryptedOut,
+  OpenedObject,
   PasswordWrapOut,
   PhraseRecovery,
   PhraseWrapOut,
@@ -272,6 +277,71 @@ export function decryptContact(
   paddedSize: number,
 ): string {
   return decrypt_contact(ck, objectId, collectionId, nonce, ciphertext, paddedSize);
+}
+
+/**
+ * The only `content_type` an object is `PUT` under. The real type is sealed in
+ * the envelope, so the server is told the same thing about every object.
+ */
+export function sealedContentType(): string {
+  return sealed_content_type();
+}
+
+/** Seals `payload` under `contentType` and encrypts the envelope. */
+export function sealObject(
+  ck: string,
+  objectId: string,
+  collectionId: string,
+  contentType: string,
+  payload: string,
+): EncryptedOut {
+  return JSON.parse(seal_object(ck, objectId, collectionId, contentType, payload)) as EncryptedOut;
+}
+
+/** Decrypts an object and opens its envelope. */
+export function openObject(
+  ck: string,
+  objectId: string,
+  collectionId: string,
+  nonce: string,
+  ciphertext: string,
+  paddedSize: number,
+): OpenedObject {
+  return JSON.parse(
+    open_object(ck, objectId, collectionId, nonce, ciphertext, paddedSize),
+  ) as OpenedObject;
+}
+
+/**
+ * Re-encrypts one stored object from the old collection key to the new one.
+ *
+ * The plaintext stays inside wasm: decoding it as a JavaScript string would
+ * rewrite any payload that is not valid UTF-8, and a rotation touches the whole
+ * vault at once. `servedContentType` is only used for an object stored before
+ * the envelope existed, which is sealed under that type here.
+ */
+export function resealObject(
+  oldCk: string,
+  newCk: string,
+  objectId: string,
+  collectionId: string,
+  nonce: string,
+  ciphertext: string,
+  paddedSize: number,
+  servedContentType: string,
+): EncryptedOut {
+  return JSON.parse(
+    reseal_object(
+      oldCk,
+      newCk,
+      objectId,
+      collectionId,
+      nonce,
+      ciphertext,
+      paddedSize,
+      servedContentType,
+    ),
+  ) as EncryptedOut;
 }
 
 export function newUuid(): string {

@@ -280,6 +280,19 @@ export type EncryptedOut = {
   padded_size: number;
 };
 
+/** One object's plaintext after its sealed envelope has been opened. */
+export type OpenedObject = {
+  /**
+   * False for an object stored before the envelope existed. Its type is only the
+   * label the server serves, which nothing authenticates, and the next rotation
+   * seals a type into it.
+   */
+  sealed: boolean;
+  contentType: string | null;
+  tombstone: boolean;
+  payload: string;
+};
+
 export type PasswordWrapOut = {
   kdf_salt: string;
   recovery_nonce: string;
