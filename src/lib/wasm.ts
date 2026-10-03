@@ -52,14 +52,33 @@ export function wrapCkForPassword(ck: string, password: string): PasswordWrapOut
   return JSON.parse(wrap_ck_for_password(ck, password)) as PasswordWrapOut;
 }
 
+/**
+ * The pairing code both screens show.
+ *
+ * `rosterSeq` and `rosterTranscript` are the roster anchor the code commits to,
+ * which is what makes the user's comparison authenticate the approver to the
+ * joining device as well as the other way round. The joining side uses the anchor
+ * `pair/join` served; the approving side must use the pin of a roster it verified
+ * itself, never one the server handed it.
+ */
 export function pairConfirmationCode(
   pairId: string,
   deviceId: string,
   mldsaPk: string,
   ed25519Pk: string,
   hpkePk: string,
+  rosterSeq: number,
+  rosterTranscript: string,
 ): string {
-  return pair_confirmation_code(pairId, deviceId, mldsaPk, ed25519Pk, hpkePk);
+  return pair_confirmation_code(
+    pairId,
+    deviceId,
+    mldsaPk,
+    ed25519Pk,
+    hpkePk,
+    BigInt(rosterSeq),
+    rosterTranscript,
+  );
 }
 
 export function generateNewPhrase(ck: string): PhraseWrapOut {

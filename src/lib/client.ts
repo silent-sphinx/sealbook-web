@@ -17,7 +17,6 @@ import {
   opaqueRegisterFinish,
   opaqueRegisterStart,
   pairConfirmationCode,
-  pairGrantSign,
   phraseLookupId,
   phraseRecoveryProof,
   rotationSign,
@@ -27,7 +26,6 @@ import {
   wrapCkForPassword,
 } from "./wasm";
 import { parseContact, serializeCard, sortContacts } from "./contact";
-import { normalizeConfirmation } from "./pairing";
 import {
   ADDRESS_BOOK_CONTENT_TYPE,
   DEFAULT_ADDRESS_BOOK_ID,
@@ -589,20 +587,42 @@ export async function registerAccount(
 export async function pairJoin(
   server: string,
   username: string,
-): Promise<{ pairId: string; pairCode: string; confirm: string; state: DeviceState }> {
+): Promise<{
+  pairId: string;
+  pairCode: string;
+  confirm: string;
+  rosterSeq: number;
+  rosterTranscript: string;
+  state: DeviceState;
+}> {
   const root = apiRoot(server);
   const device = createDevice();
-  const joined = await postJson<{ pair_id: string; pair_code: string; confirm: string }>(`${root}/v1/pair/join`, {
+  const joined = await postJson<{
+    pair_id: string;
+    pair_code: string;
+    confirm: string;
+    roster_seq: number;
+    roster_transcript: string;
+  }>(`${root}/v1/pair/join`, {
     username,
     device: deviceBody(device),
     enrollment_signature: enrollSig(device),
   });
+  if (!joined.roster_seq || !joined.roster_transcript) {
+    throw new Error("The server sent no device roster for this account to anchor on");
+  }
+  // The code covers the roster this device is told the account is on, so that the
+  // user comparing two codes also confirms the approver's view of the roster to
+  // this device. The anchor then has to become this device's roster pin, which is
+  // part of the roster work still outstanding in this client (bug #15).
   const confirm = pairConfirmationCode(
     joined.pair_id,
     device.device_id,
     device.mldsa_pk,
     device.ed25519_pk,
     device.hpke_pk,
+    joined.roster_seq,
+    joined.roster_transcript,
   );
   if (joined.confirm !== confirm) {
     throw new Error("Pairing confirmation mismatch");
@@ -611,6 +631,8 @@ export async function pairJoin(
     pairId: joined.pair_id,
     pairCode: joined.pair_code,
     confirm,
+    rosterSeq: joined.roster_seq,
+    rosterTranscript: joined.roster_transcript,
     state: deviceFromKeys(root, username, "", "", device),
   };
 }
@@ -641,52 +663,27 @@ export async function pairPreview(
   return { pairId: resp.pair_id, confirm: resp.confirm, device: resp.device };
 }
 
+/**
+ * Approving a joining device, which this client cannot do yet.
+ *
+ * An approval has to compute the confirmation code over the roster it is
+ * extending, taken from a roster it verified against its own pin: computed over
+ * anything the pairing preview carries, the code would confirm only that the
+ * joining device's keys reached the server unmodified, which is the gap bug #9
+ * closed in the Rust client. The same missing roster support means this client
+ * cannot produce the signed roster an approval must send either, so the request
+ * would be refused regardless (bug #15).
+ */
 export async function pairApprove(
-  session: Session,
-  pairCode: string,
-  preview: PairPreview,
-  confirmation: string,
+  _session: Session,
+  _pairCode: string,
+  _preview: PairPreview,
+  _confirmation: string,
 ): Promise<string> {
-  const wrap = wrapCkForDevice(session.collectionKey, preview.device.xwing_hpke_pk);
-  const confirm = pairConfirmationCode(
-    preview.pairId,
-    preview.device.device_id,
-    preview.device.mldsa_pk,
-    preview.device.ed25519_pk,
-    preview.device.xwing_hpke_pk,
+  throw new Error(
+    "This app cannot approve a new device yet: approving needs the signed device roster it " +
+      "does not implement. Approve the pairing from a device that does.",
   );
-  // Codes are 26 characters and shown in groups, so compare on the normalized
-  // form but always send the canonical one.
-  if (preview.confirm !== confirm || normalizeConfirmation(confirmation) !== confirm) {
-    throw new Error("Pairing confirmation mismatch");
-  }
-  const grant = pairGrantSign(
-    bytesFromJson(session.state.mldsa_seed),
-    bytesFromJson(session.state.ed25519_sk),
-    preview.pairId,
-    session.state.device_id,
-    preview.device.device_id,
-    preview.device.mldsa_pk,
-    preview.device.ed25519_pk,
-    preview.device.xwing_hpke_pk,
-    confirm,
-  );
-  await postJson(
-    `${apiRoot(session.state.server)}/v1/pair/${encodeURIComponent(pairCode)}/approve`,
-    {
-      wrap: {
-        recipient_kind: "device",
-        recipient_id: preview.device.device_id,
-        hpke_enc: wrap.enc,
-        wrapped_ck: wrap.wrapped_ck,
-        ciphersuite: wrap.ciphersuite,
-      },
-      grant,
-      confirmation: confirm,
-    },
-    session.token,
-  );
-  return preview.confirm;
 }
 
 /**
