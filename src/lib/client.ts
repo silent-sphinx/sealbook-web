@@ -16,9 +16,14 @@ import {
   opaqueRegisterFinish,
   opaqueRegisterStart,
   pairConfirmationCode,
+  pairGrantSign,
   phraseLookupId,
+  phraseRecovery,
   phraseRecoveryProof,
   resealObject,
+  rosterSealDevice,
+  rosterSealPhrase,
+  rosterVerify,
   rotationSign,
   sealedContentType,
   sealObject,
@@ -28,6 +33,7 @@ import {
   wrapCkForPassword,
 } from "./wasm";
 import { parseContact, serializeCard, sortContacts } from "./contact";
+import { normalizeConfirmation } from "./pairing";
 import {
   ADDRESS_BOOK_CONTENT_TYPE,
   DEFAULT_ADDRESS_BOOK_ID,
@@ -58,12 +64,15 @@ import type {
   DeviceOut,
   DevicePublic,
   DeviceState,
+  Enrollment,
   KeyWrap,
   ManifestBody,
   ManifestEntry,
   Note,
   NoteDraft,
   Notebook,
+  Roster,
+  RosterVerified,
   RotatedObject,
   SealedObject,
 } from "./types";
@@ -191,6 +200,23 @@ export type Session = {
    * real past state, just not rewind it.
    */
   manifestSeq: number;
+  /**
+   * The roster this session last verified, with the epoch it was verified at.
+   *
+   * Checking a manifest signature needs the device set, and fetching it per
+   * write was a request per write. It is reused while the epoch matches: a
+   * revocation is always a rotation, so the epoch moving is what a device having
+   * been removed looks like from here, and a signer the cache does not hold is
+   * what a pairing elsewhere looks like. Either refetches.
+   */
+  roster?: Roster;
+  /**
+   * True when a recovery enrolled this device and the collection key has still
+   * not been rotated, so the phrase used then, and any other copy of it, can
+   * still open this vault. The server refuses writes until that rotation
+   * happens; `completeRecoveryRotation` is what finishes it.
+   */
+  recoveryPending?: boolean;
   offline?: boolean;
 };
 
@@ -211,6 +237,122 @@ export class ManifestError extends Error {
 function rememberManifestSeq(session: Session, seq: number): void {
   session.manifestSeq = seq;
   session.state.manifest_seq = seq;
+}
+
+/**
+ * Records the roster this device has accepted, by sequence and transcript.
+ *
+ * Written through to the device state like the manifest sequence, so closing the
+ * app cannot be used to rewind to a roster the user never confirmed. A pin never
+ * moves backwards: every roster this device will accept from now on has to be
+ * reachable from this one along device-signed steps.
+ */
+function rememberRosterPin(session: Session, seq: number, transcript: string): void {
+  if (seq < (session.state.roster_seq ?? 0)) {
+    throw new ManifestError("Refusing to pin an older device roster.");
+  }
+  session.state.roster_seq = seq;
+  session.state.roster_transcript = transcript;
+}
+
+/** The pin this device holds, or sequence 0 when it has none yet. */
+function rosterPin(state: DeviceState): { seq: number; transcript: string } {
+  const seq = state.roster_seq ?? 0;
+  const transcript = state.roster_transcript ?? "";
+  return seq > 0 && transcript ? { seq, transcript } : { seq: 0, transcript: "" };
+}
+
+/**
+ * The account's roster history, verified from this device's pin.
+ *
+ * The server serves every roster from the pinned one on, and each step has to be
+ * signed by a member of the one before it, so a lagging pin costs a longer chain
+ * to check and never any trust. Returns the newest roster together with the pin
+ * to keep in place of the old one.
+ */
+async function verifiedRosterChain(session: Session): Promise<RosterVerified> {
+  const { state, token } = session;
+  const pin = rosterPin(state);
+  const base = `${apiRoot(state.server)}/v1/collections/${state.collection_id}/roster`;
+  const url = pin.seq > 0 ? `${base}?from=${pin.seq}` : base;
+  const response = await getJson<{ rosters: Roster[] }>(url, token);
+  try {
+    return rosterVerify(
+      state.collection_id,
+      pin.seq,
+      pin.transcript,
+      response.rosters,
+      session.collectionKey,
+      session.keyEpoch,
+      state.device_id,
+    );
+  } catch (err) {
+    // Not transient: it means the server served a device list no member of the
+    // roster this device pinned ever signed for.
+    throw new ManifestError(err instanceof Error ? err.message : String(err));
+  }
+}
+
+/** The account's current roster, verified. Does not move the pin. */
+export async function verifiedRoster(session: Session): Promise<Roster> {
+  return (await verifiedRosterChain(session)).roster;
+}
+
+/** Verifies the current roster, pins it, and caches it on the session. */
+export async function syncRoster(session: Session): Promise<Roster> {
+  const verified = await verifiedRosterChain(session);
+  rememberRosterPin(session, verified.pin_seq, verified.pin_transcript);
+  session.roster = verified.roster;
+  return verified.roster;
+}
+
+/**
+ * Pins a roster this device sealed itself, after the server accepted it.
+ *
+ * Run back through `rosterVerify` rather than trusted directly, because that is
+ * what computes the pin, and it is the same check the server applies: a step
+ * this device could not verify is one it should not have sent. Only for a roster
+ * this device just signed, where the session's collection key and epoch are the
+ * ones the roster was MAC'd under by construction. A roster that came from the
+ * server is pinned by `syncRoster`, from the chain it was verified in, because
+ * this check needs the key of the roster's own epoch and a pinned chain does
+ * not.
+ */
+function pinSealedRoster(session: Session, roster: Roster): void {
+  const verified = rosterVerify(
+    session.state.collection_id,
+    0,
+    "",
+    [roster],
+    session.collectionKey,
+    session.keyEpoch,
+    session.state.device_id,
+  );
+  rememberRosterPin(session, verified.pin_seq, verified.pin_transcript);
+  session.roster = roster;
+}
+
+/**
+ * The devices a manifest signature may come from, from the verified roster.
+ *
+ * Taken from `/v1/account/devices` this was the server's own word for which
+ * devices exist, which is exactly what the roster exists to replace: a server
+ * that could add a device to that list could sign manifests as it.
+ */
+async function rosterDevices(
+  session: Session,
+  keyEpoch: number,
+  signer: string,
+): Promise<DevicePublic[]> {
+  const cached = session.roster;
+  if (
+    cached &&
+    cached.key_epoch === keyEpoch &&
+    cached.devices.some((device) => device.device_id === signer)
+  ) {
+    return cached.devices;
+  }
+  return (await syncRoster(session)).devices;
 }
 
 /** The collection's signed manifest and the entries it commits to. */
@@ -280,10 +422,12 @@ async function verifyManifest(
       `Server sent ${entries.length} objects but the manifest commits to ${manifest.object_count}.`,
     );
   }
-  const devices = await listDevices(session);
+  const devices = await rosterDevices(session, manifest.key_epoch, manifest.device_id);
   const signer = devices.find((device) => device.device_id === manifest.device_id);
   if (!signer) {
-    throw new ManifestError("The vault manifest was signed by a device this account does not have.");
+    throw new ManifestError(
+      "The vault manifest was signed by a device that is not in this account's signed roster.",
+    );
   }
   try {
     manifestVerify(
@@ -342,6 +486,15 @@ async function putSealed(
   tombstone: boolean,
   payload: string,
 ): Promise<number> {
+  if (session.recoveryPending) {
+    // The server refuses writes until the recovery's rotation happens, and would
+    // answer this with a conflict. Saying so here names the thing the user has
+    // to do instead of reporting a failed save.
+    throw new Error(
+      "This vault has an unfinished recovery: its key must be replaced before anything can be " +
+        "saved, which issues a new recovery phrase.",
+    );
+  }
   const attempt = async (): Promise<number> => {
     const { seq, keyEpoch, latestRevision, entries } = await manifestState(session);
     const revision = latestRevision + 1;
@@ -420,6 +573,8 @@ function deviceFromSecrets(
     hpke_sk: b64ToByteArray(hpkeSk),
     mldsa_seed: b64ToByteArray(mldsaSeed),
     ed25519_sk: b64ToByteArray(ed25519Sk),
+    roster_seq: 0,
+    roster_transcript: "",
   };
 }
 
@@ -484,6 +639,36 @@ export type RegisterResult = {
   phrase: string;
 };
 
+/**
+ * The roster an account starts life with: the registering device alone, signed
+ * by itself and MAC'd under the collection key.
+ *
+ * Every later roster is a signed step from this one, so the account has a device
+ * history the server cannot add to from the moment it exists. Sequence and key
+ * epoch are both 1, which is what the server checks a genesis against.
+ */
+export function genesisRoster(collectionId: string, enrollment: Enrollment): Roster {
+  return rosterSealDevice(
+    collectionId,
+    1,
+    1,
+    [
+      {
+        device_id: enrollment.device_id,
+        mldsa_pk: enrollment.mldsa_pk,
+        ed25519_pk: enrollment.ed25519_pk,
+        xwing_hpke_pk: enrollment.hpke_pk,
+      },
+    ],
+    enrollment.phrase_mldsa_pk,
+    enrollment.phrase_ed25519_pk,
+    enrollment.device_id,
+    enrollment.mldsa_seed,
+    enrollment.ed25519_sk,
+    enrollment.collection_key,
+  );
+}
+
 export async function registerAccount(
   server: string,
   username: string,
@@ -500,18 +685,20 @@ export async function registerAccount(
   });
   const upload = opaqueRegisterFinish(start.state, password, started.response);
   const enrollment = createEnrollment(password);
+  const device: DevicePublic = {
+    device_id: enrollment.device_id,
+    mldsa_pk: enrollment.mldsa_pk,
+    ed25519_pk: enrollment.ed25519_pk,
+    xwing_hpke_pk: enrollment.hpke_pk,
+  };
+  const genesis = genesisRoster(collectionId, enrollment);
   const finished = await postJson<{ account_id: string; collection_id: string }>(
     `${root}/v1/opaque/register/finish`,
     {
       username,
       upload,
       kdf_salt: enrollment.kdf_salt,
-      device: {
-        device_id: enrollment.device_id,
-        mldsa_pk: enrollment.mldsa_pk,
-        ed25519_pk: enrollment.ed25519_pk,
-        xwing_hpke_pk: enrollment.hpke_pk,
-      },
+      device,
       enrollment_signature: {
         mldsa: enrollment.enrollment_mldsa,
         ed25519: enrollment.enrollment_ed25519,
@@ -558,6 +745,7 @@ export async function registerAccount(
         0,
         [],
       ),
+      roster: genesis,
     },
   );
   const state = deviceFromEnrollment(
@@ -567,6 +755,20 @@ export async function registerAccount(
     finished.collection_id,
     enrollment,
   );
+  // Pinned from the roster this device sealed, not from one fetched back: the
+  // first roster a device accepts is the only one it can anchor on without
+  // either a pin or a user confirming a pairing code.
+  const pin = rosterVerify(
+    finished.collection_id,
+    0,
+    "",
+    [genesis],
+    enrollment.collection_key,
+    1,
+    enrollment.device_id,
+  );
+  state.roster_seq = pin.pin_seq;
+  state.roster_transcript = pin.pin_transcript;
   return {
     session: await loginAccount(state, password),
     phrase: enrollment.phrase,
@@ -602,8 +804,9 @@ export async function pairJoin(
   }
   // The code covers the roster this device is told the account is on, so that the
   // user comparing two codes also confirms the approver's view of the roster to
-  // this device. The anchor then has to become this device's roster pin, which is
-  // part of the roster work still outstanding in this client (bug #15).
+  // this device. The anchor becomes this device's roster pin below, so its first
+  // roster fetch is checked against something the user vouched for rather than
+  // against a MAC keyed from a collection key the same server supplies.
   const confirm = pairConfirmationCode(
     joined.pair_id,
     device.device_id,
@@ -616,13 +819,19 @@ export async function pairJoin(
   if (joined.confirm !== confirm) {
     throw new Error("Pairing confirmation mismatch");
   }
+  const state = deviceFromKeys(root, username, "", "", device);
+  // The anchor the user is about to confirm by comparing codes. Pinning it here
+  // means the roster this device is served after the approval has to be a signed
+  // step from the one the code committed to.
+  state.roster_seq = joined.roster_seq;
+  state.roster_transcript = joined.roster_transcript;
   return {
     pairId: joined.pair_id,
     pairCode: joined.pair_code,
     confirm,
     rosterSeq: joined.roster_seq,
     rosterTranscript: joined.roster_transcript,
-    state: deviceFromKeys(root, username, "", "", device),
+    state,
   };
 }
 
@@ -633,8 +842,19 @@ export async function pairReady(server: string, pairCode: string): Promise<boole
 
 export type PairPreview = {
   pairId: string;
+  /**
+   * The code this device computed, not the one the server sent.
+   *
+   * Computed over the joining device's keys as previewed *and* the anchor of a
+   * roster this device verified from its own pin. Displaying the server's code
+   * instead would make the user's comparison prove only that the joining
+   * device's code reached the server unmodified: a server that substituted the
+   * keys could show the real code and keep the ones it had swapped in.
+   */
   confirm: string;
   device: DevicePublic;
+  /** The roster being extended, which the code above commits to. */
+  rosterSeq: number;
 };
 
 export async function pairPreview(
@@ -645,41 +865,164 @@ export async function pairPreview(
     pair_id: string;
     confirm: string;
     device?: DevicePublic | null;
+    roster_seq?: number | null;
   }>(`${apiRoot(session.state.server)}/v1/pair/${encodeURIComponent(pairCode)}`, session.token);
   if (!resp.device) {
     throw new Error("expired");
   }
-  return { pairId: resp.pair_id, confirm: resp.confirm, device: resp.device };
+  const anchor = await approvalAnchor(session, resp.device, resp.roster_seq ?? null);
+  const confirm = pairConfirmationCode(
+    resp.pair_id,
+    resp.device.device_id,
+    resp.device.mldsa_pk,
+    resp.device.ed25519_pk,
+    resp.device.xwing_hpke_pk,
+    anchor.pin_seq,
+    anchor.pin_transcript,
+  );
+  if (resp.confirm !== confirm) {
+    // The two sides folded different things into the code: either the roster
+    // moved under the pairing, or the keys in this preview are not the ones the
+    // joining device is holding.
+    throw new Error(
+      "Pairing confirmation mismatch: this device and the new one do not agree on the account's " +
+        "devices. Start the pairing again.",
+    );
+  }
+  return {
+    pairId: resp.pair_id,
+    confirm,
+    device: resp.device,
+    rosterSeq: anchor.pin_seq,
+  };
 }
 
 /**
- * Approving a joining device, which this client cannot do yet.
+ * The verified roster an approval extends, and the pin the pairing code covers.
  *
- * An approval has to compute the confirmation code over the roster it is
- * extending, taken from a roster it verified against its own pin: computed over
- * anything the pairing preview carries, the code would confirm only that the
- * joining device's keys reached the server unmodified, which is the gap bug #9
- * closed in the Rust client. The same missing roster support means this client
- * cannot produce the signed roster an approval must send either, so the request
- * would be refused regardless (bug #15).
+ * Checks everything about the approval that does not need the typed code, so a
+ * preview that cannot lead to a valid approval fails before the user is asked to
+ * compare anything.
+ */
+async function approvalAnchor(
+  session: Session,
+  joining: DevicePublic,
+  joinedAt: number | null,
+): Promise<RosterVerified> {
+  const verified = await verifiedRosterChain(session);
+  const roster = verified.roster;
+  if (roster.key_epoch !== session.keyEpoch) {
+    throw new Error(
+      "The vault key has been rotated since this device fetched it. Sign in again and approve " +
+        "the new device after that.",
+    );
+  }
+  if (roster.devices.some((device) => device.device_id === joining.device_id)) {
+    throw new Error("That device is already enrolled.");
+  }
+  if (joinedAt !== null && joinedAt !== verified.pin_seq) {
+    // A rotation or another pairing landed while this one was waiting, so the
+    // two sides would fold different anchors into the code.
+    throw new Error(
+      `The new device started pairing against roster ${joinedAt} but this account is now on ` +
+        `roster ${verified.pin_seq}. Start the pairing again.`,
+    );
+  }
+  session.roster = roster;
+  return verified;
+}
+
+/**
+ * Approves a joining device: wraps the collection key for it, signs the grant,
+ * and signs the roster that adds it.
+ *
+ * The confirmation code is recomputed here from a roster this device verified,
+ * and the typed code is compared against that rather than against anything the
+ * server supplied. The roster step is what lets the joining device, and every
+ * other device, accept the new one without trusting the server's device list.
  */
 export async function pairApprove(
-  _session: Session,
-  _pairCode: string,
-  _preview: PairPreview,
-  _confirmation: string,
+  session: Session,
+  pairCode: string,
+  preview: PairPreview,
+  confirmation: string,
 ): Promise<string> {
-  throw new Error(
-    "This app cannot approve a new device yet: approving needs the signed device roster it " +
-      "does not implement. Approve the pairing from a device that does.",
+  const { state } = session;
+  const anchor = await approvalAnchor(session, preview.device, preview.rosterSeq);
+  const confirm = pairConfirmationCode(
+    preview.pairId,
+    preview.device.device_id,
+    preview.device.mldsa_pk,
+    preview.device.ed25519_pk,
+    preview.device.xwing_hpke_pk,
+    anchor.pin_seq,
+    anchor.pin_transcript,
   );
+  // Codes are shown in groups of four, so compare on the normalised form but
+  // send the canonical one.
+  if (normalizeConfirmation(confirmation) !== confirm) {
+    throw new Error("That confirmation code does not match the one for this pairing.");
+  }
+  const wrap = wrapCkForDevice(session.collectionKey, preview.device.xwing_hpke_pk);
+  const mldsaSeed = bytesFromJson(state.mldsa_seed);
+  const ed25519Sk = bytesFromJson(state.ed25519_sk);
+  const grant = pairGrantSign(
+    mldsaSeed,
+    ed25519Sk,
+    preview.pairId,
+    state.device_id,
+    preview.device.device_id,
+    preview.device.mldsa_pk,
+    preview.device.ed25519_pk,
+    preview.device.xwing_hpke_pk,
+    confirm,
+  );
+  const roster = rosterSealDevice(
+    state.collection_id,
+    anchor.roster.roster_seq + 1,
+    anchor.roster.key_epoch,
+    [...anchor.roster.devices, preview.device],
+    anchor.roster.phrase_mldsa_pk,
+    anchor.roster.phrase_ed25519_pk,
+    state.device_id,
+    mldsaSeed,
+    ed25519Sk,
+    session.collectionKey,
+  );
+  await postJson<{ status: string }>(
+    `${apiRoot(state.server)}/v1/pair/${encodeURIComponent(pairCode)}/approve`,
+    {
+      wrap: {
+        recipient_kind: "device",
+        recipient_id: preview.device.device_id,
+        hpke_enc: wrap.enc,
+        wrapped_ck: wrap.wrapped_ck,
+        ciphersuite: wrap.ciphersuite,
+      },
+      grant,
+      confirmation: confirm,
+      roster,
+    },
+    session.token,
+  );
+  // The account is on the roster this device just signed, so move the pin onto
+  // it rather than waiting to be served it back.
+  pinSealedRoster(session, roster);
+  return confirm;
 }
 
 /**
- * Recovers an account onto a fresh device and rotates the vault key.
+ * Recovers an account onto a fresh device, setting a new password, and rotates
+ * the vault key.
  *
- * Returns the **new** recovery phrase, which the caller must show to the user: the
- * one they just used no longer works.
+ * `password` is the **replacement** password: a recovery exists for the case
+ * where the password is what was lost, so asking for the old one would leave
+ * someone who holds their 24 words locked out of their own vault. The server
+ * takes it as an OPAQUE registration upload, signed by the phrase along with the
+ * enrolling device, so none of it can be swapped in flight.
+ *
+ * Returns the **new** recovery phrase, which the caller must show to the user:
+ * the one they just used no longer works.
  */
 export async function recoverAccount(
   server: string,
@@ -689,17 +1032,72 @@ export async function recoverAccount(
 ): Promise<{ session: Session; phrase: string }> {
   const root = apiRoot(server);
   const words = phrase.trim().toLowerCase().split(/\s+/u).join(" ");
+  // Begin registering the replacement password, so the server can answer with
+  // the OPRF evaluation this needs in the same round trip.
+  const opaque = opaqueRegisterStart(password);
   const started = await postJson<{
     wrap: KeyWrap;
     recovery_id: string;
     challenge: string;
+    roster?: Roster | null;
+    collection_id?: string | null;
+    opaque_response: string;
   }>(`${root}/v1/recover/start`, {
     username,
     lookup_id: phraseLookupId(words),
+    opaque_request: opaque.request,
   });
   const ck = unwrapPhrase(words, started.wrap.hpke_enc, started.wrap.wrapped_ck);
+  if (!started.roster || !started.collection_id) {
+    throw new Error("The server sent no device roster to recover onto.");
+  }
+  const collectionId = started.collection_id;
   const device = createDevice();
+  // The server leaves the phrase key out of the roster it serves here, because
+  // handing out the phrase verification keys before a proof would help anyone
+  // guessing phrases. It is filled in from the phrase and then checked: the MAC
+  // is keyed from the collection key the phrase wrap just opened, so a roster
+  // the server made up cannot pass.
+  const phraseKeys = phraseRecovery(words);
+  const current: Roster = {
+    ...started.roster,
+    phrase_mldsa_pk: phraseKeys.mldsa_pk,
+    phrase_ed25519_pk: phraseKeys.ed25519_pk,
+  };
+  let verified;
+  try {
+    // The membership check `rosterVerify` makes is "is this device listed", and
+    // the recovering device is not listed yet by definition, so an existing
+    // member stands in for it here. The checks that matter for a recovery are
+    // the signature and the MAC.
+    verified = rosterVerify(
+      collectionId,
+      0,
+      "",
+      [current],
+      ck,
+      current.key_epoch,
+      current.devices[0]?.device_id ?? "",
+    );
+  } catch (err) {
+    throw new ManifestError(err instanceof Error ? err.message : String(err));
+  }
   const wrap = wrapCkForDevice(ck, device.hpke_pk);
+  // The replacement password, and the collection-key wrap re-made under it from
+  // the key the phrase just opened.
+  const upload = opaqueRegisterFinish(opaque.state, password, started.opaque_response);
+  const passwordWrap = wrapCkForPassword(ck, password);
+  // The roster step that adds the recovering device, signed by the phrase: this
+  // device has no enrolled signing key yet, so the phrase is the only member of
+  // the current roster available to sign it.
+  const nextRoster = rosterSealPhrase(
+    collectionId,
+    verified.roster.roster_seq + 1,
+    verified.roster.key_epoch,
+    [...verified.roster.devices, deviceBody(device)],
+    words,
+    ck,
+  );
   const finished = await postJson<{ account_id: string; collection_id: string }>(
     `${root}/v1/recover/finish`,
     {
@@ -715,6 +1113,11 @@ export async function recoverAccount(
         device.mldsa_pk,
         device.ed25519_pk,
         device.hpke_pk,
+        upload,
+        passwordWrap.kdf_salt,
+        passwordWrap.recovery_nonce,
+        passwordWrap.recovery_wrapped_ck,
+        passwordWrap.recovery_ciphersuite,
       ),
       device: deviceBody(device),
       enrollment_signature: enrollSig(device),
@@ -725,6 +1128,12 @@ export async function recoverAccount(
         wrapped_ck: wrap.wrapped_ck,
         ciphersuite: wrap.ciphersuite,
       },
+      roster: nextRoster,
+      upload,
+      kdf_salt: passwordWrap.kdf_salt,
+      recovery_nonce: passwordWrap.recovery_nonce,
+      recovery_wrapped_ck: passwordWrap.recovery_wrapped_ck,
+      recovery_ciphersuite: passwordWrap.recovery_ciphersuite,
     },
   );
   const state = deviceFromKeys(
@@ -734,10 +1143,24 @@ export async function recoverAccount(
     finished.collection_id,
     device,
   );
+  // Pinned from the roster this device signed with the phrase, so its first
+  // fetch has to be a step from a roster it has already checked.
+  const pin = rosterVerify(
+    finished.collection_id,
+    0,
+    "",
+    [nextRoster],
+    ck,
+    nextRoster.key_epoch,
+    device.device_id,
+  );
+  state.roster_seq = pin.pin_seq;
+  state.roster_transcript = pin.pin_transcript;
   const session = await loginAccount(state, password);
-  // The phrase just used would otherwise keep working, and so would any copy of it
-  // someone else kept: enrolling a device does not change the key the phrase
-  // unwraps. Rotate, which issues a fresh phrase and retires the old one.
+  // The phrase just used would otherwise keep working, and so would any copy of
+  // it someone else kept: enrolling a device does not change the key the phrase
+  // unwraps. Rotate, which issues a fresh phrase and retires the old one. Until
+  // it finishes the server reports `recovery_pending` and refuses writes.
   return rotateVault(session, null, password);
 }
 
@@ -809,6 +1232,7 @@ export async function loginAccount(
     kdf_salt: string;
     key_wraps: KeyWrap[];
     key_epoch: number;
+    recovery_pending?: boolean;
   }>(`${root}/v1/opaque/login/finish`, {
     login_id: started.login_id,
     username: state.username,
@@ -826,7 +1250,7 @@ export async function loginAccount(
     state.device_id,
     JSON.stringify(finished.key_wraps),
   );
-  return {
+  const session: Session = {
     collectionKey,
     token: finished.session_token,
     latestRevision: 0,
@@ -836,6 +1260,7 @@ export async function loginAccount(
     // Seeded from the device state, not from zero: the high-water mark has to
     // outlive the session or a restart would reopen the rollback window.
     manifestSeq: state.manifest_seq ?? 0,
+    recoveryPending: finished.recovery_pending === true,
     state: {
       ...state,
       server: root,
@@ -845,6 +1270,34 @@ export async function loginAccount(
       session_token: finished.session_token,
     },
   };
+  // The roster comes first, before anything reads or writes the vault: it is
+  // what every later device-set decision is made from, and a device that is no
+  // longer in it has been revoked and should say so here rather than fail
+  // confusingly later.
+  await syncRoster(session);
+  return session;
+}
+
+/**
+ * Finishes the rotation an interrupted recovery left owing, and returns the
+ * replacement recovery phrase for the caller to show.
+ *
+ * A recovery enrols a device but does not change the key the phrase unwraps, so
+ * until the vault is rotated the phrase just used, and any copy of it, still
+ * opens everything. `recoverAccount` rotates straight away; this is the path for
+ * a recovery that was interrupted between the two, which the server reports as
+ * `recovery_pending` at every login and enforces by refusing writes.
+ *
+ * Unlike the Rust client, a pending recovery is not raised as an error from
+ * `loginAccount`: the vault is still readable, and refusing to open it would
+ * leave the user with no way to see what they recovered. The session carries
+ * `recoveryPending` instead, and the app asks to finish it.
+ */
+export async function completeRecoveryRotation(
+  session: Session,
+  password: string,
+): Promise<{ session: Session; phrase: string }> {
+  return rotateVault(session, null, password);
 }
 
 /**
@@ -890,7 +1343,15 @@ export async function listVault(
   let keyEpoch = session.keyEpoch;
   let latestRevision = session.latestRevision;
   let manifest: ManifestBody | null = null;
-  const pageObjects: SealedObject[] = [];
+  let pageObjects: SealedObject[] = [];
+  // Superseded revisions are pruned after a retention window, so a walk can name
+  // a watermark whose successors no longer exist. The server answers `resync`
+  // rather than serving the remaining tail, which would silently skip the writes
+  // in between. A snapshot walk pages through live objects instead of the log, so
+  // it needs nothing retained; once is enough, and a second `resync` would mean
+  // the server is answering something other than what was asked.
+  let snapshot = false;
+  let restarted = false;
   for (;;) {
     const page = await getJson<{
       latest_revision: number;
@@ -898,10 +1359,22 @@ export async function listVault(
       objects: SealedObject[];
       has_more: boolean;
       manifest: ManifestBody | null;
+      resync?: boolean;
     }>(
-      `${apiRoot(state.server)}/v1/collections/${state.collection_id}/changes?after=${after}&limit=500`,
+      `${apiRoot(state.server)}/v1/collections/${state.collection_id}/changes?after=${after}` +
+        `&limit=500${snapshot ? "&snapshot=true" : ""}`,
       token,
     );
+    if (page.resync && !snapshot) {
+      if (restarted) {
+        throw new Error("The server keeps asking this device to restart its sync.");
+      }
+      restarted = true;
+      snapshot = true;
+      after = 0;
+      pageObjects = [];
+      continue;
+    }
     keyEpoch = page.key_epoch;
     latestRevision = Math.max(latestRevision, page.latest_revision);
     manifest = page.manifest;
@@ -1338,11 +1811,15 @@ export type DeviceSummary = {
   xwing_hpke_pk: string;
 };
 
+/**
+ * The account's devices, from the verified roster rather than the server's list.
+ *
+ * `/v1/account/devices` is the server's own word for which devices exist. It is
+ * what the roster replaces: a device the server added to that list would be
+ * shown to the user as theirs, and wrapped for at the next rotation.
+ */
 export async function listDevices(session: Session): Promise<DeviceSummary[]> {
-  return getJson<DeviceSummary[]>(
-    `${apiRoot(session.state.server)}/v1/account/devices`,
-    session.token,
-  );
+  return (await syncRoster(session)).devices;
 }
 
 /**
@@ -1390,6 +1867,23 @@ export async function rotateVault(
   // password is what proves intent for a destructive change.
   const fresh = await loginAccount(session.state, password);
   rememberManifestSeq(fresh, session.manifestSeq);
+  return rotateAuthenticated(fresh, revokeDeviceId, password, onProgress);
+}
+
+/**
+ * The rotation proper, on a session that has just authenticated.
+ *
+ * Split from `rotateVault`, which is "sign in again, then rotate", so that what
+ * a rotation assembles can be exercised without an OPAQUE exchange: which
+ * objects are re-encrypted, which tombstones the manifest still commits to,
+ * which ones it retires, and the roster it signs.
+ */
+export async function rotateAuthenticated(
+  fresh: Session,
+  revokeDeviceId: string | null,
+  password: string,
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ session: Session; phrase: string }> {
   const root = apiRoot(fresh.state.server);
   const collectionId = fresh.state.collection_id;
 
@@ -1399,6 +1893,7 @@ export async function rotateVault(
     key_epoch: number;
     objects: SealedObject[];
     has_more: boolean;
+    tombstone_floor?: number;
   }>(`${root}/v1/collections/${collectionId}/changes?after=0&limit=2000`, fresh.token);
   if (listed.has_more) {
     throw new Error(
@@ -1415,13 +1910,28 @@ export async function rotateVault(
       latestByObject.set(object.id, object);
     }
   }
+  const { live, tombstones, retired } = splitForRotation(
+    [...latestByObject.values()],
+    listed.tombstone_floor ?? 0,
+  );
   // `manifestState` verified the collection above, so what is re-encrypted below
   // is what a device signed for rather than whatever the server chose to serve.
-  const devices = await listDevices(fresh);
+  //
+  // The devices come from the verified roster: taken from the server's list, a
+  // device the server had added would be handed a wrap of the new key, which is
+  // the whole reason the roster exists.
+  const currentRoster = await verifiedRoster(fresh);
+  const devices = currentRoster.devices;
   if (revokeDeviceId && !devices.some((device) => device.device_id === revokeDeviceId)) {
     throw new Error("That device has already been removed.");
   }
   const remaining = devices.filter((device) => device.device_id !== revokeDeviceId);
+  if (remaining.length === 0) {
+    throw new Error("You cannot revoke the last device.");
+  }
+  if (!remaining.some((device) => device.device_id === fresh.state.device_id)) {
+    throw new Error("This device is not in the account's roster; sign in again.");
+  }
 
   const newCk = newCollectionKey();
   const passwordWrap = wrapCkForPassword(newCk, password);
@@ -1454,13 +1964,13 @@ export async function rotateVault(
     },
   ];
 
-  const total = latestByObject.size;
+  const total = live.length;
   // Rotation assigns consecutive revisions from the collection's next one, and the
   // manifest commits to each of them.
   const firstRevision = latestRevision + 1;
   const objects: RotatedObject[] = [];
   let done = 0;
-  for (const object of latestByObject.values()) {
+  for (const object of live) {
     // Re-encrypted inside wasm, so the plaintext never becomes a JavaScript
     // string: decoding it as text would rewrite any payload that is not valid
     // UTF-8, and a rotation touches the whole vault at once. An object with no
@@ -1483,13 +1993,26 @@ export async function rotateVault(
       ciphertext: sealed.ciphertext,
       padded_size: sealed.padded_size,
       content_type: sealedContentType(),
-      tombstone: object.tombstone,
+      // Always live: a rotation re-encrypts plaintext, and the server refuses a
+      // rotated object that claims to be a tombstone.
+      tombstone: false,
     });
     done += 1;
     onProgress?.(done, total);
   }
 
   const keyEpoch = listed.key_epoch + 1;
+  // Tombstones are not re-encrypted, since there is no plaintext left to
+  // re-encrypt, but the ones this rotation keeps are still rows the manifest
+  // commits to, so they carry their stored revision and digest through
+  // unchanged. Leaving them out made the manifest short and the rotation refused
+  // on any vault that had ever had a deletion.
+  //
+  // The ones below the floor are left out on purpose and named in
+  // `drop_tombstones`. This manifest is what authorises that: the server retires
+  // exactly those rows and recomputes the digest from what it then holds, so a
+  // list that does not match this entry set is refused.
+  const manifestEntries = [...objects.map(entryFor), ...tombstones.map(entryFor)];
   const manifest = manifestSign(
     bytesFromJson(fresh.state.mldsa_seed),
     bytesFromJson(fresh.state.ed25519_sk),
@@ -1498,7 +2021,19 @@ export async function rotateVault(
     seq + 1,
     keyEpoch,
     firstRevision + objects.length - 1,
-    objects.map(entryFor),
+    manifestEntries,
+  );
+  const newRoster = rosterSealDevice(
+    collectionId,
+    currentRoster.roster_seq + 1,
+    keyEpoch,
+    remaining,
+    phraseOut.phrase_mldsa_pk,
+    phraseOut.phrase_ed25519_pk,
+    fresh.state.device_id,
+    bytesFromJson(fresh.state.mldsa_seed),
+    bytesFromJson(fresh.state.ed25519_sk),
+    newCk,
   );
   const rotationSignature = rotationSign(
     // Stored key material may be a legacy byte array rather than base64.
@@ -1535,6 +2070,8 @@ export async function rotateVault(
       objects,
       manifest,
       rotation_signature: rotationSignature,
+      roster: newRoster,
+      drop_tombstones: retired,
     },
     fresh.token,
   );
@@ -1544,5 +2081,42 @@ export async function rotateVault(
   fresh.keyEpoch = response.key_epoch;
   fresh.latestRevision = response.latest_revision;
   fresh.state = { ...fresh.state, kdf_salt: passwordWrap.kdf_salt };
+  // The rotation carried a roster at the new epoch, so the pin moves with it.
+  // Done after the key and epoch are updated, because the pin is computed from
+  // the MAC under the new key.
+  pinSealedRoster(fresh, newRoster);
+  // A rotation is exactly what an unfinished recovery owes, whatever prompted
+  // it: a new collection key, a new phrase, and everything re-encrypted.
+  fresh.recoveryPending = false;
   return { session: fresh, phrase: phraseOut.phrase };
+}
+
+/**
+ * Splits a collection into what a rotation does with each part.
+ *
+ * `live` is re-encrypted under the new key. `tombstones` are not, but the
+ * manifest still commits to them, so they are carried through at their stored
+ * revision and digest. `retired` are the tombstones below the collection's
+ * floor: no incremental sync can still carry those deletes, so the rotation
+ * drops the rows instead of signing for them again, and it is the only
+ * operation that can, since only a device can sign the manifest that leaves one
+ * out.
+ */
+export function splitForRotation(
+  objects: SealedObject[],
+  tombstoneFloor: number,
+): { live: SealedObject[]; tombstones: SealedObject[]; retired: string[] } {
+  const live: SealedObject[] = [];
+  const tombstones: SealedObject[] = [];
+  const retired: string[] = [];
+  for (const object of objects) {
+    if (!object.tombstone) {
+      live.push(object);
+    } else if (object.revision < tombstoneFloor) {
+      retired.push(object.id);
+    } else {
+      tombstones.push(object);
+    }
+  }
+  return { live, tombstones, retired };
 }

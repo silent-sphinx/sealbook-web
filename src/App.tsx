@@ -15,6 +15,7 @@ import { NotesView } from "./components/NotesView";
 import { SettingsView } from "./components/SettingsView";
 import { PasswordField } from "./components/PasswordField";
 import {
+  completeRecoveryRotation,
   deleteAddressBook,
   deleteContact,
   ensureDefaultAddressBook,
@@ -531,6 +532,10 @@ export default function App() {
   const [loadingVault, setLoadingVault] = useState(false);
   const [idleCountdown, setIdleCountdown] = useState<number | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  // An interrupted recovery leaves the vault key unrotated, so the phrase that
+  // was used still opens it. The banner asks for the password to finish.
+  const [finishingRecovery, setFinishingRecovery] = useState(false);
+  const [recoveryPassword, setRecoveryPassword] = useState("");
   const headerRef = useRef<HTMLDivElement>(null);
   // Below `lg` the contacts sidebar is a slide-over rather than a column.
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -1013,6 +1018,37 @@ export default function App() {
         password,
       );
       await openSession(recovered, password);
+      setPhrase(replacement);
+      setScreen("phrase");
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Finishes the rotation an interrupted recovery left owing.
+   *
+   * Until it runs, the phrase used to recover still opens the vault and so does
+   * any copy of it, and the server refuses every write. It issues a replacement
+   * phrase, which is shown the same way registration shows one.
+   */
+  async function onFinishRecovery(event: FormEvent) {
+    event.preventDefault();
+    if (!session) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const { session: rotated, phrase: replacement } = await completeRecoveryRotation(
+        session,
+        recoveryPassword,
+      );
+      await persistSession(rotated, recoveryPassword);
+      setRecoveryPassword("");
+      setFinishingRecovery(false);
       setPhrase(replacement);
       setScreen("phrase");
     } catch (err) {
@@ -1646,14 +1682,19 @@ export default function App() {
 
           <div>
             <label htmlFor="recover-password" className="block text-sm font-medium text-text">
-              Password
+              New password
             </label>
+            {/* Recovery exists for the case where the password is what was lost,
+                so the words set a new one rather than asking for the old. */}
+            <p className="mt-1 text-xs text-mute">
+              Your recovery words set a new password. The old one stops working.
+            </p>
             <PasswordField
               id="recover-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              placeholder="Enter your password"
+              autoComplete="new-password"
+              placeholder="Choose a new password"
               className={field}
               required
             />
@@ -1922,6 +1963,59 @@ export default function App() {
         {isOffline ? (
           <div className="border-b border-red-400/20 bg-red-500/10 px-5 py-2 text-center text-xs font-medium text-red-300" role="status">
             App is offline. Showing your last synced vault; editing is unavailable.
+          </div>
+        ) : null}
+        {session.recoveryPending ? (
+          <div className="border-b border-amber-400/25 bg-amber-500/10 px-5 py-2.5 text-center text-xs font-medium text-amber-200" role="alert">
+            {finishingRecovery ? (
+              <form onSubmit={onFinishRecovery} className="mx-auto flex max-w-md flex-wrap items-center justify-center gap-2">
+                <label htmlFor="finish-recovery-password" className="sr-only">
+                  Password
+                </label>
+                <PasswordField
+                  id="finish-recovery-password"
+                  value={recoveryPassword}
+                  onChange={(e) => setRecoveryPassword(e.target.value)}
+                  autoComplete="current-password"
+                  placeholder="Your password"
+                  className="min-w-0 flex-1 rounded-lg border border-amber-400/30 bg-bg/80 px-3 py-1.5 text-xs text-text outline-none"
+                  required
+                />
+                <button
+                  type="submit"
+                  disabled={busy || !recoveryPassword}
+                  className="rounded-lg bg-amber-400 px-3 py-1.5 text-xs font-semibold text-bg disabled:opacity-50 cursor-pointer"
+                >
+                  {busy ? "Rotating…" : "Finish recovery"}
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg px-2 py-1.5 text-xs text-amber-200/80 hover:text-amber-100 cursor-pointer"
+                  onClick={() => {
+                    setFinishingRecovery(false);
+                    setRecoveryPassword("");
+                  }}
+                  disabled={busy}
+                >
+                  Later
+                </button>
+              </form>
+            ) : (
+              <span className="inline-flex flex-wrap items-center justify-center gap-2">
+                This vault was recovered but its key has not been replaced yet, so the recovery
+                words you used still open it. Saving is disabled until that is finished.
+                <button
+                  type="button"
+                  className="rounded-lg bg-amber-400 px-3 py-1 text-xs font-semibold text-bg cursor-pointer"
+                  onClick={() => {
+                    setError(null);
+                    setFinishingRecovery(true);
+                  }}
+                >
+                  Finish now
+                </button>
+              </span>
+            )}
           </div>
         ) : null}
         <div className={isOffline ? "h-[2px] bg-red-500" : "h-[2px] bg-gradient-to-r from-accent/60 via-accent to-accent/60"} />

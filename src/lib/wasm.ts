@@ -23,6 +23,9 @@ import init, {
   phrase_recovery_json,
   phrase_recovery_proof_json,
   reseal_object,
+  roster_seal_device,
+  roster_seal_phrase,
+  roster_verify,
   rotation_sign,
   seal_object,
   sealed_content_type,
@@ -33,6 +36,7 @@ import init, {
 } from "../pkg/sealbook_wasm.js";
 import type {
   DeviceOut,
+  DevicePublic,
   DualSignature,
   Enrollment,
   KeyWrap,
@@ -46,6 +50,8 @@ import type {
   PasswordWrapOut,
   PhraseRecovery,
   PhraseWrapOut,
+  Roster,
+  RosterVerified,
   RotatedObject,
 } from "./types";
 
@@ -134,6 +140,15 @@ export function phraseRecovery(phrase: string): PhraseRecovery {
   return JSON.parse(phrase_recovery_json(phrase)) as PhraseRecovery;
 }
 
+/**
+ * The phrase's proof for a recovery.
+ *
+ * It covers the replacement password as well as the enrolling device: a recovery
+ * exists for the case where the password is what was lost, so it resets the
+ * password rather than asking for it, and the new verifier, salt and
+ * password-wrapped key are all signed so none of them can be substituted in
+ * flight.
+ */
 export function phraseRecoveryProof(
   phrase: string,
   username: string,
@@ -143,6 +158,11 @@ export function phraseRecoveryProof(
   mldsaPk: string,
   ed25519Pk: string,
   hpkePk: string,
+  upload: string,
+  kdfSalt: string,
+  recoveryNonce: string,
+  recoveryWrappedCk: string,
+  recoveryCiphersuite: string,
 ): DualSignature {
   return JSON.parse(
     phrase_recovery_proof_json(
@@ -154,8 +174,108 @@ export function phraseRecoveryProof(
       mldsaPk,
       ed25519Pk,
       hpkePk,
+      upload,
+      kdfSalt,
+      recoveryNonce,
+      recoveryWrappedCk,
+      recoveryCiphersuite,
     ),
   ) as DualSignature;
+}
+
+/**
+ * Signs a device roster with this device's keys and MACs it under the collection
+ * key.
+ *
+ * Sent with a registration, a pairing approval and a rotation: the signature is
+ * what lets the next device accept the list without taking the server's word for
+ * it, and the MAC is what an unpinned device anchors on, since the server cannot
+ * produce it.
+ */
+export function rosterSealDevice(
+  collectionId: string,
+  rosterSeq: number,
+  keyEpoch: number,
+  devices: DevicePublic[],
+  phraseMldsaPk: string,
+  phraseEd25519Pk: string,
+  signerDeviceId: string,
+  mldsaSeed: string,
+  ed25519Sk: string,
+  ck: string,
+): Roster {
+  return JSON.parse(
+    roster_seal_device(
+      collectionId,
+      BigInt(rosterSeq),
+      BigInt(keyEpoch),
+      JSON.stringify(devices),
+      phraseMldsaPk,
+      phraseEd25519Pk,
+      signerDeviceId,
+      mldsaSeed,
+      ed25519Sk,
+      ck,
+    ),
+  ) as Roster;
+}
+
+/**
+ * Signs a device roster with the recovery phrase's key, for a recovery.
+ *
+ * A recovering device has no enrolled signing key of its own yet, so the phrase
+ * is the only member of the previous roster available to sign the step that adds
+ * it.
+ */
+export function rosterSealPhrase(
+  collectionId: string,
+  rosterSeq: number,
+  keyEpoch: number,
+  devices: DevicePublic[],
+  phrase: string,
+  ck: string,
+): Roster {
+  return JSON.parse(
+    roster_seal_phrase(
+      collectionId,
+      BigInt(rosterSeq),
+      BigInt(keyEpoch),
+      JSON.stringify(devices),
+      phrase,
+      ck,
+    ),
+  ) as Roster;
+}
+
+/**
+ * Verifies a served roster history from this device's pin, and returns the
+ * newest roster with the pin to keep in place of the old one.
+ *
+ * `pinSeq` 0 means nothing is pinned yet, in which case the chain's head can
+ * only be checked against itself and the collection key of the newest roster's
+ * epoch is required: the MAC is keyed from it, so it is the one part of a roster
+ * the server cannot forge. Throws on any failure, which is never transient.
+ */
+export function rosterVerify(
+  collectionId: string,
+  pinSeq: number,
+  pinTranscript: string,
+  rosters: Roster[],
+  ck: string,
+  keyEpoch: number,
+  selfDeviceId: string,
+): RosterVerified {
+  return JSON.parse(
+    roster_verify(
+      collectionId,
+      BigInt(pinSeq),
+      pinTranscript,
+      JSON.stringify(rosters),
+      ck,
+      BigInt(keyEpoch),
+      selfDeviceId,
+    ),
+  ) as RosterVerified;
 }
 
 export function pairGrantSign(

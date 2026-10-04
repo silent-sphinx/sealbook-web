@@ -13,6 +13,17 @@ export function friendlyError(err: unknown): string {
   if (text.includes("rate limited")) {
     return "Too many tries. Wait a moment.";
   }
+  // A roster failure means the device list served was not one this account's
+  // devices signed for. Never transient, and never worth retrying.
+  if (text.includes("roster")) {
+    return "This device couldn't verify the account's device list, so it stopped. Nothing was changed.";
+  }
+  if (text.includes("confirmation")) {
+    return "The two devices don't show the same code. Start the pairing again.";
+  }
+  if (text.includes("unfinished recovery")) {
+    return "Finish the interrupted recovery first: use the banner at the top of the app.";
+  }
   if (text.includes("hasn't signed in") || text.includes("this browser")) {
     return "This browser isn't signed in yet. Pair it, or use your recovery words.";
   }

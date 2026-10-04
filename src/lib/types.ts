@@ -11,6 +11,37 @@ export type DeviceState = {
   ed25519_sk: number[] | string;
   /** Highest manifest sequence this device has seen; a lower one means rollback. */
   manifest_seq?: number;
+  /**
+   * The last device roster this device accepted, by sequence and transcript.
+   *
+   * Every later roster has to be reachable from this one along device-signed
+   * steps, which is what stops the server inserting a device of its own: a
+   * device on the list would be handed the collection key at the next rotation.
+   * A joining device gets its first pin from the pairing anchor, which the user
+   * vouched for by comparing the confirmation code.
+   */
+  roster_seq?: number;
+  /** Base64. Empty until a roster has been pinned. */
+  roster_transcript?: string;
+};
+
+/** One roster in the signed device history. */
+export type Roster = {
+  roster_seq: number;
+  key_epoch: number;
+  devices: DevicePublic[];
+  phrase_mldsa_pk: string;
+  phrase_ed25519_pk: string;
+  signer: { kind: "device"; device_id: string } | { kind: "phrase" };
+  signature: DualSignature;
+  mac: string;
+};
+
+/** A verified roster and the pin to keep in place of the old one. */
+export type RosterVerified = {
+  roster: Roster;
+  pin_seq: number;
+  pin_transcript: string;
 };
 
 export type KeyWrap = {
