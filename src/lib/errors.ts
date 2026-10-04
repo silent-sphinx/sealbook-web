@@ -18,6 +18,15 @@ export function friendlyError(err: unknown): string {
   if (text.includes("roster")) {
     return "This device couldn't verify the account's device list, so it stopped. Nothing was changed.";
   }
+  // A manifest failure is the other kind that is never the user's fault and
+  // never worth retrying: the server served something no device signed for. The
+  // messages are written for a person, so they are passed through under a lead
+  // that says what class of problem it is. Matched on the name rather than by
+  // importing `ManifestError`, which would pull the client and its wasm module
+  // into every component that reports an error.
+  if (err instanceof Error && err.name === "ManifestError") {
+    return `The server's answer doesn't match what your devices signed for, so nothing was changed. ${raw}`;
+  }
   if (text.includes("confirmation")) {
     return "The two devices don't show the same code. Start the pairing again.";
   }

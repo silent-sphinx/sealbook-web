@@ -443,6 +443,33 @@ async function verifyManifest(
   rememberManifestSeq(session, manifest.manifest_seq);
 }
 
+/**
+ * Brings the cached collection key up to `keyEpoch`, or refuses the write.
+ *
+ * The epoch a write signs comes from the server's manifest while the ciphertext
+ * is sealed with whatever key this session holds, so without this a device that
+ * had not noticed another device's rotation sealed under the retired key and
+ * signed a manifest claiming the current epoch. The server cannot catch it: the
+ * epoch matches, the digest is over ciphertext bytes, and the signature is
+ * genuine. What it leaves is a row nothing can decrypt, in a vault nothing can
+ * rotate, since a rotation has to re-encrypt that row.
+ *
+ * Refreshing needs only this device's X-Wing secret, so it happens here rather
+ * than sending the user back for their password.
+ */
+async function alignKeyEpoch(session: Session, keyEpoch: number): Promise<void> {
+  if (session.keyEpoch === keyEpoch) {
+    return;
+  }
+  const refreshed = await refreshCollectionKey(session);
+  if (refreshed !== keyEpoch) {
+    throw new Error(
+      `The vault key has moved to epoch ${keyEpoch} and this device has epoch ${refreshed}. ` +
+        "Nothing was saved. Sign in again and retry.",
+    );
+  }
+}
+
 /** The manifest entry a sealed object contributes. */
 function entryFor(object: {
   id: string;
@@ -497,6 +524,9 @@ async function putSealed(
   }
   const attempt = async (): Promise<number> => {
     const { seq, keyEpoch, latestRevision, entries } = await manifestState(session);
+    // Before sealing, never after: this is the epoch the manifest below commits
+    // to, so it is the one the ciphertext has to be made with.
+    await alignKeyEpoch(session, keyEpoch);
     const revision = latestRevision + 1;
     const sealed = sealPayload(session, id, contentType, payload, revision);
     const entry: ManifestEntry = {
@@ -1910,6 +1940,9 @@ export async function rotateAuthenticated(
       latestByObject.set(object.id, object);
     }
   }
+  // Everything below is re-encrypted from the current key, so this session has
+  // to be holding it rather than one a rotation elsewhere has retired.
+  await alignKeyEpoch(fresh, listed.key_epoch);
   const { live, tombstones, retired } = splitForRotation(
     [...latestByObject.values()],
     listed.tombstone_floor ?? 0,

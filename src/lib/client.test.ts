@@ -6,6 +6,7 @@ import {
   listVault,
   pairApprove,
   pairPreview,
+  putContact,
   rotateAuthenticated,
   splitForRotation,
   syncRoster,
@@ -20,13 +21,16 @@ import {
   newCollectionKey,
   newUuid,
   objectContentDigest,
+  openObject,
   pairConfirmationCode,
   rosterSealDevice,
   rosterVerify,
   sealObject,
   sealedContentType,
+  wrapCkForDevice,
 } from "./wasm";
-import { JSCONTACT_CONTENT_TYPE } from "./addressBook";
+import { DEFAULT_ADDRESS_BOOK_ID, JSCONTACT_CONTENT_TYPE } from "./addressBook";
+import { emptyDraft } from "./contact";
 import type {
   DeviceOut,
   DevicePublic,
@@ -442,6 +446,120 @@ describe("listVault", () => {
       "/roster": () => ({ rosters: [owner.roster] }),
     });
     await expect(listVault(owner.session)).rejects.toThrow(/roster/iu);
+  });
+});
+
+describe("a write across a rotation it has not noticed", () => {
+  it("re-seals under the refreshed key rather than the one it was holding", async () => {
+    const owner = account();
+    // Another device rotated: the collection is on epoch 2 under a new key, and
+    // this session is still holding epoch 1's.
+    const rotatedKey = newCollectionKey();
+    const wrap = wrapCkForDevice(rotatedKey, owner.enrollment.hpke_pk);
+    const manifest = manifestSign(
+      owner.enrollment.mldsa_seed,
+      owner.enrollment.ed25519_sk,
+      owner.collectionId,
+      owner.enrollment.device_id,
+      2,
+      2,
+      0,
+      [],
+    );
+    const { sent } = server({
+      "/manifest": () => ({ manifest, entries: [] }),
+      "/roster": () => ({ rosters: [owner.roster] }),
+      "/keys": () => ({
+        key_epoch: 2,
+        key_wraps: [
+          {
+            recipient_kind: "device",
+            recipient_id: owner.enrollment.device_id,
+            hpke_enc: wrap.enc,
+            wrapped_ck: wrap.wrapped_ck,
+            ciphersuite: wrap.ciphersuite,
+          },
+        ],
+      }),
+      "/objects": () => ({ revision: 1 }),
+    });
+
+    const id = await putContact(
+      owner.session,
+      { ...emptyDraft(), name: "Ada Lovelace", addressBookId: DEFAULT_ADDRESS_BOOK_ID },
+    );
+    expect(owner.session.keyEpoch).toBe(2);
+
+    const body = sent["/objects"] as {
+      nonce: string;
+      ciphertext: string;
+      padded_size: number;
+      manifest: { key_epoch: number };
+    };
+    expect(body.manifest.key_epoch).toBe(2);
+    // The epoch the manifest claims and the key the ciphertext was made with have
+    // to be the same one. Sealed under the old key this opens with `rotatedKey`
+    // and nothing else, which is the row no device could ever read.
+    const opened = openObject(
+      rotatedKey,
+      id,
+      owner.collectionId,
+      body.nonce,
+      body.ciphertext,
+      body.padded_size,
+    );
+    expect(opened.payload).toContain("Ada Lovelace");
+    expect(() =>
+      openObject(
+        owner.enrollment.collection_key,
+        id,
+        owner.collectionId,
+        body.nonce,
+        body.ciphertext,
+        body.padded_size,
+      ),
+    ).toThrow();
+  });
+
+  it("refuses the write when the key cannot be brought up to date", async () => {
+    const owner = account();
+    const manifest = manifestSign(
+      owner.enrollment.mldsa_seed,
+      owner.enrollment.ed25519_sk,
+      owner.collectionId,
+      owner.enrollment.device_id,
+      2,
+      2,
+      0,
+      [],
+    );
+    // The server offers a wrap for an epoch that is not the one the manifest
+    // claims, which is what a second rotation mid-write looks like.
+    const wrap = wrapCkForDevice(newCollectionKey(), owner.enrollment.hpke_pk);
+    server({
+      "/manifest": () => ({ manifest, entries: [] }),
+      "/roster": () => ({ rosters: [owner.roster] }),
+      "/keys": () => ({
+        key_epoch: 3,
+        key_wraps: [
+          {
+            recipient_kind: "device",
+            recipient_id: owner.enrollment.device_id,
+            hpke_enc: wrap.enc,
+            wrapped_ck: wrap.wrapped_ck,
+            ciphersuite: wrap.ciphersuite,
+          },
+        ],
+      }),
+      "/objects": () => ({ revision: 1 }),
+    });
+    await expect(
+      putContact(owner.session, {
+        ...emptyDraft(),
+        name: "Grace Hopper",
+        addressBookId: DEFAULT_ADDRESS_BOOK_ID,
+      }),
+    ).rejects.toThrow(/Nothing was saved/u);
   });
 });
 
