@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { friendlyError } from "./errors";
-import { ManifestError } from "./client";
+import { ManifestError, RosterTooOldError } from "./client";
 
 describe("friendlyError", () => {
   it("passes a manifest failure through instead of calling it a glitch", () => {
@@ -17,6 +17,20 @@ describe("friendlyError", () => {
     const text = friendlyError(new ManifestError("roster mac does not verify"));
     expect(text).toContain("device list");
     expect(text).toContain("Nothing was changed");
+  });
+
+  it("tells a device that fell behind to pair rather than that it was tampered with", () => {
+    const text = friendlyError(
+      new RosterTooOldError(
+        "This device is further behind than the server's device-list history reaches, so the " +
+          "chain from the roster it pinned cannot be checked. Pair this device again to anchor " +
+          "it on the current list.",
+      ),
+    );
+    // The message mentions the device list, so the roster branch would otherwise
+    // claim verification failed when nothing did.
+    expect(text).toContain("Pair it again");
+    expect(text).not.toContain("couldn't verify");
   });
 
   it("does not read an unfinished recovery as a bad phrase", () => {

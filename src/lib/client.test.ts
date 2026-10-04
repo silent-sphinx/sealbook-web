@@ -8,6 +8,7 @@ import {
   pairPreview,
   putContact,
   rotateAuthenticated,
+  RosterTooOldError,
   splitForRotation,
   syncRoster,
   verifiedRoster,
@@ -217,6 +218,25 @@ describe("verifiedRoster", () => {
     const roster = await verifiedRoster(session);
     expect(roster.devices.map((device) => device.device_id)).toEqual([enrollment.device_id]);
     expect(collectionId).toBeTruthy();
+  });
+});
+
+describe("a pin below the server's retention floor", () => {
+  it("refuses, and says to pair the device again rather than crying tamper", async () => {
+    const { session } = account();
+    // The server keeps a bounded history, so the chain back to this pin is gone.
+    server({ "/roster": () => ({ rosters: [session.roster], floor: 9 }) });
+    await expect(verifiedRoster(session)).rejects.toThrow(RosterTooOldError);
+    await expect(verifiedRoster(session)).rejects.toThrow(/pair this device again/iu);
+  });
+
+  it("accepts a floor at or below the pin, and a server that reports none", async () => {
+    const { session } = account();
+    server({ "/roster": () => ({ rosters: [session.roster], floor: 1 }) });
+    expect((await verifiedRoster(session)).roster_seq).toBe(1);
+    // An older server does not send the field at all.
+    server({ "/roster": () => ({ rosters: [session.roster] }) });
+    expect((await verifiedRoster(session)).roster_seq).toBe(1);
   });
 });
 

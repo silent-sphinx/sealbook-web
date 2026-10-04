@@ -13,6 +13,12 @@ export function friendlyError(err: unknown): string {
   if (text.includes("rate limited")) {
     return "Too many tries. Wait a moment.";
   }
+  // Checked before the roster branch below, which this message would otherwise
+  // match: the history ran out rather than anything failing to verify, and the
+  // remedy is pairing rather than alarm.
+  if (err instanceof Error && err.name === "RosterTooOldError") {
+    return "This device has been away too long to check the account's device list. Pair it again to carry on.";
+  }
   // A roster failure means the device list served was not one this account's
   // devices signed for. Never transient, and never worth retrying.
   if (text.includes("roster")) {

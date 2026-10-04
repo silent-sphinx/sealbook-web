@@ -229,6 +229,20 @@ export class ManifestError extends Error {
 }
 
 /**
+ * This device's pin is older than the roster history the server keeps.
+ *
+ * Deliberately not a `ManifestError`: nothing was forged, the chain back to the
+ * pin simply no longer exists. Re-anchoring on whatever is served would give up
+ * the rollback protection the pin is for, so the device has to be paired again.
+ */
+export class RosterTooOldError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RosterTooOldError";
+  }
+}
+
+/**
  * Records the highest manifest sequence this device has accepted.
  *
  * Written through to the device state, not just the session, so that closing the
@@ -275,7 +289,15 @@ async function verifiedRosterChain(session: Session): Promise<RosterVerified> {
   const pin = rosterPin(state);
   const base = `${apiRoot(state.server)}/v1/collections/${state.collection_id}/roster`;
   const url = pin.seq > 0 ? `${base}?from=${pin.seq}` : base;
-  const response = await getJson<{ rosters: Roster[] }>(url, token);
+  const response = await getJson<{ rosters: Roster[]; floor?: number }>(url, token);
+  const floor = response.floor ?? 0;
+  if (pin.seq > 0 && floor > pin.seq) {
+    throw new RosterTooOldError(
+      "This device is further behind than the server's device-list history reaches, so the " +
+        "chain from the roster it pinned cannot be checked. Pair this device again to anchor " +
+        "it on the current list.",
+    );
+  }
   try {
     return rosterVerify(
       state.collection_id,
