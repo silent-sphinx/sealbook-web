@@ -440,6 +440,111 @@ describe("listVault", () => {
     expect(listed.contacts.map((contact) => contact.name)).toEqual(["Ada Lovelace"]);
   });
 
+  /** Two sealed contacts and the manifest a write of both would have signed. */
+  function twoPageVault(owner: Account) {
+    const objects: SealedObject[] = [];
+    const entries: ManifestEntry[] = [];
+    for (const [index, name] of ["Ada Lovelace", "Grace Hopper"].entries()) {
+      const id = newUuid();
+      const sealed = sealObject(
+        owner.session.collectionKey,
+        id,
+        owner.collectionId,
+        JSCONTACT_CONTENT_TYPE,
+        JSON.stringify({ "@type": "Card", name: { full: name } }),
+      );
+      const revision = index + 1;
+      objects.push({
+        id,
+        revision,
+        tombstone: false,
+        nonce: sealed.nonce,
+        ciphertext: sealed.ciphertext,
+        padded_size: sealed.padded_size,
+        content_type: sealedContentType(),
+      });
+      entries.push({
+        id,
+        revision,
+        tombstone: false,
+        content_digest: objectContentDigest(sealed.nonce, sealed.ciphertext),
+      });
+    }
+    const manifest = manifestSign(
+      owner.enrollment.mldsa_seed,
+      owner.enrollment.ed25519_sk,
+      owner.collectionId,
+      owner.enrollment.device_id,
+      2,
+      2,
+      2,
+      entries,
+    );
+    return { objects, manifest };
+  }
+
+  it("walks several pages and verifies them as one set", async () => {
+    const owner = account();
+    const { objects, manifest } = twoPageVault(owner);
+    let calls = 0;
+    server({
+      "/changes": () => {
+        calls += 1;
+        const first = calls === 1;
+        return {
+          latest_revision: 2,
+          key_epoch: 1,
+          objects: first ? [objects[0]] : [objects[1]],
+          has_more: first,
+          manifest,
+          resync: false,
+          tombstone_floor: 1,
+        };
+      },
+      "/roster": () => ({ rosters: [owner.roster] }),
+    });
+    const listed = await listVault(owner.session);
+    expect(calls).toBe(2);
+    expect(listed.contacts.map((contact) => contact.name).sort()).toEqual([
+      "Ada Lovelace",
+      "Grace Hopper",
+    ]);
+  });
+
+  it("restarts when the vault moves between pages rather than reporting tampering", async () => {
+    const owner = account();
+    const { objects, manifest } = twoPageVault(owner);
+    let calls = 0;
+    server({
+      "/changes": () => {
+        calls += 1;
+        const first = calls % 2 === 1;
+        return {
+          latest_revision: 2,
+          key_epoch: 1,
+          objects: first ? [objects[0]] : [objects[1]],
+          has_more: first,
+          // A write committing between the two pages: the second page carries a
+          // manifest the first one does not describe.
+          manifest: first ? manifest : { ...manifest, manifest_seq: manifest.manifest_seq + 1 },
+          resync: false,
+          tombstone_floor: 1,
+        };
+      },
+      "/roster": () => ({ rosters: [owner.roster] }),
+    });
+
+    const error = await listVault(owner.session).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(Error);
+    // The distinction is the whole point: this is transient, and a manifest
+    // failure never is.
+    expect((error as Error).name).not.toBe("ManifestError");
+    expect((error as Error).message).toMatch(/kept changing/iu);
+    // Four walks of two pages: it restarted rather than giving up on the first
+    // disagreement, and stopped rather than looping.
+    expect(calls).toBe(8);
+  });
+
   it("refuses a manifest signed by a device the roster does not list", async () => {
     const owner = account();
     // A device the server enrolled on its own. Its signature is real, which is

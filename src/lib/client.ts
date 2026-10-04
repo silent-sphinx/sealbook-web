@@ -220,6 +220,14 @@ export type Session = {
   offline?: boolean;
 };
 
+/**
+ * How many times a full read restarts when the vault moves during it.
+ *
+ * Not a `ManifestError` when it runs out: a write between two pages is a race,
+ * and reporting it as tampering is both wrong and unactionable.
+ */
+const MAX_SYNC_RESTARTS = 3;
+
 /** The server served something no enrolled device signed for. Never transient. */
 export class ManifestError extends Error {
   constructor(message: string) {
@@ -1404,6 +1412,15 @@ export async function listVault(
   // the server is answering something other than what was asked.
   let snapshot = false;
   let restarted = false;
+  // Pages come from separate transactions, so a write landing between two of
+  // them leaves the accumulated set and the final manifest describing different
+  // states. The digest then disagrees and `verifyManifest` reports a withheld or
+  // substituted object, which is the loudest thing this app says and is wrong
+  // here. Every page carries the current manifest, so a walk that sees the
+  // sequence move restarts instead, bounded so a vault being written to
+  // continuously fails plainly rather than looping.
+  let expectedSeq: number | null | undefined;
+  let moved = 0;
   for (;;) {
     const page = await getJson<{
       latest_revision: number;
@@ -1423,6 +1440,22 @@ export async function listVault(
       }
       restarted = true;
       snapshot = true;
+      after = 0;
+      pageObjects = [];
+      expectedSeq = undefined;
+      continue;
+    }
+    const pageSeq = page.manifest ? page.manifest.manifest_seq : null;
+    if (expectedSeq === undefined) {
+      expectedSeq = pageSeq;
+    } else if (pageSeq !== expectedSeq) {
+      if (moved >= MAX_SYNC_RESTARTS) {
+        throw new Error(
+          "The vault kept changing while it was being read. Another device may be writing to it; try again.",
+        );
+      }
+      moved += 1;
+      expectedSeq = undefined;
       after = 0;
       pageObjects = [];
       continue;

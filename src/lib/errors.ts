@@ -13,6 +13,12 @@ export function friendlyError(err: unknown): string {
   if (text.includes("rate limited")) {
     return "Too many tries. Wait a moment.";
   }
+  // Another device wrote while this one was reading. Transient, and the message
+  // already says so, so it is passed through rather than flattened into the
+  // generic fallback at the bottom.
+  if (text.includes("kept changing")) {
+    return raw;
+  }
   // Checked before the roster branch below, which this message would otherwise
   // match: the history ran out rather than anything failing to verify, and the
   // remedy is pairing rather than alarm.
