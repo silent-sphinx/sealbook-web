@@ -566,8 +566,8 @@ describe("listVault", () => {
         resync: false,
         tombstone_floor: 1,
       }),
-      // The server lists the device it injected, and the roster does not.
-      "/v1/account/devices": () => [deviceKeys(injected), deviceKeys(createDevice())],
+      // The roster does not list the device the server enrolled, and there is no
+      // unsigned device list left to take it from.
       "/roster": () => ({ rosters: [owner.roster] }),
     });
     await expect(listVault(owner.session)).rejects.toThrow(/roster/iu);

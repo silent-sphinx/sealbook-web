@@ -365,9 +365,9 @@ function pinSealedRoster(session: Session, roster: Roster): void {
 /**
  * The devices a manifest signature may come from, from the verified roster.
  *
- * Taken from `/v1/account/devices` this was the server's own word for which
- * devices exist, which is exactly what the roster exists to replace: a server
- * that could add a device to that list could sign manifests as it.
+ * Taken from the server's own device list this was its word for which devices
+ * exist, which is exactly what the roster exists to replace: a server that could
+ * add a device to that list could sign manifests as it.
  */
 async function rosterDevices(
   session: Session,
@@ -1899,9 +1899,9 @@ export type DeviceSummary = {
 /**
  * The account's devices, from the verified roster rather than the server's list.
  *
- * `/v1/account/devices` is the server's own word for which devices exist. It is
- * what the roster replaces: a device the server added to that list would be
- * shown to the user as theirs, and wrapped for at the next rotation.
+ * The server's own word for which devices exist is what the roster replaces: a
+ * device the server added to that list would be shown to the user as theirs, and
+ * wrapped for at the next rotation. The server no longer serves such a list.
  */
 export async function listDevices(session: Session): Promise<DeviceSummary[]> {
   return (await syncRoster(session)).devices;
