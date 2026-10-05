@@ -6,6 +6,7 @@ import {
   listVault,
   pairApprove,
   pairPreview,
+  putAccountSettings,
   putContact,
   rotateAuthenticated,
   RosterTooOldError,
@@ -31,6 +32,13 @@ import {
   wrapCkForDevice,
 } from "./wasm";
 import { DEFAULT_ADDRESS_BOOK_ID, JSCONTACT_CONTENT_TYPE } from "./addressBook";
+import {
+  ACCOUNT_SETTINGS_CONTENT_TYPE,
+  ACCOUNT_SETTINGS_ID,
+  DEFAULT_ACCOUNT_SETTINGS,
+  parseAccountSettings,
+  serializeAccountSettings,
+} from "./accountSettings";
 import { emptyDraft } from "./contact";
 import type {
   DeviceOut,
@@ -483,6 +491,99 @@ describe("listVault", () => {
     return { objects, manifest };
   }
 
+  /** One sealed object of any type, with the manifest a write of it signed. */
+  function vaultHolding(owner: Account, contentType: string, payload: string) {
+    const id = ACCOUNT_SETTINGS_ID;
+    const sealed = sealObject(
+      owner.session.collectionKey,
+      id,
+      owner.collectionId,
+      contentType,
+      payload,
+    );
+    const object: SealedObject = {
+      id,
+      revision: 1,
+      tombstone: false,
+      nonce: sealed.nonce,
+      ciphertext: sealed.ciphertext,
+      padded_size: sealed.padded_size,
+      content_type: sealedContentType(),
+    };
+    const manifest = manifestSign(
+      owner.enrollment.mldsa_seed,
+      owner.enrollment.ed25519_sk,
+      owner.collectionId,
+      owner.enrollment.device_id,
+      2,
+      1,
+      1,
+      [
+        {
+          id,
+          revision: 1,
+          tombstone: false,
+          content_digest: objectContentDigest(sealed.nonce, sealed.ciphertext),
+        },
+      ],
+    );
+    return { object, manifest };
+  }
+
+  it("reads the account's feature toggles out of the sealed settings object", async () => {
+    const owner = account();
+    const { object, manifest } = vaultHolding(
+      owner,
+      ACCOUNT_SETTINGS_CONTENT_TYPE,
+      serializeAccountSettings({ features: { contacts: true, calendar: false, notes: false } }),
+    );
+    server({
+      "/changes": () => ({
+        latest_revision: 1,
+        key_epoch: 1,
+        objects: [object],
+        has_more: false,
+        manifest,
+        resync: false,
+        tombstone_floor: 1,
+      }),
+      "/roster": () => ({ rosters: [owner.roster] }),
+    });
+    const listed = await listVault(owner.session);
+    expect(listed.accountSettings.features).toEqual({
+      contacts: true,
+      calendar: false,
+      notes: false,
+    });
+    // The settings are not data: they must not turn up as a contact or a
+    // container, which is what the type dispatch is there to prevent.
+    expect(listed.contacts).toEqual([]);
+    expect(listed.notebooks).toEqual([]);
+  });
+
+  it("defaults to every feature enabled when the account has no settings object", async () => {
+    const owner = account();
+    const { object, manifest } = vaultWith(owner, {
+      seed: owner.enrollment.mldsa_seed,
+      sk: owner.enrollment.ed25519_sk,
+      deviceId: owner.enrollment.device_id,
+    });
+    server({
+      "/changes": () => ({
+        latest_revision: 1,
+        key_epoch: 1,
+        objects: [object],
+        has_more: false,
+        manifest,
+        resync: false,
+        tombstone_floor: 1,
+      }),
+      "/roster": () => ({ rosters: [owner.roster] }),
+    });
+    const listed = await listVault(owner.session);
+    expect(listed.accountSettings).toEqual(DEFAULT_ACCOUNT_SETTINGS);
+  });
+
   it("walks several pages and verifies them as one set", async () => {
     const owner = account();
     const { objects, manifest } = twoPageVault(owner);
@@ -571,6 +672,58 @@ describe("listVault", () => {
       "/roster": () => ({ rosters: [owner.roster] }),
     });
     await expect(listVault(owner.session)).rejects.toThrow(/roster/iu);
+  });
+});
+
+describe("putAccountSettings", () => {
+  it("writes the toggles to the one well-known id, with the type sealed inside", async () => {
+    const owner = account();
+    const manifest = manifestSign(
+      owner.enrollment.mldsa_seed,
+      owner.enrollment.ed25519_sk,
+      owner.collectionId,
+      owner.enrollment.device_id,
+      2,
+      1,
+      0,
+      [],
+    );
+    const { sent } = server({
+      "/manifest": () => ({ manifest, entries: [] }),
+      "/roster": () => ({ rosters: [owner.roster] }),
+      "/objects": () => ({ revision: 1 }),
+    });
+
+    await putAccountSettings(owner.session, {
+      features: { contacts: true, calendar: true, notes: false },
+    });
+
+    const body = sent["/objects"] as {
+      id: string;
+      content_type: string;
+      nonce: string;
+      ciphertext: string;
+      padded_size: number;
+    };
+    // One id per account: a second device editing the toggles replaces this
+    // object rather than adding a rival copy the load order would decide between.
+    expect(body.id).toBe(ACCOUNT_SETTINGS_ID);
+    // The server only ever sees the opaque label; the real type is inside.
+    expect(body.content_type).toBe(sealedContentType());
+    const opened = openObject(
+      owner.session.collectionKey,
+      ACCOUNT_SETTINGS_ID,
+      owner.collectionId,
+      body.nonce,
+      body.ciphertext,
+      body.padded_size,
+    );
+    expect(opened.contentType).toBe(ACCOUNT_SETTINGS_CONTENT_TYPE);
+    expect(parseAccountSettings(opened.payload).features).toEqual({
+      contacts: true,
+      calendar: true,
+      notes: false,
+    });
   });
 });
 

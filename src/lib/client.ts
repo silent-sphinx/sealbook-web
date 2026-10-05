@@ -33,6 +33,13 @@ import {
   wrapCkForPassword,
 } from "./wasm";
 import { parseContact, serializeCard, sortContacts } from "./contact";
+import {
+  ACCOUNT_SETTINGS_CONTENT_TYPE,
+  ACCOUNT_SETTINGS_ID,
+  DEFAULT_ACCOUNT_SETTINGS,
+  parseAccountSettings,
+  serializeAccountSettings,
+} from "./accountSettings";
 import { normalizeConfirmation } from "./pairing";
 import {
   ADDRESS_BOOK_CONTENT_TYPE,
@@ -56,6 +63,7 @@ import {
   sortNotes,
 } from "./note";
 import type {
+  AccountSettings,
   AddressBook,
   Calendar,
   CalendarEvent,
@@ -1395,7 +1403,7 @@ export async function refreshCollectionKey(session: Session): Promise<number> {
 
 export async function listVault(
   session: Session,
-): Promise<{ sealed: SealedObject[]; addressBooks: AddressBook[]; contacts: Contact[]; calendars: Calendar[]; calendarEvents: CalendarEvent[]; notes: Note[]; notebooks: Notebook[] }> {
+): Promise<{ sealed: SealedObject[]; addressBooks: AddressBook[]; contacts: Contact[]; calendars: Calendar[]; calendarEvents: CalendarEvent[]; notes: Note[]; notebooks: Notebook[]; accountSettings: AccountSettings }> {
   const { state, token } = session;
   // Walk every page before verifying: the manifest commits to the collection, not
   // to any one page of it.
@@ -1484,6 +1492,9 @@ export async function listVault(
   const calendars: Calendar[] = [];
   const notes: Note[] = [];
   const notebooks: Notebook[] = [];
+  // Default until the settings object turns up: an account that has never saved
+  // one has every feature enabled.
+  let accountSettings = DEFAULT_ACCOUNT_SETTINGS;
   const latestByObject = new Map<string, SealedObject>();
   for (const obj of resp.objects) {
     const previous = latestByObject.get(obj.id);
@@ -1535,6 +1546,11 @@ export async function listVault(
         notes.push(parseNote(obj.id, raw));
       } else if (contentType === NOTEBOOK_CONTENT_TYPE || isPayloadOfType(raw, "Notebook")) {
         notebooks.push(parseNotebook(obj.id, raw));
+      } else if (
+        contentType === ACCOUNT_SETTINGS_CONTENT_TYPE ||
+        isPayloadOfType(raw, "AccountSettings")
+      ) {
+        accountSettings = parseAccountSettings(raw);
       } else if (isContactPayload(raw)) {
         contacts.push(parseContact(obj.id, raw, obj.ciphertext, obj.padded_size));
       } else {
@@ -1555,6 +1571,7 @@ export async function listVault(
     calendarEvents,
     notes: sortNotes(notes),
     notebooks: sortNotebooks(notebooks),
+    accountSettings,
   };
 }
 
@@ -1655,6 +1672,25 @@ export async function putNotebook(
   const id = existingId ?? newUuid();
   await putSealed(session, id, NOTEBOOK_CONTENT_TYPE, false, serializeNotebook(name));
   return id;
+}
+
+/**
+ * Saves the account settings, at the one well-known object id.
+ *
+ * There is no delete: the object is a singleton, and a tombstoned one would read
+ * back as the default on every client.
+ */
+export async function putAccountSettings(
+  session: Session,
+  settings: AccountSettings,
+): Promise<void> {
+  await putSealed(
+    session,
+    ACCOUNT_SETTINGS_ID,
+    ACCOUNT_SETTINGS_CONTENT_TYPE,
+    false,
+    serializeAccountSettings(settings),
+  );
 }
 
 export async function deleteNotebook(session: Session, id: string): Promise<void> {

@@ -3,3 +3,4 @@ dist
 src/pkg
 .DS_Store
 *.local
+BUGS.md

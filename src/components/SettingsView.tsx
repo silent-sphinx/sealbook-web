@@ -18,6 +18,13 @@ import {
   revokeDevice,
   rotatePhrase,
 } from "../lib/client";
+import {
+  FEATURES,
+  FEATURE_LABELS,
+  canDisableFeature,
+  isFeatureEnabled,
+  withFeature,
+} from "../lib/accountSettings";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { formatIcs, parseCalendarImport } from "../lib/ics";
 import { triggerDownload } from "../lib/importExport";
@@ -29,9 +36,19 @@ import {
   btnPrimary,
   btnSecondary,
   field,
+  focusRing,
   selectField,
 } from "../lib/styles";
-import type { AddressBook, Calendar, CalendarEvent, Contact, Note, Notebook } from "../lib/types";
+import type {
+  AccountSettings,
+  AddressBook,
+  Calendar,
+  CalendarEvent,
+  Contact,
+  FeatureKey,
+  Note,
+  Notebook,
+} from "../lib/types";
 import { DEFAULT_CALENDAR_COLOR } from "../lib/types";
 import { allTimezones, utcOffsetLabel } from "../lib/timezone";
 import { Modal } from "./Modal";
@@ -58,9 +75,12 @@ type Props = {
   onCreateNotebook?: (name: string) => Promise<string | undefined>;
   timezone: string;
   onTimezoneChange: (timezone: string) => void;
+  accountSettings: AccountSettings;
+  /** Rejects when the write fails, so the toggle can report it and stay put. */
+  onSaveAccountSettings: (settings: AccountSettings) => Promise<void>;
 };
 
-type SettingsSection = "account" | "contacts" | "calendar" | "notes";
+type SettingsSection = "account" | "features" | "contacts" | "calendar" | "notes";
 
 /**
  * One place per section, so adding a fourth feature is a row here rather than an
@@ -73,6 +93,13 @@ const SECTIONS: { id: SettingsSection; label: string; nav: string; blurb: string
     nav: "Identity, security, and recovery",
     blurb:
       "Manage your identity, cryptographic credentials, recovery phrase, and account data.",
+  },
+  {
+    id: "features",
+    label: "Feature settings",
+    nav: "Turn contacts, calendar, or notes off",
+    blurb:
+      "Choose which parts of Sealbook this account uses. The choice is stored in your vault, so every device signed in to the account follows it.",
   },
   {
     id: "contacts",
@@ -111,8 +138,10 @@ export function SettingsView({
   onCreateNotebook,
   timezone,
   onTimezoneChange,
+  accountSettings,
+  onSaveAccountSettings,
 }: Props) {
-  const [activeSection, setActiveSection] = useState<SettingsSection>("account");
+  const [activeSectionState, setActiveSection] = useState<SettingsSection>("account");
   // Calendar import state
   const icsInputRef = useRef<HTMLInputElement | null>(null);
   const [icsDragActive, setIcsDragActive] = useState(false);
@@ -171,6 +200,10 @@ export function SettingsView({
   const [phrasePassword, setPhrasePassword] = useState("");
   const [phraseProgress, setPhraseProgress] = useState({ done: 0, total: 0 });
 
+  // Feature toggle state
+  const [featureBusy, setFeatureBusy] = useState<FeatureKey | null>(null);
+  const [featureMsg, setFeatureMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
   // Delete account state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -179,6 +212,30 @@ export function SettingsView({
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Handlers
+  async function handleToggleFeature(feature: FeatureKey, enabled: boolean) {
+    const next = withFeature(accountSettings, feature, enabled);
+    if (next === accountSettings) {
+      setFeatureMsg({
+        type: "error",
+        text: "At least one of contacts, calendar, and notes has to stay on.",
+      });
+      return;
+    }
+    setFeatureBusy(feature);
+    setFeatureMsg(null);
+    try {
+      await onSaveAccountSettings(next);
+      setFeatureMsg({
+        type: "success",
+        text: `${FEATURE_LABELS[feature]} ${enabled ? "enabled" : "disabled"} for this account. Other devices pick the change up on their next sync.`,
+      });
+    } catch (err) {
+      setFeatureMsg({ type: "error", text: friendlyError(err) });
+    } finally {
+      setFeatureBusy(null);
+    }
+  }
+
   async function handleChangeUsername(e: FormEvent) {
     e.preventDefault();
     setUsernameMsg(null);
@@ -603,6 +660,19 @@ export function SettingsView({
     }
   }
 
+  // A disabled feature keeps no settings page: its import, export, and display
+  // options are for a tab that is not there. Derived rather than corrected in an
+  // effect, so the page being read cannot be one that has just gone away.
+  const sections = SECTIONS.filter(
+    (section) =>
+      section.id === "account" ||
+      section.id === "features" ||
+      isFeatureEnabled(accountSettings, section.id),
+  );
+  const activeSection = sections.some((section) => section.id === activeSectionState)
+    ? activeSectionState
+    : "account";
+
   return (
     <div className="grid gap-8 animate-fade-in-up lg:grid-cols-[220px_minmax(0,1fr)]">
       <aside className="h-fit rounded-2xl border border-line bg-panel/75 p-3 shadow-sm lg:sticky lg:top-6">
@@ -615,7 +685,7 @@ export function SettingsView({
           </p>
         </div>
         <nav className="flex gap-1 overflow-x-auto lg:flex-col" aria-label="Settings sections">
-          {SECTIONS.map(({ id, label, nav: description }) => (
+          {sections.map(({ id, label, nav: description }) => (
             <button
               key={id}
               type="button"
@@ -641,12 +711,77 @@ export function SettingsView({
             Preferences
           </p>
           <h2 className="mt-2 text-xl font-semibold tracking-tight text-text">
-            {SECTIONS.find((section) => section.id === activeSection)?.label}
+            {sections.find((section) => section.id === activeSection)?.label}
           </h2>
           <p className="mt-1 text-sm text-mute">
-            {SECTIONS.find((section) => section.id === activeSection)?.blurb}
+            {sections.find((section) => section.id === activeSection)?.blurb}
           </p>
         </div>
+
+      {activeSection === "features" && (
+        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
+          <h3 className="text-base font-semibold text-text">Enabled features</h3>
+          <p className="mt-1 text-xs leading-relaxed text-mute">
+            Turning one off hides its tab and its settings on every device signed in to
+            this account. Nothing is deleted: the entries stay in your vault and come
+            back when you turn the feature on again.
+          </p>
+
+          <ul className="mt-5 space-y-3">
+            {FEATURES.map((feature) => {
+              const enabled = isFeatureEnabled(accountSettings, feature);
+              // The last one on cannot be turned off, so its switch is disabled
+              // rather than left to fail on click.
+              const isLastEnabled = enabled && !canDisableFeature(accountSettings, feature);
+              const label = FEATURE_LABELS[feature];
+              return (
+                <li
+                  key={feature}
+                  className="flex items-center justify-between gap-4 rounded-xl border border-line/80 bg-bg/50 px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-text">{label}</p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-mute">
+                      {isLastEnabled
+                        ? "Your only enabled feature, so it has to stay on."
+                        : enabled
+                          ? "Available on every device on this account."
+                          : "Hidden on every device on this account."}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={enabled}
+                    aria-label={`${label} enabled`}
+                    disabled={isLastEnabled || featureBusy !== null}
+                    onClick={() => void handleToggleFeature(feature, !enabled)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing} ${enabled
+                      ? "border-accent/40 bg-accent"
+                      : "border-line bg-surface"}`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`inline-block h-4 w-4 rounded-full bg-bg transition-transform duration-150 ${enabled ? "translate-x-[22px]" : "translate-x-1"}`}
+                    />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+
+          {featureMsg ? (
+            <p
+              role="alert"
+              className={`mt-4 rounded-lg border px-3 py-2 text-xs leading-relaxed ${featureMsg.type === "success"
+                ? "border-line bg-bg text-mute"
+                : "border-danger/30 bg-danger/10 text-danger"}`}
+            >
+              {featureMsg.text}
+            </p>
+          ) : null}
+        </section>
+      )}
 
       {activeSection === "calendar" && (<>
         <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">

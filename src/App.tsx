@@ -26,6 +26,7 @@ import {
   pairJoin,
   pairPreview,
   pairReady,
+  putAccountSettings,
   putAddressBook,
   putNotebook,
   putContact,
@@ -34,6 +35,10 @@ import {
   revokeSession,
   type Session,
 } from "./lib/client";
+import {
+  DEFAULT_ACCOUNT_SETTINGS,
+  isFeatureEnabled,
+} from "./lib/accountSettings";
 import {
   ALL_ADDRESS_BOOKS,
   DEFAULT_ADDRESS_BOOK_ID,
@@ -72,6 +77,7 @@ import {
   focusRing,
 } from "./lib/styles";
 import type {
+  AccountSettings,
   AddressBook,
   Calendar,
   CalendarEvent,
@@ -507,6 +513,7 @@ export default function App() {
   const [addressBooks, setAddressBooks] = useState<AddressBook[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
+  const [accountSettings, setAccountSettings] = useState<AccountSettings>(DEFAULT_ACCOUNT_SETTINGS);
   const [bookFilter, setBookFilter] = useState(ALL_ADDRESS_BOOKS);
   // Set by the sidebar's "+", read by the address book list to open its input.
   const [creatingBook, setCreatingBook] = useState(false);
@@ -526,7 +533,7 @@ export default function App() {
   const [adding, setAdding] = useState(false);
   const [copied, setCopied] = useState(false);
   const [search, setSearch] = useState("");
-  const [activeTab, setActiveTabState] = useState<MainTab>(loadLastTab);
+  const [activeTabState, setActiveTabState] = useState<MainTab>(loadLastTab);
   const [timezone, setTimezoneState] = useState(loadTimezone);
   const [online, setOnline] = useState(() => navigator.onLine);
   const [loadingVault, setLoadingVault] = useState(false);
@@ -594,6 +601,19 @@ export default function App() {
 
   const locked = Boolean(stored);
   const isOffline = !online || session?.offline === true;
+
+  // Settings is always present: it is where a feature gets turned back on.
+  const visibleTabs = useMemo(
+    () => TABS.filter((tab) => tab.id === "settings" || isFeatureEnabled(accountSettings, tab.id)),
+    [accountSettings],
+  );
+  // Derived rather than corrected in an effect, so a tab disabled on another
+  // device is never rendered for a frame before being swapped out. The stored
+  // last tab is coerced the same way, so a disabled one does not survive reloads.
+  const activeTab = visibleTabs.some((tab) => tab.id === activeTabState)
+    ? activeTabState
+    : visibleTabs[0].id;
+  const contactsEnabled = isFeatureEnabled(accountSettings, "contacts");
 
   const filtered = useMemo(() => {
     const inBook =
@@ -780,6 +800,7 @@ export default function App() {
     setCalendars(listed.calendars);
     setNotes(listed.notes);
     setNotebooks(listed.notebooks);
+    setAccountSettings(listed.accountSettings);
     if (password) {
       await saveVaultSnapshot(
         {
@@ -789,6 +810,7 @@ export default function App() {
           calendarEvents: listed.calendarEvents,
           notes: listed.notes,
           notebooks: listed.notebooks,
+          accountSettings: listed.accountSettings,
         },
         password,
       );
@@ -799,6 +821,12 @@ export default function App() {
       }
       return books.some((book) => book.id === current) ? current : ALL_ADDRESS_BOOKS;
     });
+  }
+
+  async function onSaveAccountSettings(next: AccountSettings) {
+    if (!session) return;
+    await putAccountSettings(session, next);
+    setAccountSettings(next);
   }
 
   // Refresh after a successful write. A refresh failure is reported separately
@@ -828,6 +856,7 @@ export default function App() {
     setAddressBooks([]);
     setNotes([]);
     setNotebooks([]);
+    setAccountSettings(DEFAULT_ACCOUNT_SETTINGS);
     setBookFilter(ALL_ADDRESS_BOOKS);
     setAdding(false);
     setAddConfirm(null);
@@ -916,6 +945,7 @@ export default function App() {
         setCalendarEvents(snapshot.calendarEvents);
         setNotes(snapshot.notes);
         setNotebooks(snapshot.notebooks);
+        setAccountSettings(snapshot.accountSettings);
         setSession({ state: unlocked, collectionKey: "", token: "", latestRevision: 0, keyEpoch: 0, manifestSeq: 0, offline: true });
       } else {
         await openSession(await loginAccount(unlocked, password), password);
@@ -2034,7 +2064,7 @@ export default function App() {
               className="order-3 flex w-full items-center justify-center rounded-xl border border-line bg-surface/80 p-1 sm:order-none sm:w-auto"
               aria-label="Main Navigation"
             >
-              {TABS.map((tab) => (
+              {visibleTabs.map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
@@ -2104,6 +2134,8 @@ export default function App() {
             onCreateNotebook={isOffline ? undefined : onCreateNotebook}
             timezone={timezone}
             onTimezoneChange={setTimezone}
+            accountSettings={accountSettings}
+            onSaveAccountSettings={onSaveAccountSettings}
           />
         </main>
       ) : activeTab === "calendar" ? (
@@ -2114,7 +2146,7 @@ export default function App() {
         <div>
           <NotesView session={session} notes={notes} notebooks={notebooks} busy={busy} onRefresh={() => refresh(session)} readOnly={isOffline} />
         </div>
-      ) : (
+      ) : activeTab === "contacts" ? (
         // Same shell as the calendar: full-bleed, a 244px sidebar holding the
         // section title and the address books, and a toolbar above the content.
         <main className="flex flex-col bg-bg pb-[env(safe-area-inset-bottom)] text-text lg:h-[calc(100dvh-var(--sb-header-h,74px))] lg:overflow-hidden lg:pb-0">
@@ -2303,10 +2335,10 @@ export default function App() {
             </section>
           </div>
         </main>
-      )}
+      ) : null}
 
       {/* Compose modal */}
-      {composing ? (
+      {contactsEnabled && composing ? (
         <Modal title="New contact" onClose={closeComposer}>
           <ContactForm
             key={`new-${formKey}`}
@@ -2326,7 +2358,7 @@ export default function App() {
       ) : null}
 
       {/* Edit modal */}
-      {editingContact ? (
+      {contactsEnabled && editingContact ? (
         <Modal title="Edit contact" onClose={closeEditor}>
           <ContactForm
             key={`edit-${editingContact.id}`}
@@ -2343,7 +2375,7 @@ export default function App() {
       ) : null}
 
       {/* Delete confirmation modal */}
-      {deletingContact ? (
+      {contactsEnabled && deletingContact ? (
         <DeleteContactModal
           contact={deletingContact}
           busy={busy}
@@ -2354,7 +2386,7 @@ export default function App() {
       ) : null}
 
       {/* Delete address book modal */}
-      {deletingAddressBook ? (
+      {contactsEnabled && deletingAddressBook ? (
         <DeleteAddressBookModal
           book={deletingAddressBook}
           destinationBooks={addressBooks.filter((book) => book.id !== deletingAddressBook.id)}

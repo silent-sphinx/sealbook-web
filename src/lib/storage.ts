@@ -1,6 +1,8 @@
 import { b64ToByteArray, b64encode } from "./bytes";
 import { idbDelete, idbGet, idbPut } from "./idb";
+import { DEFAULT_ACCOUNT_SETTINGS, normalizeFeatures } from "./accountSettings";
 import type {
+  AccountSettings,
   AddressBook,
   Calendar,
   CalendarEvent,
@@ -25,6 +27,7 @@ export type VaultSnapshot = {
   calendarEvents: CalendarEvent[];
   notes: Note[];
   notebooks: Notebook[];
+  accountSettings: AccountSettings;
 };
 
 export type DeviceMetadata = Pick<
@@ -120,6 +123,11 @@ export function normalizeSnapshot(value: unknown): VaultSnapshot | null {
     calendarEvents: raw.calendarEvents,
     notes: Array.isArray(raw.notes) ? raw.notes : [],
     notebooks: Array.isArray(raw.notebooks) ? raw.notebooks : [],
+    // A snapshot written before the feature toggles existed carries no settings,
+    // which reads as every feature enabled rather than as none.
+    accountSettings: raw.accountSettings
+      ? normalizeFeatures(raw.accountSettings.features)
+      : DEFAULT_ACCOUNT_SETTINGS,
   };
 }
 

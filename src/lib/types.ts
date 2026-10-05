@@ -62,6 +62,17 @@ export type SealedObject = {
   content_type: string;
 };
 
+/** The three vault features an account can turn off; settings is always on. */
+export type FeatureKey = "contacts" | "calendar" | "notes";
+
+/**
+ * Account-wide preferences, stored in the vault so they follow the account to
+ * every client rather than living in one browser. See `lib/accountSettings`.
+ */
+export type AccountSettings = {
+  features: Record<FeatureKey, boolean>;
+};
+
 export type ContactChannelKind = "work" | "home" | "mobile" | "custom";
 
 export type ContactChannel = {
