@@ -537,7 +537,10 @@ describe("listVault", () => {
     const { object, manifest } = vaultHolding(
       owner,
       ACCOUNT_SETTINGS_CONTENT_TYPE,
-      serializeAccountSettings({ features: { contacts: true, calendar: false, notes: false } }),
+      serializeAccountSettings({
+        features: { contacts: true, calendar: false, notes: false },
+        contactMode: "basic",
+      }),
     );
     server({
       "/changes": () => ({
@@ -772,6 +775,7 @@ describe("putAccountSettings", () => {
 
     await putAccountSettings(owner.session, {
       features: { contacts: true, calendar: true, notes: false },
+      contactMode: "basic",
     });
 
     const body = sent["/objects"] as {

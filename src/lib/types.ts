@@ -66,11 +66,19 @@ export type SealedObject = {
 export type FeatureKey = "contacts" | "calendar" | "notes";
 
 /**
+ * How much of a contact the UI offers. `detailed` adds the relationship
+ * sections in `lib/contactProfile`; `basic` hides them without deleting
+ * anything already stored.
+ */
+export type ContactMode = "basic" | "detailed";
+
+/**
  * Account-wide preferences, stored in the vault so they follow the account to
  * every client rather than living in one browser. See `lib/accountSettings`.
  */
 export type AccountSettings = {
   features: Record<FeatureKey, boolean>;
+  contactMode: ContactMode;
 };
 
 export type ContactChannelKind = "work" | "home" | "mobile" | "custom";
@@ -112,6 +120,88 @@ export type ContactSocial = {
   handle: string;
 };
 
+/**
+ * A free-text row that is only a string on the wire. The id exists so the editor
+ * has a stable React key across a delete; it is generated on parse rather than
+ * stored.
+ */
+export type ContactTag = {
+  id: string;
+  value: string;
+};
+
+export type ContactFoodPolarity = "like" | "dislike";
+
+export type ContactFood = {
+  id: string;
+  polarity: ContactFoodPolarity;
+  value: string;
+  note?: string;
+};
+
+export type ContactPet = {
+  id: string;
+  name: string;
+  species?: string;
+  note?: string;
+};
+
+/**
+ * Dates on the relationship sections are partial ISO strings (`YYYY`,
+ * `YYYY-MM`, `YYYY-MM-DD`): a job or a life event often has only a year, which
+ * `<input type="date">` cannot express.
+ */
+export type ContactCareer = {
+  id: string;
+  organization: string;
+  title?: string;
+  start?: string;
+  end?: string;
+  note?: string;
+};
+
+export type ContactRelationship = {
+  id: string;
+  name: string;
+  kind: string;
+  start?: string;
+  end?: string;
+  note?: string;
+};
+
+export type ContactLifeEvent = {
+  id: string;
+  title: string;
+  date?: string;
+  description?: string;
+};
+
+/** Family and friends share a shape; only family shows the relation field. */
+export type ContactPerson = {
+  id: string;
+  name: string;
+  relation?: string;
+  note?: string;
+};
+
+/**
+ * The relationship-manager half of a contact, carried in the card under
+ * `sealbook:profile`. Stored whatever the account's contact mode is, so turning
+ * `basic` back on hides it rather than dropping it. See `lib/contactProfile`.
+ */
+export type ContactProfile = {
+  howWeMet?: string;
+  interests: ContactTag[];
+  music: ContactTag[];
+  food: ContactFood[];
+  pets: ContactPet[];
+  career: ContactCareer[];
+  relationships: ContactRelationship[];
+  timeline: ContactLifeEvent[];
+  family: ContactPerson[];
+  friends: ContactPerson[];
+};
+
 export type ContactDraft = {
   name: string;
   nickname?: string;
@@ -124,6 +214,7 @@ export type ContactDraft = {
   socials: ContactSocial[];
   notes?: string;
   avatar?: string;
+  profile?: ContactProfile;
   addressBookId: string;
   createdAt?: string;
   updatedAt?: string;

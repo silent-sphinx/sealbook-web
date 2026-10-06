@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { parseCsvContacts, parseCsvRows } from "./csv";
+import { parseCsvContacts, parseCsvRows, serializeCsvContacts } from "./csv";
+import { emptyDraft } from "./contact";
+import { emptyProfile } from "./contactProfile";
 
 const BOOK = "00000000-0000-0000-0000-000000000001";
 
@@ -71,5 +73,27 @@ describe("parseCsvContacts", () => {
     const contacts = parseCsvContacts("Name,Email,Phone\nSolo", BOOK);
     expect(contacts).toHaveLength(1);
     expect(contacts[0].name).toBe("Solo");
+  });
+});
+
+describe("the relationship profile", () => {
+  it("survives an export and re-import through the JSON column", () => {
+    const draft = {
+      ...emptyDraft(BOOK),
+      name: "Ada Lovelace",
+      profile: {
+        ...emptyProfile(),
+        interests: [{ id: "a", value: "Bouldering" }],
+        family: [{ id: "b", name: "Byron", relation: "Father" }],
+      },
+    };
+    const back = parseCsvContacts(serializeCsvContacts([draft], []), BOOK);
+    expect(back[0].profile?.interests.map((row) => row.value)).toEqual(["Bouldering"]);
+    expect(back[0].profile?.family[0]).toMatchObject({ name: "Byron", relation: "Father" });
+  });
+
+  it("leaves the column empty for a contact with no profile", () => {
+    const csv = serializeCsvContacts([{ ...emptyDraft(BOOK), name: "Ada" }], []);
+    expect(parseCsvContacts(csv, BOOK)[0].profile).toBeUndefined();
   });
 });

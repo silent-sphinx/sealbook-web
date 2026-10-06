@@ -32,7 +32,12 @@ import {
   wrapCkForDevice,
   wrapCkForPassword,
 } from "./wasm";
-import { parseContact, serializeCard, sortContacts } from "./contact";
+import {
+  contactFitsObjectLimit,
+  parseContact,
+  serializeCard,
+  sortContacts,
+} from "./contact";
 import {
   ACCOUNT_SETTINGS_CONTENT_TYPE,
   ACCOUNT_SETTINGS_ID,
@@ -1658,6 +1663,9 @@ export async function putContact(
   existingId?: string,
 ): Promise<string> {
   const id = existingId ?? newUuid();
+  if (!contactFitsObjectLimit(draft)) {
+    throw new Error("This contact is too large to store.");
+  }
   const plaintext = serializeCard(draft);
   await putSealed(session, id, JSCONTACT_CONTENT_TYPE, false, plaintext);
   return id;

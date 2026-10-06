@@ -3,6 +3,15 @@ import {
   DEFAULT_ADDRESS_BOOK_ID,
   resolveAddressBookId,
 } from "./addressBook";
+import {
+  CONTACT_PROFILE_PROP,
+  MAX_PROFILE_ENTRIES,
+  MAX_PROFILE_TEXT_CHARS,
+  PROFILE_SECTIONS,
+  parseProfile,
+  profileOf,
+  serializeProfile,
+} from "./contactProfile";
 import type {
   Contact,
   ContactAddress,
@@ -85,6 +94,66 @@ export function emptyDraft(addressBookId = DEFAULT_ADDRESS_BOOK_ID): ContactDraf
     address: {},
     addressBookId: resolveAddressBookId(addressBookId),
   };
+}
+
+/**
+ * Longest the free-text Notes field may be.
+ *
+ * Not a storage limit: a card is nowhere near the 8 MB object ceiling. It keeps
+ * the card inside a padding bucket. `padded_size` is stored and served in the
+ * clear and the buckets double (see `BUCKETS` in `sealbook-crypto`), so a card
+ * whose text can grow without bound turns every revision into a size delta the
+ * server can read. 4 KiB of notes on a full card still lands in the 8 KiB
+ * bucket.
+ */
+export const MAX_CONTACT_NOTES_CHARS = 4096;
+
+/**
+ * Mirrors `MAX_PADDED_OBJECT_SIZE` in `sealbook/crates/sealbook-protocol`. The
+ * backstop for a card an import or a pasted avatar made oversized; the per-field
+ * caps above are what a person actually meets.
+ */
+const MAX_PADDED_OBJECT_SIZE = 8 * 1024 * 1024;
+
+/** Envelope version, flags and the length-prefixed content type. */
+const ENVELOPE_OVERHEAD = 64;
+
+export function contactByteSize(draft: ContactDraft): number {
+  return new TextEncoder().encode(serializeCard(draft)).length + ENVELOPE_OVERHEAD;
+}
+
+export function contactFitsObjectLimit(draft: ContactDraft): boolean {
+  return contactByteSize(draft) <= MAX_PADDED_OBJECT_SIZE;
+}
+
+/**
+ * The first reason this draft cannot be saved, or null.
+ *
+ * Checked before the write rather than relying on the server's 400, and phrased
+ * for the person rather than naming the field.
+ */
+export function contactValidationError(draft: ContactDraft): string | null {
+  const notes = draft.notes ?? "";
+  if (notes.length > MAX_CONTACT_NOTES_CHARS) {
+    const over = notes.length - MAX_CONTACT_NOTES_CHARS;
+    return `Notes hold ${MAX_CONTACT_NOTES_CHARS.toLocaleString()} characters. Shorten by ${over.toLocaleString()}, or move the rest to a note.`;
+  }
+  if (draft.profile) {
+    const profile = profileOf(draft.profile);
+    if ((profile.howWeMet ?? "").length > MAX_PROFILE_TEXT_CHARS) {
+      return `How We Met holds ${MAX_PROFILE_TEXT_CHARS.toLocaleString()} characters.`;
+    }
+    for (const section of PROFILE_SECTIONS) {
+      if (section === "howWeMet") continue;
+      if (profile[section].length > MAX_PROFILE_ENTRIES) {
+        return `A section holds ${MAX_PROFILE_ENTRIES} entries.`;
+      }
+    }
+  }
+  if (!contactFitsObjectLimit(draft)) {
+    return "This contact is too large to store. Removing the photo is usually enough.";
+  }
+  return null;
 }
 
 function trim(value?: string): string {
@@ -310,6 +379,11 @@ export function serializeCard(draft: ContactDraft): string {
     body.notes = { n1: { note: notes } };
   }
 
+  const profile = serializeProfile(draft.profile);
+  if (profile) {
+    body[CONTACT_PROFILE_PROP] = profile;
+  }
+
   if (draft.avatar) {
     body.media = {
       avatar: {
@@ -383,6 +457,7 @@ type RawCard = {
   updated?: string;
   updatedAt?: string;
   [ADDRESS_BOOK_ID_PROP]?: string;
+  [CONTACT_PROFILE_PROP]?: unknown;
 };
 
 function parseChannels<T extends { label?: string; contexts?: Record<string, boolean> }>(
@@ -576,6 +651,7 @@ export function parseDraft(raw: string): ContactDraft {
     socials: parseSocials(card),
     notes: parseNotes(card),
     avatar: parseAvatar(card),
+    profile: parseProfile(card[CONTACT_PROFILE_PROP]),
     addressBookId: resolveAddressBookId(card[ADDRESS_BOOK_ID_PROP]),
     createdAt: card.created ?? card.createdAt,
     updatedAt: card.updated ?? card.updatedAt,

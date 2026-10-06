@@ -6,6 +6,7 @@ import type { AddressBook, Contact, ContactDraft } from "../lib/types";
 import { Avatar } from "./ContactCard";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ContactForm } from "./ContactForm";
+import { ContactProfileView } from "./ContactProfileView";
 
 type Props = {
   contact: Contact;
@@ -17,6 +18,8 @@ type Props = {
   error?: string | null;
   onSave: (draft: ContactDraft) => boolean | Promise<boolean>;
   readOnly?: boolean;
+  /** Detailed contact mode: adds the relationship sections. */
+  detailed?: boolean;
 };
 
 function formatTimestamp(iso?: string): string | null {
@@ -70,6 +73,7 @@ export function ContactDetailModal({
   error,
   onSave,
   readOnly = false,
+  detailed = false,
 }: Props) {
   const addresses = addressLines(contact.address);
   const [editing, setEditing] = useState(false);
@@ -256,6 +260,7 @@ export function ContactDetailModal({
           addressBooks={addressBooks}
           initialDraft={contact}
           submitLabel="Save changes"
+          detailed={detailed}
           onSubmit={async (draft) => {
             if (await onSave(draft)) {
               setEditing(false);
@@ -266,7 +271,8 @@ export function ContactDetailModal({
         </>
       ) : (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 space-y-5">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">
+          <div className="2xl:columns-2 2xl:gap-6">
           {/* Emails */}
           {contact.emails.length > 0 ? (
             <Section title="Emails">
@@ -467,6 +473,9 @@ export function ContactDetailModal({
             </Section>
           ) : null}
 
+          {detailed ? <ContactProfileView profile={contact.profile} /> : null}
+
+          </div>
         </div>
 
         {/* Metadata timestamps */}
@@ -514,7 +523,7 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <section>
+    <section className="mb-5 break-inside-avoid">
       <h4
         className={`mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-mute ${sectionBar}`}
       >

@@ -1,14 +1,18 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   CHANNEL_KINDS,
+  MAX_CONTACT_NOTES_CHARS,
   addressLines,
   channelKindLabel,
+  contactValidationError,
   emptyChannel,
   emptyDate,
   emptyDraft,
   emptySocial,
   emptyWork,
 } from "../lib/contact";
+import { DEFAULT_ADDRESS_BOOK_ID } from "../lib/addressBook";
+import { emptyProfile, profileOf } from "../lib/contactProfile";
 import {
   addLink,
   btnPrimary,
@@ -18,7 +22,6 @@ import {
   ghost,
   primary,
   secondary,
-  sectionBar,
   selectField,
 } from "../lib/styles";
 import type {
@@ -29,11 +32,12 @@ import type {
   ContactDate,
   ContactDateKind,
   ContactDraft,
+  ContactProfile,
   ContactSocial,
   ContactWork,
 } from "../lib/types";
-
-const labelClass = "block min-w-0 text-sm text-mute";
+import { AddIcon, FormSection as Section, RemoveButton, labelClass } from "./FieldControls";
+import { ContactProfileFields } from "./ContactProfileFields";
 
 type Props = {
   busy: boolean;
@@ -43,6 +47,8 @@ type Props = {
   submitLabel?: string;
   formId?: string;
   hideFooter?: boolean;
+  /** Detailed contact mode: adds the relationship sections. */
+  detailed?: boolean;
   onSubmit: (draft: ContactDraft) => void;
   onCancel: () => void;
   onDelete?: () => void;
@@ -50,7 +56,7 @@ type Props = {
 
 function cloneDraft(source?: ContactDraft): ContactDraft {
   if (!source) {
-    return emptyDraft();
+    return { ...emptyDraft(), profile: profileOf() };
   }
   return {
     ...source,
@@ -60,6 +66,7 @@ function cloneDraft(source?: ContactDraft): ContactDraft {
     dates: source.dates ? source.dates.map((d) => ({ ...d })) : [],
     socials: source.socials ? source.socials.map((s) => ({ ...s })) : [],
     address: source.address ? { ...source.address } : {},
+    profile: profileOf(source.profile),
   };
 }
 
@@ -71,6 +78,7 @@ export function ContactForm({
   submitLabel,
   formId,
   hideFooter = false,
+  detailed = false,
   onSubmit,
   onCancel,
   onDelete,
@@ -79,17 +87,65 @@ export function ContactForm({
   const [showAddress, setShowAddress] = useState(
     () => Boolean(initialDraft?.address && addressLines(initialDraft.address).length > 0),
   );
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  /*
+   * The photo is the one field edited from outside this form: the detail pane
+   * keeps its control in the header, which stays live while editing and writes
+   * straight to the vault. The draft above is a snapshot taken on mount, so
+   * without this a photo added mid-edit was saved and then deleted again by the
+   * submit that followed, and one removed mid-edit came back.
+   *
+   * Returning `current` unchanged when it already matches keeps this from
+   * re-rendering on mount and from fighting the form over a field it does own.
+   */
+  useEffect(() => {
+    const avatar = initialDraft?.avatar;
+    setDraft((current) => (current.avatar === avatar ? current : { ...current, avatar }));
+  }, [initialDraft?.avatar]);
+
+  /*
+   * The same split, from the other direction: deleting an address book from the
+   * sidebar moves its contacts elsewhere, and can happen while this form is open
+   * on one of them. The select would then be showing nothing, since its value
+   * matches no option, and the submit would write an id no book has.
+   *
+   * Falls back to a book that exists rather than to `initialDraft`, which still
+   * names the deleted one: the detail pane is not resynced by a refresh. Only
+   * applied once the draft's own book is gone, so a book chosen here is never
+   * overridden.
+   */
+  useEffect(() => {
+    if (addressBooks.length === 0) return;
+    setDraft((current) => {
+      if (addressBooks.some((book) => book.id === current.addressBookId)) return current;
+      const fallback =
+        addressBooks.find((book) => book.id === DEFAULT_ADDRESS_BOOK_ID) ?? addressBooks[0];
+      return { ...current, addressBookId: fallback.id };
+    });
+  }, [addressBooks]);
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!draft.name.trim()) {
       return;
     }
+    const problem = contactValidationError(draft);
+    setValidationError(problem);
+    if (problem) {
+      return;
+    }
     onSubmit(draft);
   }
 
   function patch(partial: Partial<ContactDraft>) {
+    setValidationError(null);
     setDraft((current) => ({ ...current, ...partial }));
+  }
+
+  function patchProfile(profile: ContactProfile) {
+    setValidationError(null);
+    setDraft((current) => ({ ...current, profile }));
   }
 
   function patchAddress(partial: Partial<ContactAddress>) {
@@ -112,6 +168,7 @@ export function ContactForm({
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">
+        <div className="mx-auto w-full max-w-3xl">
         <Section title="Identity" first>
           {addressBooks.length > 0 ? (
             <label className={`${labelClass} mb-3`}>
@@ -296,15 +353,32 @@ export function ContactForm({
         </Section>
 
         <Section title="Notes">
-          <textarea
-            value={draft.notes ?? ""}
-            onChange={(e) => patch({ notes: e.target.value })}
-            placeholder="Add notes, context, or meeting reminders…"
-            rows={3}
-            className={`${fieldBase} h-auto min-h-[5.5rem] py-2.5 resize-y leading-relaxed`}
-          />
+          <div className="grid gap-1.5">
+            <textarea
+              value={draft.notes ?? ""}
+              onChange={(e) => patch({ notes: e.target.value })}
+              placeholder="Add notes, context, or meeting reminders…"
+              rows={3}
+              className={`${fieldBase} h-auto min-h-[5.5rem] py-2.5 resize-y leading-relaxed`}
+            />
+            <NotesCounter length={(draft.notes ?? "").length} detailed={detailed} />
+          </div>
         </Section>
+
+        {detailed ? (
+          <ContactProfileFields profile={draft.profile ?? emptyProfile()} onChange={patchProfile} />
+        ) : null}
+        </div>
       </div>
+
+      {validationError ? (
+        <p
+          role="alert"
+          className="shrink-0 border-t border-danger/30 bg-danger/10 px-5 py-2.5 text-xs leading-relaxed text-danger"
+        >
+          {validationError}
+        </p>
+      ) : null}
 
       {!hideFooter ? <div className="shrink-0 border-t border-line bg-panel">
         {error ? (
@@ -373,50 +447,28 @@ export function ContactForm({
   );
 }
 
-function Section({
-  title,
-  first,
-  action,
-  children,
-}: {
-  title: string;
-  first?: boolean;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
+/**
+ * Appears only as the field fills up: a counter on an empty box reads as a limit
+ * the user is meant to aim for.
+ */
+function NotesCounter({ length, detailed }: { length: number; detailed: boolean }) {
+  if (length <= MAX_CONTACT_NOTES_CHARS * 0.8) {
+    return null;
+  }
+  const over = length > MAX_CONTACT_NOTES_CHARS;
   return (
-    <section className={first ? undefined : "mt-6 border-t border-line pt-5"}>
-      <div className="flex min-w-0 items-center justify-between gap-3">
-        <h3
-          className={`text-[11px] font-semibold uppercase tracking-[0.14em] text-mute ${sectionBar}`}
-        >
-          {title}
-        </h3>
-        {action}
-      </div>
-      <div className="mt-3 min-w-0">{children}</div>
-    </section>
-  );
-}
-
-function RemoveButton({
-  label,
-  onClick,
-}: {
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-mute transition-all duration-150 hover:bg-surface hover:text-text cursor-pointer"
-      aria-label={label}
-      onClick={onClick}
-    >
-      <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-        <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-      </svg>
-    </button>
+    <div className="flex flex-wrap items-baseline justify-between gap-2 text-[11px]">
+      {over && !detailed ? (
+        <span className="text-mute">
+          Keeping history on people? Turn on detailed contacts in Settings.
+        </span>
+      ) : (
+        <span />
+      )}
+      <span className={over ? "text-danger" : "text-mute"}>
+        {length.toLocaleString()} / {MAX_CONTACT_NOTES_CHARS.toLocaleString()}
+      </span>
+    </div>
   );
 }
 
@@ -710,13 +762,3 @@ function SocialList({
     </div>
   );
 }
-
-function AddIcon() {
-  return (
-    <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-      <path d="M10 4a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 10 4Z" />
-    </svg>
-  );
-}
-
-

@@ -5,10 +5,12 @@ import type {
   ContactChannel,
   ContactDate,
   ContactDraft,
+  ContactProfile,
   ContactSocial,
   ContactWork,
 } from "./types";
 import { emptyChannel } from "./contact";
+import { parseProfile, serializeProfile } from "./contactProfile";
 import { bookNameById, resolveAddressBookId } from "./addressBook";
 
 function newId(): string {
@@ -284,6 +286,7 @@ export function parseCsvContacts(
     const fullSocials = getJson<ContactSocial[]>(["socials(json)"], socials);
     const fullWork = getJson<ContactWork[]>(["work(json)"], work);
     const fullAddress = getJson<ContactAddress | null>(["address(json)"], address ?? null);
+    const fullProfile = parseProfile(getJson<unknown>(["profile(json)"], undefined));
     const importedAddressBookId = get(["addressbookid"]) || targetAddressBookId;
 
     contacts.push({
@@ -298,6 +301,7 @@ export function parseCsvContacts(
       avatar: get(["avatar", "photo"]) || undefined,
       address: fullAddress ?? undefined,
       work: fullWork,
+      profile: fullProfile,
       addressBookId: resolveAddressBookId(importedAddressBookId),
       createdAt: get(["createdat"]) || undefined,
       updatedAt: get(["updatedat"]) || undefined,
@@ -305,6 +309,15 @@ export function parseCsvContacts(
   }
 
   return contacts;
+}
+
+/**
+ * The stored wire shape rather than the draft, so `parseProfile` reads the column
+ * back on import: the draft carries editor ids that the payload does not.
+ */
+function profileColumn(profile?: ContactProfile): string {
+  const body = serializeProfile(profile);
+  return body ? JSON.stringify(body) : "";
 }
 
 export function serializeCsvContacts(
@@ -341,6 +354,7 @@ export function serializeCsvContacts(
     "Socials (JSON)",
     "Work (JSON)",
     "Address (JSON)",
+    "Profile (JSON)",
     "Created At",
     "Updated At",
   ];
@@ -402,6 +416,7 @@ export function serializeCsvContacts(
       escapeCsv(JSON.stringify(c.socials ?? [])),
       escapeCsv(JSON.stringify(c.work ?? [])),
       escapeCsv(JSON.stringify(c.address ?? null)),
+      escapeCsv(profileColumn(c.profile)),
       escapeCsv(c.createdAt),
       escapeCsv(c.updatedAt),
     ];

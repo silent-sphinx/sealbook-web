@@ -33,6 +33,26 @@
   --animate-scale-in: scaleIn 0.25s ease-out both;
   --animate-slide-up: slideUp 0.3s ease-out both;
   --animate-slide-in-left: slideInLeft 0.22s ease-out both;
+  /* Marks a block the user has just had added for them; see `flashBlock`. */
+  --animate-flash-block: flashBlock 1s ease-out both;
+}
+
+/*
+ * Ramps in rather than starting at full tint: the block is already on screen by
+ * the time this runs, so fading out from a hard colour reads as a glitch where
+ * a flash reads as a pointer. Decorative, so the reduced-motion rule at the foot
+ * of this file collapses it and the scroll alone does the work.
+ */
+@keyframes flashBlock {
+  0% {
+    background-color: transparent;
+  }
+  12% {
+    background-color: var(--color-accent-ring);
+  }
+  100% {
+    background-color: transparent;
+  }
 }
 
 @keyframes fadeIn {
@@ -141,6 +161,25 @@ option {
 @media (min-width: 1024px) {
   .sb-shell {
     grid-template-columns: var(--sb-sidebar-cols, 244px minmax(0, 1fr));
+  }
+}
+
+.sb-split {
+  position: relative;
+}
+
+/* While a split is being dragged, the cursor and the selection belong to the
+   drag rather than to whatever the pointer is passing over: a button under the
+   pointer specifies its own cursor and would otherwise win. */
+body.sb-dragging,
+body.sb-dragging * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+@media (min-width: 1024px) {
+  .sb-split {
+    grid-template-columns: var(--sb-split-cols, minmax(17rem, 22rem) 7px minmax(0, 1fr));
   }
 }
 

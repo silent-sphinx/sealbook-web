@@ -19,10 +19,14 @@ import {
   rotatePhrase,
 } from "../lib/client";
 import {
+  CONTACT_MODES,
+  CONTACT_MODE_LABELS,
   FEATURES,
   FEATURE_LABELS,
   canDisableFeature,
   isFeatureEnabled,
+  normalizeContactMode,
+  withContactMode,
   withFeature,
 } from "../lib/accountSettings";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -45,6 +49,7 @@ import type {
   Calendar,
   CalendarEvent,
   Contact,
+  ContactMode,
   FeatureKey,
   Note,
   Notebook,
@@ -104,9 +109,9 @@ const SECTIONS: { id: SettingsSection; label: string; nav: string; blurb: string
   {
     id: "contacts",
     label: "Contacts settings",
-    nav: "Import and export contacts",
+    nav: "Detail level, import and export",
     blurb:
-      "Move contact data in and out of Sealbook while keeping your address books organized.",
+      "Choose how much a contact can hold, and move contact data in and out of Sealbook while keeping your address books organized.",
   },
   {
     id: "calendar",
@@ -204,6 +209,10 @@ export function SettingsView({
   const [featureBusy, setFeatureBusy] = useState<FeatureKey | null>(null);
   const [featureMsg, setFeatureMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  // Contact mode state
+  const [contactModeBusy, setContactModeBusy] = useState(false);
+  const [contactModeMsg, setContactModeMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
   // Delete account state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -233,6 +242,26 @@ export function SettingsView({
       setFeatureMsg({ type: "error", text: friendlyError(err) });
     } finally {
       setFeatureBusy(null);
+    }
+  }
+
+  async function handleContactMode(mode: ContactMode) {
+    if (normalizeContactMode(accountSettings.contactMode) === mode) return;
+    setContactModeBusy(true);
+    setContactModeMsg(null);
+    try {
+      await onSaveAccountSettings(withContactMode(accountSettings, mode));
+      setContactModeMsg({
+        type: "success",
+        text:
+          mode === "detailed"
+            ? "Detailed contacts are on. Open a contact and use Add section to start filling them in."
+            : "Back to basic contacts. Anything already filled in stays in your vault and comes back when you switch again.",
+      });
+    } catch (err) {
+      setContactModeMsg({ type: "error", text: friendlyError(err) });
+    } finally {
+      setContactModeBusy(false);
     }
   }
 
@@ -1428,7 +1457,67 @@ export function SettingsView({
 
       </>}
 
-      {activeSection === "contacts" && (
+      {activeSection === "contacts" && (<>
+        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
+          <h3 className="text-base font-semibold text-text">Contact detail</h3>
+          <p className="mt-1 text-xs leading-relaxed text-mute">
+            Detailed contacts turn the address book into a personal relationship manager:
+            how you met, interests, food, music, pets, career and relationship history,
+            life events, family and friends. Switching back to basic hides those sections
+            without deleting anything.
+          </p>
+
+          <div
+            role="radiogroup"
+            aria-label="Contact detail level"
+            className="mt-5 grid gap-3 sm:grid-cols-2"
+          >
+            {CONTACT_MODES.map((mode) => {
+              const active = normalizeContactMode(accountSettings.contactMode) === mode;
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  disabled={contactModeBusy}
+                  onClick={() => void handleContactMode(mode)}
+                  className={`rounded-xl border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${focusRing} ${active
+                    ? "border-accent/40 bg-accent/10"
+                    : "border-line/80 bg-bg/50 hover:border-line-light"}`}
+                >
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-text">
+                      {CONTACT_MODE_LABELS[mode]}
+                    </span>
+                    {active ? (
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent">
+                        Active
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="mt-1 block text-[11px] leading-relaxed text-mute">
+                    {mode === "basic"
+                      ? "Names, channels, dates, socials, work, address and notes."
+                      : "Everything in basic, plus ten relationship sections you add one at a time."}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {contactModeMsg ? (
+            <p
+              role="alert"
+              className={`mt-4 rounded-lg border px-3 py-2 text-xs leading-relaxed ${contactModeMsg.type === "success"
+                ? "border-line bg-bg text-mute"
+                : "border-danger/30 bg-danger/10 text-danger"}`}
+            >
+              {contactModeMsg.text}
+            </p>
+          ) : null}
+        </section>
+
         <ImportExportSection
           session={session}
           contacts={contacts}
@@ -1436,7 +1525,7 @@ export function SettingsView({
           onRefresh={onRefresh}
           onCreateBook={onCreateBook}
         />
-      )}
+      </>)}
 
       {activeSection === "notes" && (
         <NotesImportExportSection

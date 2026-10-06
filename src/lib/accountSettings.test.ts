@@ -4,10 +4,12 @@ import {
   DEFAULT_ACCOUNT_SETTINGS,
   canDisableFeature,
   enabledFeatures,
+  isDetailedContacts,
   isFeatureEnabled,
   normalizeFeatures,
   parseAccountSettings,
   serializeAccountSettings,
+  withContactMode,
   withFeature,
 } from "./accountSettings";
 
@@ -67,5 +69,40 @@ describe("the at-least-one rule", () => {
   it("re-enabling is never blocked", () => {
     const only = settings({ calendar: false, notes: false });
     expect(enabledFeatures(withFeature(only, "notes", true))).toEqual(["contacts", "notes"]);
+  });
+});
+
+describe("the contact detail mode", () => {
+  it("is basic for an account that has never chosen", () => {
+    expect(DEFAULT_ACCOUNT_SETTINGS.contactMode).toBe("basic");
+    expect(isDetailedContacts(DEFAULT_ACCOUNT_SETTINGS)).toBe(false);
+  });
+
+  it("round trips through the payload", () => {
+    const stored = serializeAccountSettings(withContactMode(settings(), "detailed"));
+    expect(isDetailedContacts(parseAccountSettings(stored))).toBe(true);
+  });
+
+  it("reads a payload from a build that never wrote the field as basic", () => {
+    const stored = JSON.stringify({ features: { contacts: true, calendar: true, notes: true } });
+    expect(parseAccountSettings(stored).contactMode).toBe("basic");
+  });
+
+  it("reads an unknown mode as basic rather than trusting the string", () => {
+    expect(parseAccountSettings(JSON.stringify({ contactMode: "everything" })).contactMode).toBe(
+      "basic",
+    );
+  });
+
+  it("survives a feature being toggled", () => {
+    // withFeature rebuilds the settings, so the mode has to be carried across or
+    // turning the calendar off would quietly reset the address book to basic.
+    const detailed = withContactMode(settings(), "detailed");
+    expect(isDetailedContacts(withFeature(detailed, "calendar", false))).toBe(true);
+  });
+
+  it("leaves the feature flags alone when the mode changes", () => {
+    const some = settings({ notes: false });
+    expect(enabledFeatures(withContactMode(some, "detailed"))).toEqual(enabledFeatures(some));
   });
 });

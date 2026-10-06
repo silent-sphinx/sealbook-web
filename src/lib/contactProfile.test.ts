@@ -1,0 +1,269 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  MAX_PROFILE_ENTRIES,
+  atPrecision,
+  precisionOf,
+  MAX_PROFILE_TEXT_CHARS,
+  emptyProfile,
+  filledSections,
+  formatDateRange,
+  formatPartialDate,
+  parseProfile,
+  profileIsEmpty,
+  profileSearchText,
+  sectionIsEmpty,
+  serializeProfile,
+} from "./contactProfile";
+import {
+  MAX_CONTACT_NOTES_CHARS,
+  contactValidationError,
+  emptyDraft,
+  parseDraft,
+  serializeCard,
+} from "./contact";
+import type { ContactProfile } from "./types";
+
+function profile(over: Partial<ContactProfile> = {}): ContactProfile {
+  return { ...emptyProfile(), ...over };
+}
+
+const filled = (): ContactProfile =>
+  profile({
+    howWeMet: "Queue for the wrong train at Reading, 2019.",
+    interests: [{ id: "a", value: "Bouldering" }],
+    music: [{ id: "b", value: "Talking Heads" }],
+    food: [{ id: "c", polarity: "dislike", value: "Coriander", note: "Tastes of soap" }],
+    pets: [{ id: "d", name: "Mabel", species: "Border terrier" }],
+    career: [
+      { id: "e", organization: "Ordnance Survey", title: "Cartographer", start: "2019-04", end: "2023-01" },
+    ],
+    relationships: [{ id: "f", name: "Sam", kind: "Ex-partner", start: "2015", end: "2018" }],
+    timeline: [{ id: "g", title: "Moved to Bristol", date: "2021-09", description: "For the job." }],
+    family: [{ id: "h", name: "Rosa", relation: "Mother" }],
+    friends: [{ id: "i", name: "Tomas", note: "Also climbs" }],
+  });
+
+describe("the profile payload", () => {
+  it("round trips every section through a card", () => {
+    const draft = { ...emptyDraft(), name: "Jo Bell", profile: filled() };
+    const back = parseDraft(serializeCard(draft)).profile;
+    expect(back).toBeDefined();
+    expect(back?.howWeMet).toBe(filled().howWeMet);
+    expect(back?.interests.map((row) => row.value)).toEqual(["Bouldering"]);
+    expect(back?.food[0]).toMatchObject({
+      polarity: "dislike",
+      value: "Coriander",
+      note: "Tastes of soap",
+    });
+    expect(back?.career[0]).toMatchObject({
+      organization: "Ordnance Survey",
+      title: "Cartographer",
+      start: "2019-04",
+      end: "2023-01",
+    });
+    expect(back?.timeline[0]).toMatchObject({ title: "Moved to Bristol", date: "2021-09" });
+    expect(back?.family[0]).toMatchObject({ name: "Rosa", relation: "Mother" });
+    expect(back?.friends[0]).toMatchObject({ name: "Tomas", note: "Also climbs" });
+  });
+
+  it("adds no key to a card when nothing is filled in", () => {
+    const draft = { ...emptyDraft(), name: "Jo Bell", profile: emptyProfile() };
+    expect(serializeCard(draft)).not.toContain("sealbook:profile");
+    expect(parseDraft(serializeCard(draft)).profile).toBeUndefined();
+  });
+
+  it("omits absent fields rather than writing null", () => {
+    const body = serializeProfile(profile({ pets: [{ id: "p", name: "Mabel" }] }));
+    expect(body?.pets).toEqual([{ name: "Mabel" }]);
+    expect(JSON.stringify(body)).not.toContain("null");
+  });
+
+  it("names its type so the payload is recognisable on its own", () => {
+    expect(serializeProfile(filled())?.["@type"]).toBe("SealbookProfile");
+  });
+
+  it("drops a row with no identifying value instead of storing a blank", () => {
+    const body = serializeProfile(
+      profile({
+        pets: [{ id: "a", name: "   " }, { id: "b", name: "Mabel" }],
+        friends: [{ id: "c", name: "", note: "a note with nobody attached" }],
+      }),
+    );
+    expect(body?.pets).toEqual([{ name: "Mabel" }]);
+    expect(body?.friends).toBeUndefined();
+  });
+
+  it("reads an unreadable entry as absent rather than failing the profile", () => {
+    const back = parseProfile({
+      interests: "not a list",
+      pets: [null, 7, { name: "Mabel" }],
+      food: [{ value: "Olives", polarity: "indifferent" }],
+    });
+    expect(back?.interests).toEqual([]);
+    expect(back?.pets.map((row) => row.name)).toEqual(["Mabel"]);
+    // An unknown polarity reads as a like, which is the field's default.
+    expect(back?.food[0].polarity).toBe("like");
+  });
+
+  it("is undefined for a value that is not a profile at all", () => {
+    expect(parseProfile(undefined)).toBeUndefined();
+    expect(parseProfile("text")).toBeUndefined();
+    expect(parseProfile({})).toBeUndefined();
+  });
+
+  it("gives each parsed row an id, so the editor can key on it", () => {
+    const back = parseProfile({ interests: ["Bouldering", "Baking"] });
+    const ids = back?.interests.map((row) => row.id) ?? [];
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  it("caps a section at the entry limit on both serialize and parse", () => {
+    const many = Array.from({ length: MAX_PROFILE_ENTRIES + 10 }, (_, index) => ({
+      id: String(index),
+      value: `Interest ${index}`,
+    }));
+    const body = serializeProfile(profile({ interests: many }));
+    expect((body?.interests as string[]).length).toBe(MAX_PROFILE_ENTRIES);
+    const back = parseProfile({ interests: many.map((row) => row.value) });
+    expect(back?.interests.length).toBe(MAX_PROFILE_ENTRIES);
+  });
+
+  it("truncates an over-long text field on parse rather than rejecting the card", () => {
+    const back = parseProfile({ howWeMet: "x".repeat(MAX_PROFILE_TEXT_CHARS + 50) });
+    expect(back?.howWeMet?.length).toBe(MAX_PROFILE_TEXT_CHARS);
+  });
+});
+
+describe("section emptiness", () => {
+  it("counts whitespace-only rows as empty", () => {
+    expect(sectionIsEmpty(profile({ interests: [{ id: "a", value: "  " }] }), "interests")).toBe(
+      true,
+    );
+    expect(profileIsEmpty(profile({ howWeMet: "   " }))).toBe(true);
+  });
+
+  it("holds a career row with only a title", () => {
+    expect(sectionIsEmpty(profile({ career: [{ id: "a", organization: "", title: "Cook" }] }), "career")).toBe(
+      false,
+    );
+  });
+
+  it("lists filled sections in display order, not insertion order", () => {
+    expect(filledSections(filled())).toEqual([
+      "howWeMet",
+      "interests",
+      "food",
+      "music",
+      "pets",
+      "career",
+      "relationships",
+      "timeline",
+      "family",
+      "friends",
+    ]);
+  });
+});
+
+describe("partial dates", () => {
+  it("shows a year alone as a year", () => {
+    expect(formatPartialDate("2019")).toBe("2019");
+  });
+
+  it("shows a year and month without inventing a day", () => {
+    expect(formatPartialDate("2019-04")).toMatch(/2019/);
+    expect(formatPartialDate("2019-04")).not.toMatch(/\b1\b/);
+  });
+
+  it("passes anything it cannot read back verbatim", () => {
+    expect(formatPartialDate("the summer of 2019")).toBe("the summer of 2019");
+    expect(formatPartialDate(undefined)).toBe("");
+  });
+
+  it("reads an open end as present, and a range with no start as the end alone", () => {
+    expect(formatDateRange("2019", undefined)).toBe("2019 - Present");
+    expect(formatDateRange(undefined, "2019")).toBe("2019");
+    expect(formatDateRange("2015", "2018")).toBe("2015 - 2018");
+    expect(formatDateRange(undefined, undefined)).toBe("");
+  });
+});
+
+describe("search text", () => {
+  it("reaches a note on a friend, which is what the sections are searched for", () => {
+    expect(profileSearchText(filled())).toContain("Also climbs");
+    expect(profileSearchText(filled())).toContain("Reading");
+  });
+
+  it("is empty for an absent profile", () => {
+    expect(profileSearchText(undefined)).toBe("");
+  });
+});
+
+describe("the contact size caps", () => {
+  it("accepts notes at the limit and reports the overflow past it", () => {
+    const at = { ...emptyDraft(), name: "Jo", notes: "x".repeat(MAX_CONTACT_NOTES_CHARS) };
+    expect(contactValidationError(at)).toBeNull();
+    const over = { ...emptyDraft(), name: "Jo", notes: "x".repeat(MAX_CONTACT_NOTES_CHARS + 12) };
+    expect(contactValidationError(over)).toContain("12");
+  });
+
+  it("passes a full profile, which is nowhere near the object ceiling", () => {
+    expect(contactValidationError({ ...emptyDraft(), name: "Jo", profile: filled() })).toBeNull();
+  });
+
+  it("keeps a card with notes at the cap inside the 8 KiB padding bucket", () => {
+    const draft = {
+      ...emptyDraft(),
+      name: "Jo Bell",
+      notes: "x".repeat(MAX_CONTACT_NOTES_CHARS),
+      profile: filled(),
+    };
+    expect(new TextEncoder().encode(serializeCard(draft)).length).toBeLessThanOrEqual(8192);
+  });
+});
+
+describe("date precision", () => {
+  it("reads the precision a value is written at", () => {
+    expect(precisionOf("2019")).toBe("year");
+    expect(precisionOf("2019-04")).toBe("month");
+    expect(precisionOf("2019-04-12")).toBe("day");
+  });
+
+  it("is null for anything that is not an ISO date, so the field falls back to text", () => {
+    expect(precisionOf("")).toBeNull();
+    expect(precisionOf("the summer of 2019")).toBeNull();
+    expect(precisionOf("19-04")).toBeNull();
+    expect(precisionOf("2019-4")).toBeNull();
+  });
+
+  it("narrows by dropping parts, never by clearing the field", () => {
+    expect(atPrecision("2019-04-12", "month")).toBe("2019-04");
+    expect(atPrecision("2019-04-12", "year")).toBe("2019");
+    expect(atPrecision("2019-04", "year")).toBe("2019");
+  });
+
+  it("widens to the first month or day rather than losing the year", () => {
+    expect(atPrecision("2019", "month")).toBe("2019-01");
+    expect(atPrecision("2019", "day")).toBe("2019-01-01");
+    expect(atPrecision("2019-04", "day")).toBe("2019-04-01");
+  });
+
+  it("keeps the month when widening from month to day", () => {
+    expect(atPrecision("2019-11", "day")).toBe("2019-11-01");
+  });
+
+  it("empties a value with no year to recover", () => {
+    expect(atPrecision("", "month")).toBe("");
+    expect(atPrecision("sometime", "year")).toBe("");
+  });
+
+  it("salvages the year out of free text when a precision is chosen", () => {
+    expect(atPrecision("2019 or thereabouts", "year")).toBe("2019");
+  });
+
+  it("round trips every precision through the display formatter", () => {
+    for (const value of ["2019", "2019-04", "2019-04-12"]) {
+      expect(formatPartialDate(value)).not.toBe("");
+    }
+  });
+});

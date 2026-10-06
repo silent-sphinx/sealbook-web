@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import logo from "./assets/sealbook-white.png";
 import { AddressBookList } from "./components/AddressBookList";
 import { SidebarDrawer, useSidebar } from "./components/SidebarDrawer";
+import { SplitHandle, useSplitPane } from "./components/SplitPane";
 import { AddDeviceModal } from "./components/AddDeviceModal";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { ContactCard, ContactListSkeleton } from "./components/ContactCard";
@@ -37,8 +38,10 @@ import {
 } from "./lib/client";
 import {
   DEFAULT_ACCOUNT_SETTINGS,
+  isDetailedContacts,
   isFeatureEnabled,
 } from "./lib/accountSettings";
+import { profileSearchText } from "./lib/contactProfile";
 import {
   ALL_ADDRESS_BOOKS,
   DEFAULT_ADDRESS_BOOK_ID,
@@ -548,6 +551,8 @@ export default function App() {
   // share the collapse rather than each reappearing on switching tabs. Below
   // `lg` the sidebar is a slide-over rather than a column.
   const sidebar = useSidebar();
+  // Remembered for the session, not for good: see `useSplitPane`.
+  const contactsSplit = useSplitPane("sealbook.contacts-split");
 
   // The calendar fills the viewport below the header, so it needs the header's
   // real height. That height is not a constant: the nav wraps to its own row on
@@ -616,6 +621,7 @@ export default function App() {
     ? activeTabState
     : visibleTabs[0].id;
   const contactsEnabled = isFeatureEnabled(accountSettings, "contacts");
+  const detailedContacts = isDetailedContacts(accountSettings);
 
   const filtered = useMemo(() => {
     const inBook =
@@ -635,6 +641,8 @@ export default function App() {
           ...contact.emails.map((e) => e.value),
           ...contact.phones.map((p) => p.value),
           ...contact.work.map((w) => `${w.organization} ${w.title ?? ""}`),
+          contact.notes,
+          profileSearchText(contact.profile),
           bookNameById(addressBooks, contact.addressBookId),
         ]
           .filter(Boolean)
@@ -2276,8 +2284,15 @@ export default function App() {
                 </div>
               </header>
 
-              <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(26rem,36rem)]">
-                <div className={`min-w-0 overflow-y-auto px-4 py-4 sm:px-5 lg:border-r lg:border-line lg:px-6 ${viewingContact ? "hidden lg:block" : ""}`}>
+              {/* The list is names and one subtitle line, so it starts narrower
+                  than the detail pane, which a detailed contact fills. The split
+                  between them is draggable; `sb-split` holds the default. */}
+              <div
+                ref={contactsSplit.containerRef}
+                style={contactsSplit.cols}
+                className="sb-split grid min-h-0 flex-1"
+              >
+                <div className={`min-w-0 overflow-y-auto px-4 py-4 sm:px-5 lg:px-6 ${viewingContact ? "hidden lg:block" : ""}`}>
                   {error && !composing && !editingContact && !deletingContact && !deletingAddressBook ? (
                     <p className="mb-4 text-sm text-danger" role="alert">{error}</p>
                   ) : null}
@@ -2335,6 +2350,8 @@ export default function App() {
                   )}
                 </div>
 
+                <SplitHandle split={contactsSplit} label="Resize the contact list" />
+
                 <div className={`min-w-0 flex-col overflow-hidden px-4 py-4 sm:px-5 lg:flex lg:px-6 ${viewingContact ? "flex" : "hidden"}`}>
                   {viewingContact ? (
                     <ContactDetailModal
@@ -2347,9 +2364,10 @@ export default function App() {
                       error={error}
                       onSave={onSaveViewedContact}
                       readOnly={isOffline}
+                      detailed={detailedContacts}
                     />
                   ) : (
-                    <div className="hidden min-h-56 items-center justify-center rounded-xl border border-dashed border-line bg-panel/20 px-6 text-center lg:flex">
+                    <div className="hidden min-h-56 flex-1 items-center justify-center rounded-xl border border-dashed border-line bg-panel/20 px-6 text-center lg:flex">
                       <p className="max-w-xs text-sm leading-relaxed text-mute">
                         Select a contact to view their details.
                       </p>
@@ -2376,6 +2394,7 @@ export default function App() {
                 : bookFilter,
             )}
             submitLabel="Add contact"
+            detailed={detailedContacts}
             onSubmit={onAdd}
             onCancel={closeComposer}
           />
@@ -2392,6 +2411,7 @@ export default function App() {
             addressBooks={addressBooks}
             initialDraft={editingContact}
             submitLabel="Save changes"
+            detailed={detailedContacts}
             onSubmit={onEditContact}
             onCancel={closeEditor}
             onDelete={() => promptDelete(editingContact)}

@@ -5,10 +5,12 @@ import type {
   ContactChannelKind,
   ContactDate,
   ContactDraft,
+  ContactProfile,
   ContactSocial,
   ContactWork,
 } from "./types";
 import { emptyChannel } from "./contact";
+import { parseProfile, serializeProfile } from "./contactProfile";
 
 function newId(): string {
   return crypto.randomUUID();
@@ -136,6 +138,7 @@ function buildContactFromProps(
   let pronouns = "";
   let notes = "";
   let avatar: string | undefined = undefined;
+  let profile: ContactProfile | undefined = undefined;
   let createdAt: string | undefined = undefined;
   let updatedAt: string | undefined = undefined;
   const emails: ContactChannel[] = [];
@@ -331,6 +334,14 @@ function buildContactFromProps(
         createdAt = unescapeVCard(prop.value);
         break;
 
+      case "X-SEALBOOK-PROFILE":
+        try {
+          profile = parseProfile(JSON.parse(unescapeVCard(prop.value)));
+        } catch {
+          // A damaged line loses the profile rather than the whole card.
+        }
+        break;
+
       case "PHOTO": {
         const rawVal = prop.value.trim();
         if (rawVal) {
@@ -399,6 +410,7 @@ function buildContactFromProps(
     socials,
     notes: notes || undefined,
     avatar,
+    profile,
     addressBookId,
     createdAt,
     updatedAt,
@@ -515,6 +527,17 @@ export function serializeVCard(contacts: Contact[] | ContactDraft[]): string {
 
     if (c.notes) {
       lines.push(`NOTE:${escapeVCard(c.notes)}`);
+    }
+
+    // No standard vCard spelling for the relationship sections, so they travel
+    // as one vendor property. Every other reader ignores an X- line, which keeps
+    // a Sealbook round trip lossless without putting junk in Apple or Google
+    // Contacts.
+    if (c.profile) {
+      const profile = serializeProfile(c.profile);
+      if (profile) {
+        lines.push(`X-SEALBOOK-PROFILE:${escapeVCard(JSON.stringify(profile))}`);
+      }
     }
 
     if (c.createdAt) {

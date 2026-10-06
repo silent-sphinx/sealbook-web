@@ -19,6 +19,9 @@ export function friendlyError(err: unknown): string {
   if (text.includes("kept changing")) {
     return raw;
   }
+  if (text.includes("too large")) {
+    return raw;
+  }
   // Checked before the roster branch below, which this message would otherwise
   // match: the history ran out rather than anything failing to verify, and the
   // remedy is pairing rather than alarm.

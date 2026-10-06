@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseVCard, serializeVCard } from "./vcard";
+import { emptyDraft } from "./contact";
+import { emptyProfile } from "./contactProfile";
 
 const BOOK = "00000000-0000-0000-0000-000000000001";
 
@@ -83,5 +85,45 @@ describe("vCard round trip", () => {
     const output = serializeVCard(contacts);
     expect(output.match(/BEGIN:VCARD/g)).toHaveLength(2);
     expect(output.match(/END:VCARD/g)).toHaveLength(2);
+  });
+});
+
+describe("the relationship profile", () => {
+  const draft = {
+    ...emptyDraft(BOOK),
+    name: "Ada Lovelace",
+    profile: {
+      ...emptyProfile(),
+      howWeMet: "At a lecture on the Analytical Engine.",
+      pets: [{ id: "p", name: "Puff", species: "Cat" }],
+    },
+  };
+
+  it("survives an export and re-import", () => {
+    const back = parseVCard(serializeVCard([draft]), BOOK);
+    expect(back[0].profile?.howWeMet).toBe("At a lecture on the Analytical Engine.");
+    expect(back[0].profile?.pets[0]).toMatchObject({ name: "Puff", species: "Cat" });
+  });
+
+  it("travels as one X- line, so another reader shows nothing extra", () => {
+    const lines = serializeVCard([draft]).split("\r\n");
+    expect(lines.filter((line) => line.startsWith("X-SEALBOOK-PROFILE:"))).toHaveLength(1);
+  });
+
+  it("writes no line for a contact with no profile", () => {
+    expect(serializeVCard([{ ...emptyDraft(BOOK), name: "Ada" }])).not.toContain("X-SEALBOOK");
+  });
+
+  it("loses only the profile when the line is damaged", () => {
+    const damaged = [
+      "BEGIN:VCARD",
+      "VERSION:3.0",
+      "FN:Ada Lovelace",
+      "X-SEALBOOK-PROFILE:{not json",
+      "END:VCARD",
+    ].join("\r\n");
+    const back = parseVCard(damaged, BOOK);
+    expect(back[0].name).toBe("Ada Lovelace");
+    expect(back[0].profile).toBeUndefined();
   });
 });

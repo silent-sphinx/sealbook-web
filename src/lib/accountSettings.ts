@@ -1,4 +1,4 @@
-import type { AccountSettings, FeatureKey } from "./types";
+import type { AccountSettings, ContactMode, FeatureKey } from "./types";
 
 /**
  * Account settings live in the vault as one sealed object, not as a server
@@ -26,27 +26,56 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
   notes: "Notes",
 };
 
+/**
+ * Also the order the modes appear in the UI. `basic` is first because it is the
+ * default for an account that has never chosen.
+ */
+export const CONTACT_MODES: ContactMode[] = ["basic", "detailed"];
+
+export const CONTACT_MODE_LABELS: Record<ContactMode, string> = {
+  basic: "Basic",
+  detailed: "Detailed",
+};
+
+/**
+ * Detailed is opt-in rather than the default: the relationship sections are for
+ * someone keeping a history on people, and an address book should not open as a
+ * ten-section form for everyone else.
+ */
+export const DEFAULT_CONTACT_MODE: ContactMode = "basic";
+
 export const DEFAULT_ACCOUNT_SETTINGS: AccountSettings = {
   features: { contacts: true, calendar: true, notes: true },
+  contactMode: DEFAULT_CONTACT_MODE,
 };
 
 export function serializeAccountSettings(settings: AccountSettings): string {
-  const features = normalizeFeatures(settings.features).features;
+  const normalized = normalizeFeatures(settings.features, settings.contactMode);
   return JSON.stringify({
     "@type": "AccountSettings",
     version: "1.0",
-    features,
+    features: normalized.features,
+    contactMode: normalized.contactMode,
   });
 }
 
 export function parseAccountSettings(raw: string): AccountSettings {
   try {
-    return normalizeFeatures((JSON.parse(raw) as { features?: unknown }).features);
+    const body = JSON.parse(raw) as { features?: unknown; contactMode?: unknown };
+    return normalizeFeatures(body.features, body.contactMode);
   } catch {
     // An unreadable payload must not take the vault down or hide a feature the
     // user still has data in, so it reads as the default: everything enabled.
     return DEFAULT_ACCOUNT_SETTINGS;
   }
+}
+
+/**
+ * Anything other than the two known modes is `basic`, so a payload from a build
+ * that never wrote the field does not read as detailed.
+ */
+export function normalizeContactMode(value: unknown): ContactMode {
+  return value === "detailed" ? "detailed" : DEFAULT_CONTACT_MODE;
 }
 
 /**
@@ -58,7 +87,7 @@ export function parseAccountSettings(raw: string): AccountSettings {
  * it off. An all-off payload is a client that ignored the rule, and is repaired
  * to the first feature rather than left as a vault with nothing in it.
  */
-export function normalizeFeatures(value: unknown): AccountSettings {
+export function normalizeFeatures(value: unknown, mode?: unknown): AccountSettings {
   const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
   const features = {} as Record<FeatureKey, boolean>;
   for (const feature of FEATURES) {
@@ -67,7 +96,7 @@ export function normalizeFeatures(value: unknown): AccountSettings {
   if (!FEATURES.some((feature) => features[feature])) {
     features[FEATURES[0]] = true;
   }
-  return { features };
+  return { features, contactMode: normalizeContactMode(mode) };
 }
 
 export function isFeatureEnabled(settings: AccountSettings, feature: FeatureKey): boolean {
@@ -99,5 +128,13 @@ export function withFeature(
   if (!enabled && !canDisableFeature(settings, feature)) {
     return settings;
   }
-  return normalizeFeatures({ ...settings.features, [feature]: enabled });
+  return normalizeFeatures({ ...settings.features, [feature]: enabled }, settings.contactMode);
+}
+
+export function isDetailedContacts(settings: AccountSettings): boolean {
+  return normalizeContactMode(settings.contactMode) === "detailed";
+}
+
+export function withContactMode(settings: AccountSettings, mode: ContactMode): AccountSettings {
+  return normalizeFeatures(settings.features, mode);
 }
