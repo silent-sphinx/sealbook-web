@@ -61,10 +61,11 @@ describe("documents the editor can load", () => {
   }
 
   it("keeps the schema free of nodes markdown cannot spell", () => {
-    // Underline and hard break have no markdown form, so the editor must not be
-    // able to produce them; see `noteEditorSchema`.
+    // Underline has no markdown form, so the editor must not be able to produce
+    // one; see `noteEditorSchema`. A hard break is spelled with a trailing
+    // backslash, so it stays in the schema.
     expect(schema.marks.underline).toBeUndefined();
-    expect(schema.nodes.hardBreak).toBeUndefined();
+    expect(schema.nodes.hardBreak).toBeDefined();
   });
 
   it("settles after a second trip", () => {

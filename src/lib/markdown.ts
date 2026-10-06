@@ -8,6 +8,7 @@ export type MdInline =
   | { kind: "em"; children: MdInline[] }
   | { kind: "strike"; children: MdInline[] }
   | { kind: "code"; text: string }
+  | { kind: "break" }
   | { kind: "link"; href: string; children: MdInline[] };
 
 export type MdListItem = {
@@ -87,7 +88,7 @@ const PARSE_BASE = "https://sealbook.invalid/";
 /** Deeper than this and `>>>>>` stays literal, so input cannot drive recursion. */
 const QUOTE_DEPTH_LIMIT = 4;
 
-const ESCAPABLE = "\\`*_~[]()#>!+-.";
+const ESCAPABLE = "\\`*_~[]()#>!+-.|";
 
 export function parseMarkdown(source: string, base: string = PARSE_BASE): MdBlock[] {
   const lines = source.replace(/\r\n?/gu, "\n").split("\n");
@@ -516,6 +517,91 @@ function fitRow(cells: RawCell[], columns: number): RawCell[] {
 }
 
 /**
+ * A delimiter row a person meant but GFM will not accept: at least one cell of
+ * dashes, the rest blank. Exporters that flatten merged cells produce these, and
+ * without the blanks they would already be a valid delimiter row.
+ */
+function looseDelimiter(line: string): MdAlign[] | null {
+  const cells = splitRow(line);
+  if (cells === null) return null;
+  const align: MdAlign[] = [];
+  let dashes = 0;
+  for (const cell of cells) {
+    const text = cell.trim();
+    if (text === "") {
+      align.push(null);
+      continue;
+    }
+    const single = delimiterAlignments(`|${cell}|`);
+    if (single === null) return null;
+    dashes += 1;
+    align.push(single[0]);
+  }
+  return dashes > 0 ? align : null;
+}
+
+/** Whether a line can carry table cells at all. */
+function isRow(line: string | undefined): boolean {
+  return line !== undefined && line.trim() !== "" && splitRow(line) !== null;
+}
+
+function padRow(cells: string[], columns: number): string {
+  const out = cells.slice(0, columns);
+  while (out.length < columns) out.push("");
+  return `| ${out.map((cell) => cell.trim().replace(/\|/gu, "\\|")).join(" | ")} |`;
+}
+
+function delimiterRow(align: MdAlign[], columns: number): string {
+  const cells: string[] = [];
+  for (let i = 0; i < columns; i += 1) {
+    const at = align[i] ?? null;
+    cells.push(at === "center" ? ":-:" : at === "left" ? ":--" : at === "right" ? "--:" : "---");
+  }
+  return `| ${cells.join(" | ")} |`;
+}
+
+/**
+ * Rewrites pipe tables whose delimiter row GFM rejects, which is what an export
+ * with merged cells produces. The column count becomes the widest row so no cell
+ * is dropped, and short rows are padded.
+ *
+ * Only for text arriving from elsewhere. A table the parser already accepts is
+ * returned untouched, so this cannot rewrite a note the editor wrote.
+ */
+export function repairPipeTables(source: string): string {
+  const lines = source.replace(/\r\n?/gu, "\n").split("\n");
+  const out: string[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const header = splitRow(lines[i]);
+    const loose = header === null ? null : looseDelimiter(lines[i + 1] ?? "");
+    // A row the parser already reads as a table needs no help.
+    if (header === null || loose === null || delimiterAlignments(lines[i + 1] ?? "") !== null) {
+      out.push(lines[i]);
+      i += 1;
+      continue;
+    }
+
+    const rows: string[][] = [header];
+    let end = i + 2;
+    while (end < lines.length && isRow(lines[end]) && !startsBlock(lines[end])) {
+      const cells = splitRow(lines[end]);
+      if (cells === null) break;
+      rows.push(cells);
+      end += 1;
+    }
+
+    const columns = rows.reduce((wide, row) => Math.max(wide, row.length), 0);
+    out.push(padRow(rows[0], columns), delimiterRow(loose, columns));
+    for (const row of rows.slice(1)) out.push(padRow(row, columns));
+    i = end;
+  }
+
+  return out.join("\n");
+}
+
+/**
  * One row's cells, split on unescaped pipes. A row has to carry at least one, so
  * a bare line of text cannot be read as a single-column table.
  */
@@ -613,15 +699,30 @@ function parseInline(source: string, base: string, inLink: boolean): MdInline[] 
   while (i < source.length) {
     const char = source[i];
 
+    // A trailing backslash is a hard break, which is the spelling written back.
+    if (char === "\\" && source[i + 1] === "\n") {
+      flush();
+      out.push({ kind: "break" });
+      i += 2;
+      continue;
+    }
+
     if (char === "\\" && i + 1 < source.length && ESCAPABLE.includes(source[i + 1])) {
       buffer += source[i + 1];
       i += 2;
       continue;
     }
 
-    // A soft break is a space, so a wrapped paragraph reads as one.
     if (char === "\n") {
-      buffer += " ";
+      // Two trailing spaces are GFM's other hard break. Otherwise a soft break
+      // is a space, so a wrapped paragraph reads as one.
+      if (/ {2,}$/u.test(buffer)) {
+        buffer = buffer.replace(/ +$/u, "");
+        flush();
+        out.push({ kind: "break" });
+      } else {
+        buffer += " ";
+      }
       i += 1;
       continue;
     }
@@ -655,12 +756,18 @@ function parseInline(source: string, base: string, inLink: boolean): MdInline[] 
     }
 
     if (char === "*" || char === "_") {
-      // `***both***` is strong around emphasis. Checked before the pair below,
-      // which would otherwise read the third marker as literal text.
-      if (runLength(source, i, char) >= 3) {
+      // Underscore does not pair inside a word, so `compose_portainer` and
+      // `a_b_c` stay literal. Asterisk keeps the intraword spelling GFM allows.
+      const opens = char !== "_" || !isWordChar(source[i - 1]);
+      const closes = (at: number, length: number): boolean =>
+        char !== "_" || !isWordChar(source[at + length]);
+
+      if (opens && runLength(source, i, char) >= 3) {
         const triple = char.repeat(3);
         const from = i + 3;
-        const closing = failed(triple, from) ? -1 : findDelimiter(source, from, triple);
+        const closing = failed(triple, from)
+          ? -1
+          : findDelimiter(source, from, triple, (at) => closes(at, 3));
         if (closing !== -1 && closing > from) {
           flush();
           const children = parseInline(source.slice(from, closing), base, inLink);
@@ -671,17 +778,21 @@ function parseInline(source: string, base: string, inLink: boolean): MdInline[] 
         recordFailure(triple, from);
       }
 
-      const double = source[i + 1] === char;
-      const delim = double ? char + char : char;
-      const from = i + delim.length;
-      const closing = failed(delim, from) ? -1 : findDelimiter(source, from, delim);
-      if (closing === -1) recordFailure(delim, from);
-      if (closing !== -1 && closing > from) {
-        flush();
-        const children = parseInline(source.slice(i + delim.length, closing), base, inLink);
-        out.push(double ? { kind: "strong", children } : { kind: "em", children });
-        i = closing + delim.length;
-        continue;
+      if (opens) {
+        const double = source[i + 1] === char;
+        const delim = double ? char + char : char;
+        const from = i + delim.length;
+        const closing = failed(delim, from)
+          ? -1
+          : findDelimiter(source, from, delim, (at) => closes(at, delim.length));
+        if (closing === -1) recordFailure(delim, from);
+        if (closing !== -1 && closing > from) {
+          flush();
+          const children = parseInline(source.slice(i + delim.length, closing), base, inLink);
+          out.push(double ? { kind: "strong", children } : { kind: "em", children });
+          i = closing + delim.length;
+          continue;
+        }
       }
     }
 
@@ -726,6 +837,11 @@ function parseInline(source: string, base: string, inLink: boolean): MdInline[] 
   return out;
 }
 
+/** Letters, digits and `_`, the characters an underscore may not pair between. */
+function isWordChar(char: string | undefined): boolean {
+  return char !== undefined && /[\p{L}\p{N}_]/u.test(char);
+}
+
 function runLength(source: string, start: number, char: string): number {
   let n = 0;
   while (source[start + n] === char) n += 1;
@@ -751,7 +867,12 @@ function findRun(source: string, from: number, char: string, length: number): nu
  * The closing emphasis delimiter, skipping code spans so that a `*` inside
  * backticks cannot close emphasis opened outside them.
  */
-function findDelimiter(source: string, from: number, delim: string): number {
+function findDelimiter(
+  source: string,
+  from: number,
+  delim: string,
+  accept?: (at: number) => boolean,
+): number {
   let i = from;
   while (i < source.length) {
     if (source[i] === "\\") {
@@ -764,7 +885,7 @@ function findDelimiter(source: string, from: number, delim: string): number {
       i = closing === -1 ? i + run : closing + run;
       continue;
     }
-    if (source.startsWith(delim, i)) return i;
+    if (source.startsWith(delim, i) && (accept === undefined || accept(i))) return i;
     i += 1;
   }
   return -1;
@@ -856,6 +977,7 @@ export function inlineText(nodes: MdInline[]): string {
   let out = "";
   for (const node of nodes) {
     if (node.kind === "text" || node.kind === "code") out += node.text;
+    else if (node.kind === "break") out += " ";
     else out += inlineText(node.children);
   }
   return out;

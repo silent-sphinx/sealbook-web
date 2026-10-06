@@ -195,6 +195,9 @@ function inlineToNodes(nodes: MdInline[], marks: DocMark[]): DocNode[] {
       case "code":
         if (node.text) out.push(textNode(node.text, withMark(marks, { type: "code" })));
         break;
+      case "break":
+        out.push({ type: "hardBreak" });
+        break;
       case "strong":
         out.push(...inlineToNodes(node.children, withMark(marks, { type: "bold" })));
         break;
@@ -345,6 +348,8 @@ function serializeTable(node: DocNode, indent: string): string {
   if (rows.length === 0) return "";
   const cellText = (cell: DocNode): string =>
     serializeBlocks(cell.content ?? [], "")
+      // A hard break has no spelling inside a cell, so it falls back to a space.
+      .replace(/\\\n/gu, "\n")
       .replace(/\n+/gu, " ")
       .replace(/\|/gu, "\\|")
       .trim();
@@ -423,7 +428,7 @@ function serializeInline(nodes: DocNode[]): string {
   let out = "";
   for (const node of mergeRuns(nodes)) {
     if (node.type === "hardBreak") {
-      out += " ";
+      out += "\\\n";
       continue;
     }
     if (node.type !== "text" || !node.text) continue;
@@ -494,21 +499,32 @@ function wrap(text: string, marker: string): string {
 }
 
 /**
- * Characters the inline scanner acts on. `_` and `*` are escaped wherever they
- * appear because the scanner pairs them without a word-boundary rule, so
- * `snake_case_name` would otherwise come back as emphasis.
+ * Characters the inline scanner acts on. `*` is escaped wherever it appears
+ * because it pairs inside a word; `_` only where it could open emphasis, so
+ * `snake_case_name` survives without backslashes. A node starting with `_` is
+ * escaped because the character before it belongs to the previous node.
  */
 function escapeText(text: string): string {
   return text
     .replace(/\\/gu, "\\\\")
-    .replace(/[`*_[]/gu, "\\$&")
+    .replace(/[`*[]/gu, "\\$&")
+    .replace(/(?<![\p{L}\p{N}_])_/gu, "\\$&")
     .replace(/~~/gu, "\\~\\~");
 }
 
-/** A line of prose that would otherwise open a block of its own. */
-function escapeBlockStart(line: string): string {
-  return line
-    .replace(/^(\s*)(#{1,6})(\s|$)/u, "$1\\$2$3")
-    .replace(/^(\s*)([-+>])(\s|$)/u, "$1\\$2$3")
-    .replace(/^(\s*)(\d{1,9})([.)])(\s)/u, "$1$2\\$3$4");
+/**
+ * Prose that would otherwise open a block of its own. Every line is escaped, not
+ * just the first: a hard break puts a newline inside a paragraph, and a line
+ * after one would otherwise be read back as a list, heading or quote.
+ */
+function escapeBlockStart(text: string): string {
+  return text
+    .split("\n")
+    .map((line) =>
+      line
+        .replace(/^(\s*)(#{1,6})(\s|$)/u, "$1\\$2$3")
+        .replace(/^(\s*)([-+>])(\s|$)/u, "$1\\$2$3")
+        .replace(/^(\s*)(\d{1,9})([.)])(\s)/u, "$1$2\\$3$4"),
+    )
+    .join("\n");
 }

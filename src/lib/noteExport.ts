@@ -1,3 +1,4 @@
+import { repairPipeTables } from "./markdown";
 import {
   DEFAULT_NOTEBOOK_ID,
   noteFitsObjectLimit,
@@ -128,7 +129,9 @@ function draftFrom(
 ): NoteDraft {
   return {
     title: title.trim() || "Untitled note",
-    body,
+    // Imported text comes from exporters that spell a table loosely, and the
+    // editor would otherwise flatten what it cannot read into one paragraph.
+    body: repairPipeTables(body),
     notebookId: resolveNotebookId(notebookId),
     pinned: extra.pinned === true,
     createdAt: extra.createdAt,

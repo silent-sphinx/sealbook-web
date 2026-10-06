@@ -154,7 +154,6 @@ export function noteExtensions(placeholder: string) {
     StarterKit.configure({
       // No markdown spelling, so the editor must not be able to make one.
       underline: false,
-      hardBreak: false,
       // Replaced below by the highlighting version.
       codeBlock: false,
       heading: { levels: [1, 2, 3, 4, 5, 6] },

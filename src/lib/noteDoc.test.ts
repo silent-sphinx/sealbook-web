@@ -109,17 +109,66 @@ describe("round trip", () => {
     stable("- [ ] parent\n      - child");
   });
 
+  it("keeps an underscore inside a word literal", () => {
+    stable("a_b_c");
+    stable("compose_portainer and immich_server");
+    stable("snake_case_name");
+  });
+
   it("normalises an underscore pair to the asterisk form it already meant", () => {
-    // The scanner pairs `_` without a word-boundary rule, so `a_b_c` is emphasis
-    // on the way in and comes back as the `*` spelling of the same thing.
-    expect(round("a_b_c")).toBe("a*b*c");
-    expect(round(round("a_b_c"))).toBe(round("a_b_c"));
+    expect(round("an _emphasis_ here")).toBe("an *emphasis* here");
+    expect(round(round("an _emphasis_ here"))).toBe(round("an _emphasis_ here"));
+    // A pair at a word boundary still opens, as it does in GFM.
+    expect(round("__init__ and __main__")).toBe("**init** and **main**");
   });
 
   it("escapes markup characters that were never a pair", () => {
-    const source = "snake_case and [not a link";
-    expect(round(source)).toBe("snake\\_case and \\[not a link");
+    const source = "_leading and [not a link";
+    expect(round(source)).toBe("\\_leading and \\[not a link");
     expect(round(round(source))).toBe(round(source));
+  });
+
+  it("keeps a hard break", () => {
+    stable("line one\\\nline two\\\nline three");
+    // A literal backslash stays distinguishable from the break's own.
+    stable("a \\\\ b");
+    stable(`ends in a backslash: a${"\\".repeat(3)}\nb`);
+  });
+
+  it("escapes a block start on the line after a hard break", () => {
+    // The editor can put any line after a break, and an unescaped one would be
+    // read back as a list, heading or quote instead of part of the paragraph.
+    const para = (second: string): Doc => ({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "a" },
+            { type: "hardBreak" },
+            { type: "text", text: second },
+          ],
+        },
+      ],
+    });
+    for (const second of ["- b", "# h", "> q", "1. i"]) {
+      const markdown = docToMarkdown(para(second));
+      expect(docToMarkdown(markdownToDoc(markdown))).toBe(markdown);
+      expect(markdownToDoc(markdown)).toEqual(para(second));
+    }
+  });
+
+  it("normalises the trailing-space break, which the writer cannot spell", () => {
+    expect(round("line one  \nline two")).toBe("line one\\\nline two");
+  });
+
+  it("keeps a soft break a space", () => {
+    expect(round("soft\nwrap")).toBe("soft wrap");
+  });
+
+  it("does not grow a backslash on an escaped pipe", () => {
+    expect(round("a \\| b")).toBe("a | b");
+    stable("a | b");
   });
 
   it("does not let prose open a block it did not mean to", () => {

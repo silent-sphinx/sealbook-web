@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { parseMarkdown } from "./markdown";
 import { DEFAULT_NOTEBOOK_ID } from "./note";
+import { docToMarkdown, markdownToDoc } from "./noteDoc";
 import {
   generateNoteExportData,
   parseNoteImport,
@@ -168,5 +170,46 @@ describe("generateNoteExportData", () => {
     const json = generateNoteExportData("json", notes, notebooks);
     expect(json.filename).toMatch(/^sealbook-notes-backup-\d{4}-\d{2}-\d{2}\.json$/u);
     expect(json.mime).toBe("application/json;charset=utf-8");
+  });
+});
+
+describe("importing a table an exporter spelled loosely", () => {
+  // The shape a Confluence or Word export produces: merged cells flattened, so
+  // the delimiter row has blank cells and does not match the header's width.
+  const source = [
+    "| **Docker Services** |     |     |     |     |",
+    "| --- |     |     |     |     | --- | --- | --- | --- |",
+    "| Stack | Service Name | Domain | External Port | Internal Port |",
+    "| compose_portainer | Portainer | portainer. | 9000 | 9000 (http) |",
+    "| immich | immich_server | photos. | 1040 | 2283 (http) |",
+    "| immich_machine_learning | \\-  | \\-  |     |",
+  ].join("\n");
+
+  const body = (): string => {
+    const result = parseNoteImport("services.md", source);
+    return result.notes[0].body;
+  };
+
+  it("arrives as a table rather than one flattened paragraph", () => {
+    expect(parseMarkdown(body()).map((block) => block.kind)).toEqual(["table"]);
+  });
+
+  it("keeps the underscores in a service name", () => {
+    const imported = body();
+    expect(imported).toContain("compose_portainer");
+    expect(imported).toContain("immich_server");
+    expect(imported).toContain("immich_machine_learning");
+  });
+
+  it("survives being opened and edited without changing", () => {
+    const imported = body();
+    expect(docToMarkdown(markdownToDoc(imported))).toBe(imported);
+  });
+
+  it("keeps every cell of the widest row", () => {
+    // The delimiter row claimed nine columns; the content never exceeds five.
+    const rows = body().split("\n");
+    expect(rows[1]).toBe("| --- | --- | --- | --- | --- |");
+    expect(rows).toHaveLength(6);
   });
 });
