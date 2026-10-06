@@ -6,7 +6,9 @@ import {
   emptyNoteDraft,
   noteMatches,
   notePreview,
+  noteWordCount,
   notebookNameById,
+  notebookTone,
   parseNote,
   parseNotebook,
   resolveNotebookId,
@@ -162,5 +164,43 @@ describe("noteMatches", () => {
     expect(noteMatches(subject, "WEEKLY")).toBe(true);
     expect(noteMatches(subject, "okapi")).toBe(true);
     expect(noteMatches(subject, "quetzal")).toBe(false);
+  });
+});
+
+describe("noteWordCount", () => {
+  it("counts words in plain prose", () => {
+    expect(noteWordCount("Flights booked, 09:40 out")).toBe(5);
+  });
+
+  it("ignores markdown punctuation", () => {
+    expect(noteWordCount("## Booked\n\n- [ ] Flights\n---")).toBe(2);
+  });
+
+  it("keeps a hyphenated or apostrophised word whole", () => {
+    expect(noteWordCount("time-out market isn't open")).toBe(4);
+  });
+
+  it("is zero for an empty body", () => {
+    expect(noteWordCount("")).toBe(0);
+    expect(noteWordCount("### \n\n---")).toBe(0);
+  });
+});
+
+describe("notebookTone", () => {
+  it("is stable for the same id", () => {
+    expect(notebookTone(DEFAULT_NOTEBOOK_ID)).toBe(notebookTone(DEFAULT_NOTEBOOK_ID));
+  });
+
+  it("returns a hex colour for any id", () => {
+    for (const id of ["", "a", DEFAULT_NOTEBOOK_ID, "11111111-2222-3333-4444-555555555555"]) {
+      expect(notebookTone(id)).toMatch(/^#[0-9a-f]{6}$/u);
+    }
+  });
+
+  it("spreads ids across more than one colour", () => {
+    const seen = new Set(
+      Array.from({ length: 40 }, (_, index) => notebookTone(`notebook-${index}`)),
+    );
+    expect(seen.size).toBeGreaterThan(3);
   });
 });

@@ -1,4 +1,8 @@
-import type { MdBlock, MdInline } from "../lib/markdown";
+import { Fragment, type ReactNode } from "react";
+
+import type { MdBlock, MdInline, MdTableCell } from "../lib/markdown";
+
+export type MdTableBlock = Extract<MdBlock, { kind: "table" }>;
 
 /**
  * Renders a parsed markdown tree as React elements.
@@ -7,8 +11,34 @@ import type { MdBlock, MdInline } from "../lib/markdown";
  * `dangerouslySetInnerHTML`, and the tree it is given carries no HTML and no
  * unvalidated URL, so there is no unsafe choice available to make.
  */
-export function Markdown({ blocks }: { blocks: MdBlock[] }) {
-  return <div className="md-body">{blocks.map((block, index) => renderBlock(block, index))}</div>;
+export function Markdown({
+  blocks,
+  renderTable,
+}: {
+  blocks: MdBlock[];
+  /**
+   * Takes over the rendering of a top-level table, for the graphical editor. A
+   * table inside a quote carries no line range, so it cannot be written back and
+   * is left to the reader below.
+   */
+  renderTable?: (block: MdTableBlock, index: number) => ReactNode;
+}) {
+  let tables = 0;
+  return (
+    <div className="md-body">
+      {blocks.map((block, index) => {
+        if (renderTable && block.kind === "table" && block.line) {
+          return <Fragment key={index}>{renderTable(block, tables++)}</Fragment>;
+        }
+        return renderBlock(block, index);
+      })}
+    </div>
+  );
+}
+
+/** The inline tree on its own, for a renderer that supplies its own block. */
+export function Inline({ nodes }: { nodes: MdInline[] }) {
+  return <>{renderInline(nodes)}</>;
 }
 
 function renderBlock(block: MdBlock, key: number) {
@@ -33,6 +63,44 @@ function renderBlock(block: MdBlock, key: number) {
           {block.blocks.map((inner, index) => renderBlock(inner, index))}
         </blockquote>
       );
+    case "table":
+      return (
+        // `data-align` rather than an inline style keeps the element styling in
+        // one stylesheet, as the rest of `.md-body` is.
+        <div key={key} className="md-table">
+          <table>
+            <thead>
+              <tr>
+                {block.header.map((cell, index) => (
+                  <th
+                    key={index}
+                    data-align={block.align[columnOf(block.header, index)] ?? undefined}
+                    colSpan={cell.span > 1 ? cell.span : undefined}
+                    scope="col"
+                  >
+                    {renderInline(cell.children)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {block.rows.map((row, index) => (
+                <tr key={index}>
+                  {row.map((cell, index) => (
+                    <td
+                      key={index}
+                      data-align={block.align[columnOf(row, index)] ?? undefined}
+                      colSpan={cell.span > 1 ? cell.span : undefined}
+                    >
+                      {renderInline(cell.children)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
     case "list": {
       const items = block.items.map((item, index) => (
         <li key={index} className={item.task ? "md-task" : undefined}>
@@ -51,6 +119,13 @@ function renderBlock(block: MdBlock, key: number) {
       );
     }
   }
+}
+
+/** The column a cell starts in, which spans to its left push along. */
+export function columnOf(cells: MdTableCell[], index: number): number {
+  let column = 0;
+  for (let i = 0; i < index; i += 1) column += cells[i].span;
+  return column;
 }
 
 function renderInline(nodes: MdInline[]) {

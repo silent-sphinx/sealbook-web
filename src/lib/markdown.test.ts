@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parseMarkdown, safeHref, stripMarkdown } from "./markdown";
-import type { MdBlock, MdInline } from "./markdown";
+import type { MdBlock, MdInline, MdTableCell } from "./markdown";
 
 const text = (value: string): MdInline => ({ kind: "text", text: value });
 
@@ -262,5 +262,102 @@ describe("stripMarkdown", () => {
 
   it("keeps a link's label", () => {
     expect(stripMarkdown("see [the docs](https://example.com)")).toBe("see the docs");
+  });
+});
+
+describe("tables", () => {
+  const table = (source: string) => {
+    const block = only(source);
+    if (block.kind !== "table") throw new Error(`expected a table, got ${block.kind}`);
+    return block;
+  };
+  const cells = (row: MdTableCell[]) => row.map((cell) => flatten(cell.children));
+
+  it("reads a header, a delimiter and its rows", () => {
+    const block = table("| Day | Plan |\n| --- | --- |\n| Sat | Land 12:15 |\n| Sun | Sintra |");
+    expect(cells(block.header)).toEqual(["Day", "Plan"]);
+    expect(block.rows.map(cells)).toEqual([
+      ["Sat", "Land 12:15"],
+      ["Sun", "Sintra"],
+    ]);
+  });
+
+  it("accepts rows without the outer pipes", () => {
+    const block = table("Day | Plan\n--- | ---\nSat | Land");
+    expect(cells(block.header)).toEqual(["Day", "Plan"]);
+    expect(block.rows.map(cells)).toEqual([["Sat", "Land"]]);
+  });
+
+  it("reads alignment from the delimiter row", () => {
+    const block = table("| a | b | c | d |\n| --- | :-- | :-: | --: |\n| 1 | 2 | 3 | 4 |");
+    expect(block.align).toEqual([null, "left", "center", "right"]);
+  });
+
+  it("parses inline markup inside cells", () => {
+    const block = table("| Plan |\n| --- |\n| hold expires **8 August** |");
+    expect(block.rows[0][0].children).toContainEqual({
+      kind: "strong",
+      children: [text("8 August")],
+    });
+  });
+
+  it("keeps an escaped pipe inside a cell", () => {
+    const block = table("| a | b |\n| --- | --- |\n| one \\| two | three |");
+    expect(block.rows.map(cells)).toEqual([["one | two", "three"]]);
+  });
+
+  it("pads a short row and drops cells past the header", () => {
+    const block = table("| a | b | c |\n| --- | --- | --- |\n| 1 |\n| 1 | 2 | 3 | 4 |");
+    expect(block.rows.map(cells)).toEqual([
+      ["1", "", ""],
+      ["1", "2", "3"],
+    ]);
+  });
+
+  it("ends at a blank line", () => {
+    const blocks = parseMarkdown("| a |\n| --- |\n| 1 |\n\nAfter the table.");
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].kind).toBe("table");
+    expect(blocks[1].kind).toBe("paragraph");
+  });
+
+  it("ends at the next block", () => {
+    const blocks = parseMarkdown("| a |\n| --- |\n| 1 |\n## Next");
+    expect(blocks.map((block) => block.kind)).toEqual(["table", "heading"]);
+  });
+
+  it("needs a delimiter row that matches the header's columns", () => {
+    expect(only("| a | b |\n| --- |\n| 1 | 2 |").kind).toBe("paragraph");
+    expect(only("| a | b |\n| --- | --- | --- |").kind).toBe("paragraph");
+  });
+
+  it("is not a table without a delimiter row", () => {
+    expect(only("| a | b |\n| 1 | 2 |").kind).toBe("paragraph");
+  });
+
+  it("does not interrupt a paragraph", () => {
+    expect(only("Some prose\n| a | b |\n| --- | --- |\n| 1 | 2 |").kind).toBe("paragraph");
+  });
+
+  it("leaves a list item that contains a pipe as a list", () => {
+    expect(only("- a | b\n- | -").kind).toBe("list");
+  });
+
+  it("works inside a quote", () => {
+    const block = only("> | a |\n> | --- |\n> | 1 |");
+    if (block.kind !== "quote") throw new Error("expected a quote");
+    expect(block.blocks[0].kind).toBe("table");
+  });
+
+  it("does not read a thematic break as a one-column table", () => {
+    expect(only("---").kind).toBe("rule");
+  });
+});
+
+describe("stripMarkdown on tables", () => {
+  it("drops the delimiter row and the cell separators", () => {
+    expect(stripMarkdown("| Day | Plan |\n| --- | --- |\n| Sat | Land |")).toBe(
+      "Day Plan Sat Land",
+    );
   });
 });

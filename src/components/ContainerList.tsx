@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { focusRing } from "../lib/styles";
 
 /** Anything with a name that groups other objects: an address book, a notebook. */
@@ -21,6 +21,10 @@ type Props<T extends Container> = {
   onCreate: (name: string) => Promise<unknown> | void;
   onRename: (id: string, name: string) => Promise<unknown> | void;
   onDelete: (item: T) => void;
+  /** Leading mark for a row; the book icon when not given. */
+  renderIcon?: (item: T) => ReactNode;
+  /** False where the caller already offers the unfiltered row of its own. */
+  showAll?: boolean;
   readOnly?: boolean;
   busy?: boolean;
 };
@@ -69,6 +73,8 @@ export function ContainerList<T extends Container>({
   onCreate,
   onRename,
   onDelete,
+  renderIcon,
+  showAll = true,
   readOnly = false,
   busy = false,
 }: Props<T>) {
@@ -114,15 +120,17 @@ export function ContainerList<T extends Container>({
 
   return (
     <div className="mt-2.5 space-y-0.5">
-      <button
-        type="button"
-        onClick={() => onSelect(allId)}
-        aria-current={selectedId === allId ? "true" : undefined}
-        className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${selectedId === allId ? "bg-surface text-text" : "text-mute hover:bg-surface/40 hover:text-text"}`}
-      >
-        <BookIcon />
-        <span className="min-w-0 flex-1 truncate font-medium">{allLabel}</span>
-      </button>
+      {showAll ? (
+        <button
+          type="button"
+          onClick={() => onSelect(allId)}
+          aria-current={selectedId === allId ? "true" : undefined}
+          className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${selectedId === allId ? "bg-surface text-text" : "text-mute hover:bg-surface/40 hover:text-text"}`}
+        >
+          <BookIcon />
+          <span className="min-w-0 flex-1 truncate font-medium">{allLabel}</span>
+        </button>
+      ) : null}
 
       {items.map((book) => {
         const selected = selectedId === book.id;
@@ -154,7 +162,7 @@ export function ContainerList<T extends Container>({
               aria-current={selected ? "true" : undefined}
               className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${selected ? "text-text" : "text-mute"}`}
             >
-              <BookIcon />
+              {renderIcon ? renderIcon(book) : <BookIcon />}
               <span className="min-w-0 flex-1 truncate font-medium">{book.name}</span>
             </button>
 

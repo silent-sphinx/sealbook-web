@@ -823,6 +823,20 @@ export default function App() {
     });
   }
 
+  /**
+   * Folds one autosaved note into the list. The editor writes on a debounce, and
+   * a full `refresh` per keystroke would re-list and re-seal the whole vault.
+   */
+  function applySavedNote(note: Note) {
+    setNotes((current) => {
+      const at = current.findIndex((item) => item.id === note.id);
+      if (at === -1) return [note, ...current];
+      const next = [...current];
+      next[at] = note;
+      return next;
+    });
+  }
+
   async function onSaveAccountSettings(next: AccountSettings) {
     if (!session) return;
     await putAccountSettings(session, next);
@@ -2144,7 +2158,15 @@ export default function App() {
         </div>
       ) : activeTab === "notes" ? (
         <div>
-          <NotesView session={session} notes={notes} notebooks={notebooks} busy={busy} onRefresh={() => refresh(session)} readOnly={isOffline} />
+          <NotesView
+            session={session}
+            notes={notes}
+            notebooks={notebooks}
+            busy={busy}
+            onRefresh={() => refresh(session)}
+            onSaved={applySavedNote}
+            readOnly={isOffline}
+          />
         </div>
       ) : activeTab === "contacts" ? (
         // Same shell as the calendar: full-bleed, a 244px sidebar holding the

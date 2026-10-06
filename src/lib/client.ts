@@ -1650,6 +1650,14 @@ export async function deleteCalendar(session: Session, id: string): Promise<void
   await putSealed(session, id, CALENDAR_CONTENT_TYPE, true, "");
 }
 
+/**
+ * The id a new note will be stored under, issued before its first write so that
+ * autosave's repeated writes are updates rather than a race to create.
+ */
+export function newNoteId(): string {
+  return newUuid();
+}
+
 export async function putNote(
   session: Session,
   draft: NoteDraft,

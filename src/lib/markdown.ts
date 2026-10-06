@@ -16,12 +16,35 @@ export type MdListItem = {
   checked: boolean;
 };
 
+/** A column's alignment, null where the delimiter row asked for none. */
+export type MdAlign = "left" | "center" | "right" | null;
+
+export type MdTableCell = {
+  children: MdInline[];
+  /** Markdown source of the cell, for the table editor to put back. */
+  raw: string;
+  /** Columns covered. Above 1 only for a cell written with a doubled pipe. */
+  span: number;
+};
+
 export type MdBlock =
   | { kind: "heading"; level: 1 | 2 | 3 | 4 | 5 | 6; children: MdInline[] }
   | { kind: "paragraph"; children: MdInline[] }
   | { kind: "list"; ordered: boolean; start: number; items: MdListItem[] }
   | { kind: "quote"; blocks: MdBlock[] }
   | { kind: "code"; language: string | null; text: string }
+  | {
+      kind: "table";
+      align: MdAlign[];
+      header: MdTableCell[];
+      rows: MdTableCell[][];
+      /**
+       * Lines the table occupies, for writing an edit back. Set only at the top
+       * level: inside a quote the parser sees lines with the marker stripped, so
+       * an index into them would not address the note's own text.
+       */
+      line: { from: number; to: number } | null;
+    }
   | { kind: "rule" };
 
 /**
@@ -133,6 +156,13 @@ function parseBlocks(lines: string[], base: string, depth: number): MdBlock[] {
       continue;
     }
 
+    const table = readTable(lines, i, base, depth);
+    if (table) {
+      blocks.push(table.block);
+      i = table.next;
+      continue;
+    }
+
     const paragraph: string[] = [];
     while (i < lines.length && lines[i].trim() && !startsBlock(lines[i])) {
       paragraph.push(lines[i]);
@@ -190,6 +220,151 @@ function listItem(line: string): { ordered: boolean; start: number; text: string
   const numbered = /^[ \t]*(\d{1,9})[.)][ \t]+(.*)$/u.exec(line);
   if (numbered) return { ordered: true, start: Number(numbered[1]), text: numbered[2] };
   return null;
+}
+
+/**
+ * A GFM pipe table: a header row, a delimiter row describing exactly those
+ * columns, then rows until a blank line or another block.
+ *
+ * Like GFM, this does not interrupt a paragraph. `startsBlock` cannot report a
+ * header row without looking at the line after it, and a table that could cut a
+ * paragraph in half would make every line containing a pipe ambiguous.
+ */
+function readTable(
+  lines: string[],
+  start: number,
+  base: string,
+  depth: number,
+): { block: MdBlock; next: number } | null {
+  const header = splitRow(lines[start]);
+  if (header === null) return null;
+  const delimiter = lines[start + 1];
+  if (delimiter === undefined) return null;
+  const align = delimiterAlignments(delimiter);
+  if (align === null) return null;
+  const columns = align.length;
+  const headerCells = cellsWithSpans(header);
+  if (width(headerCells) !== columns) return null;
+
+  const rows: MdTableCell[][] = [];
+  let i = start + 2;
+  while (i < lines.length && lines[i].trim() && !startsBlock(lines[i])) {
+    const cells = splitRow(lines[i]);
+    if (cells === null) break;
+    rows.push(fitRow(cellsWithSpans(cells), columns).map((cell) => toTableCell(cell, base)));
+    i += 1;
+  }
+
+  return {
+    block: {
+      kind: "table",
+      align,
+      header: headerCells.map((cell) => toTableCell(cell, base)),
+      rows,
+      line: depth === 1 ? { from: start, to: i } : null,
+    },
+    next: i,
+  };
+}
+
+type RawCell = { text: string; span: number };
+
+function toTableCell({ text, span }: RawCell, base: string): MdTableCell {
+  const raw = text.trim();
+  return { children: parseInline(raw, base, false), raw, span };
+}
+
+function width(cells: RawCell[]): number {
+  let total = 0;
+  for (const cell of cells) total += cell.span;
+  return total;
+}
+
+/**
+ * Folds the doubled pipes of `| spans two ||` into a span on the cell before
+ * them. A zero-length segment is the only marker: `| a | | b |`, with a space
+ * between the pipes, stays an ordinary empty cell.
+ */
+function cellsWithSpans(segments: string[]): RawCell[] {
+  const cells: RawCell[] = [];
+  for (const segment of segments) {
+    if (segment === "" && cells.length > 0) {
+      cells[cells.length - 1].span += 1;
+      continue;
+    }
+    cells.push({ text: segment, span: 1 });
+  }
+  return cells;
+}
+
+/** Pads a short row and drops what runs past the header, spans included. */
+function fitRow(cells: RawCell[], columns: number): RawCell[] {
+  const out: RawCell[] = [];
+  let used = 0;
+  for (const cell of cells) {
+    if (used >= columns) break;
+    const span = Math.min(cell.span, columns - used);
+    out.push({ text: cell.text, span });
+    used += span;
+  }
+  while (used < columns) {
+    out.push({ text: "", span: 1 });
+    used += 1;
+  }
+  return out;
+}
+
+/**
+ * One row's cells, split on unescaped pipes. A row has to carry at least one, so
+ * a bare line of text cannot be read as a single-column table.
+ */
+function splitRow(line: string): string[] | null {
+  const trimmed = line.trim();
+  if (!trimmed.includes("|")) return null;
+  let body = trimmed.startsWith("|") ? trimmed.slice(1) : trimmed;
+  if (body.endsWith("|") && !body.endsWith("\\|")) body = body.slice(0, -1);
+
+  const cells: string[] = [];
+  let cell = "";
+  for (let i = 0; i < body.length; i += 1) {
+    if (body[i] === "\\" && body[i + 1] === "|") {
+      cell += "|";
+      i += 1;
+      continue;
+    }
+    if (body[i] === "|") {
+      cells.push(cell);
+      cell = "";
+      continue;
+    }
+    cell += body[i];
+  }
+  cells.push(cell);
+  return cells;
+}
+
+/**
+ * `| --- | :-: |`: every cell dashes, with colons for alignment. Scanned rather
+ * than matched, so a long line of dashes that is not a delimiter cannot make a
+ * quantifier backtrack.
+ */
+function delimiterAlignments(line: string): MdAlign[] | null {
+  const cells = splitRow(line);
+  if (cells === null) return null;
+  const align: MdAlign[] = [];
+  for (const cell of cells) {
+    const text = cell.trim();
+    const left = text.startsWith(":");
+    const right = text.length > 1 && text.endsWith(":");
+    const from = left ? 1 : 0;
+    const to = right ? text.length - 1 : text.length;
+    if (to <= from) return null;
+    for (let i = from; i < to; i += 1) {
+      if (text[i] !== "-") return null;
+    }
+    align.push(left && right ? "center" : left ? "left" : right ? "right" : null);
+  }
+  return align;
 }
 
 function toListItem(text: string, base: string): MdListItem {
@@ -466,6 +641,8 @@ export function stripMarkdown(source: string): string {
     .replace(/^[ \t]*>[ \t]?/gmu, "")
     .replace(/^[ \t]*[-*+][ \t]+(\[[ xX]\][ \t]+)?/gmu, "")
     .replace(/^[ \t]*\d{1,9}[.)][ \t]+/gmu, "")
+    .replace(/^[-\t :|]+$/gmu, " ")
+    .replace(/\|/gu, " ")
     .replace(/!?\[([^\]]*)\]\([^)]*\)/gu, "$1")
     .replace(/[*_~]/gu, "")
     .replace(/\s+/gu, " ")
