@@ -5,7 +5,7 @@ import Suggestion from "@tiptap/suggestion";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { docToMarkdown, markdownToDoc, type DocNode } from "../lib/noteDoc";
-import { noteExtensions } from "../lib/noteEditorSchema";
+import { CELL_FILLS, noteExtensions } from "../lib/noteEditorSchema";
 import { focusRing } from "../lib/styles";
 
 type Range = { from: number; to: number };
@@ -303,6 +303,7 @@ export function NoteEditor({ noteId, value, editable, onChange, header }: Props)
           <BubbleMenu editor={editor} className="note-bubble">
             <BubbleToolbar editor={editor} />
           </BubbleMenu>
+          <TableToolbar editor={editor} />
           <SlashMenu state={slash} />
         </>
       ) : null}
@@ -457,5 +458,220 @@ function BubbleToolbar({ editor }: { editor: Editor }) {
         Link
       </button>
     </>
+  );
+}
+
+const FILL_LABELS: Record<string, string> = {
+  grey: "Grey",
+  red: "Red",
+  amber: "Amber",
+  green: "Green",
+  blue: "Blue",
+  purple: "Purple",
+};
+
+const HEIGHTS: { label: string; value: number | null }[] = [
+  { label: "Auto", value: null },
+  { label: "Short", value: 32 },
+  { label: "Medium", value: 48 },
+  { label: "Tall", value: 72 },
+  { label: "Extra tall", value: 104 },
+];
+
+/** The rows the selection touches, innermost table only. */
+function selectedRows(editor: Editor): { pos: number; height: number | null }[] {
+  const { from, to } = editor.state.selection;
+  const rows: { pos: number; height: number | null }[] = [];
+  editor.state.doc.nodesBetween(from, to, (node, pos) => {
+    if (node.type.name !== "tableRow") return;
+    const height = node.attrs.height;
+    rows.push({ pos, height: typeof height === "number" ? height : null });
+  });
+  return rows;
+}
+
+/** `focus` is held back while typing into the exact-height box, which would otherwise lose the caret. */
+function setRowHeight(editor: Editor, height: number | null, focus = true) {
+  const rows = selectedRows(editor);
+  if (rows.length === 0) return;
+  const tr = editor.state.tr;
+  for (const row of rows) tr.setNodeAttribute(row.pos, "height", height);
+  editor.view.dispatch(tr);
+  if (focus) editor.commands.focus();
+}
+
+/** The table element holding the selection, for anchoring the toolbar to it. */
+function tableRect(editor: Editor): DOMRect | null {
+  const { $from } = editor.state.selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    if ($from.node(depth).type.name !== "table") continue;
+    const dom = editor.view.nodeDOM($from.before(depth));
+    const element = dom instanceof HTMLElement ? dom : null;
+    // The resizable table is wrapped, and the wrapper is what is actually placed.
+    const box = element?.closest(".tableWrapper") ?? element;
+    return box ? box.getBoundingClientRect() : null;
+  }
+  return null;
+}
+
+function TableToolbar({ editor }: { editor: Editor }) {
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const [panel, setPanel] = useState<"fill" | "height" | null>(null);
+
+  useEffect(() => {
+    const update = () => {
+      const next = editor.isActive("table") ? tableRect(editor) : null;
+      setRect(next);
+      if (next === null) setPanel(null);
+    };
+    update();
+    editor.on("transaction", update);
+    editor.on("focus", update);
+    // Capture, so a scroll on the editor's own column is seen as well.
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      editor.off("transaction", update);
+      editor.off("focus", update);
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [editor]);
+
+  if (rect === null) return null;
+
+  const act = (run: () => void) => (event: React.MouseEvent) => {
+    event.preventDefault();
+    run();
+    setPanel(null);
+  };
+
+  const rows = selectedRows(editor);
+  const height = rows.length > 0 ? rows[0].height : null;
+  const fill = editor.getAttributes("tableCell").background ?? editor.getAttributes("tableHeader").background ?? null;
+
+  const button = (glyph: string, label: string, run: () => void, enabled = true) => (
+    <button
+      key={label}
+      type="button"
+      title={label}
+      aria-label={label}
+      disabled={!enabled}
+      onMouseDown={act(run)}
+      className="note-bubble-btn"
+    >
+      {glyph}
+    </button>
+  );
+
+  return (
+    <div
+      className="note-table-tools"
+      role="toolbar"
+      aria-label="Table"
+      style={{ top: `${Math.max(rect.top - 40, 8)}px`, left: `${rect.left}px` }}
+    >
+      {button("Row +", "Insert row below", () => editor.chain().focus().addRowAfter().run())}
+      {button("Row −", "Delete row", () => editor.chain().focus().deleteRow().run())}
+      <span className="note-bubble-sep" aria-hidden="true" />
+      {button("Col +", "Insert column right", () => editor.chain().focus().addColumnAfter().run())}
+      {button("Col −", "Delete column", () => editor.chain().focus().deleteColumn().run())}
+      <span className="note-bubble-sep" aria-hidden="true" />
+      {button("Merge", "Merge cells", () => editor.chain().focus().mergeCells().run(), editor.can().mergeCells())}
+      {button("Split", "Split cell", () => editor.chain().focus().splitCell().run(), editor.can().splitCell())}
+      <span className="note-bubble-sep" aria-hidden="true" />
+      <div className="note-table-menu">
+        <button
+          type="button"
+          title="Cell colour"
+          aria-label="Cell colour"
+          aria-expanded={panel === "fill"}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            setPanel((current) => (current === "fill" ? null : "fill"));
+          }}
+          className={`note-bubble-btn ${panel === "fill" ? "is-active" : ""}`}
+        >
+          <span className="note-table-swatch" data-fill={fill ?? undefined} aria-hidden="true" />
+          Fill
+        </button>
+        {panel === "fill" ? (
+          <div className="note-table-panel" role="menu" aria-label="Cell colour">
+            <button
+              type="button"
+              role="menuitemradio"
+              aria-checked={fill === null}
+              onMouseDown={act(() => editor.chain().focus().setCellAttribute("background", null).run())}
+              className="note-table-fill"
+            >
+              <span className="note-table-swatch" aria-hidden="true" />
+              None
+            </button>
+            {CELL_FILLS.map((name) => (
+              <button
+                key={name}
+                type="button"
+                role="menuitemradio"
+                aria-checked={fill === name}
+                onMouseDown={act(() => editor.chain().focus().setCellAttribute("background", name).run())}
+                className="note-table-fill"
+              >
+                <span className="note-table-swatch" data-fill={name} aria-hidden="true" />
+                {FILL_LABELS[name]}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      <div className="note-table-menu">
+        <button
+          type="button"
+          title="Row height"
+          aria-label="Row height"
+          aria-expanded={panel === "height"}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            setPanel((current) => (current === "height" ? null : "height"));
+          }}
+          className={`note-bubble-btn ${panel === "height" ? "is-active" : ""}`}
+        >
+          Height
+        </button>
+        {panel === "height" ? (
+          <div className="note-table-panel" role="menu" aria-label="Row height">
+            {HEIGHTS.map((option) => (
+              <button
+                key={option.label}
+                type="button"
+                role="menuitemradio"
+                aria-checked={height === option.value}
+                onMouseDown={act(() => setRowHeight(editor, option.value))}
+                className="note-table-fill"
+              >
+                {option.label}
+              </button>
+            ))}
+            <label className="note-table-height">
+              Exact
+              <input
+                type="number"
+                min={20}
+                max={400}
+                step={4}
+                value={height ?? ""}
+                placeholder="auto"
+                onChange={(event) => {
+                  const next = Number.parseInt(event.target.value, 10);
+                  setRowHeight(editor, Number.isInteger(next) && next > 0 ? next : null, false);
+                }}
+                className={`h-6 w-14 rounded border border-line bg-bg px-1 text-xs text-text outline-none ${focusRing}`}
+              />
+            </label>
+          </div>
+        ) : null}
+      </div>
+      <span className="note-bubble-sep" aria-hidden="true" />
+      {button("Delete", "Delete table", () => editor.chain().focus().deleteTable().run())}
+    </div>
   );
 }

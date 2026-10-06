@@ -13,6 +13,8 @@ import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
 import { Placeholder } from "@tiptap/extensions";
 import { StarterKit } from "@tiptap/starter-kit";
+
+import { MD_TABLE_FILLS } from "./markdown";
 import { createLowlight } from "lowlight";
 
 import bash from "highlight.js/lib/languages/bash";
@@ -51,6 +53,9 @@ export const CODE_LANGUAGES = [
  */
 const LINK_PROTOCOLS = ["http", "https", "mailto"];
 
+/** Mirrors `MD_TABLE_FILLS`, which is what the stored sidecar accepts. */
+export const CELL_FILLS = MD_TABLE_FILLS;
+
 function allowedUri(uri: string): boolean {
   try {
     const url = new URL(uri, "https://sealbook.invalid/");
@@ -60,8 +65,12 @@ function allowedUri(uri: string): boolean {
   }
 }
 
-/** Carries a GFM column alignment, which the cell schema has no attribute for. */
-const alignAttribute = {
+/**
+ * A GFM column alignment and a cell fill, neither of which the cell schema has
+ * an attribute for. The fill is rendered as a data attribute rather than an
+ * inline colour so that the stylesheet owns the palette.
+ */
+const cellAttributes = {
   addAttributes() {
     return {
       // @ts-expect-error `parent` is supplied by the extension at call time.
@@ -72,6 +81,39 @@ const alignAttribute = {
         renderHTML: (attributes: Record<string, unknown>) =>
           typeof attributes.align === "string" && attributes.align
             ? { style: `text-align: ${attributes.align}` }
+            : {},
+      },
+      background: {
+        default: null,
+        parseHTML: (element: HTMLElement) => {
+          const fill = element.getAttribute("data-fill");
+          return fill && (CELL_FILLS as readonly string[]).includes(fill) ? fill : null;
+        },
+        renderHTML: (attributes: Record<string, unknown>) =>
+          typeof attributes.background === "string" &&
+          (CELL_FILLS as readonly string[]).includes(attributes.background)
+            ? { "data-fill": attributes.background }
+            : {},
+      },
+    };
+  },
+};
+
+/** Carries a row height, which the row schema has no attribute for. */
+const rowAttribute = {
+  addAttributes() {
+    return {
+      // @ts-expect-error `parent` is supplied by the extension at call time.
+      ...this.parent?.(),
+      height: {
+        default: null,
+        parseHTML: (element: HTMLElement) => {
+          const height = Number.parseInt(element.style.height, 10);
+          return Number.isInteger(height) && height > 0 ? height : null;
+        },
+        renderHTML: (attributes: Record<string, unknown>) =>
+          typeof attributes.height === "number" && attributes.height > 0
+            ? { style: `height: ${attributes.height}px` }
             : {},
       },
     };
@@ -128,10 +170,10 @@ export function noteExtensions(placeholder: string) {
     TaskList,
     TaskItem.configure({ nested: true }),
     TaskFromBullet,
-    Table.configure({ resizable: true }),
-    TableRow,
-    TableHeader.extend(alignAttribute),
-    TableCell.extend(alignAttribute),
+    Table.configure({ resizable: true, allowTableNodeSelection: true }),
+    TableRow.extend(rowAttribute),
+    TableHeader.extend(cellAttributes),
+    TableCell.extend(cellAttributes),
     Placeholder.configure({ placeholder, includeChildren: false }),
   ];
 }

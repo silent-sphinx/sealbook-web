@@ -26,6 +26,28 @@ export type MdListItem = {
 /** A column's alignment, null where the delimiter row asked for none. */
 export type MdAlign = "left" | "center" | "right" | null;
 
+/**
+ * A cell fill. Named rather than free colour: the sidecar is rewritten from the
+ * editor, so an arbitrary value would be an unchecked string on its way into a
+ * style attribute, and a fixed set can be tuned to the one theme.
+ */
+export const MD_TABLE_FILLS = ["grey", "red", "amber", "green", "blue", "purple"] as const;
+
+export type MdTableFill = (typeof MD_TABLE_FILLS)[number];
+
+/**
+ * Table presentation the pipe grammar cannot spell, carried in a trailing
+ * comment so that every other reader renders the table and ignores this.
+ * Keys are row indices, or `row.column` grid positions with the header as row 0.
+ */
+export type MdTableLayout = {
+  /** Row height in pixels. */
+  heights: Record<number, number>;
+  fills: Record<string, MdTableFill>;
+  /** Rows a cell covers, only ever above 1. */
+  rowspans: Record<string, number>;
+};
+
 export type MdTableCell = {
   children: MdInline[];
   /** Markdown source of the cell, for the table editor to put back. */
@@ -45,6 +67,7 @@ export type MdBlock =
       align: MdAlign[];
       header: MdTableCell[];
       rows: MdTableCell[][];
+      layout: MdTableLayout;
       /**
        * Lines the table occupies, for writing an edit back. Set only at the top
        * level: inside a quote the parser sees lines with the marker stripped, so
@@ -366,16 +389,83 @@ function readTable(
     i += 1;
   }
 
+  const layout = readTableLayout(lines[i]);
+  if (layout !== null) i += 1;
+
   return {
     block: {
       kind: "table",
       align,
       header: headerCells.map((cell) => toTableCell(cell, base)),
       rows,
+      layout: layout ?? emptyTableLayout(),
       line: lineBase === null ? null : { from: lineBase + start, to: lineBase + i },
     },
     next: i,
   };
+}
+
+export function emptyTableLayout(): MdTableLayout {
+  return { heights: {}, fills: {}, rowspans: {} };
+}
+
+const TABLE_LAYOUT = /^[ \t]*<!--[ \t]*sealbook:table[ \t]*(.*?)[ \t]*-->[ \t]*$/u;
+
+/**
+ * `<!-- sealbook:table h=0:44 bg=1.2:amber rs=1.0:2 -->`, the line a table may
+ * be followed by. Each key holds a comma-separated list of `index:value`, and
+ * anything unreadable is dropped rather than failing the line, so a note written
+ * by a later version loses the attribute instead of growing a stray paragraph.
+ */
+function readTableLayout(line: string | undefined): MdTableLayout | null {
+  if (line === undefined) return null;
+  const match = TABLE_LAYOUT.exec(line);
+  if (match === null) return null;
+
+  const layout = emptyTableLayout();
+  for (const group of match[1].split(/[ \t]+/u)) {
+    const split = group.indexOf("=");
+    if (split < 1) continue;
+    const key = group.slice(0, split);
+    for (const entry of group.slice(split + 1).split(",")) {
+      const at = entry.indexOf(":");
+      if (at < 1) continue;
+      const index = entry.slice(0, at);
+      const value = entry.slice(at + 1);
+      if (key === "h" && /^\d+$/u.test(index)) {
+        const height = Number(value);
+        if (Number.isInteger(height) && height > 0 && height <= 2000) layout.heights[Number(index)] = height;
+      } else if (key === "bg" && /^\d+\.\d+$/u.test(index)) {
+        if ((MD_TABLE_FILLS as readonly string[]).includes(value)) layout.fills[index] = value as MdTableFill;
+      } else if (key === "rs" && /^\d+\.\d+$/u.test(index)) {
+        const span = Number(value);
+        if (Number.isInteger(span) && span > 1 && span <= 1000) layout.rowspans[index] = span;
+      }
+    }
+  }
+  return layout;
+}
+
+/** The sidecar for a table, or an empty string where it would carry nothing. */
+export function writeTableLayout(layout: MdTableLayout): string {
+  const list = (entries: [string, number | string][]): string =>
+    entries.map(([index, value]) => `${index}:${value}`).join(",");
+
+  const groups: string[] = [];
+  const heights = Object.entries(layout.heights).sort((a, b) => Number(a[0]) - Number(b[0]));
+  if (heights.length > 0) groups.push(`h=${list(heights)}`);
+  const fills = Object.entries(layout.fills).sort(byPosition);
+  if (fills.length > 0) groups.push(`bg=${list(fills)}`);
+  const rowspans = Object.entries(layout.rowspans).sort(byPosition);
+  if (rowspans.length > 0) groups.push(`rs=${list(rowspans)}`);
+
+  return groups.length === 0 ? "" : `<!-- sealbook:table ${groups.join(" ")} -->`;
+}
+
+function byPosition(a: [string, unknown], b: [string, unknown]): number {
+  const [aRow, aCol] = a[0].split(".").map(Number);
+  const [bRow, bCol] = b[0].split(".").map(Number);
+  return aRow - bRow || aCol - bCol;
 }
 
 type RawCell = { text: string; span: number };

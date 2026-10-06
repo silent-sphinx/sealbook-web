@@ -10,7 +10,16 @@
  * second parser would be a second set of rules for what a hostile note can do.
  */
 
-import { parseMarkdown, type MdBlock, type MdInline, type MdListItem } from "./markdown";
+import {
+  emptyTableLayout,
+  MD_TABLE_FILLS,
+  parseMarkdown,
+  writeTableLayout,
+  type MdBlock,
+  type MdInline,
+  type MdListItem,
+  type MdTableFill,
+} from "./markdown";
 
 export type DocMark = { type: string; attrs?: Record<string, unknown> };
 
@@ -118,30 +127,54 @@ function taskItemNode(item: MdListItem): DocNode {
 }
 
 function tableToNode(block: Extract<MdBlock, { kind: "table" }>): DocNode {
-  const column = (cells: { span: number }[], index: number): number => {
-    let at = 0;
-    for (let i = 0; i < index; i += 1) at += cells[i].span;
-    return at;
-  };
-  const row = (cells: Extract<MdBlock, { kind: "table" }>["header"], type: string): DocNode => ({
-    type: "tableRow",
-    content: cells.map((cell, index) => ({
-      type,
-      attrs: {
-        colspan: cell.span > 1 ? cell.span : 1,
-        rowspan: 1,
-        colwidth: null,
-        align: block.align[column(cells, index)] ?? null,
-      },
-      content: [{ type: "paragraph", ...inlineContent(cell.children) }],
-    })),
+  const { heights, fills, rowspans } = block.layout;
+  const grid = [block.header, ...block.rows];
+
+  // A position covered by a rowspan reaching it carries no cell of its own, so
+  // the placeholder the pipe row had to spell is dropped here.
+  const covered = new Set<string>();
+  grid.forEach((cells, r) => {
+    let column = 0;
+    for (const cell of cells) {
+      const span = rowspans[`${r}.${column}`] ?? 1;
+      for (let dr = 1; dr < span; dr += 1) {
+        for (let dc = 0; dc < cell.span; dc += 1) covered.add(`${r + dr}.${column + dc}`);
+      }
+      column += cell.span;
+    }
   });
+
+  const row = (cells: Extract<MdBlock, { kind: "table" }>["header"], r: number, type: string): DocNode => {
+    const content: DocNode[] = [];
+    let column = 0;
+    for (const cell of cells) {
+      const at = `${r}.${column}`;
+      if (!covered.has(at)) {
+        content.push({
+          type,
+          attrs: {
+            colspan: cell.span > 1 ? cell.span : 1,
+            rowspan: rowspans[at] ?? 1,
+            colwidth: null,
+            align: block.align[column] ?? null,
+            background: fills[at] ?? null,
+          },
+          content: [{ type: "paragraph", ...inlineContent(cell.children) }],
+        });
+      }
+      column += cell.span;
+    }
+    const height = heights[r];
+    return {
+      type: "tableRow",
+      ...(typeof height === "number" ? { attrs: { height } } : {}),
+      content,
+    };
+  };
+
   return {
     type: "table",
-    content: [
-      row(block.header, "tableHeader"),
-      ...block.rows.map((cells) => row(cells, "tableCell")),
-    ],
+    content: grid.map((cells, r) => row(cells, r, r === 0 ? "tableHeader" : "tableCell")),
   };
 }
 
@@ -281,6 +314,32 @@ function serializeList(node: DocNode, indent: string): string {
   return lines.join("\n");
 }
 
+type PlacedCell = { cell: DocNode; row: number; column: number; colspan: number; rowspan: number };
+
+/**
+ * Where each cell sits once spans are taken into account. A row node holds only
+ * the cells that begin in it, so a column is found by stepping over whatever a
+ * rowspan above has already claimed.
+ */
+function placeCells(rows: DocNode[]): { placed: PlacedCell[]; covered: Set<string> } {
+  const placed: PlacedCell[] = [];
+  const covered = new Set<string>();
+  rows.forEach((row, r) => {
+    let column = 0;
+    for (const cell of row.content ?? []) {
+      while (covered.has(`${r}.${column}`)) column += 1;
+      const colspan = spanOf(cell, "colspan");
+      const rowspan = spanOf(cell, "rowspan");
+      placed.push({ cell, row: r, column, colspan, rowspan });
+      for (let dr = 1; dr < rowspan; dr += 1) {
+        for (let dc = 0; dc < colspan; dc += 1) covered.add(`${r + dr}.${column + dc}`);
+      }
+      column += colspan;
+    }
+  });
+  return { placed, covered };
+}
+
 function serializeTable(node: DocNode, indent: string): string {
   const rows = node.content ?? [];
   if (rows.length === 0) return "";
@@ -290,27 +349,73 @@ function serializeTable(node: DocNode, indent: string): string {
       .replace(/\|/gu, "\\|")
       .trim();
 
-  const header = rows[0].content ?? [];
-  const columns = header.reduce((total, cell) => total + spanOf(cell), 0);
-  const delimiter = header.flatMap((cell) => {
-    const align = cell.attrs?.align;
-    const marker = align === "center" ? ":-:" : align === "left" ? ":--" : align === "right" ? "--:" : "---";
-    // A spanned heading describes every column it covers.
-    return Array.from({ length: spanOf(cell) }, () => marker);
-  });
+  const { placed } = placeCells(rows);
+  // The header defines the width, as it does in the pipe grammar.
+  const columns = placed
+    .filter((entry) => entry.row === 0)
+    .reduce((total, entry) => Math.max(total, entry.column + entry.colspan), 0);
+  if (columns === 0) return "";
 
-  const line = (cells: DocNode[]): string =>
-    `${indent}| ${cells.map(cellText).join(" | ")} |`;
+  const starts = new Map(placed.map((entry) => [`${entry.row}.${entry.column}`, entry]));
+
+  /*
+   * A row is written one grid column at a time. A column a colspan covers is an
+   * empty segment with no space, which is what the parser folds back into the
+   * span; a column a rowspan covers is an ordinary empty cell, so that a reader
+   * knowing nothing of the sidecar still sees a well-formed table.
+   */
+  const line = (r: number): string => {
+    let out = `${indent}|`;
+    for (let column = 0; column < columns; ) {
+      const entry = starts.get(`${r}.${column}`);
+      if (entry === undefined) {
+        out += "  |";
+        column += 1;
+        continue;
+      }
+      out += ` ${cellText(entry.cell)} |`;
+      out += "|".repeat(Math.min(entry.colspan, columns - column) - 1);
+      column += entry.colspan;
+    }
+    return out;
+  };
+
+  const alignAt = (column: number): string => {
+    const entry = placed.find(
+      (candidate) =>
+        candidate.row === 0 && column >= candidate.column && column < candidate.column + candidate.colspan,
+    );
+    const align = entry?.cell.attrs?.align;
+    return align === "center" ? ":-:" : align === "left" ? ":--" : align === "right" ? "--:" : "---";
+  };
+
+  const layout = emptyTableLayout();
+  rows.forEach((row, r) => {
+    const height = row.attrs?.height;
+    if (typeof height === "number" && height > 0) layout.heights[r] = Math.round(height);
+  });
+  for (const entry of placed) {
+    const at = `${entry.row}.${entry.column}`;
+    const fill = entry.cell.attrs?.background;
+    if (typeof fill === "string" && (MD_TABLE_FILLS as readonly string[]).includes(fill)) {
+      layout.fills[at] = fill as MdTableFill;
+    }
+    if (entry.rowspan > 1) layout.rowspans[at] = entry.rowspan;
+  }
+
+  const sidecar = writeTableLayout(layout);
+  const delimiter = Array.from({ length: columns }, (_, column) => alignAt(column));
 
   return [
-    line(header),
-    `${indent}| ${delimiter.slice(0, columns).join(" | ")} |`,
-    ...rows.slice(1).map((row) => line(row.content ?? [])),
+    line(0),
+    `${indent}| ${delimiter.join(" | ")} |`,
+    ...rows.slice(1).map((_, index) => line(index + 1)),
+    ...(sidecar ? [`${indent}${sidecar}`] : []),
   ].join("\n");
 }
 
-function spanOf(cell: DocNode): number {
-  const span = cell.attrs?.colspan;
+function spanOf(cell: DocNode, key: "colspan" | "rowspan"): number {
+  const span = cell.attrs?.[key];
   return typeof span === "number" && span > 1 ? span : 1;
 }
 

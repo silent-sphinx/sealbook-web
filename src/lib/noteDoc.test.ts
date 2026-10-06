@@ -96,6 +96,14 @@ describe("round trip", () => {
   it("keeps a code block with no language", () => stable("```\nplain\n```"));
   it("keeps a table", () => stable("| a | b |\n| --- | --- |\n| 1 | 2 |"));
   it("keeps a table's alignment", () => stable("| a | b | c |\n| :-- | :-: | --: |\n| 1 | 2 | 3 |"));
+  it("keeps a merged column", () => stable("| spans ||\n| --- | --- |\n| 1 | 2 |"));
+  it("keeps a merged row", () => stable("| a | b |\n| --- | --- |\n| up | 2 |\n|  | 4 |\n<!-- sealbook:table rs=1.0:2 -->"));
+  it("keeps a row height", () => stable("| a |\n| --- |\n| 1 |\n<!-- sealbook:table h=1:64 -->"));
+  it("keeps a cell fill", () => stable("| a | b |\n| --- | --- |\n| 1 | 2 |\n<!-- sealbook:table bg=0.0:amber,1.1:green -->"));
+  it("keeps a merge, a fill and a height together", () =>
+    stable(
+      "| a | b | c |\n| --- | --- | --- |\n| wide || 3 |\n|  |  | 6 |\n<!-- sealbook:table h=0:40 bg=1.0:blue rs=1.0:2 -->",
+    ));
 
   it("keeps a nested list inside a task item", () => {
     stable("- [ ] parent\n      - child");
@@ -131,6 +139,14 @@ describe("round trip", () => {
     // the trailing slash is that validation showing through.
     expect(round("[a](https://example.com)")).toBe("[a](https://example.com/)");
     expect(round(round("[a](https://example.com)"))).toBe(round("[a](https://example.com)"));
+  });
+
+  it("drops a fill the palette does not name", () => {
+    expect(round("| a |\n| --- |\n| 1 |\n<!-- sealbook:table bg=0.0:chartreuse -->")).toBe("| a |\n| --- |\n| 1 |");
+  });
+
+  it("drops a row height that is not a positive integer", () => {
+    expect(round("| a |\n| --- |\n| 1 |\n<!-- sealbook:table h=1:-4 -->")).toBe("| a |\n| --- |\n| 1 |");
   });
 
   it("keeps a pipe inside a table cell", () => {

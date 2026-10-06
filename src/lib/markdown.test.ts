@@ -306,6 +306,27 @@ describe("tables", () => {
     expect(block.rows.map(cells)).toEqual([["one | two", "three"]]);
   });
 
+  it("reads the layout sidecar that follows a table", () => {
+    const block = table("| a | b |\n| --- | --- |\n| 1 | 2 |\n<!-- sealbook:table h=1:48 bg=0.0:amber rs=1.0:2 -->");
+    expect(block.layout).toEqual({ heights: { 1: 48 }, fills: { "0.0": "amber" }, rowspans: { "1.0": 2 } });
+  });
+
+  it("leaves the layout empty when no sidecar follows", () => {
+    const block = table("| a | b |\n| --- | --- |\n| 1 | 2 |");
+    expect(block.layout).toEqual({ heights: {}, fills: {}, rowspans: {} });
+  });
+
+  it("ignores a sidecar key it cannot read rather than failing the line", () => {
+    const block = table("| a |\n| --- |\n| 1 |\n<!-- sealbook:table bg=0.0:neon future=yes h=0:24 -->");
+    expect(block.layout).toEqual({ heights: { 0: 24 }, fills: {}, rowspans: {} });
+  });
+
+  it("does not consume a sidecar that is not the next line", () => {
+    const blocks = parseMarkdown("| a |\n| --- |\n| 1 |\n\n<!-- sealbook:table h=0:24 -->");
+    expect(blocks).toHaveLength(2);
+    expect(blocks[1].kind).toBe("paragraph");
+  });
+
   it("pads a short row and drops cells past the header", () => {
     const block = table("| a | b | c |\n| --- | --- | --- |\n| 1 |\n| 1 | 2 | 3 | 4 |");
     expect(block.rows.map(cells)).toEqual([

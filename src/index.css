@@ -583,7 +583,6 @@ option {
 .note-doc .tableWrapper {
   overflow-x: auto;
   margin-block: 0.75rem;
-  border: 1px solid var(--color-line);
   border-radius: 0.5rem;
 }
 
@@ -594,23 +593,24 @@ option {
   margin: 0;
 }
 
+/*
+ * Every cell draws all four edges and `border-collapse` merges the shared ones,
+ * which includes the table's outer ring. A merged cell is not a child of the
+ * rows it reaches into, so an outer edge cannot be found by child position.
+ */
 .note-doc th,
 .note-doc td {
   position: relative;
-  border-right: 1px solid var(--color-line);
-  border-bottom: 1px solid var(--color-line);
+  border: 1px solid var(--color-line);
   padding: 0.4375rem 0.75rem;
   vertical-align: top;
   min-width: 3rem;
 }
 
-/* The wrapper draws the outer edge, so the last cell each way must not repeat it. */
-.note-doc tr > *:last-child {
-  border-right: none;
-}
-
-.note-doc tr:last-child > * {
-  border-bottom: none;
+/* A cell spanning rows reads as merged only once its text is centred in it. */
+.note-doc td[rowspan]:not([rowspan="1"]),
+.note-doc th[rowspan]:not([rowspan="1"]) {
+  vertical-align: middle;
 }
 
 .note-doc th {
@@ -633,6 +633,39 @@ option {
   inset: 0;
   background: var(--color-accent-ring);
   pointer-events: none;
+}
+
+/*
+ * Cell fills. Named in the stored sidecar and resolved here, so the one palette
+ * is tuned to the editor's surface and a note cannot carry arbitrary colour.
+ */
+.note-doc th[data-fill],
+.note-doc td[data-fill] {
+  background-clip: padding-box;
+}
+
+.note-doc [data-fill="grey"] {
+  background-color: #33373d;
+}
+
+.note-doc [data-fill="red"] {
+  background-color: #4a2b2f;
+}
+
+.note-doc [data-fill="amber"] {
+  background-color: #4a3a22;
+}
+
+.note-doc [data-fill="green"] {
+  background-color: #2b4030;
+}
+
+.note-doc [data-fill="blue"] {
+  background-color: #28384f;
+}
+
+.note-doc [data-fill="purple"] {
+  background-color: #3c2f4d;
 }
 
 .note-doc .column-resize-handle {
@@ -695,6 +728,123 @@ option {
 }
 
 /* Positioned against the caret, so it is fixed rather than in the scroll flow. */
+.note-table-tools {
+  position: fixed;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  /* Wraps rather than scrolls, so that a panel opened from it is not clipped. */
+  flex-wrap: wrap;
+  max-width: calc(100vw - 1rem);
+  padding: 0.1875rem;
+  border: 1px solid var(--color-line);
+  border-radius: 0.5rem;
+  background: var(--color-elevated);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.28);
+}
+
+.note-table-tools .note-bubble-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.note-table-tools .note-bubble-btn:disabled:hover {
+  background: none;
+  color: var(--color-mute);
+}
+
+.note-table-menu {
+  position: relative;
+}
+
+.note-table-menu .note-bubble-btn {
+  gap: 0.3125rem;
+}
+
+.note-table-panel {
+  position: absolute;
+  top: calc(100% + 0.3125rem);
+  left: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.0625rem;
+  min-width: 8.5rem;
+  padding: 0.25rem;
+  border: 1px solid var(--color-line);
+  border-radius: 0.5rem;
+  background: var(--color-elevated);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.32);
+}
+
+.note-table-fill {
+  display: flex;
+  align-items: center;
+  gap: 0.4375rem;
+  width: 100%;
+  padding: 0.3125rem 0.4375rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  text-align: left;
+  color: var(--color-mute);
+}
+
+.note-table-fill:hover {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.note-table-fill[aria-checked="true"] {
+  background: var(--color-surface);
+  color: var(--color-accent);
+}
+
+.note-table-height {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4375rem;
+  margin-top: 0.125rem;
+  padding: 0.3125rem 0.4375rem;
+  border-top: 1px solid var(--color-line);
+  font-size: 0.75rem;
+  color: var(--color-mute);
+}
+
+.note-table-swatch {
+  width: 0.75rem;
+  height: 0.75rem;
+  flex: none;
+  border: 1px solid var(--color-line-light);
+  border-radius: 0.1875rem;
+  background-color: transparent;
+}
+
+.note-table-swatch[data-fill="grey"] {
+  background-color: #33373d;
+}
+
+.note-table-swatch[data-fill="red"] {
+  background-color: #4a2b2f;
+}
+
+.note-table-swatch[data-fill="amber"] {
+  background-color: #4a3a22;
+}
+
+.note-table-swatch[data-fill="green"] {
+  background-color: #2b4030;
+}
+
+.note-table-swatch[data-fill="blue"] {
+  background-color: #28384f;
+}
+
+.note-table-swatch[data-fill="purple"] {
+  background-color: #3c2f4d;
+}
+
 .note-slash {
   position: fixed;
   z-index: 50;
