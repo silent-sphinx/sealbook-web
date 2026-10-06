@@ -18,6 +18,9 @@ export function serializeNote(draft: NoteDraft): string {
     title: draft.title.trim(),
     body: draft.body,
     notebookId: resolveNotebookId(draft.notebookId),
+    // Omitted rather than written null, so a note at the top level looks the
+    // same to a reader that predates the field.
+    ...(draft.parentId ? { parentId: draft.parentId } : {}),
     createdAt: draft.createdAt ?? now,
     updatedAt: now,
     pinned: draft.pinned === true,
@@ -30,6 +33,7 @@ export function parseNote(id: string, raw: string): Note {
       title?: string;
       body?: string;
       notebookId?: string;
+      parentId?: string;
       createdAt?: string;
       updatedAt?: string;
       pinned?: boolean;
@@ -40,6 +44,7 @@ export function parseNote(id: string, raw: string): Note {
       title: body.title?.trim() || "Untitled note",
       body: typeof body.body === "string" ? body.body : "",
       notebookId: resolveNotebookId(body.notebookId),
+      parentId: typeof body.parentId === "string" && body.parentId ? body.parentId : undefined,
       pinned: body.pinned === true,
       createdAt: typeof body.createdAt === "string" ? body.createdAt : undefined,
       updatedAt: typeof body.updatedAt === "string" ? body.updatedAt : undefined,

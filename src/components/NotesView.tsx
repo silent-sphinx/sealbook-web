@@ -1,46 +1,43 @@
-import {
-  useDeferredValue,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { Suspense, lazy, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
-import { deleteNote, deleteNotebook, ensureDefaultNotebook, newNoteId, putNote, putNotebook } from "../lib/client";
+import {
+  deleteNote,
+  deleteNotebook,
+  ensureDefaultNotebook,
+  newNoteId,
+  putNote,
+  putNotebook,
+} from "../lib/client";
 import type { Session } from "../lib/client";
 import { createAutosaver } from "../lib/autosave";
 import { friendlyError } from "../lib/errors";
 import { triggerDownload } from "../lib/importExport";
-import { parseMarkdown } from "../lib/markdown";
-import { applyMarkdown, headingLevelAt, type MarkdownAction } from "../lib/markdownEdit";
 import {
-  replaceTableLines,
-  tableToMarkdown,
-  type CellRef,
-  type TableModel,
-} from "../lib/tableEdit";
-import {
-  ALL_NOTEBOOKS,
   DEFAULT_NOTEBOOK_ID,
   emptyNoteDraft,
   noteFitsObjectLimit,
   noteMatches,
   notePreview,
   noteWordCount,
-  notebookNameById,
-  notebookTone,
   resolveNotebookId,
   sortNotes,
 } from "../lib/note";
+import { ancestorsOf, buildNoteTree, canReparent, noteSubtree } from "../lib/noteTree";
 import { focusRing } from "../lib/styles";
 import type { Note, NoteDraft, Notebook } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ContainerList } from "./ContainerList";
-import { Markdown, type MdTableBlock } from "./Markdown";
-import { TableEditor } from "./TableEditor";
-import { NoteToolbar } from "./NoteToolbar";
+import { NoteTreeList } from "./NoteTreeList";
 import { SidebarDrawer, SidebarTrigger } from "./SidebarDrawer";
+
+/**
+ * The editor carries the whole ProseMirror stack and the highlighting grammars,
+ * which is the largest thing this app bundles. It is loaded when a note is first
+ * opened rather than on the way to the unlock screen.
+ */
+const NoteEditor = lazy(() =>
+  import("./NoteEditor").then((module) => ({ default: module.NoteEditor })),
+);
 
 type Props = {
   session: Session;
@@ -52,16 +49,6 @@ type Props = {
   onSaved: (note: Note) => void;
   readOnly?: boolean;
 };
-
-type Pane = "markdown" | "wysiwyg";
-
-const PANES: { id: Pane; label: string }[] = [
-  { id: "markdown", label: "Markdown" },
-  { id: "wysiwyg", label: "WYSIWYG" },
-];
-
-/** The sidebar carries one selection, a view or a notebook, never both. */
-const PINNED_SCOPE = "pinned";
 
 /** Idle time before an edit is written, and the cap for a continuous typist. */
 const AUTOSAVE_DELAY = 600;
@@ -127,68 +114,26 @@ function fileNameFor(title: string): string {
   return `${base.slice(0, 60)}.md`;
 }
 
-function Dot({ id, className = "h-2 w-2" }: { id: string; className?: string }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={`${className} shrink-0 rounded-full`}
-      style={{ backgroundColor: notebookTone(id) }}
-    />
-  );
-}
-
-function RailRow({
-  icon,
-  label,
-  count,
-  active,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  count: number;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-current={active ? "true" : undefined}
-      className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${active ? "bg-surface text-text" : "text-mute hover:bg-surface/40 hover:text-text"}`}
-    >
-      {icon}
-      <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
-      <span className="shrink-0 text-[10px] tabular-nums text-mute/70">{count || ""}</span>
-    </button>
-  );
-}
-
 export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved, readOnly }: Props) {
   const readOnlyMode = readOnly === true;
-  const [scope, setScope] = useState<string>(ALL_NOTEBOOKS);
+  const [scope, setScope] = useState<string>(DEFAULT_NOTEBOOK_ID);
   const [search, setSearch] = useState("");
+  const [pinnedOnly, setPinnedOnly] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [creatingNotebook, setCreatingNotebook] = useState(false);
   const [deletingNotebook, setDeletingNotebook] = useState<Notebook | null>(null);
-  const [confirmDeleteNote, setConfirmDeleteNote] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<Note | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [pane, setPane] = useState<Pane>("markdown");
 
   // The editor buffer. Held here rather than read from `notes` so an in-progress
   // edit is not overwritten by a refresh.
   const [draft, setDraft] = useState<NoteDraft | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("clean");
-  const [caret, setCaret] = useState(0);
-  // Which table in the preview is being worked on, and the cell inside it.
-  const [tableCell, setTableCell] = useState<(CellRef & { table: number }) | null>(null);
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
   // The note the editor is on, including one not yet written to the vault.
   const editingId = useRef<string | null>(null);
   const savedThisSession = useRef(false);
-  // Set by a toolbar action, applied once React has rendered the new body.
-  const pendingSelection = useRef<{ start: number; end: number } | null>(null);
 
   const selected = selectedId ? (notes.find((note) => note.id === selectedId) ?? null) : null;
 
@@ -213,6 +158,14 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     })();
   }, [notebooks, onRefresh, readOnlyMode, session]);
 
+  // A notebook that went away leaves the sidebar pointing at nothing.
+  useEffect(() => {
+    if (notebooks.length === 0) return;
+    if (!notebooks.some((notebook) => notebook.id === scope)) {
+      setScope(notebooks[0].id);
+    }
+  }, [notebooks, scope]);
+
   // An edit that has not reached the vault must survive a reload attempt, and a
   // write cannot be awaited from `beforeunload`.
   useEffect(() => {
@@ -222,37 +175,33 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     return () => window.removeEventListener("beforeunload", warn);
   }, [saveState]);
 
-  const pinnedCount = useMemo(() => notes.filter((note) => note.pinned === true).length, [notes]);
+  // A full pass over every body, so the typed value is deferred: the field stays
+  // responsive on a vault the filter takes time over.
+  const deferredSearch = useDeferredValue(search);
+  const searching = deferredSearch.trim() !== "";
 
-  const visible = useMemo(() => {
-    const inScope =
-      scope === ALL_NOTEBOOKS
-        ? notes
-        : scope === PINNED_SCOPE
-          ? notes.filter((note) => note.pinned === true)
-          : notes.filter((note) => resolveNotebookId(note.notebookId) === scope);
-    return sortNotes(inScope.filter((note) => noteMatches(note, search)));
-  }, [notes, scope, search]);
+  const tree = useMemo(() => buildNoteTree(notes, scope), [notes, scope]);
 
-  // Parsed only in preview, and memoised, so typing in a long note never pays for
-  // a parse of the whole body.
-  const preview = useMemo(
-    () => (pane === "wysiwyg" && draft ? parseMarkdown(draft.body) : []),
-    [draft, pane],
-  );
+  /** Search and the pinned filter both flatten the tree, since a hit may be anywhere. */
+  const flatMatches = useMemo(() => {
+    const scoped = notes.filter((note) => resolveNotebookId(note.notebookId) === scope);
+    const filtered = pinnedOnly ? scoped.filter((note) => note.pinned === true) : scoped;
+    return sortNotes(filtered.filter((note) => noteMatches(note, deferredSearch)));
+  }, [notes, scope, pinnedOnly, deferredSearch]);
 
-  // A full pass over the body, so it must not be what a keystroke waits on.
   const countedBody = useDeferredValue(draft?.body ?? "");
   const words = useMemo(() => noteWordCount(countedBody), [countedBody]);
 
-  const headingLevel = draft ? headingLevelAt(draft.body, caret) : 0;
-
-  const scopeLabel =
-    scope === ALL_NOTEBOOKS
-      ? "All notes"
-      : scope === PINNED_SCOPE
-        ? "Pinned"
-        : notebookNameById(notebooks, scope);
+  const breadcrumb = useMemo(
+    () =>
+      selectedId
+        ? ancestorsOf(notes, selectedId)
+            .map((id) => notes.find((note) => note.id === id)?.title ?? "")
+            .filter(Boolean)
+            .reverse()
+        : [],
+    [notes, selectedId],
+  );
 
   // Reassigned every render so the queued write uses the current session and
   // props, while the autosaver below is created once.
@@ -308,16 +257,11 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     };
   }, [autosaver]);
 
-  // The caret a toolbar action computed can only be set once its body renders.
-  useLayoutEffect(() => {
-    const target = pendingSelection.current;
-    const node = bodyRef.current;
-    if (!target || !node) return;
-    pendingSelection.current = null;
-    node.focus();
-    node.setSelectionRange(target.start, target.end);
-    setCaret(target.start);
-  }, [draft?.body]);
+  function reveal(id: string) {
+    const chain = ancestorsOf(notes, id);
+    if (chain.length === 0) return;
+    setExpanded((current) => new Set([...current, ...chain]));
+  }
 
   function openNote(note: Note) {
     // Flushed, not cancelled: the queue is keyed by note, so the edit being left
@@ -325,37 +269,32 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     void autosaver.flush();
     editingId.current = note.id;
     setSelectedId(note.id);
+    setScope(resolveNotebookId(note.notebookId));
+    reveal(note.id);
     setDraft({
       title: note.title,
       body: note.body,
       notebookId: note.notebookId,
+      parentId: note.parentId,
       pinned: note.pinned,
       createdAt: note.createdAt,
       updatedAt: note.updatedAt,
     });
     setSaveState("clean");
-    setPane("markdown");
-    setCaret(0);
-    setTableCell(null);
     setError(null);
+    setSidebarOpen(false);
   }
 
-  function newNote() {
-    const notebookId =
-      scope === ALL_NOTEBOOKS || scope === PINNED_SCOPE
-        ? (notebooks[0]?.id ?? DEFAULT_NOTEBOOK_ID)
-        : scope;
+  function newNote(parentId?: string) {
     void autosaver.flush();
     // The id is issued here so every write for this note is an update.
     editingId.current = newNoteId();
     setSelectedId(null);
-    setDraft({ ...emptyNoteDraft(notebookId), pinned: scope === PINNED_SCOPE });
+    setDraft({ ...emptyNoteDraft(scope), parentId, pinned: false });
     setSaveState("clean");
-    setPane("markdown");
-    setCaret(0);
-    setTableCell(null);
     setError(null);
-    requestAnimationFrame(() => bodyRef.current?.focus());
+    setSidebarOpen(false);
+    if (parentId) setExpanded((current) => new Set([...current, parentId]));
   }
 
   async function closeEditor() {
@@ -381,21 +320,13 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     autosaver.schedule({ id, draft: next });
   }
 
-  function applyTableEdit(block: MdTableBlock, next: TableModel) {
-    if (!draft || readOnlyMode || !block.line) return;
-    edit({ body: replaceTableLines(draft.body, block.line, tableToMarkdown(next)) });
-  }
-
-  function runAction(action: MarkdownAction) {
-    const node = bodyRef.current;
-    if (!node || !draft || readOnlyMode) return;
-    const next = applyMarkdown(action, {
-      text: draft.body,
-      start: node.selectionStart,
-      end: node.selectionEnd,
+  function toggleExpanded(id: string) {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
-    pendingSelection.current = { start: next.start, end: next.end };
-    edit({ body: next.text });
   }
 
   async function togglePinned(note: Note) {
@@ -414,21 +345,71 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     }
   }
 
-  async function removeNote() {
-    if (!selected) return;
+  /** Reparenting writes the note itself; its descendants follow it as they are. */
+  async function moveNote(id: string, parentId: string | null) {
+    const note = notes.find((candidate) => candidate.id === id);
+    if (!note || readOnlyMode) return;
+    if (!canReparent(notes, id, parentId)) {
+      setError("A note cannot be moved inside itself.");
+      return;
+    }
+    if (editingId.current === id && draft) {
+      edit({ parentId: parentId ?? undefined });
+      if (parentId) setExpanded((current) => new Set([...current, parentId]));
+      return;
+    }
     setError(null);
-    const id = selected.id;
     try {
-      autosaver.drop(id);
-      // Any write already in flight has to land before the tombstone does.
+      await putNote(session, { ...note, parentId: parentId ?? undefined }, id);
+      if (parentId) setExpanded((current) => new Set([...current, parentId]));
+      await onRefresh();
+    } catch (err) {
+      setError(friendlyError(err));
+    }
+  }
+
+  /** A note's subtree moves notebook with it, or its children would be stranded. */
+  async function moveToNotebook(notebookId: string) {
+    const id = editingId.current;
+    if (!id || !draft || readOnlyMode) return;
+    const descendants = noteSubtree(notes, id).filter((candidate) => candidate !== id);
+    edit({ notebookId });
+    setScope(notebookId);
+    if (descendants.length === 0) return;
+    setError(null);
+    try {
+      for (const childId of descendants) {
+        const child = notes.find((candidate) => candidate.id === childId);
+        if (child) await putNote(session, { ...child, notebookId }, childId);
+      }
+      await onRefresh();
+    } catch (err) {
+      setError(friendlyError(err));
+    }
+  }
+
+  async function removeNote() {
+    const target = confirmDelete;
+    if (!target) return;
+    setError(null);
+    const ids = noteSubtree(notes, target.id);
+    try {
+      for (const id of ids) {
+        autosaver.drop(id);
+      }
+      // Any write already in flight has to land before the tombstones do.
       await autosaver.flush();
-      await deleteNote(session, id);
-      setConfirmDeleteNote(false);
-      editingId.current = null;
+      for (const id of ids) {
+        await deleteNote(session, id);
+      }
+      setConfirmDelete(null);
+      if (ids.includes(editingId.current ?? "")) {
+        editingId.current = null;
+        setSelectedId(null);
+        setDraft(null);
+        setSaveState("clean");
+      }
       savedThisSession.current = false;
-      setSelectedId(null);
-      setDraft(null);
-      setSaveState("clean");
       await onRefresh();
     } catch (err) {
       setError(friendlyError(err));
@@ -461,14 +442,29 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     try {
       // Notes in it go too: a note pointing at a notebook that no longer exists
       // would silently reappear in the default one.
-      for (const note of notes.filter(
+      const contained = notes.filter(
         (candidate) => resolveNotebookId(candidate.notebookId) === deletingNotebook.id,
-      )) {
+      );
+      let failed = 0;
+      for (const note of contained) {
         autosaver.drop(note.id);
-        await deleteNote(session, note.id);
+        try {
+          await deleteNote(session, note.id);
+        } catch {
+          failed += 1;
+        }
+      }
+      // The notebook outlives a note that would not delete, so nothing is left
+      // pointing at a notebook that is no longer there.
+      if (failed > 0) {
+        setDeletingNotebook(null);
+        setError(
+          `${failed} of ${contained.length} notes could not be deleted, so the notebook was kept.`,
+        );
+        await onRefresh();
+        return;
       }
       await deleteNotebook(session, deletingNotebook.id);
-      if (scope === deletingNotebook.id) setScope(ALL_NOTEBOOKS);
       setDeletingNotebook(null);
       editingId.current = null;
       savedThisSession.current = false;
@@ -481,10 +477,103 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     }
   }
 
+  /** Shown on each notebook row at rest, so an unselected one still reads as full. */
+  const countByNotebook = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const note of notes) {
+      const id = resolveNotebookId(note.notebookId);
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    return counts;
+  }, [notes]);
+
+  const notebookContents =
+    searching || pinnedOnly ? (
+      flatMatches.length === 0 ? (
+        <p className="px-1 py-2 text-xs leading-relaxed text-mute">
+          {searching ? `No note matches \u201c${deferredSearch.trim()}\u201d.` : "Nothing pinned yet."}
+        </p>
+      ) : (
+        <ul>
+          {flatMatches.map((note) => (
+            <li key={note.id} className="list-row group relative flex items-stretch">
+              <button
+                type="button"
+                onClick={() => openNote(note)}
+                aria-current={selectedId === note.id ? "true" : undefined}
+                className={`flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-lg px-2 py-1.5 text-left transition-colors ${
+                  selectedId === note.id ? "bg-surface" : "hover:bg-surface/40"
+                } ${focusRing}`}
+              >
+                <span className="flex w-full min-w-0 items-center gap-1.5">
+                  {note.pinned ? <Icon name="pin" className="h-3 w-3 shrink-0 text-note" /> : null}
+                  <span className="min-w-0 flex-1 truncate text-xs">{note.title}</span>
+                </span>
+                <span className="w-full truncate text-[11px] text-mute">
+                  {notePreview(note.body, 60) || "Empty note"}
+                </span>
+              </button>
+              {readOnlyMode ? null : (
+                <span className="list-row-actions absolute right-1 top-1.5">
+                  <button
+                    type="button"
+                    onClick={() => void togglePinned(note)}
+                    title={note.pinned ? "Unpin note" : "Pin note"}
+                    aria-label={note.pinned ? `Unpin ${note.title}` : `Pin ${note.title}`}
+                    className={`flex h-6 w-6 items-center justify-center rounded-md bg-bg/80 transition-colors hover:bg-elevated ${
+                      note.pinned ? "text-note" : "text-mute hover:text-text"
+                    } ${focusRing}`}
+                  >
+                    <Icon name="pin" className="h-3 w-3" />
+                  </button>
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )
+    ) : tree.length === 0 ? (
+      <p className="px-1 py-2 text-xs leading-relaxed text-mute">
+        {readOnlyMode ? "No notes in this notebook." : "No notes here yet."}
+      </p>
+    ) : (
+      <NoteTreeList
+        tree={tree}
+        selectedId={selectedId}
+        expanded={expanded}
+        readOnly={readOnlyMode}
+        onToggle={toggleExpanded}
+        onSelect={openNote}
+        onAddChild={(parentId) => newNote(parentId)}
+        onDelete={(note) => setConfirmDelete(note)}
+        canDrop={(id, parentId) => canReparent(notes, id, parentId)}
+        onMove={(id, parentId) => void moveNote(id, parentId)}
+      />
+    );
+
+  /** Sits at the foot of the notebook's own contents, where what it adds goes. */
+  const addNoteRow = readOnlyMode ? null : (
+    <button
+      type="button"
+      onClick={() => newNote()}
+      title="New note"
+      className={`list-row -mx-2 flex w-[calc(100%+1rem)] items-center rounded-lg pr-2 text-left transition-colors hover:bg-surface/40 ${focusRing}`}
+      style={{ paddingLeft: "0.5rem" }}
+    >
+      <span className="flex h-7 w-3.5 shrink-0 items-center justify-center text-note-new">
+        <Icon name="plus" className="h-3.5 w-3.5" />
+      </span>
+      <span className="py-2 pl-2.5 text-xs text-mute transition-colors group-hover:text-text">
+        New note
+      </span>
+    </button>
+  );
+
   const editorOpen = draft !== null;
   const notesInDeletingNotebook = deletingNotebook
     ? notes.filter((note) => resolveNotebookId(note.notebookId) === deletingNotebook.id).length
     : 0;
+  const deleteCount = confirmDelete ? noteSubtree(notes, confirmDelete.id).length : 0;
 
   const editorAction = `flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`;
 
@@ -496,31 +585,39 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
         </p>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 lg:grid-cols-[14.5rem_20.5rem_minmax(0,1fr)]">
-        <SidebarDrawer title="Notebooks" open={sidebarOpen} onClose={() => setSidebarOpen(false)}>
+      <div className="grid min-h-0 flex-1 lg:grid-cols-[17.5rem_minmax(0,1fr)]">
+        <SidebarDrawer title="Notes" open={sidebarOpen} onClose={() => setSidebarOpen(false)}>
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">My notes</p>
             <h2 className="mt-1 text-lg font-semibold">Notes</h2>
           </div>
 
-          <div className="mt-7 space-y-0.5">
-            <RailRow
-              icon={<Icon name="notes" className="h-3.5 w-3.5" />}
-              label="All notes"
-              count={notes.length}
-              active={scope === ALL_NOTEBOOKS}
-              onClick={() => { setScope(ALL_NOTEBOOKS); setSidebarOpen(false); }}
-            />
-            <RailRow
-              icon={<Icon name="pin" className="h-3.5 w-3.5" />}
-              label="Pinned"
-              count={pinnedCount}
-              active={scope === PINNED_SCOPE}
-              onClick={() => { setScope(PINNED_SCOPE); setSidebarOpen(false); }}
-            />
+          <div className="mt-5 flex items-center gap-1.5">
+            <div className="relative min-w-0 flex-1">
+              <Icon name="search" className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-mute" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search notes"
+                aria-label="Search notes"
+                className="h-8 w-full min-w-0 rounded-lg border border-line bg-bg pl-8 pr-2.5 text-xs text-text outline-none transition-colors placeholder:text-mute/70 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setPinnedOnly((current) => !current)}
+              aria-pressed={pinnedOnly}
+              title="Pinned only"
+              aria-label="Pinned only"
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line transition-colors ${
+                pinnedOnly ? "bg-surface text-note" : "text-mute hover:bg-surface/40 hover:text-text"
+              } ${focusRing}`}
+            >
+              <Icon name="pin" className="h-3.5 w-3.5" />
+            </button>
           </div>
 
-          <div className="mt-7 border-t border-line pt-5">
+          <div className="mt-5">
             <div className="flex items-center justify-between">
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">Notebooks</p>
               {!readOnlyMode ? (
@@ -537,143 +634,33 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
             <ContainerList
               items={notebooks}
               selectedId={scope}
-              allId={ALL_NOTEBOOKS}
+              allId={DEFAULT_NOTEBOOK_ID}
               allLabel="All notes"
               protectedId={DEFAULT_NOTEBOOK_ID}
               kindLabel="notebook"
               creating={creatingNotebook}
               onCreateHandled={() => setCreatingNotebook(false)}
-              onSelect={(id) => { setScope(id); setSidebarOpen(false); }}
+              onSelect={(id) => setScope(id)}
               onCreate={(name) => createNotebook(name)}
               onRename={(id, name) => renameNotebook(id, name)}
               onDelete={(notebook) => setDeletingNotebook(notebook)}
-              renderIcon={(notebook) => <Dot id={notebook.id} className="ml-0.5 mr-0.5 h-2 w-2" />}
+              renderMeta={(notebook) => countByNotebook.get(notebook.id) || ""}
+              /* The notes are drawn inside their notebook, under its own row, so
+                 the two read as one thing rather than as two stacked lists. */
+              renderUnder={(notebook) =>
+                notebook.id === scope ? (
+                  <div className="mb-1 ml-3.5 border-l border-line pb-1 pl-2.5 pt-1">
+                    {notebookContents}
+                    {addNoteRow}
+                  </div>
+                ) : null
+              }
               showAll={false}
               readOnly={readOnlyMode}
               busy={busy}
             />
           </div>
         </SidebarDrawer>
-
-        <section
-          className={`min-w-0 flex-col overflow-hidden border-line bg-panel/20 lg:flex lg:border-r ${editorOpen ? "hidden" : "flex"}`}
-        >
-          <div className="flex shrink-0 items-center gap-2 px-3 py-2.5">
-            <SidebarTrigger label="Notebooks" onClick={() => setSidebarOpen(true)} />
-            <div className="relative min-w-0 flex-1">
-              <Icon name="search" className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-mute" />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search in notes"
-                aria-label="Search notes"
-                className={`h-8 w-full min-w-0 rounded-lg border border-line bg-bg pl-8 pr-2.5 text-xs text-text outline-none transition-colors placeholder:text-mute/70 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring`}
-              />
-            </div>
-            {!readOnlyMode ? (
-              <button
-                type="button"
-                onClick={newNote}
-                title="New note"
-                aria-label="New note"
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-note-new text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] ${focusRing}`}
-              >
-                <Icon name="plus" className="h-4 w-4" />
-              </button>
-            ) : null}
-          </div>
-
-          <div className="flex shrink-0 items-baseline gap-2 border-b border-line px-4 pb-2">
-            <h1 className="min-w-0 truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">
-              {scopeLabel}
-            </h1>
-            <span className="shrink-0 text-[11px] tabular-nums text-mute/60">{visible.length}</span>
-          </div>
-
-          <div className="note-scroll min-h-0 flex-1 overflow-y-auto">
-            {visible.length === 0 ? (
-              <p className="m-4 rounded-xl border border-line bg-panel/25 p-5 text-xs leading-relaxed text-mute">
-                {search.trim()
-                  ? `No note matches “${search.trim()}”.`
-                  : notes.length === 0
-                    ? readOnlyMode
-                      ? "No notes in this vault yet."
-                      : "No notes yet. Use the green button to write your first one."
-                    : scope === PINNED_SCOPE
-                      ? "Nothing pinned yet."
-                      : "This notebook is empty."}
-              </p>
-            ) : (
-              <ul>
-                {visible.map((note) => {
-                  const active = selectedId === note.id;
-                  const edited = note.updatedAt ?? note.createdAt;
-                  return (
-                    <li key={note.id} className="note-row">
-                      <div className={`list-row group relative flex items-stretch transition-colors ${active ? "bg-surface" : "hover:bg-surface/40"}`}>
-                        {active ? (
-                          <span aria-hidden="true" className="absolute inset-y-0 left-0 w-[3px] bg-note" />
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() => openNote(note)}
-                          aria-current={active ? "true" : undefined}
-                          title={longStamp(edited)}
-                          className={`flex min-w-0 flex-1 flex-col items-start gap-1 px-4 py-3 text-left ${focusRing}`}
-                        >
-                          <span className="text-[10px] tabular-nums tracking-wide text-mute/60">
-                            {stamp(edited) ?? "Never edited"}
-                          </span>
-                          <span className="flex w-full min-w-0 items-center gap-1.5">
-                            {note.pinned ? <Icon name="pin" className="h-3 w-3 shrink-0 text-note" /> : null}
-                            <span className={`min-w-0 flex-1 truncate text-[13px] font-semibold ${active ? "text-note" : "text-text"}`}>
-                              {note.title}
-                            </span>
-                          </span>
-                          <span className="note-row-preview w-full text-xs leading-relaxed text-mute">
-                            {notePreview(note.body) || "Empty note"}
-                          </span>
-                          {scope === ALL_NOTEBOOKS || scope === PINNED_SCOPE ? (
-                            <span className="mt-0.5 flex min-w-0 max-w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-[10px] font-medium"
-                              style={{
-                                color: notebookTone(resolveNotebookId(note.notebookId)),
-                                backgroundColor: `${notebookTone(resolveNotebookId(note.notebookId))}1f`,
-                              }}
-                            >
-                              <span className="truncate">{notebookNameById(notebooks, note.notebookId)}</span>
-                            </span>
-                          ) : null}
-                        </button>
-                        {readOnlyMode ? null : (
-                          <span className="list-row-actions absolute right-2 top-2 flex shrink-0 items-center gap-0.5">
-                            <button
-                              type="button"
-                              onClick={() => void togglePinned(note)}
-                              title={note.pinned ? "Unpin note" : "Pin note"}
-                              aria-label={note.pinned ? `Unpin ${note.title}` : `Pin ${note.title}`}
-                              className={`flex h-7 w-7 items-center justify-center rounded-md bg-bg/80 transition-colors hover:bg-elevated ${note.pinned ? "text-note" : "text-mute hover:text-text"} ${focusRing}`}
-                            >
-                              <Icon name="pin" className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => triggerDownload(fileNameFor(note.title), "text/markdown", note.body)}
-                              title="Export as Markdown"
-                              aria-label={`Export ${note.title} as Markdown`}
-                              className={`flex h-7 w-7 items-center justify-center rounded-md bg-bg/80 text-mute transition-colors hover:bg-elevated hover:text-text ${focusRing}`}
-                            >
-                              <Icon name="download" className="h-3.5 w-3.5" />
-                            </button>
-                          </span>
-                        )}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        </section>
 
         <section className={`min-w-0 flex-col overflow-hidden lg:flex ${editorOpen ? "flex" : "hidden"}`}>
           {draft ? (
@@ -687,13 +674,21 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                 >
                   <Icon name="back" className="h-3.5 w-3.5" />
                 </button>
-                <Dot id={resolveNotebookId(draft.notebookId)} className="ml-1 h-2 w-2" />
-                <span className="min-w-0 flex-1 truncate text-xs font-medium text-mute">
-                  {draft.title.trim() || "Untitled note"}
-                </span>
+                <SidebarTrigger label="Notes" onClick={() => setSidebarOpen(true)} />
+                <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-xs text-mute">
+                  {breadcrumb.map((title) => (
+                    <span key={title} className="flex min-w-0 shrink items-center gap-1">
+                      <span className="max-w-[8rem] truncate">{title}</span>
+                      <span aria-hidden="true" className="text-mute/50">/</span>
+                    </span>
+                  ))}
+                  <span className="min-w-0 flex-1 truncate font-medium text-text">
+                    {draft.title.trim() || "Untitled note"}
+                  </span>
+                </nav>
                 <select
                   value={resolveNotebookId(draft.notebookId)}
-                  onChange={(event) => edit({ notebookId: event.target.value })}
+                  onChange={(event) => void moveToNotebook(event.target.value)}
                   aria-label="Notebook"
                   disabled={readOnlyMode || notebooks.length === 0}
                   className={`h-7 max-w-[9rem] shrink-0 cursor-pointer rounded-md border-0 bg-transparent py-0 pl-2 pr-6 text-[11px] text-mute transition-colors hover:bg-surface hover:text-text disabled:opacity-40 ${focusRing}`}
@@ -728,7 +723,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                 {selected && !readOnlyMode ? (
                   <button
                     type="button"
-                    onClick={() => setConfirmDeleteNote(true)}
+                    onClick={() => setConfirmDelete(selected)}
                     title="Delete note"
                     aria-label={`Delete ${selected.title}`}
                     className={`${editorAction} hover:text-danger`}
@@ -738,83 +733,30 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                 ) : null}
               </header>
 
-              <div className="flex h-11 shrink-0 items-center border-b border-line pr-2">
-                <div className="min-w-0 flex-1 self-stretch">
-                  {pane === "markdown" ? (
-                    <NoteToolbar headingLevel={headingLevel} onAction={runAction} disabled={readOnlyMode} />
-                  ) : null}
-                </div>
-                <div className="ml-1 flex shrink-0 rounded-lg border border-line bg-surface/40 p-0.5">
-                  {PANES.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setPane(item.id)}
-                      aria-pressed={pane === item.id}
-                      className={`h-6 rounded-md px-2 text-[10px] font-medium uppercase tracking-[0.08em] transition-colors ${pane === item.id ? "bg-surface text-text" : "text-mute hover:text-text"} ${focusRing}`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex shrink-0 justify-center px-5 pt-6 lg:px-10">
-                <input
-                  value={draft.title}
-                  onChange={(event) => edit({ title: event.target.value })}
-                  placeholder="Untitled note"
-                  aria-label="Note title"
-                  readOnly={readOnlyMode}
-                  className={`w-full max-w-3xl border-0 bg-transparent p-0 text-[1.75rem] font-semibold leading-tight tracking-tight text-text outline-none placeholder:text-mute/40 ${focusRing} focus-visible:ring-offset-4`}
-                />
-              </div>
-
-              {pane === "markdown" ? (
-                <div className="note-scroll flex min-h-0 flex-1 justify-center overflow-y-auto px-5 pb-4 pt-4 lg:px-10">
-                  <textarea
-                    ref={bodyRef}
-                    value={draft.body}
-                    onChange={(event) => { edit({ body: event.target.value }); setCaret(event.target.selectionStart); }}
-                    onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
-                    onKeyDown={(event) => {
-                      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
-                        event.preventDefault();
-                        if (!readOnlyMode) void autosaver.flush();
-                      }
-                    }}
-                    placeholder="Write in Markdown. Headings, lists, task items, code and links."
-                    aria-label="Note body"
-                    readOnly={readOnlyMode}
-                    spellCheck
-                    className="h-full w-full max-w-3xl resize-none border-0 bg-transparent p-0 text-[0.9375rem] leading-[1.75] text-text outline-none placeholder:text-mute/60"
-                  />
-                </div>
-              ) : (
-                <div className="note-scroll md-doc flex min-h-0 flex-1 justify-center overflow-y-auto px-5 pb-10 pt-4 lg:px-10">
-                  <div className="w-full max-w-3xl">
-                    {draft.body.trim() ? (
-                      <Markdown
-                        blocks={preview}
-                        renderTable={(block, index) => (
-                          <TableEditor
-                            key={index}
-                            block={block}
-                            selected={tableCell?.table === index ? tableCell : null}
-                            onSelect={(ref) =>
-                              setTableCell(ref ? { ...ref, table: index } : null)
-                            }
-                            onChange={(next) => applyTableEdit(block, next)}
-                            readOnly={readOnlyMode}
-                          />
-                        )}
-                      />
-                    ) : (
-                      <p className="text-sm text-mute">Nothing to preview yet.</p>
-                    )}
+              <Suspense
+                fallback={
+                  <div className="min-h-0 flex-1 px-5 pt-7 text-sm text-mute lg:px-10">
+                    <div className="note-column">Loading the editor...</div>
                   </div>
-                </div>
-              )}
+                }
+              >
+                <NoteEditor
+                  noteId={editingId.current ?? "none"}
+                  value={draft.body}
+                  editable={!readOnlyMode}
+                  onChange={(body) => edit({ body })}
+                  header={
+                    <input
+                      value={draft.title}
+                      onChange={(event) => edit({ title: event.target.value })}
+                      placeholder="Untitled note"
+                      aria-label="Note title"
+                      readOnly={readOnlyMode}
+                      className={`w-full border-0 bg-transparent p-0 text-[1.75rem] font-semibold leading-tight tracking-tight text-text outline-none placeholder:text-mute/35 ${focusRing} focus-visible:ring-offset-4`}
+                    />
+                  }
+                />
+              </Suspense>
 
               <footer className="flex shrink-0 items-center gap-3 border-t border-line px-4 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] text-[11px] text-mute">
                 <span className="tabular-nums" title={longStamp(draft.updatedAt ?? draft.createdAt)}>
@@ -863,14 +805,18 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
         </section>
       </div>
 
-      {confirmDeleteNote && selected ? (
+      {confirmDelete ? (
         <ConfirmDialog
           title="Delete note"
-          heading={`Delete “${selected.title}”?`}
-          body="This permanently removes the note from your encrypted vault across all paired devices. This cannot be undone."
+          heading={`Delete “${confirmDelete.title}”?`}
+          body={
+            deleteCount > 1
+              ? `This permanently removes the note and the ${deleteCount - 1} note${deleteCount === 2 ? "" : "s"} inside it from your encrypted vault across all paired devices. This cannot be undone.`
+              : "This permanently removes the note from your encrypted vault across all paired devices. This cannot be undone."
+          }
           confirmLabel="Delete note"
           onConfirm={() => void removeNote()}
-          onClose={() => setConfirmDeleteNote(false)}
+          onClose={() => setConfirmDelete(null)}
         />
       ) : null}
 

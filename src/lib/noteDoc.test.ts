@@ -1,0 +1,189 @@
+import { describe, expect, it } from "vitest";
+
+import { docToMarkdown, markdownToDoc, type Doc } from "./noteDoc";
+
+/** What a note looks like after one trip through the editor. */
+function round(markdown: string): string {
+  return docToMarkdown(markdownToDoc(markdown));
+}
+
+/** A round trip that must not change the text at all. */
+function stable(markdown: string): void {
+  expect(round(markdown)).toBe(markdown);
+}
+
+describe("markdownToDoc", () => {
+  it("gives an empty note a paragraph to put the caret in", () => {
+    expect(markdownToDoc("")).toEqual({ type: "doc", content: [{ type: "paragraph" }] });
+  });
+
+  it("maps a heading to its level", () => {
+    const doc = markdownToDoc("### Three");
+    expect(doc.content[0]).toEqual({
+      type: "heading",
+      attrs: { level: 3 },
+      content: [{ type: "text", text: "Three" }],
+    });
+  });
+
+  it("carries marks as a set on the text node", () => {
+    const doc = markdownToDoc("**bold _both_**");
+    const text = doc.content[0].content ?? [];
+    expect(text[0]).toEqual({ type: "text", text: "bold ", marks: [{ type: "bold" }] });
+    expect(text[1]).toEqual({
+      type: "text",
+      text: "both",
+      marks: [{ type: "bold" }, { type: "italic" }],
+    });
+  });
+
+  it("splits a mixed list into a task list and a bullet list", () => {
+    const doc = markdownToDoc("- [ ] task\n- plain");
+    expect(doc.content.map((node) => node.type)).toEqual(["taskList", "bulletList"]);
+  });
+
+  it("nests a sub-list inside its parent item", () => {
+    const doc = markdownToDoc("- outer\n  - inner");
+    const item = doc.content[0].content?.[0];
+    expect(item?.content?.map((node) => node.type)).toEqual(["paragraph", "bulletList"]);
+  });
+
+  it("keeps a task item's checked state", () => {
+    const doc = markdownToDoc("- [x] done");
+    expect(doc.content[0].content?.[0].attrs).toEqual({ checked: true });
+  });
+
+  it("writes no content key for an empty code block", () => {
+    const doc = markdownToDoc("```\n```");
+    expect(doc.content[0]).toEqual({ type: "codeBlock", attrs: { language: null } });
+  });
+
+  it("carries a table's column alignment onto its cells", () => {
+    const doc = markdownToDoc("| a | b |\n| :-- | --: |\n| 1 | 2 |");
+    const header = doc.content[0].content?.[0].content ?? [];
+    expect(header[0].attrs?.align).toBe("left");
+    expect(header[1].attrs?.align).toBe("right");
+  });
+
+  it("builds no zero-length text node", () => {
+    const doc = markdownToDoc("a ** ** b\n\n- \n- x");
+    const texts: string[] = [];
+    const walk = (node: { text?: string; content?: unknown[] }) => {
+      if (typeof node.text === "string") texts.push(node.text);
+      for (const child of (node.content ?? []) as { text?: string; content?: unknown[] }[]) {
+        walk(child);
+      }
+    };
+    walk(doc as unknown as { content?: unknown[] });
+    expect(texts.every((text) => text.length > 0)).toBe(true);
+  });
+});
+
+describe("round trip", () => {
+  it("keeps headings", () => stable("# One\n\n## Two\n\n###### Six"));
+  it("keeps paragraphs", () => stable("First line.\n\nSecond line."));
+  it("keeps emphasis", () => stable("**bold** and *italic* and ~~struck~~"));
+  it("keeps inline code", () => stable("call `fn(x)` now"));
+  it("keeps a link", () => stable("see [the docs](https://example.com/a)"));
+  it("keeps a bullet list", () => stable("- one\n- two\n- three"));
+  it("keeps an ordered list", () => stable("1. one\n2. two"));
+  it("keeps an ordered list that does not start at one", () => stable("5. five\n6. six"));
+  it("keeps a task list", () => stable("- [ ] todo\n- [x] done"));
+  it("keeps a nested list", () => stable("- outer\n  - inner\n  - also"));
+  it("keeps a quote", () => stable("> quoted line"));
+  it("keeps a rule", () => stable("before\n\n---\n\nafter"));
+  it("keeps a code block", () => stable("```js\nconst x = 1;\n```"));
+  it("keeps a code block with no language", () => stable("```\nplain\n```"));
+  it("keeps a table", () => stable("| a | b |\n| --- | --- |\n| 1 | 2 |"));
+  it("keeps a table's alignment", () => stable("| a | b | c |\n| :-- | :-: | --: |\n| 1 | 2 | 3 |"));
+
+  it("keeps a nested list inside a task item", () => {
+    stable("- [ ] parent\n      - child");
+  });
+
+  it("normalises an underscore pair to the asterisk form it already meant", () => {
+    // The scanner pairs `_` without a word-boundary rule, so `a_b_c` is emphasis
+    // on the way in and comes back as the `*` spelling of the same thing.
+    expect(round("a_b_c")).toBe("a*b*c");
+    expect(round(round("a_b_c"))).toBe(round("a_b_c"));
+  });
+
+  it("escapes markup characters that were never a pair", () => {
+    const source = "snake_case and [not a link";
+    expect(round(source)).toBe("snake\\_case and \\[not a link");
+    expect(round(round(source))).toBe(round(source));
+  });
+
+  it("does not let prose open a block it did not mean to", () => {
+    for (const text of ["# not a heading", "- not a list", "> not a quote", "1. not ordered"]) {
+      const doc = markdownToDoc(text.replace(/^(.)/u, "\\$1"));
+      expect(doc.content[0].type).toBe("paragraph");
+    }
+  });
+
+  it("keeps a fence that contains a fence", () => {
+    const source = "````\n```\ninner\n```\n````";
+    expect(round(source)).toBe(source);
+  });
+
+  it("normalises a bare origin the way the parser validated it", () => {
+    // `safeHref` resolves through `URL`, which is what rejects a hostile scheme;
+    // the trailing slash is that validation showing through.
+    expect(round("[a](https://example.com)")).toBe("[a](https://example.com/)");
+    expect(round(round("[a](https://example.com)"))).toBe(round("[a](https://example.com)"));
+  });
+
+  it("keeps a pipe inside a table cell", () => {
+    const doc = markdownToDoc("| a |\n| --- |\n| x \\| y |");
+    expect(docToMarkdown(doc)).toBe("| a |\n| --- |\n| x \\| y |");
+  });
+
+  it("keeps a backtick inside inline code", () => {
+    const source = "a ``b ` c`` d";
+    expect(round(round(source))).toBe(round(source));
+    expect(markdownToDoc(round(source)).content[0].content?.[1].text).toBe("b ` c");
+  });
+
+  it("keeps emphasis markers off the run's own spaces", () => {
+    const doc: Doc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "a" },
+            { type: "text", text: " padded ", marks: [{ type: "bold" }] },
+            { type: "text", text: "b" },
+          ],
+        },
+      ],
+    };
+    // `** padded **` is not emphasis, so the spaces stay outside the markers.
+    expect(docToMarkdown(doc)).toBe("a **padded** b");
+  });
+
+  it("settles after one pass on a mixed document", () => {
+    const source = [
+      "# Title",
+      "",
+      "Some **bold** prose with a [link](https://example.com/).",
+      "",
+      "- [ ] a task",
+      "- [x] a done task",
+      "",
+      "1. first",
+      "2. second",
+      "",
+      "> a quote",
+      "",
+      "```rust",
+      "fn main() {}",
+      "```",
+      "",
+      "| col | col |",
+      "| --- | --- |",
+      "| 1 | 2 |",
+    ].join("\n");
+    expect(round(source)).toBe(source);
+  });
+});

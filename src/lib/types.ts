@@ -183,6 +183,13 @@ export type NoteDraft = {
   /** Markdown source, as typed. Rendered by `parseMarkdown`, never as HTML. */
   body: string;
   notebookId: string;
+  /**
+   * The note this one sits under, making the notebook a tree rather than a flat
+   * list. Absent for a note at the notebook's top level, which is every note
+   * written before the field existed. A parent in another notebook, or one that
+   * is missing, is read as absent rather than followed.
+   */
+  parentId?: string;
   pinned?: boolean;
   /**
    * Client-generated, like a contact's. The server keeps no user timestamps, so

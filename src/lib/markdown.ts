@@ -14,6 +14,13 @@ export type MdListItem = {
   children: MdInline[];
   task: boolean;
   checked: boolean;
+  /**
+   * Index of the line this item's marker sits on, for writing a checkbox back.
+   * Null where the lines are not the source's own, which is inside a quote.
+   */
+  line: number | null;
+  /** Nested lists under this item. */
+  blocks: MdBlock[];
 };
 
 /** A column's alignment, null where the delimiter row asked for none. */
@@ -61,10 +68,23 @@ const ESCAPABLE = "\\`*_~[]()#>!+-.";
 
 export function parseMarkdown(source: string, base: string = PARSE_BASE): MdBlock[] {
   const lines = source.replace(/\r\n?/gu, "\n").split("\n");
-  return parseBlocks(lines, base, 1);
+  return parseBlocks(lines, base, 1, 0);
 }
 
-function parseBlocks(lines: string[], base: string, depth: number): MdBlock[] {
+/** Deeper than this and an indented item joins its parent's level instead. */
+const LIST_DEPTH_LIMIT = 6;
+
+/**
+ * `lineBase` maps `lines[i]` to source line `lineBase + i`, and is null where
+ * that mapping does not hold: inside a quote the markers are stripped first, so
+ * an index into these lines does not address the source's own text.
+ */
+function parseBlocks(
+  lines: string[],
+  base: string,
+  depth: number,
+  lineBase: number | null,
+): MdBlock[] {
   const blocks: MdBlock[] = [];
   let i = 0;
   while (i < lines.length) {
@@ -81,7 +101,13 @@ function parseBlocks(lines: string[], base: string, depth: number): MdBlock[] {
       i += 1;
       // An unterminated fence runs to the end of the input rather than
       // swallowing the rest of the note.
-      while (i < lines.length && fenceMarker(lines[i]) !== fence) {
+      while (i < lines.length) {
+        const closing = fenceMarker(lines[i]);
+        // Only a run of the same character and at least as long closes the
+        // block, so a shorter fence inside it is content rather than its end.
+        if (closing !== null && closing.char === fence.char && closing.length >= fence.length) {
+          break;
+        }
         body.push(lines[i]);
         i += 1;
       }
@@ -123,7 +149,7 @@ function parseBlocks(lines: string[], base: string, depth: number): MdBlock[] {
       if (depth >= QUOTE_DEPTH_LIMIT) {
         blocks.push({ kind: "paragraph", children: parseInline(quoted.join("\n"), base, false) });
       } else {
-        blocks.push({ kind: "quote", blocks: parseBlocks(quoted, base, depth + 1) });
+        blocks.push({ kind: "quote", blocks: parseBlocks(quoted, base, depth + 1, null) });
       }
       continue;
     }
@@ -133,10 +159,49 @@ function parseBlocks(lines: string[], base: string, depth: number): MdBlock[] {
       const items: MdListItem[] = [];
       const ordered = item.ordered;
       const start = item.start;
+      const baseIndent = item.indent;
       while (i < lines.length) {
         const current = listItem(lines[i]);
+        // Indented past the first marker, so the run belongs under the item
+        // above rather than beside it.
+        if (
+          current &&
+          current.indent > baseIndent &&
+          items.length > 0 &&
+          depth < LIST_DEPTH_LIMIT &&
+          !isThematicBreak(lines[i])
+        ) {
+          const from = i;
+          while (i < lines.length) {
+            const nested = listItem(lines[i]);
+            if (nested && nested.indent > baseIndent && !isThematicBreak(lines[i])) {
+              i += 1;
+              continue;
+            }
+            if (!lines[i].trim()) {
+              const next = lines[i + 1];
+              const following = next === undefined ? null : listItem(next);
+              if (following && following.indent > baseIndent && !isThematicBreak(next)) {
+                i += 1;
+                continue;
+              }
+            }
+            break;
+          }
+          // Dedented, so the nested run parses against its own left edge, but
+          // the line mapping is kept: only leading whitespace was removed.
+          items[items.length - 1].blocks.push(
+            ...parseBlocks(
+              dedent(lines.slice(from, i)),
+              base,
+              depth + 1,
+              lineBase === null ? null : lineBase + from,
+            ),
+          );
+          continue;
+        }
         if (current && current.ordered === ordered && !isThematicBreak(lines[i])) {
-          items.push(toListItem(current.text, base));
+          items.push(toListItem(current.text, base, lineBase === null ? null : lineBase + i));
           i += 1;
           continue;
         }
@@ -156,7 +221,7 @@ function parseBlocks(lines: string[], base: string, depth: number): MdBlock[] {
       continue;
     }
 
-    const table = readTable(lines, i, base, depth);
+    const table = readTable(lines, i, base, lineBase);
     if (table) {
       blocks.push(table.block);
       i = table.next;
@@ -189,11 +254,14 @@ function startsBlock(line: string): boolean {
   );
 }
 
-function fenceMarker(line: string): string | null {
+/** The fence a line opens: which character, and how long the run is. */
+function fenceMarker(line: string): { char: string; length: number } | null {
   const trimmed = line.trimStart();
-  if (trimmed.startsWith("```")) return "```";
-  if (trimmed.startsWith("~~~")) return "~~~";
-  return null;
+  const char = trimmed[0];
+  if (char !== "`" && char !== "~") return null;
+  let length = 0;
+  while (trimmed[length] === char) length += 1;
+  return length >= 3 ? { char, length } : null;
 }
 
 /**
@@ -214,12 +282,55 @@ function isThematicBreak(line: string): boolean {
   return count >= 3;
 }
 
-function listItem(line: string): { ordered: boolean; start: number; text: string } | null {
-  const bullet = /^[ \t]*([-*+])[ \t]+(.*)$/u.exec(line);
-  if (bullet) return { ordered: false, start: 1, text: bullet[2] };
-  const numbered = /^[ \t]*(\d{1,9})[.)][ \t]+(.*)$/u.exec(line);
-  if (numbered) return { ordered: true, start: Number(numbered[1]), text: numbered[2] };
+function listItem(
+  line: string,
+): { ordered: boolean; start: number; text: string; indent: number } | null {
+  const bullet = /^([ \t]*)([-*+])[ \t]+(.*)$/u.exec(line);
+  if (bullet) {
+    return { ordered: false, start: 1, text: bullet[3], indent: columnWidth(bullet[1]) };
+  }
+  const numbered = /^([ \t]*)(\d{1,9})[.)][ \t]+(.*)$/u.exec(line);
+  if (numbered) {
+    return {
+      ordered: true,
+      start: Number(numbered[2]),
+      text: numbered[3],
+      indent: columnWidth(numbered[1]),
+    };
+  }
   return null;
+}
+
+/** Leading whitespace as columns, a tab advancing to the next multiple of four. */
+function columnWidth(indent: string): number {
+  let width = 0;
+  for (const char of indent) width = char === "\t" ? width + 4 - (width % 4) : width + 1;
+  return width;
+}
+
+/**
+ * Removes the whitespace prefix every written line in the run shares, so a
+ * nested list parses against its own left edge. Only leading whitespace goes,
+ * so line indexes into the run still address the same source lines.
+ */
+function dedent(lines: string[]): string[] {
+  let prefix: string | null = null;
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const indent = /^[ \t]*/u.exec(line)?.[0] ?? "";
+    if (prefix === null) {
+      prefix = indent;
+      continue;
+    }
+    let shared = 0;
+    while (shared < prefix.length && shared < indent.length && prefix[shared] === indent[shared]) {
+      shared += 1;
+    }
+    prefix = prefix.slice(0, shared);
+  }
+  const shared = prefix;
+  if (!shared) return lines;
+  return lines.map((line) => (line.startsWith(shared) ? line.slice(shared.length) : line.trimStart()));
 }
 
 /**
@@ -234,7 +345,7 @@ function readTable(
   lines: string[],
   start: number,
   base: string,
-  depth: number,
+  lineBase: number | null,
 ): { block: MdBlock; next: number } | null {
   const header = splitRow(lines[start]);
   if (header === null) return null;
@@ -261,7 +372,7 @@ function readTable(
       align,
       header: headerCells.map((cell) => toTableCell(cell, base)),
       rows,
-      line: depth === 1 ? { from: start, to: i } : null,
+      line: lineBase === null ? null : { from: lineBase + start, to: lineBase + i },
     },
     next: i,
   };
@@ -367,16 +478,18 @@ function delimiterAlignments(line: string): MdAlign[] | null {
   return align;
 }
 
-function toListItem(text: string, base: string): MdListItem {
+function toListItem(text: string, base: string, line: number | null): MdListItem {
   const task = /^\[([ xX])\][ \t]+(.*)$/u.exec(text);
   if (task) {
     return {
       children: parseInline(task[2], base, false),
       task: true,
       checked: task[1].toLowerCase() === "x",
+      line,
+      blocks: [],
     };
   }
-  return { children: parseInline(text, base, false), task: false, checked: false };
+  return { children: parseInline(text, base, false), task: false, checked: false, line, blocks: [] };
 }
 
 /**
@@ -452,6 +565,22 @@ function parseInline(source: string, base: string, inLink: boolean): MdInline[] 
     }
 
     if (char === "*" || char === "_") {
+      // `***both***` is strong around emphasis. Checked before the pair below,
+      // which would otherwise read the third marker as literal text.
+      if (runLength(source, i, char) >= 3) {
+        const triple = char.repeat(3);
+        const from = i + 3;
+        const closing = failed(triple, from) ? -1 : findDelimiter(source, from, triple);
+        if (closing !== -1 && closing > from) {
+          flush();
+          const children = parseInline(source.slice(from, closing), base, inLink);
+          out.push({ kind: "strong", children: [{ kind: "em", children }] });
+          i = closing + 3;
+          continue;
+        }
+        recordFailure(triple, from);
+      }
+
       const double = source[i + 1] === char;
       const delim = double ? char + char : char;
       const from = i + delim.length;
@@ -632,6 +761,16 @@ export function safeHref(raw: string, base: string = PARSE_BASE): string | null 
 }
 
 /** Plain text for a list row preview: markers dropped, whitespace collapsed. */
+/** Plain text of an inline tree, for a label that cannot carry elements. */
+export function inlineText(nodes: MdInline[]): string {
+  let out = "";
+  for (const node of nodes) {
+    if (node.kind === "text" || node.kind === "code") out += node.text;
+    else out += inlineText(node.children);
+  }
+  return out;
+}
+
 export function stripMarkdown(source: string): string {
   return source
     .replace(/\r\n?/gu, "\n")

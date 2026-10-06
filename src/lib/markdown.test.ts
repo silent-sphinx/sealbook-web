@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { parseMarkdown, safeHref, stripMarkdown } from "./markdown";
-import type { MdBlock, MdInline, MdTableCell } from "./markdown";
+import { inlineText, parseMarkdown, safeHref, stripMarkdown } from "./markdown";
+import type { MdBlock, MdInline, MdListItem, MdTableCell } from "./markdown";
 
 const text = (value: string): MdInline => ({ kind: "text", text: value });
 
@@ -67,8 +67,8 @@ describe("parseMarkdown blocks", () => {
   it("reads both task item states", () => {
     const block = only("- [ ] todo\n- [x] done");
     expect((block as { items: { task: boolean; checked: boolean }[] }).items).toEqual([
-      { children: [text("todo")], task: true, checked: false },
-      { children: [text("done")], task: true, checked: true },
+      { children: [text("todo")], task: true, checked: false, line: 0, blocks: [] },
+      { children: [text("done")], task: true, checked: true, line: 1, blocks: [] },
     ]);
   });
 
@@ -359,5 +359,136 @@ describe("stripMarkdown on tables", () => {
     expect(stripMarkdown("| Day | Plan |\n| --- | --- |\n| Sat | Land |")).toBe(
       "Day Plan Sat Land",
     );
+  });
+});
+
+describe("triple emphasis", () => {
+  it("reads ***x*** as strong around emphasis", () => {
+    const block = only("***both***");
+    expect(block).toEqual({
+      kind: "paragraph",
+      children: [{ kind: "strong", children: [{ kind: "em", children: [text("both")] }] }],
+    });
+  });
+
+  it("reads the underscore spelling the same way", () => {
+    expect(flatten((only("___both___") as { children: MdInline[] }).children)).toBe("both");
+  });
+
+  it("leaves an unclosed run literal", () => {
+    expect(flatten((only("***loose") as { children: MdInline[] }).children)).toBe("***loose");
+  });
+
+  it("still reads a plain pair as strong", () => {
+    const block = only("**bold**");
+    expect(block).toEqual({ kind: "paragraph", children: [{ kind: "strong", children: [text("bold")] }] });
+  });
+});
+
+describe("nested lists", () => {
+  function items(source: string): MdListItem[] {
+    const block = only(source);
+    expect(block.kind).toBe("list");
+    return (block as Extract<MdBlock, { kind: "list" }>).items;
+  }
+
+  it("puts an indented run under the item above it", () => {
+    const top = items("- one\n  - inner\n- two");
+    expect(top).toHaveLength(2);
+    expect(flatten(top[0].children)).toBe("one");
+    expect(top[0].blocks).toHaveLength(1);
+    const nested = top[0].blocks[0] as Extract<MdBlock, { kind: "list" }>;
+    expect(nested.kind).toBe("list");
+    expect(nested.items.map((item) => flatten(item.children))).toEqual(["inner"]);
+    expect(top[1].blocks).toEqual([]);
+  });
+
+  it("nests to a third level", () => {
+    const top = items("- a\n  - b\n    - c");
+    const second = top[0].blocks[0] as Extract<MdBlock, { kind: "list" }>;
+    const third = second.items[0].blocks[0] as Extract<MdBlock, { kind: "list" }>;
+    expect(flatten(third.items[0].children)).toBe("c");
+  });
+
+  it("lets a nested list change kind", () => {
+    const top = items("- bullet\n  1. first\n  2. second");
+    const nested = top[0].blocks[0] as Extract<MdBlock, { kind: "list" }>;
+    expect(nested.ordered).toBe(true);
+    expect(nested.items).toHaveLength(2);
+  });
+
+  it("treats a tab as four columns", () => {
+    const top = items("- one\n\t- inner");
+    expect(top).toHaveLength(1);
+    expect(top[0].blocks).toHaveLength(1);
+  });
+
+  it("does not nest an item with nothing above it", () => {
+    const top = items("  - only\n  - second");
+    expect(top).toHaveLength(2);
+    expect(top[0].blocks).toEqual([]);
+  });
+
+  it("strips a nested run's shared indent rather than a fixed amount", () => {
+    const top = items("- one\n      - deep\n      - also deep");
+    const nested = top[0].blocks[0] as Extract<MdBlock, { kind: "list" }>;
+    expect(nested.items.map((item) => flatten(item.children))).toEqual(["deep", "also deep"]);
+  });
+
+  it("stops nesting at the depth limit instead of recursing on input", () => {
+    const source = Array.from({ length: 40 }, (_, level) => `${" ".repeat(level * 2)}- level`).join(
+      "\n",
+    );
+    let depth = 0;
+    let list = only(source) as Extract<MdBlock, { kind: "list" }>;
+    while (list.items[list.items.length - 1].blocks.length > 0) {
+      depth += 1;
+      list = list.items[list.items.length - 1].blocks[0] as Extract<MdBlock, { kind: "list" }>;
+    }
+    expect(depth).toBeLessThanOrEqual(6);
+  });
+});
+
+describe("task item line mapping", () => {
+  function items(source: string): MdListItem[] {
+    const blocks = parseMarkdown(source);
+    const list = blocks.find((block) => block.kind === "list");
+    return (list as Extract<MdBlock, { kind: "list" }>).items;
+  }
+
+  it("reports the source line of each item", () => {
+    const list = items("# Title\n\n- [ ] one\n- [x] two");
+    expect(list.map((item) => item.line)).toEqual([2, 3]);
+  });
+
+  it("reports the source line of a nested item", () => {
+    const top = items("- [ ] parent\n  - [ ] child");
+    const nested = top[0].blocks[0] as Extract<MdBlock, { kind: "list" }>;
+    expect(nested.items[0].line).toBe(1);
+  });
+
+  it("reports no line inside a quote, where the markers were stripped", () => {
+    const blocks = parseMarkdown("> - [ ] quoted");
+    const quote = blocks[0] as Extract<MdBlock, { kind: "quote" }>;
+    const list = quote.blocks[0] as Extract<MdBlock, { kind: "list" }>;
+    expect(list.items[0].line).toBeNull();
+  });
+
+  it("keeps a table's line range addressing the source", () => {
+    const blocks = parseMarkdown("text\n\n| a | b |\n| --- | --- |\n| 1 | 2 |");
+    const table = blocks.find((block) => block.kind === "table");
+    expect((table as Extract<MdBlock, { kind: "table" }>).line).toEqual({ from: 2, to: 5 });
+  });
+});
+
+describe("inlineText", () => {
+  it("flattens a tree to its readable text", () => {
+    const blocks = parseMarkdown("- **bold** and `code` and [link](https://example.com)");
+    const list = blocks[0] as Extract<MdBlock, { kind: "list" }>;
+    expect(inlineText(list.items[0].children)).toBe("bold and code and link");
+  });
+
+  it("returns an empty string for an empty tree", () => {
+    expect(inlineText([])).toBe("");
   });
 });

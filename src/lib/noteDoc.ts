@@ -1,0 +1,409 @@
+/**
+ * Markdown to editor document and back.
+ *
+ * Markdown stays the stored form of a note, because it is what the export paths,
+ * the Rust CLI and any later client read. The editor works on a ProseMirror
+ * document, so every open parses and every save serialises.
+ *
+ * The parse direction reuses `parseMarkdown` rather than adding a second
+ * markdown implementation: it is the one the security review covered, and a
+ * second parser would be a second set of rules for what a hostile note can do.
+ */
+
+import { parseMarkdown, type MdBlock, type MdInline, type MdListItem } from "./markdown";
+
+export type DocMark = { type: string; attrs?: Record<string, unknown> };
+
+export type DocNode = {
+  type: string;
+  attrs?: Record<string, unknown>;
+  content?: DocNode[];
+  marks?: DocMark[];
+  text?: string;
+};
+
+export type Doc = { type: "doc"; content: DocNode[] };
+
+/** An empty paragraph, which is the smallest document the schema accepts. */
+function emptyDoc(): Doc {
+  return { type: "doc", content: [{ type: "paragraph" }] };
+}
+
+export function markdownToDoc(markdown: string): Doc {
+  const content = blocksToNodes(parseMarkdown(markdown));
+  return content.length > 0 ? { type: "doc", content } : emptyDoc();
+}
+
+function blocksToNodes(blocks: MdBlock[]): DocNode[] {
+  const out: DocNode[] = [];
+  for (const block of blocks) out.push(...blockToNodes(block));
+  return out;
+}
+
+function blockToNodes(block: MdBlock): DocNode[] {
+  switch (block.kind) {
+    case "heading":
+      return [{ type: "heading", attrs: { level: block.level }, ...inlineContent(block.children) }];
+    case "paragraph":
+      return [{ type: "paragraph", ...inlineContent(block.children) }];
+    case "rule":
+      return [{ type: "horizontalRule" }];
+    case "code":
+      return [
+        {
+          type: "codeBlock",
+          attrs: { language: block.language },
+          // An empty code block carries no text node: the schema rejects one.
+          ...(block.text ? { content: [{ type: "text", text: block.text }] } : {}),
+        },
+      ];
+    case "quote": {
+      const inner = blocksToNodes(block.blocks);
+      return [{ type: "blockquote", content: inner.length > 0 ? inner : [{ type: "paragraph" }] }];
+    }
+    case "list":
+      return listToNodes(block);
+    case "table":
+      return [tableToNode(block)];
+  }
+}
+
+/**
+ * A markdown list may mix task items with plain ones; the editor schema keeps
+ * `taskList` and `bulletList` apart, so a mixed list becomes one node per run.
+ */
+function listToNodes(block: Extract<MdBlock, { kind: "list" }>): DocNode[] {
+  const out: DocNode[] = [];
+  let run: MdListItem[] = [];
+  let runIsTask = false;
+  let consumed = 0;
+
+  const flush = () => {
+    if (run.length === 0) return;
+    out.push(
+      runIsTask
+        ? { type: "taskList", content: run.map(taskItemNode) }
+        : block.ordered
+          ? {
+              type: "orderedList",
+              attrs: { start: block.start + consumed },
+              content: run.map(listItemNode),
+            }
+          : { type: "bulletList", content: run.map(listItemNode) },
+    );
+    consumed += run.length;
+    run = [];
+  };
+
+  for (const item of block.items) {
+    if (run.length > 0 && item.task !== runIsTask) flush();
+    runIsTask = item.task;
+    run.push(item);
+  }
+  flush();
+  return out;
+}
+
+/** A list item leads with a paragraph, which the schema requires. */
+function itemContent(item: MdListItem): DocNode[] {
+  return [{ type: "paragraph", ...inlineContent(item.children) }, ...blocksToNodes(item.blocks)];
+}
+
+function listItemNode(item: MdListItem): DocNode {
+  return { type: "listItem", content: itemContent(item) };
+}
+
+function taskItemNode(item: MdListItem): DocNode {
+  return { type: "taskItem", attrs: { checked: item.checked }, content: itemContent(item) };
+}
+
+function tableToNode(block: Extract<MdBlock, { kind: "table" }>): DocNode {
+  const column = (cells: { span: number }[], index: number): number => {
+    let at = 0;
+    for (let i = 0; i < index; i += 1) at += cells[i].span;
+    return at;
+  };
+  const row = (cells: Extract<MdBlock, { kind: "table" }>["header"], type: string): DocNode => ({
+    type: "tableRow",
+    content: cells.map((cell, index) => ({
+      type,
+      attrs: {
+        colspan: cell.span > 1 ? cell.span : 1,
+        rowspan: 1,
+        colwidth: null,
+        align: block.align[column(cells, index)] ?? null,
+      },
+      content: [{ type: "paragraph", ...inlineContent(cell.children) }],
+    })),
+  });
+  return {
+    type: "table",
+    content: [
+      row(block.header, "tableHeader"),
+      ...block.rows.map((cells) => row(cells, "tableCell")),
+    ],
+  };
+}
+
+/** Omits `content` entirely when empty, which an empty block node requires. */
+function inlineContent(nodes: MdInline[]): { content?: DocNode[] } {
+  const content = inlineToNodes(nodes, []);
+  return content.length > 0 ? { content } : {};
+}
+
+function inlineToNodes(nodes: MdInline[], marks: DocMark[]): DocNode[] {
+  const out: DocNode[] = [];
+  for (const node of nodes) {
+    switch (node.kind) {
+      case "text":
+        // A zero-length text node is not a valid document node.
+        if (node.text) out.push(textNode(node.text, marks));
+        break;
+      case "code":
+        if (node.text) out.push(textNode(node.text, withMark(marks, { type: "code" })));
+        break;
+      case "strong":
+        out.push(...inlineToNodes(node.children, withMark(marks, { type: "bold" })));
+        break;
+      case "em":
+        out.push(...inlineToNodes(node.children, withMark(marks, { type: "italic" })));
+        break;
+      case "strike":
+        out.push(...inlineToNodes(node.children, withMark(marks, { type: "strike" })));
+        break;
+      case "link":
+        out.push(
+          ...inlineToNodes(node.children, withMark(marks, { type: "link", attrs: { href: node.href } })),
+        );
+        break;
+    }
+  }
+  return out;
+}
+
+function textNode(text: string, marks: DocMark[]): DocNode {
+  return marks.length > 0 ? { type: "text", text, marks } : { type: "text", text };
+}
+
+function withMark(marks: DocMark[], mark: DocMark): DocMark[] {
+  return marks.some((existing) => existing.type === mark.type) ? marks : [...marks, mark];
+}
+
+/* ------------------------------------------------------------------ *
+ * Document to markdown
+ * ------------------------------------------------------------------ */
+
+export function docToMarkdown(doc: Doc | DocNode): string {
+  return serializeBlocks(doc.content ?? [], "").replace(/[ \t]+$/gmu, "").trim();
+}
+
+function serializeBlocks(nodes: DocNode[], indent: string): string {
+  return nodes
+    .map((node) => serializeBlock(node, indent))
+    .filter((part) => part !== null)
+    .join("\n\n");
+}
+
+function serializeBlock(node: DocNode, indent: string): string {
+  switch (node.type) {
+    case "paragraph": {
+      const text = serializeInline(node.content ?? []);
+      // An empty paragraph still has to occupy a line, or two blocks either side
+      // of it would merge into one on the way back in.
+      return indent + escapeBlockStart(text);
+    }
+    case "heading": {
+      const level = clampLevel(node.attrs?.level);
+      return `${indent}${"#".repeat(level)} ${serializeInline(node.content ?? [])}`;
+    }
+    case "horizontalRule":
+      return `${indent}---`;
+    case "codeBlock":
+      return serializeCodeBlock(node, indent);
+    case "blockquote": {
+      const body = serializeBlocks(node.content ?? [], "");
+      return body
+        .split("\n")
+        .map((line) => `${indent}>${line ? ` ${line}` : ""}`)
+        .join("\n");
+    }
+    case "bulletList":
+    case "orderedList":
+    case "taskList":
+      return serializeList(node, indent);
+    case "table":
+      return serializeTable(node, indent);
+    default:
+      // An unknown block still contributes its text rather than vanishing.
+      return indent + serializeInline(node.content ?? []);
+  }
+}
+
+function clampLevel(level: unknown): number {
+  return typeof level === "number" && level >= 1 && level <= 6 ? Math.floor(level) : 1;
+}
+
+/**
+ * The fence is widened past any run of backticks in the body, so a code block
+ * containing a fence cannot close its own.
+ */
+function serializeCodeBlock(node: DocNode, indent: string): string {
+  const text = (node.content ?? []).map((child) => child.text ?? "").join("");
+  const language = typeof node.attrs?.language === "string" ? node.attrs.language : "";
+  let longest = 0;
+  for (const run of text.match(/`+/gu) ?? []) longest = Math.max(longest, run.length);
+  const fence = "`".repeat(Math.max(3, longest + 1));
+  const body = text ? text.split("\n").map((line) => indent + line) : [];
+  return [`${indent}${fence}${language}`, ...body, `${indent}${fence}`].join("\n");
+}
+
+function serializeList(node: DocNode, indent: string): string {
+  const ordered = node.type === "orderedList";
+  const task = node.type === "taskList";
+  const start = typeof node.attrs?.start === "number" ? node.attrs.start : 1;
+  const lines: string[] = [];
+
+  (node.content ?? []).forEach((item, index) => {
+    const marker = task
+      ? `- [${item.attrs?.checked === true ? "x" : " "}] `
+      : ordered
+        ? `${start + index}. `
+        : "- ";
+    const [first, ...rest] = item.content ?? [];
+    const head = first ? serializeBlock(first, "") : "";
+    lines.push(`${indent}${marker}${head}`);
+    // Continuation lines sit under the item's text, so the run reads as nested
+    // rather than as a sibling of the list itself.
+    const pad = indent + " ".repeat(marker.length);
+    for (const block of rest) lines.push(serializeBlock(block, pad));
+  });
+
+  return lines.join("\n");
+}
+
+function serializeTable(node: DocNode, indent: string): string {
+  const rows = node.content ?? [];
+  if (rows.length === 0) return "";
+  const cellText = (cell: DocNode): string =>
+    serializeBlocks(cell.content ?? [], "")
+      .replace(/\n+/gu, " ")
+      .replace(/\|/gu, "\\|")
+      .trim();
+
+  const header = rows[0].content ?? [];
+  const columns = header.reduce((total, cell) => total + spanOf(cell), 0);
+  const delimiter = header.flatMap((cell) => {
+    const align = cell.attrs?.align;
+    const marker = align === "center" ? ":-:" : align === "left" ? ":--" : align === "right" ? "--:" : "---";
+    // A spanned heading describes every column it covers.
+    return Array.from({ length: spanOf(cell) }, () => marker);
+  });
+
+  const line = (cells: DocNode[]): string =>
+    `${indent}| ${cells.map(cellText).join(" | ")} |`;
+
+  return [
+    line(header),
+    `${indent}| ${delimiter.slice(0, columns).join(" | ")} |`,
+    ...rows.slice(1).map((row) => line(row.content ?? [])),
+  ].join("\n");
+}
+
+function spanOf(cell: DocNode): number {
+  const span = cell.attrs?.colspan;
+  return typeof span === "number" && span > 1 ? span : 1;
+}
+
+function serializeInline(nodes: DocNode[]): string {
+  let out = "";
+  for (const node of mergeRuns(nodes)) {
+    if (node.type === "hardBreak") {
+      out += " ";
+      continue;
+    }
+    if (node.type !== "text" || !node.text) continue;
+    out += applyMarks(node.text, node.marks ?? []);
+  }
+  return out;
+}
+
+/** Adjacent nodes carrying the same marks become one, so `**a****b**` cannot occur. */
+function mergeRuns(nodes: DocNode[]): DocNode[] {
+  const out: DocNode[] = [];
+  for (const node of nodes) {
+    const last = out[out.length - 1];
+    if (
+      last !== undefined &&
+      last.type === "text" &&
+      node.type === "text" &&
+      sameMarks(last.marks ?? [], node.marks ?? [])
+    ) {
+      out[out.length - 1] = { ...last, text: (last.text ?? "") + (node.text ?? "") };
+      continue;
+    }
+    out.push(node);
+  }
+  return out;
+}
+
+function sameMarks(a: DocMark[], b: DocMark[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((mark, index) => {
+    const other = b[index];
+    return mark.type === other.type && JSON.stringify(mark.attrs ?? {}) === JSON.stringify(other.attrs ?? {});
+  });
+}
+
+/** Innermost first: code, then the emphasis marks, then the link around them. */
+function applyMarks(text: string, marks: DocMark[]): string {
+  const has = (type: string) => marks.some((mark) => mark.type === type);
+  let out: string;
+  if (has("code")) {
+    // Backticks inside the span widen its own fence rather than being escaped,
+    // which is the only form inline code has.
+    let longest = 0;
+    for (const run of text.match(/`+/gu) ?? []) longest = Math.max(longest, run.length);
+    const fence = "`".repeat(longest + 1);
+    const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
+    out = `${fence}${pad}${text}${pad}${fence}`;
+  } else {
+    out = escapeText(text);
+  }
+  if (has("strike")) out = wrap(out, "~~");
+  if (has("bold")) out = wrap(out, "**");
+  if (has("italic")) out = wrap(out, "*");
+  const link = marks.find((mark) => mark.type === "link");
+  const href = link && typeof link.attrs?.href === "string" ? link.attrs.href : "";
+  if (href) out = `[${out}](${href})`;
+  return out;
+}
+
+/**
+ * Markers go inside the run's own whitespace: `** bold **` is not emphasis, so
+ * the spaces have to stay outside the delimiters.
+ */
+function wrap(text: string, marker: string): string {
+  const match = /^(\s*)([\s\S]*?)(\s*)$/u.exec(text);
+  if (match === null || match[2] === "") return text;
+  return `${match[1]}${marker}${match[2]}${marker}${match[3]}`;
+}
+
+/**
+ * Characters the inline scanner acts on. `_` and `*` are escaped wherever they
+ * appear because the scanner pairs them without a word-boundary rule, so
+ * `snake_case_name` would otherwise come back as emphasis.
+ */
+function escapeText(text: string): string {
+  return text
+    .replace(/\\/gu, "\\\\")
+    .replace(/[`*_[]/gu, "\\$&")
+    .replace(/~~/gu, "\\~\\~");
+}
+
+/** A line of prose that would otherwise open a block of its own. */
+function escapeBlockStart(line: string): string {
+  return line
+    .replace(/^(\s*)(#{1,6})(\s|$)/u, "$1\\$2$3")
+    .replace(/^(\s*)([-+>])(\s|$)/u, "$1\\$2$3")
+    .replace(/^(\s*)(\d{1,9})([.)])(\s)/u, "$1$2\\$3$4");
+}

@@ -23,6 +23,17 @@ type Props<T extends Container> = {
   onDelete: (item: T) => void;
   /** Leading mark for a row; the book icon when not given. */
   renderIcon?: (item: T) => ReactNode;
+  /**
+   * Drawn in the row's trailing slot at rest, giving way to the actions on
+   * hover. A note count here is what tells a reader a container has contents.
+   */
+  renderMeta?: (item: T) => ReactNode;
+  /**
+   * Drawn directly beneath a row, inside the list. Lets a caller nest a
+   * container's own contents under it, so the two read as one thing rather than
+   * as two lists that happen to sit near each other.
+   */
+  renderUnder?: (item: T) => ReactNode;
   /** False where the caller already offers the unfiltered row of its own. */
   showAll?: boolean;
   readOnly?: boolean;
@@ -74,6 +85,8 @@ export function ContainerList<T extends Container>({
   onRename,
   onDelete,
   renderIcon,
+  renderMeta,
+  renderUnder,
   showAll = true,
   readOnly = false,
   busy = false,
@@ -154,8 +167,10 @@ export function ContainerList<T extends Container>({
             </form>
           );
         }
+        const under = renderUnder?.(book);
         return (
-          <div key={book.id} className={`${rowBase} ${selected ? "bg-surface" : "hover:bg-surface/40"}`}>
+          <div key={book.id}>
+          <div className={`${rowBase} ${selected ? "bg-surface" : "hover:bg-surface/40"}`}>
             <button
               type="button"
               onClick={() => onSelect(book.id)}
@@ -166,8 +181,14 @@ export function ContainerList<T extends Container>({
               <span className="min-w-0 flex-1 truncate font-medium">{book.name}</span>
             </button>
 
-            {readOnly ? null : (
+            {readOnly && !renderMeta ? null : (
               <span className="relative flex h-7 w-[50px] shrink-0 items-center justify-end">
+                {renderMeta ? (
+                  <span className="list-row-rest absolute inset-0 flex items-center justify-end pr-1 text-[10px] tabular-nums text-mute/70">
+                    {renderMeta(book)}
+                  </span>
+                ) : null}
+                {readOnly ? null : (
                 <span className="list-row-actions absolute inset-0 flex items-center justify-end gap-0.5">
                   <button
                     type="button"
@@ -190,8 +211,11 @@ export function ContainerList<T extends Container>({
                     </button>
                   )}
                 </span>
+                )}
               </span>
             )}
+          </div>
+          {under}
           </div>
         );
       })}

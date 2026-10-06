@@ -244,24 +244,54 @@ option {
 
 .md-body ul { list-style: disc; }
 .md-body ol { list-style: decimal; }
+.md-body li ul { list-style: circle; }
+.md-body li li ul { list-style: square; }
 
 .md-body li + li {
   margin-top: 0.25rem;
 }
 
-/* A task item carries its own box, so the bullet would be redundant. */
-.md-body li.md-task {
+/* A nested list sits under its parent item rather than beside it. */
+.md-body li > ul,
+.md-body li > ol {
+  margin-top: 0.25rem;
+}
+
+/* The task list the editor builds: a label holding the box, then the content. */
+.md-body ul[data-type="taskList"] {
   list-style: none;
-  margin-left: -1.25rem;
+  padding-left: 0.25rem;
+}
+
+.md-body ul[data-type="taskList"] li {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 0.5rem;
 }
 
-.md-body li.md-task input {
+.md-body ul[data-type="taskList"] li > label {
+  display: flex;
+  align-items: center;
+  height: 1.75em;
+  flex: 0 0 auto;
+  user-select: none;
+}
+
+.md-body ul[data-type="taskList"] li > div {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.md-body ul[data-type="taskList"] input[type="checkbox"] {
   accent-color: var(--color-accent);
-  pointer-events: none;
-  translate: 0 0.15rem;
+  cursor: pointer;
+  margin: 0;
+}
+
+/* A ticked item reads as done without needing a second colour. */
+.md-body ul[data-type="taskList"] li[data-checked="true"] > div {
+  color: var(--color-mute);
+  text-decoration: line-through;
 }
 
 .md-body blockquote {
@@ -463,26 +493,38 @@ option {
   background: var(--color-line);
 }
 
-/* Matches the editor's type scale, so switching panes does not reflow. */
-.md-doc .md-body {
-  font-size: 0.9375rem;
-  line-height: 1.75;
+/* The width the title and the body both sit in. */
+.note-column {
+  width: 100%;
+  max-width: 48rem;
+  margin-inline: auto;
 }
 
-.md-doc .md-body > * + * {
+/* The document scale of the editing surface itself. */
+.note-doc.md-body {
+  font-size: 0.9375rem;
+  line-height: 1.75;
+  outline: none;
+  /* Grows to the bottom of the pane, so the margin below the text is still the
+     document and a click there lands in it. */
+  flex: 1 1 auto;
+  min-height: 8rem;
+}
+
+.note-doc.md-body > * + * {
   margin-top: 0.9rem;
 }
 
-.md-doc .md-body h1 { font-size: 1.625rem; }
-.md-doc .md-body h2 { font-size: 1.25rem; }
-.md-doc .md-body h3 { font-size: 1.0625rem; }
+.note-doc.md-body h1 { font-size: 1.625rem; }
+.note-doc.md-body h2 { font-size: 1.25rem; }
+.note-doc.md-body h3 { font-size: 1.0625rem; }
 
-.md-doc .md-body h2,
-.md-doc .md-body h3 {
+.note-doc.md-body h2,
+.note-doc.md-body h3 {
   margin-top: 1.6rem;
 }
 
-.md-doc .md-body li.md-task input {
+.note-doc.md-body ul[data-type="taskList"] input[type="checkbox"] {
   accent-color: var(--color-note-new);
 }
 
@@ -499,4 +541,263 @@ option {
 
 .note-scroll::-webkit-scrollbar-thumb:hover {
   background: var(--color-line-light);
+}
+
+/* ---------------------------------------------------------------- *
+ * Note editor
+ * ---------------------------------------------------------------- */
+
+/* The prompt on an empty document, drawn rather than inserted as text. */
+.note-doc p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--color-mute);
+  opacity: 0.6;
+}
+
+.note-doc ::selection {
+  background: var(--color-accent-ring);
+}
+
+/* ProseMirror's own marker for a selected block node. */
+.note-doc .ProseMirror-selectednode {
+  outline: 2px solid var(--color-accent-dim);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
+
+.note-doc hr.ProseMirror-selectednode {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+/* The gap cursor, for a caret resting beside a table or a rule. */
+.note-doc .ProseMirror-gapcursor::after {
+  border-top-color: var(--color-text);
+}
+
+/* --- Tables ---------------------------------------------------- */
+
+.note-doc .tableWrapper {
+  overflow-x: auto;
+  margin-block: 0.75rem;
+  border: 1px solid var(--color-line);
+  border-radius: 0.5rem;
+}
+
+.note-doc table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: 0;
+}
+
+.note-doc th,
+.note-doc td {
+  position: relative;
+  border-right: 1px solid var(--color-line);
+  border-bottom: 1px solid var(--color-line);
+  padding: 0.4375rem 0.75rem;
+  vertical-align: top;
+  min-width: 3rem;
+}
+
+/* The wrapper draws the outer edge, so the last cell each way must not repeat it. */
+.note-doc tr > *:last-child {
+  border-right: none;
+}
+
+.note-doc tr:last-child > * {
+  border-bottom: none;
+}
+
+.note-doc th {
+  background: var(--color-surface);
+  font-weight: 600;
+  text-align: left;
+  font-size: 0.875em;
+  color: var(--color-text);
+}
+
+/* A cell is a block container, so its paragraph must not carry block spacing. */
+.note-doc th > p,
+.note-doc td > p {
+  margin: 0;
+}
+
+.note-doc .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--color-accent-ring);
+  pointer-events: none;
+}
+
+.note-doc .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--color-accent-dim);
+  cursor: col-resize;
+}
+
+/* --- Floating chrome ------------------------------------------- */
+
+.note-bubble {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.1875rem;
+  border: 1px solid var(--color-line);
+  border-radius: 0.5rem;
+  background: var(--color-elevated);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.28);
+}
+
+.note-bubble-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  padding-inline: 0.375rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--color-mute);
+  transition: background-color 120ms, color 120ms;
+}
+
+.note-bubble-btn:hover {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.note-bubble-btn.is-active {
+  background: var(--color-surface);
+  color: var(--color-accent);
+}
+
+.note-bubble-sep {
+  width: 1px;
+  height: 1rem;
+  margin-inline: 0.125rem;
+  background: var(--color-line);
+}
+
+.note-bubble-link {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* Positioned against the caret, so it is fixed rather than in the scroll flow. */
+.note-slash {
+  position: fixed;
+  z-index: 50;
+  width: 15rem;
+  max-height: 17rem;
+  overflow-y: auto;
+  padding: 0.25rem;
+  border: 1px solid var(--color-line);
+  border-radius: 0.625rem;
+  background: var(--color-elevated);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.32);
+}
+
+.note-slash-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.375rem;
+  text-align: left;
+}
+
+.note-slash-row.is-active,
+.note-slash-row:hover {
+  background: var(--color-surface);
+}
+
+.note-slash-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.note-slash-hint {
+  font-size: 0.6875rem;
+  color: var(--color-mute);
+}
+
+.note-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.5rem;
+  margin-right: 0.25rem;
+  border-radius: 0.25rem;
+  color: var(--color-mute);
+  cursor: grab;
+  opacity: 0.55;
+  transition: opacity 120ms, background-color 120ms;
+}
+
+.note-drag-handle:hover {
+  opacity: 1;
+  background: var(--color-surface);
+}
+
+.note-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* --- Code highlighting ----------------------------------------- */
+
+.note-doc pre code .hljs-comment,
+.note-doc pre code .hljs-quote {
+  color: var(--color-mute);
+  font-style: italic;
+}
+
+.note-doc pre code .hljs-keyword,
+.note-doc pre code .hljs-selector-tag,
+.note-doc pre code .hljs-literal,
+.note-doc pre code .hljs-type {
+  color: #bb9af7;
+}
+
+.note-doc pre code .hljs-string,
+.note-doc pre code .hljs-regexp,
+.note-doc pre code .hljs-addition {
+  color: #9ece6a;
+}
+
+.note-doc pre code .hljs-number,
+.note-doc pre code .hljs-built_in,
+.note-doc pre code .hljs-symbol {
+  color: #ff9e64;
+}
+
+.note-doc pre code .hljs-title,
+.note-doc pre code .hljs-section,
+.note-doc pre code .hljs-function .hljs-title {
+  color: #7aa2f7;
+}
+
+.note-doc pre code .hljs-attr,
+.note-doc pre code .hljs-attribute,
+.note-doc pre code .hljs-variable,
+.note-doc pre code .hljs-template-variable {
+  color: #7dcfff;
+}
+
+.note-doc pre code .hljs-deletion,
+.note-doc pre code .hljs-meta {
+  color: #f7768e;
 }
