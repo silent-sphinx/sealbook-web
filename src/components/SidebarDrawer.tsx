@@ -1,4 +1,11 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import { focusRing } from "../lib/styles";
@@ -6,28 +13,103 @@ import { focusRing } from "../lib/styles";
 /** Matches the `lg:` breakpoint the contacts and calendar grids switch on. */
 const DESKTOP = "(min-width: 1024px)";
 
+/** One key, not one per view: the collapse is a property of the shell. */
+const COLLAPSE_KEY = "sealbook.sidebar-collapsed";
+
+function loadCollapsed(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export type Sidebar = {
+  /** Above `DESKTOP` the sidebar is a static column rather than a drawer. */
+  isDesktop: boolean;
+  /** The static column is collapsed out of the grid; false below `DESKTOP`. */
+  collapsed: boolean;
+  /** The slide-over is showing; only meaningful below `DESKTOP`. */
+  open: boolean;
+  /** Collapses the column, or shows the drawer, depending on the breakpoint. */
+  toggle: () => void;
+  /** Dismisses the drawer; a no-op once the sidebar is a column. */
+  close: () => void;
+  /** `--sb-sidebar-cols` for a `.sb-shell` whose sidebar is `width` wide. */
+  cols: (width: string) => CSSProperties;
+};
+
+/**
+ * Owns the sidebar's two independent states: whether the drawer is showing
+ * below `DESKTOP`, and whether the static column is collapsed above it. A
+ * collapse removes the column rather than narrowing it to a rail, so the
+ * content takes the whole row.
+ *
+ * Called once, in the shell, and handed to each view: contacts, calendar and
+ * notes share the one collapse and the one control in the header, so the
+ * sidebar does not reappear on switching tabs. The views differ only in how
+ * wide their column is, which is why the width is an argument to `cols` rather
+ * than to this hook.
+ */
+export function useSidebar(): Sidebar {
+  const isDesktop = useMediaQuery(DESKTOP);
+  const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(loadCollapsed);
+
+  // Widening the window while the drawer is open would otherwise leave the
+  // caller thinking it is still showing something dismissible.
+  useEffect(() => {
+    if (isDesktop) setOpen(false);
+  }, [isDesktop]);
+
+  const toggle = useCallback(() => {
+    if (!isDesktop) {
+      setOpen((current) => !current);
+      return;
+    }
+    const next = !collapsed;
+    setCollapsed(next);
+    try {
+      localStorage.setItem(COLLAPSE_KEY, next ? "1" : "0");
+    } catch {
+      // storage unavailable; the collapse still holds for this session
+    }
+  }, [collapsed, isDesktop]);
+
+  const close = useCallback(() => setOpen(false), []);
+
+  const cols = useCallback(
+    (width: string) =>
+      ({
+        "--sb-sidebar-cols": collapsed ? "minmax(0, 1fr)" : `${width} minmax(0, 1fr)`,
+      }) as CSSProperties,
+    [collapsed],
+  );
+
+  return { isDesktop, collapsed: isDesktop && collapsed, open, toggle, close, cols };
+}
+
 type Props = {
   /** Accessible name for the drawer below the desktop breakpoint. */
   title: string;
-  open: boolean;
-  onClose: () => void;
+  sidebar: Sidebar;
   children: ReactNode;
 };
 
 /**
- * The contacts and calendar sidebars: a static column on a wide screen, a
- * slide-over drawer on a narrow one. Previously the column simply reflowed
+ * The contacts, calendar and notes sidebars: a static column on a wide screen,
+ * a slide-over drawer on a narrow one. Previously the column simply reflowed
  * below the list on a phone, which buried the address books under a screenful
  * of content. Swapping on a media query rather than rendering both copies and
  * toggling `lg:hidden` keeps one instance of the list, so a half-typed rename
  * and the list's own focus are not duplicated.
  */
-export function SidebarDrawer({ title, open, onClose, children }: Props) {
-  const isDesktop = useMediaQuery(DESKTOP);
+export function SidebarDrawer({ title, sidebar, children }: Props) {
+  const { isDesktop, collapsed, open } = sidebar;
   const panelRef = useRef<HTMLDivElement>(null);
   // Callers pass an inline arrow, so this is a new function every render.
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  const onCloseRef = useRef(sidebar.close);
+  onCloseRef.current = sidebar.close;
 
   const drawerOpen = open && !isDesktop;
 
@@ -53,27 +135,36 @@ export function SidebarDrawer({ title, open, onClose, children }: Props) {
     };
   }, [drawerOpen]);
 
-  // Widening the window while the drawer is open would otherwise leave the
-  // caller thinking it is still showing something dismissible.
-  useEffect(() => {
-    if (isDesktop && open) onCloseRef.current();
-  }, [isDesktop, open]);
-
   if (isDesktop) {
+    // `hidden` rather than a width of zero: a clipped column would still be in
+    // the tab order, so collapsing it would hide a dozen reachable controls
+    // behind nothing. React keeps the subtree's state either way, so a
+    // half-typed rename survives a collapse.
     return (
-      <aside className="border-r border-line bg-panel/25 px-6 py-7 lg:overflow-y-auto">
-        {children}
-      </aside>
+      <>
+        <aside
+          hidden={collapsed}
+          className="border-r border-line bg-panel/25 px-6 py-7 lg:overflow-y-auto"
+        >
+          {/* Its own row rather than a corner of the title row, which the
+              contacts and calendar sidebars already end with a `+` button. */}
+          <div className="-mr-1.5 -mt-2.5 mb-1 flex justify-end">
+            <ToggleButton sidebar={sidebar} />
+          </div>
+          {children}
+        </aside>
+        {collapsed ? <EdgeHandle sidebar={sidebar} /> : null}
+      </>
     );
   }
 
-  if (!open) return null;
+  if (!open) return <EdgeHandle sidebar={sidebar} />;
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex">
       <div
         className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-fade-in"
-        onClick={onClose}
+        onClick={sidebar.close}
         aria-hidden="true"
       />
       <aside
@@ -87,7 +178,7 @@ export function SidebarDrawer({ title, open, onClose, children }: Props) {
         <div className="-mr-1.5 mb-2 flex justify-end">
           <button
             type="button"
-            onClick={onClose}
+            onClick={sidebar.close}
             aria-label="Close sidebar"
             className={`flex h-8 w-8 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
           >
@@ -103,19 +194,48 @@ export function SidebarDrawer({ title, open, onClose, children }: Props) {
   );
 }
 
-/** Toolbar button that opens the sidebar; hidden once the column is visible. */
-export function SidebarTrigger({ label, onClick }: { label: string; onClick: () => void }) {
+function Chevron({ back }: { back: boolean }) {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d={back ? "M9.75 3.5 5.25 8l4.5 4.5" : "M6.25 3.5 10.75 8l-4.5 4.5"} />
+    </svg>
+  );
+}
+
+/** Collapses the column, from inside the column itself. */
+function ToggleButton({ sidebar }: { sidebar: Sidebar }) {
   return (
     <button
       type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line text-mute transition-colors hover:border-line-light hover:bg-surface hover:text-text lg:hidden ${focusRing}`}
+      onClick={sidebar.toggle}
+      aria-label="Hide sidebar"
+      aria-expanded={true}
+      title="Hide sidebar"
+      className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
     >
-      <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-        <path d="M2.5 4h11M2.5 8h11M2.5 12h11" />
-      </svg>
+      <Chevron back />
+    </button>
+  );
+}
+
+/**
+ * What brings the sidebar back: a handle on the content's leading edge, drawn
+ * whenever the sidebar is not showing. It is the one affordance for both
+ * breakpoints, restoring the column on a wide screen and opening the drawer on
+ * a narrow one, and it is always drawn rather than revealed on hover, since a
+ * sidebar you cannot find is a sidebar you have lost.
+ */
+function EdgeHandle({ sidebar }: { sidebar: Sidebar }) {
+  return (
+    <button
+      type="button"
+      onClick={sidebar.toggle}
+      aria-label="Show sidebar"
+      aria-expanded={false}
+      title="Show sidebar"
+      className={`absolute left-0 top-1/2 z-30 flex h-16 w-5 -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 border-line bg-panel text-mute shadow-lg shadow-black/30 transition-colors hover:bg-surface hover:text-text ${focusRing}`}
+    >
+      <Chevron back={false} />
     </button>
   );
 }

@@ -259,6 +259,33 @@ export class RosterTooOldError extends Error {
 }
 
 /**
+ * Runs vault reads and writes one at a time, per collection.
+ *
+ * A confirmed write advances the manifest high-water mark, while a read already
+ * in flight answers from the snapshot it opened before that write committed.
+ * Overlapped, the older sequence is indistinguishable from a rollback, so
+ * `verifyManifest` reports tampering against a server that did nothing wrong.
+ * Keyed by collection, not held on the session, because a rotation signs in
+ * again and carries on against a different session object for the same vault.
+ */
+const vaultQueues = new Map<string, Promise<void>>();
+
+function serializeVault<T>(collectionId: string, run: () => Promise<T>): Promise<T> {
+  const queue = vaultQueues.get(collectionId) ?? Promise.resolve();
+  const result = queue.then(run);
+  // Followers wait for their predecessor to settle, not to succeed: one caller's
+  // failure is its own and must not be rethrown into the next.
+  vaultQueues.set(
+    collectionId,
+    result.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return result;
+}
+
+/**
  * Records the highest manifest sequence this device has accepted.
  *
  * Written through to the device state, not just the session, so that closing the
@@ -604,16 +631,18 @@ async function putSealed(
     return response.revision;
   };
 
-  try {
-    return await attempt();
-  } catch (error) {
-    // A conflict means another device wrote between reading the manifest and
-    // writing. Rebuild against the new one and try once more.
-    if (error instanceof Error && /stale (revision|manifest)/iu.test(error.message)) {
-      return attempt();
+  return serializeVault(session.state.collection_id, async () => {
+    try {
+      return await attempt();
+    } catch (error) {
+      // A conflict means another device wrote between reading the manifest and
+      // writing. Rebuild against the new one and try once more.
+      if (error instanceof Error && /stale (revision|manifest)/iu.test(error.message)) {
+        return attempt();
+      }
+      throw error;
     }
-    throw error;
-  }
+  });
 }
 
 export async function revokeSession(session: Session): Promise<void> {
@@ -1401,9 +1430,22 @@ export async function refreshCollectionKey(session: Session): Promise<number> {
   return resp.key_epoch;
 }
 
-export async function listVault(
-  session: Session,
-): Promise<{ sealed: SealedObject[]; addressBooks: AddressBook[]; contacts: Contact[]; calendars: Calendar[]; calendarEvents: CalendarEvent[]; notes: Note[]; notebooks: Notebook[]; accountSettings: AccountSettings }> {
+export type VaultListing = {
+  sealed: SealedObject[];
+  addressBooks: AddressBook[];
+  contacts: Contact[];
+  calendars: Calendar[];
+  calendarEvents: CalendarEvent[];
+  notes: Note[];
+  notebooks: Notebook[];
+  accountSettings: AccountSettings;
+};
+
+export function listVault(session: Session): Promise<VaultListing> {
+  return serializeVault(session.state.collection_id, () => listVaultInner(session));
+}
+
+async function listVaultInner(session: Session): Promise<VaultListing> {
   const { state, token } = session;
   // Walk every page before verifying: the manifest commits to the collection, not
   // to any one page of it.
@@ -2007,7 +2049,18 @@ export async function rotateVault(
  * objects are re-encrypted, which tombstones the manifest still commits to,
  * which ones it retires, and the roster it signs.
  */
-export async function rotateAuthenticated(
+export function rotateAuthenticated(
+  fresh: Session,
+  revokeDeviceId: string | null,
+  password: string,
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ session: Session; phrase: string }> {
+  return serializeVault(fresh.state.collection_id, () =>
+    rotateAuthenticatedInner(fresh, revokeDeviceId, password, onProgress),
+  );
+}
+
+async function rotateAuthenticatedInner(
   fresh: Session,
   revokeDeviceId: string | null,
   password: string,

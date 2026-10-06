@@ -126,6 +126,24 @@ option {
   color: var(--color-text);
 }
 
+/*
+ * The shell the contacts, calendar and notes views sit in. Below `lg` the
+ * sidebar is a slide-over and this is a single column; above it the view
+ * supplies the whole track list as `--sb-sidebar-cols`. Collapsing drops the
+ * sidebar's track rather than zeroing it: the hidden column is no longer a grid
+ * item, so a leftover empty track would swallow the content instead.
+ */
+/* Positions the edge handle, which is not a grid item. */
+.sb-shell {
+  position: relative;
+}
+
+@media (min-width: 1024px) {
+  .sb-shell {
+    grid-template-columns: var(--sb-sidebar-cols, 244px minmax(0, 1fr));
+  }
+}
+
 /* Calendar grid cells */
 .cal-cell {
   position: relative;

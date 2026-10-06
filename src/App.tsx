@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import logo from "./assets/sealbook-white.png";
 import { AddressBookList } from "./components/AddressBookList";
-import { SidebarDrawer, SidebarTrigger } from "./components/SidebarDrawer";
+import { SidebarDrawer, useSidebar } from "./components/SidebarDrawer";
 import { AddDeviceModal } from "./components/AddDeviceModal";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { ContactCard, ContactListSkeleton } from "./components/ContactCard";
@@ -544,8 +544,10 @@ export default function App() {
   const [finishingRecovery, setFinishingRecovery] = useState(false);
   const [recoveryPassword, setRecoveryPassword] = useState("");
   const headerRef = useRef<HTMLDivElement>(null);
-  // Below `lg` the contacts sidebar is a slide-over rather than a column.
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // One sidebar state for the whole shell, so contacts, calendar and notes
+  // share the collapse rather than each reappearing on switching tabs. Below
+  // `lg` the sidebar is a slide-over rather than a column.
+  const sidebar = useSidebar();
 
   // The calendar fills the viewport below the header, so it needs the header's
   // real height. That height is not a constant: the nav wraps to its own row on
@@ -2154,7 +2156,7 @@ export default function App() {
         </main>
       ) : activeTab === "calendar" ? (
         <div>
-          <CalendarView session={session} calendars={calendars} events={calendarEvents} busy={busy} timezone={timezone} onRefresh={() => refresh(session)} readOnly={isOffline} />
+          <CalendarView session={session} calendars={calendars} events={calendarEvents} busy={busy} timezone={timezone} onRefresh={() => refresh(session)} readOnly={isOffline} sidebar={sidebar} />
         </div>
       ) : activeTab === "notes" ? (
         <div>
@@ -2166,14 +2168,16 @@ export default function App() {
             onRefresh={() => refresh(session)}
             onSaved={applySavedNote}
             readOnly={isOffline}
+            sidebar={sidebar}
           />
         </div>
       ) : activeTab === "contacts" ? (
-        // Same shell as the calendar: full-bleed, a 244px sidebar holding the
-        // section title and the address books, and a toolbar above the content.
+        // Same shell as the calendar: full-bleed, a collapsible 244px sidebar
+        // holding the section title and the address books, and a toolbar above
+        // the content.
         <main className="flex flex-col bg-bg pb-[env(safe-area-inset-bottom)] text-text lg:h-[calc(100dvh-var(--sb-header-h,74px))] lg:overflow-hidden lg:pb-0">
-          <div className="grid min-h-0 flex-1 lg:h-full lg:grid-cols-[244px_minmax(0,1fr)]">
-            <SidebarDrawer title="Contacts and address books" open={sidebarOpen} onClose={() => setSidebarOpen(false)}>
+          <div className="sb-shell grid min-h-0 flex-1 lg:h-full" style={sidebar.cols("244px")}>
+            <SidebarDrawer title="Contacts and address books" sidebar={sidebar}>
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">My contacts</p>
@@ -2212,7 +2216,7 @@ export default function App() {
                   onCreateHandled={() => setCreatingBook(false)}
                   onSelect={(id) => {
                     setBookFilter(id);
-                    setSidebarOpen(false);
+                    sidebar.close();
                   }}
                   onCreate={onCreateBook}
                   onRename={onRenameBook}
@@ -2226,7 +2230,6 @@ export default function App() {
             <section className="order-1 flex min-w-0 flex-col overflow-hidden lg:order-none lg:min-h-0">
               <header className="flex flex-col gap-2.5 border-b border-line px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4 sm:px-5 sm:py-3.5 lg:px-6">
                 <div className="flex min-w-0 items-center gap-2">
-                  <SidebarTrigger label="Address books" onClick={() => setSidebarOpen(true)} />
                   <h1 className="truncate text-base font-semibold tracking-tight">
                     {bookFilter === ALL_ADDRESS_BOOKS ? "All contacts" : bookNameById(addressBooks, bookFilter)}
                   </h1>

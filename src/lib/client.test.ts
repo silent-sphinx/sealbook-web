@@ -45,6 +45,7 @@ import type {
   DevicePublic,
   DeviceState,
   Enrollment,
+  ManifestBody,
   ManifestEntry,
   Roster,
   SealedObject,
@@ -136,7 +137,8 @@ function server(routes: Record<string, Handler>) {
       throw new Error(`no mock route for ${url.pathname}`);
     }
     sent[key] = body;
-    const answer = routes[key](url, body);
+    // Awaited, so a route can hold its answer open the way a slow read does.
+    const answer = await routes[key](url, body);
     return new Response(JSON.stringify(answer), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -384,47 +386,47 @@ describe("pairing approval", () => {
   });
 });
 
-describe("listVault", () => {
-  /** One sealed contact, with the manifest a write of it would have signed. */
-  function vaultWith(owner: Account, signer: { seed: string; sk: string; deviceId: string }) {
-    const id = newUuid();
-    const sealed = sealObject(
-      owner.session.collectionKey,
-      id,
-      owner.collectionId,
-      JSCONTACT_CONTENT_TYPE,
-      JSON.stringify({ "@type": "Card", name: { full: "Ada Lovelace" } }),
-    );
-    const object: SealedObject = {
+/** One sealed contact, with the manifest a write of it would have signed. */
+function vaultWith(owner: Account, signer: { seed: string; sk: string; deviceId: string }) {
+  const id = newUuid();
+  const sealed = sealObject(
+    owner.session.collectionKey,
+    id,
+    owner.collectionId,
+    JSCONTACT_CONTENT_TYPE,
+    JSON.stringify({ "@type": "Card", name: { full: "Ada Lovelace" } }),
+  );
+  const object: SealedObject = {
+    id,
+    revision: 1,
+    tombstone: false,
+    nonce: sealed.nonce,
+    ciphertext: sealed.ciphertext,
+    padded_size: sealed.padded_size,
+    content_type: sealedContentType(),
+  };
+  const entries: ManifestEntry[] = [
+    {
       id,
       revision: 1,
       tombstone: false,
-      nonce: sealed.nonce,
-      ciphertext: sealed.ciphertext,
-      padded_size: sealed.padded_size,
-      content_type: sealedContentType(),
-    };
-    const entries: ManifestEntry[] = [
-      {
-        id,
-        revision: 1,
-        tombstone: false,
-        content_digest: objectContentDigest(sealed.nonce, sealed.ciphertext),
-      },
-    ];
-    const manifest = manifestSign(
-      signer.seed,
-      signer.sk,
-      owner.collectionId,
-      signer.deviceId,
-      2,
-      1,
-      1,
-      entries,
-    );
-    return { object, manifest };
-  }
+      content_digest: objectContentDigest(sealed.nonce, sealed.ciphertext),
+    },
+  ];
+  const manifest = manifestSign(
+    signer.seed,
+    signer.sk,
+    owner.collectionId,
+    signer.deviceId,
+    2,
+    1,
+    1,
+    entries,
+  );
+  return { object, manifest };
+}
 
+describe("listVault", () => {
   it("opens a vault whose manifest was signed by a device in the roster", async () => {
     const owner = account();
     const { object, manifest } = vaultWith(owner, {
@@ -672,6 +674,80 @@ describe("listVault", () => {
       "/roster": () => ({ rosters: [owner.roster] }),
     });
     await expect(listVault(owner.session)).rejects.toThrow(/roster/iu);
+  });
+});
+
+describe("a read that overlaps this device's own write", () => {
+  it("answers from a snapshot taken after the write, not before it", async () => {
+    const owner = account();
+    const existing = vaultWith(owner, {
+      seed: owner.enrollment.mldsa_seed,
+      sk: owner.enrollment.ed25519_sk,
+      deviceId: owner.enrollment.device_id,
+    });
+    let objects: SealedObject[] = [existing.object];
+    let current = existing.manifest;
+    const entriesOf = (held: SealedObject[]): ManifestEntry[] =>
+      held.map((object) => ({
+        id: object.id,
+        revision: object.revision,
+        tombstone: object.tombstone,
+        content_digest: objectContentDigest(object.nonce, object.ciphertext),
+      }));
+
+    server({
+      "/manifest": () => ({ manifest: current, entries: entriesOf(objects) }),
+      "/objects": (_url, body) => {
+        const put = body as SealedObject & { manifest: ManifestBody };
+        objects = [
+          ...objects,
+          {
+            id: put.id,
+            revision: put.revision,
+            tombstone: put.tombstone,
+            nonce: put.nonce,
+            ciphertext: put.ciphertext,
+            padded_size: put.padded_size,
+            content_type: sealedContentType(),
+          },
+        ];
+        current = put.manifest;
+        return { revision: put.revision };
+      },
+      // A read transaction takes its snapshot when the request arrives and
+      // answers from that, whatever commits while it is open.
+      "/changes": async () => {
+        const snapshot = { objects, manifest: current };
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return {
+          latest_revision: snapshot.manifest.latest_revision,
+          key_epoch: 1,
+          objects: snapshot.objects,
+          has_more: false,
+          manifest: snapshot.manifest,
+          resync: false,
+          tombstone_floor: 1,
+        };
+      },
+      "/roster": () => ({ rosters: [owner.roster] }),
+    });
+
+    // Issued without waiting for the write, which is what the note editor's
+    // unawaited autosave flush does against the next view's refresh.
+    const write = putContact(owner.session, {
+      ...emptyDraft(),
+      name: "Grace Hopper",
+      addressBookId: DEFAULT_ADDRESS_BOOK_ID,
+    });
+    const read = listVault(owner.session);
+    await write;
+    const listed = await read;
+
+    expect(owner.session.manifestSeq).toBe(3);
+    expect(listed.contacts.map((contact) => contact.name).sort()).toEqual([
+      "Ada Lovelace",
+      "Grace Hopper",
+    ]);
   });
 });
 

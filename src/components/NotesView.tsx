@@ -28,7 +28,7 @@ import type { Note, NoteDraft, Notebook } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ContainerList } from "./ContainerList";
 import { NoteTreeList } from "./NoteTreeList";
-import { SidebarDrawer, SidebarTrigger } from "./SidebarDrawer";
+import { SidebarDrawer, type Sidebar } from "./SidebarDrawer";
 
 /**
  * The editor carries the whole ProseMirror stack and the highlighting grammars,
@@ -48,6 +48,8 @@ type Props = {
   /** Applies one saved note to the vault list, so autosave need not refetch. */
   onSaved: (note: Note) => void;
   readOnly?: boolean;
+  /** Shared with the rest of the shell; the header owns the control. */
+  sidebar: Sidebar;
 };
 
 /** Idle time before an edit is written, and the cap for a continuous typist. */
@@ -114,13 +116,12 @@ function fileNameFor(title: string): string {
   return `${base.slice(0, 60)}.md`;
 }
 
-export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved, readOnly }: Props) {
+export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved, readOnly, sidebar }: Props) {
   const readOnlyMode = readOnly === true;
   const [scope, setScope] = useState<string>(DEFAULT_NOTEBOOK_ID);
   const [search, setSearch] = useState("");
   const [pinnedOnly, setPinnedOnly] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [creatingNotebook, setCreatingNotebook] = useState(false);
   const [deletingNotebook, setDeletingNotebook] = useState<Notebook | null>(null);
@@ -282,7 +283,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     });
     setSaveState("clean");
     setError(null);
-    setSidebarOpen(false);
+    sidebar.close();
   }
 
   function newNote(parentId?: string) {
@@ -293,7 +294,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     setDraft({ ...emptyNoteDraft(scope), parentId, pinned: false });
     setSaveState("clean");
     setError(null);
-    setSidebarOpen(false);
+    sidebar.close();
     if (parentId) setExpanded((current) => new Set([...current, parentId]));
   }
 
@@ -585,8 +586,8 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
         </p>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 lg:grid-cols-[17.5rem_minmax(0,1fr)]">
-        <SidebarDrawer title="Notes" open={sidebarOpen} onClose={() => setSidebarOpen(false)}>
+      <div className="sb-shell grid min-h-0 flex-1" style={sidebar.cols("17.5rem")}>
+        <SidebarDrawer title="Notes" sidebar={sidebar}>
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">My notes</p>
             <h2 className="mt-1 text-lg font-semibold">Notes</h2>
@@ -674,7 +675,6 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                 >
                   <Icon name="back" className="h-3.5 w-3.5" />
                 </button>
-                <SidebarTrigger label="Notes" onClick={() => setSidebarOpen(true)} />
                 <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-xs text-mute">
                   {breadcrumb.map((title) => (
                     <span key={title} className="flex min-w-0 shrink items-center gap-1">

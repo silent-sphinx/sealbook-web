@@ -9,7 +9,7 @@ import {
 import type { Calendar, CalendarEvent } from "../lib/types";
 import { DEFAULT_CALENDAR_COLOR } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { SidebarDrawer, SidebarTrigger } from "./SidebarDrawer";
+import { SidebarDrawer, type Sidebar } from "./SidebarDrawer";
 import { Modal } from "./Modal";
 import { localInputToUtc, utcToLocalInput } from "../lib/timezone";
 import { btnDanger, btnPrimary, field, focusRing } from "../lib/styles";
@@ -342,6 +342,7 @@ export function CalendarView({
   timezone,
   onRefresh,
   readOnly,
+  sidebar,
 }: {
   session: Session;
   calendars: Calendar[];
@@ -350,6 +351,8 @@ export function CalendarView({
   timezone: string;
   onRefresh: () => Promise<void>;
   readOnly?: boolean;
+  /** Shared with the rest of the shell; the header owns the control. */
+  sidebar: Sidebar;
 }) {
   const today = new Date();
   const todayKey = keyFor(today);
@@ -361,8 +364,6 @@ export function CalendarView({
   const [calendarComposer, setCalendarComposer] = useState(false);
   const [editingCalendar, setEditingCalendar] = useState<Calendar | null>(null);
   const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(() => loadHiddenCalendarIds(session.state.collection_id));
-  // Below `lg` the calendar sidebar is a slide-over rather than a column.
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [calendarName, setCalendarName] = useState("");
   const [calendarColor, setCalendarColor] = useState(DEFAULT_CALENDAR_COLOR);
@@ -726,13 +727,13 @@ export function CalendarView({
     // sitting in a card. The sidebar keeps a translucent panel fill so it still
     // separates from the grid without reintroducing an opaque chrome column.
     <main className="flex flex-col bg-bg pb-[env(safe-area-inset-bottom)] text-text lg:h-[calc(100dvh-var(--sb-header-h,74px))] lg:overflow-hidden lg:pb-0">
-      <div className="grid min-h-0 flex-1 lg:h-full lg:grid-cols-[244px_minmax(0,1fr)]">
-        <SidebarDrawer title="Calendars" open={sidebarOpen} onClose={() => setSidebarOpen(false)}>
+      <div className="sb-shell grid min-h-0 flex-1 lg:h-full" style={sidebar.cols("244px")}>
+        <SidebarDrawer title="Calendars" sidebar={sidebar}>
           <div className="flex items-center justify-between">
             <div><p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">My calendar</p><h2 className="mt-1 text-lg font-semibold">Calendar</h2></div>
             {!readOnlyMode ? <button type="button" onClick={() => openNewTask()} className={`flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface text-text transition-colors hover:border-line-light hover:bg-elevated ${focusRing}`} aria-label="Create event"><Icon name="plus" /></button> : null}
           </div>
-          <MiniMonth month={month} selected={selected} events={miniEvents} spans={miniSpans} onSelect={(day) => { selectDay(day); setSidebarOpen(false); }} />
+          <MiniMonth month={month} selected={selected} events={miniEvents} spans={miniSpans} onSelect={(day) => { selectDay(day); sidebar.close(); }} />
           <div className="mt-8 border-t border-line pt-5">
             <div className="flex items-center justify-between"><p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">Calendars</p>{!readOnlyMode ? <button type="button" onClick={openNewCalendar} className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`} aria-label="Add calendar"><Icon name="plus" /></button> : null}</div>
             <CalendarList calendars={calendars} hiddenCalendarIds={hiddenCalendarIds} readOnly={readOnlyMode} onToggle={toggleCalendar} onShowAll={showAllCalendars} onToggleFavorite={(calendar) => void toggleFavorite(calendar)} onEdit={openEditCalendar} onCreate={openNewCalendar} />
@@ -742,7 +743,6 @@ export function CalendarView({
         <section className="order-1 flex min-w-0 flex-col overflow-hidden lg:order-none lg:min-h-0">
           <header className="flex flex-col gap-2.5 border-b border-line px-4 py-3 sm:px-5 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between lg:gap-4 lg:px-6 lg:py-3.5">
             <div className="flex min-w-0 items-center gap-2">
-              <SidebarTrigger label="Calendars" onClick={() => setSidebarOpen(true)} />
               <button type="button" onClick={() => shiftView(-1)} className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line text-mute transition-colors hover:border-line-light hover:bg-surface hover:text-text ${focusRing}`} aria-label={`Previous ${mode}`}><Icon name="chevron" className="h-3.5 w-3.5 rotate-180" /></button>
               <button type="button" onClick={() => { setMonth(new Date(today.getFullYear(), today.getMonth(), 1)); selectDay(today); }} className={`h-8 shrink-0 rounded-lg border border-line px-3 text-xs font-medium text-mute transition-colors hover:border-line-light hover:bg-surface hover:text-text sm:px-3.5 ${focusRing}`}>Today</button>
               <button type="button" onClick={() => shiftView(1)} className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line text-mute transition-colors hover:border-line-light hover:bg-surface hover:text-text ${focusRing}`} aria-label={`Next ${mode}`}><Icon name="chevron" className="h-3.5 w-3.5" /></button>
