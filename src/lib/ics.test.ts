@@ -103,6 +103,28 @@ describe("ics round trip", () => {
     const back = parseCalendarImport(formatIcs([{ id: "p", title, start: "2026-01-01T00:00:00Z" }]), TZ);
     expect(back[0]?.title).toBe(title);
   });
+
+  it("preserves a recurrence that ends after a number of occurrences", () => {
+    const event: CalendarEvent = {
+      id: "c",
+      title: "Ten standups",
+      start: "2026-09-07T09:00:00Z",
+      recurrence: { frequency: "weekly", weekdays: [1], count: 10 },
+    };
+    expect(formatIcs([event])).toContain("COUNT=10");
+    expect(parseCalendarImport(formatIcs([event]), TZ)[0]?.recurrence?.count).toBe(10);
+  });
+
+  it("preserves a recurrence that ends on a date", () => {
+    const event: CalendarEvent = {
+      id: "u",
+      title: "Until October",
+      start: "2026-09-07T09:00:00Z",
+      recurrence: { frequency: "daily", until: "2026-10-01" },
+    };
+    expect(formatIcs([event])).toContain("UNTIL=20261001");
+    expect(parseCalendarImport(formatIcs([event]), TZ)[0]?.recurrence?.until).toBe("2026-10-01");
+  });
 });
 
 describe("parseCalendarImport", () => {

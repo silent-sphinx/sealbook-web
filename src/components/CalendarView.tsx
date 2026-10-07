@@ -6,7 +6,7 @@ import {
   putCalendarEvent,
   type Session,
 } from "../lib/client";
-import type { Calendar, CalendarEvent } from "../lib/types";
+import type { Calendar, CalendarEvent, RecurrenceRule } from "../lib/types";
 import { DEFAULT_CALENDAR_COLOR } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SidebarDrawer, type Sidebar } from "./SidebarDrawer";
@@ -17,6 +17,9 @@ import { expandCalendarEvents } from "../lib/recurrence";
 
 type ViewMode = "day" | "week" | "month" | "year";
 type RepeatChoice = "none" | "daily" | "weekday" | "weekly" | "monthly-date" | "monthly-nth" | "yearly" | "custom";
+type RepeatEnd = "never" | "count" | "date";
+
+const DEFAULT_REPEAT_COUNT = 10;
 
 function hiddenCalendarStorageKey(collectionId: string): string {
   return `sealbook.hidden-calendars.${collectionId}`;
@@ -378,6 +381,9 @@ export function CalendarView({
   const [repeatChoice, setRepeatChoice] = useState<RepeatChoice>("none");
   const [customFrequency, setCustomFrequency] = useState<"daily" | "weekly" | "monthly" | "yearly">("weekly");
   const [customInterval, setCustomInterval] = useState(1);
+  const [repeatEnd, setRepeatEnd] = useState<RepeatEnd>("never");
+  const [repeatCount, setRepeatCount] = useState(DEFAULT_REPEAT_COUNT);
+  const [repeatUntil, setRepeatUntil] = useState("");
   const [deletingCalendar, setDeletingCalendar] = useState(false);
   const [confirmDeleteCalendar, setConfirmDeleteCalendar] = useState(false);
   const [deleteProgress, setDeleteProgress] = useState({ current: 0, total: 0 });
@@ -571,6 +577,9 @@ export function CalendarView({
     setRepeatChoice("none");
     setCustomFrequency("weekly");
     setCustomInterval(1);
+    setRepeatEnd("never");
+    setRepeatCount(DEFAULT_REPEAT_COUNT);
+    setRepeatUntil("");
     setError(null);
     setComposer(true);
   }
@@ -605,6 +614,19 @@ export function CalendarView({
       setCustomFrequency(rule.frequency);
       setCustomInterval(rule.interval ?? 1);
     }
+    if (rule?.count) {
+      setRepeatEnd("count");
+      setRepeatCount(rule.count);
+      setRepeatUntil("");
+    } else if (rule?.until) {
+      setRepeatEnd("date");
+      setRepeatCount(DEFAULT_REPEAT_COUNT);
+      setRepeatUntil(rule.until.slice(0, 10));
+    } else {
+      setRepeatEnd("never");
+      setRepeatCount(DEFAULT_REPEAT_COUNT);
+      setRepeatUntil("");
+    }
     setError(null);
     setComposer(true);
   }
@@ -628,7 +650,7 @@ export function CalendarView({
       const startDate = new Date(`${day}T00:00`);
       const weekday = startDate.getDay();
       const ordinal = Math.ceil(startDate.getDate() / 7) as 1 | 2 | 3 | 4 | 5;
-      const recurrence = repeatChoice === "none" ? undefined
+      const pattern = repeatChoice === "none" ? undefined
         : repeatChoice === "daily" ? { frequency: "daily" as const }
           : repeatChoice === "weekday" ? { frequency: "weekly" as const, weekdays: [1, 2, 3, 4, 5] }
             : repeatChoice === "weekly" ? { frequency: "weekly" as const, weekdays: [weekday] }
@@ -636,6 +658,23 @@ export function CalendarView({
                 : repeatChoice === "monthly-nth" ? { frequency: "monthly" as const, nthWeekday: { ordinal, weekday } }
                   : repeatChoice === "yearly" ? { frequency: "yearly" as const }
                     : { frequency: customFrequency, interval: Math.max(1, customInterval), ...(customFrequency === "weekly" ? { weekdays: [weekday] } : {}) };
+      // Both guards keep "On a date" from falling back to repeating forever: a
+      // missing date, and one before the first occurrence, which would instead
+      // hide the event entirely.
+      if (pattern && repeatEnd === "date") {
+        if (!repeatUntil) {
+          setError("Choose the last date the event should repeat on.");
+          return;
+        }
+        if (repeatUntil < day) {
+          setError("The repeat end date cannot be before the event start date.");
+          return;
+        }
+      }
+      const recurrence: RecurrenceRule | undefined = !pattern ? undefined
+        : repeatEnd === "count" ? { ...pattern, count: Math.max(1, Math.round(repeatCount) || 1) }
+          : repeatEnd === "date" ? { ...pattern, until: repeatUntil }
+            : pattern;
       await putCalendarEvent(
         session,
         {
@@ -767,7 +806,7 @@ export function CalendarView({
         </section>
       </div>
 
-      {composer ? <TaskDialog editing={editingEvent !== null} title={title} start={start} end={end} notes={notes} location={location} participants={participants} allDay={allDay} calendarId={eventCalendarId} calendars={calendars} repeatChoice={repeatChoice} customFrequency={customFrequency} customInterval={customInterval} busy={busy} error={error} onClose={closeTaskDialog} onSave={() => void saveEvent()} onDelete={editingEvent ? () => void removeEvent() : undefined} onTitleChange={setTitle} onStartChange={updateStart} onEndChange={setEnd} onNotesChange={setNotes} onLocationChange={setLocation} onParticipantsChange={setParticipants} onAllDayChange={setAllDay} onCalendarChange={setEventCalendarId} onRepeatChange={setRepeatChoice} onCustomFrequencyChange={setCustomFrequency} onCustomIntervalChange={setCustomInterval} /> : null}
+      {composer ? <TaskDialog editing={editingEvent !== null} title={title} start={start} end={end} notes={notes} location={location} participants={participants} allDay={allDay} calendarId={eventCalendarId} calendars={calendars} repeatChoice={repeatChoice} customFrequency={customFrequency} customInterval={customInterval} repeatEnd={repeatEnd} repeatCount={repeatCount} repeatUntil={repeatUntil} minRepeatUntil={start.slice(0, 10)} busy={busy} error={error} onClose={closeTaskDialog} onSave={() => void saveEvent()} onDelete={editingEvent ? () => void removeEvent() : undefined} onTitleChange={setTitle} onStartChange={updateStart} onEndChange={setEnd} onNotesChange={setNotes} onLocationChange={setLocation} onParticipantsChange={setParticipants} onAllDayChange={setAllDay} onCalendarChange={setEventCalendarId} onRepeatChange={setRepeatChoice} onCustomFrequencyChange={setCustomFrequency} onCustomIntervalChange={setCustomInterval} onRepeatEndChange={setRepeatEnd} onRepeatCountChange={setRepeatCount} onRepeatUntilChange={setRepeatUntil} /> : null}
       {calendarComposer ? <CalendarDialog editing={editingCalendar !== null} name={calendarName} color={calendarColor} busy={busy} error={error} onClose={() => { setCalendarComposer(false); setEditingCalendar(null); }} onSave={() => void saveCalendar()} onDelete={editingCalendar ? () => setConfirmDeleteCalendar(true) : undefined} onNameChange={setCalendarName} onColorChange={setCalendarColor} /> : null}
       {confirmDeleteCalendar && editingCalendar ? (
         <ConfirmDialog
@@ -1434,7 +1473,7 @@ function YearView({ months, today, selected, events, spans, onOpenDay }: { month
   );
 }
 
-function TaskDialog({ editing, title, start, end, notes, location, participants, allDay, calendarId, calendars, repeatChoice, customFrequency, customInterval, busy, error, onClose, onSave, onDelete, onTitleChange, onStartChange, onEndChange, onNotesChange, onLocationChange, onParticipantsChange, onAllDayChange, onCalendarChange, onRepeatChange, onCustomFrequencyChange, onCustomIntervalChange }: { editing: boolean; title: string; start: string; end: string; notes: string; location: string; participants: string; allDay: boolean; calendarId: string; calendars: Calendar[]; repeatChoice: RepeatChoice; customFrequency: "daily" | "weekly" | "monthly" | "yearly"; customInterval: number; busy: boolean; error: string | null; onClose: () => void; onSave: () => void; onDelete?: () => void; onTitleChange: (value: string) => void; onStartChange: (value: string) => void; onEndChange: (value: string) => void; onNotesChange: (value: string) => void; onLocationChange: (value: string) => void; onParticipantsChange: (value: string) => void; onAllDayChange: (value: boolean) => void; onCalendarChange: (value: string) => void; onRepeatChange: (value: RepeatChoice) => void; onCustomFrequencyChange: (value: "daily" | "weekly" | "monthly" | "yearly") => void; onCustomIntervalChange: (value: number) => void }) {
+function TaskDialog({ editing, title, start, end, notes, location, participants, allDay, calendarId, calendars, repeatChoice, customFrequency, customInterval, repeatEnd, repeatCount, repeatUntil, minRepeatUntil, busy, error, onClose, onSave, onDelete, onTitleChange, onStartChange, onEndChange, onNotesChange, onLocationChange, onParticipantsChange, onAllDayChange, onCalendarChange, onRepeatChange, onCustomFrequencyChange, onCustomIntervalChange, onRepeatEndChange, onRepeatCountChange, onRepeatUntilChange }: { editing: boolean; title: string; start: string; end: string; notes: string; location: string; participants: string; allDay: boolean; calendarId: string; calendars: Calendar[]; repeatChoice: RepeatChoice; customFrequency: "daily" | "weekly" | "monthly" | "yearly"; customInterval: number; repeatEnd: RepeatEnd; repeatCount: number; repeatUntil: string; minRepeatUntil: string; busy: boolean; error: string | null; onClose: () => void; onSave: () => void; onDelete?: () => void; onTitleChange: (value: string) => void; onStartChange: (value: string) => void; onEndChange: (value: string) => void; onNotesChange: (value: string) => void; onLocationChange: (value: string) => void; onParticipantsChange: (value: string) => void; onAllDayChange: (value: boolean) => void; onCalendarChange: (value: string) => void; onRepeatChange: (value: RepeatChoice) => void; onCustomFrequencyChange: (value: "daily" | "weekly" | "monthly" | "yearly") => void; onCustomIntervalChange: (value: number) => void; onRepeatEndChange: (value: RepeatEnd) => void; onRepeatCountChange: (value: number) => void; onRepeatUntilChange: (value: string) => void }) {
   return (
     <Modal title={editing ? "Edit event" : "New event"} onClose={onClose}>
         <div className="event-dialog flex-1 space-y-3 overflow-y-auto px-5 py-4">
@@ -1497,6 +1536,24 @@ function TaskDialog({ editing, title, start, end, notes, location, participants,
           {repeatChoice === "custom" ? <div className="grid grid-cols-[1fr_1.4fr] gap-2.5 rounded-lg border border-line bg-bg p-2.5">
             <label className="text-[11px] font-medium text-mute">Every<input type="number" min="1" max="99" value={customInterval} onChange={(e) => onCustomIntervalChange(Number(e.target.value) || 1)} className="mt-1 h-8 w-full rounded border border-line bg-panel px-2 text-xs text-text outline-none focus:border-accent" /></label>
             <label className="text-[11px] font-medium text-mute">Period<select value={customFrequency} onChange={(e) => onCustomFrequencyChange(e.target.value as typeof customFrequency)} className="mt-1 h-8 w-full rounded border border-line bg-panel px-2 text-xs outline-none focus:border-accent"><option value="daily">day(s)</option><option value="weekly">week(s)</option><option value="monthly">month(s)</option><option value="yearly">year(s)</option></select></label>
+          </div> : null}
+          {repeatChoice !== "none" ? <div className="space-y-2.5 rounded-lg border border-line bg-bg p-2.5">
+            <label className="block text-[11px] font-medium text-mute">
+              Repeat until
+              <select value={repeatEnd} onChange={(e) => onRepeatEndChange(e.target.value as RepeatEnd)} className="mt-1 h-8 w-full rounded border border-line bg-panel px-2 text-xs outline-none focus:border-accent">
+                <option value="never">Forever</option>
+                <option value="count">After a number of occurrences</option>
+                <option value="date">On a date</option>
+              </select>
+            </label>
+            {repeatEnd === "count" ? <label className="block text-[11px] font-medium text-mute">
+              Occurrences
+              <input type="number" min="1" max="999" value={repeatCount} onChange={(e) => onRepeatCountChange(Number(e.target.value) || 1)} className="mt-1 h-8 w-full rounded border border-line bg-panel px-2 text-xs text-text outline-none focus:border-accent" />
+            </label> : null}
+            {repeatEnd === "date" ? <label className="block text-[11px] font-medium text-mute">
+              Last date
+              <input type="date" min={minRepeatUntil} value={repeatUntil} onChange={(e) => onRepeatUntilChange(e.target.value)} className="mt-1 h-8 w-full rounded border border-line bg-panel px-2 text-xs text-text outline-none focus:border-accent" />
+            </label> : null}
           </div> : null}
 
           {/* Notes */}

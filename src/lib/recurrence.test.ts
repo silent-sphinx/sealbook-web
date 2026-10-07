@@ -149,6 +149,56 @@ describe("expandCalendarEvents", () => {
     expect(new Set(out.map((e) => e.id)).size).toBe(out.length);
   });
 
+  it("counts `count` from the anchor, not from the start of the window", () => {
+    // Each view expands over just the window it draws, so a window opening
+    // after the anchor must not restart the tally and hand back occurrences
+    // past the limit the user set.
+    const event: CalendarEvent = {
+      id: "c",
+      title: "Three times",
+      start: "2026-09-01T09:00:00Z",
+      recurrence: { frequency: "daily", count: 3 },
+    };
+    const later = expandCalendarEvents([event], at(2026, 9, 10), at(2026, 10, 31), TZ);
+    expect(later).toEqual([]);
+    const straddling = expandCalendarEvents([event], at(2026, 9, 2), at(2026, 10, 31), TZ);
+    expect(straddling.map((e) => dayOf(e.start))).toEqual(["2026-09-02", "2026-09-03"]);
+  });
+
+  it("counts `count` in occurrences, not in intervals", () => {
+    const event: CalendarEvent = {
+      id: "c",
+      title: "Twice a week, five times",
+      start: "2026-09-07T09:00:00Z",
+      recurrence: { frequency: "weekly", weekdays: [1, 3], count: 5 },
+    };
+    const out = expandCalendarEvents([event], at(2026, 9, 1), at(2026, 12, 31), TZ);
+    expect(out.map((e) => dayOf(e.start))).toEqual([
+      "2026-09-07", "2026-09-09", "2026-09-14", "2026-09-16", "2026-09-21",
+    ]);
+  });
+
+  it("includes an occurrence falling on the `until` date itself", () => {
+    const event: CalendarEvent = {
+      id: "u",
+      title: "Until",
+      start: "2026-09-01T09:00:00Z",
+      recurrence: { frequency: "weekly", weekdays: [2], until: "2026-09-15" },
+    };
+    const out = expandCalendarEvents([event], at(2026, 9, 1), at(2026, 10, 31), TZ);
+    expect(out.map((e) => dayOf(e.start))).toEqual(["2026-09-01", "2026-09-08", "2026-09-15"]);
+  });
+
+  it("applies `until` when the window opens after the anchor", () => {
+    const event: CalendarEvent = {
+      id: "u",
+      title: "Until",
+      start: "2026-09-01T09:00:00Z",
+      recurrence: { frequency: "daily", until: "2026-09-04" },
+    };
+    expect(expandCalendarEvents([event], at(2026, 9, 10), at(2026, 10, 31), TZ)).toEqual([]);
+  });
+
   it("returns nothing for an empty input", () => {
     expect(expandCalendarEvents([], at(2026, 9, 1), at(2026, 9, 30), TZ)).toEqual([]);
   });
