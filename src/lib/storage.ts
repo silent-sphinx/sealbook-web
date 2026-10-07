@@ -1,6 +1,6 @@
 import { b64ToByteArray, b64encode } from "./bytes";
 import { idbDelete, idbGet, idbPut } from "./idb";
-import { DEFAULT_ACCOUNT_SETTINGS, normalizeFeatures } from "./accountSettings";
+import { DEFAULT_ACCOUNT_SETTINGS, normalizeAccountSettings } from "./accountSettings";
 import type {
   AccountSettings,
   AddressBook,
@@ -124,9 +124,11 @@ export function normalizeSnapshot(value: unknown): VaultSnapshot | null {
     notes: Array.isArray(raw.notes) ? raw.notes : [],
     notebooks: Array.isArray(raw.notebooks) ? raw.notebooks : [],
     // A snapshot written before the feature toggles existed carries no settings,
-    // which reads as every feature enabled rather than as none.
+    // which reads as every feature enabled rather than as none. The whole object
+    // is normalized, not just its flags, so an offline open keeps the contact
+    // mode and the accent the account chose.
     accountSettings: raw.accountSettings
-      ? normalizeFeatures(raw.accountSettings.features)
+      ? normalizeAccountSettings(raw.accountSettings)
       : DEFAULT_ACCOUNT_SETTINGS,
   };
 }

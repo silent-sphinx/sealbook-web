@@ -1,14 +1,20 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ACCENTS,
+  ACCENT_COLORS,
+  DEFAULT_ACCENT,
   DEFAULT_ACCOUNT_SETTINGS,
+  accentVariables,
   canDisableFeature,
   enabledFeatures,
   isDetailedContacts,
   isFeatureEnabled,
+  normalizeAccent,
   normalizeFeatures,
   parseAccountSettings,
   serializeAccountSettings,
+  withAccent,
   withContactMode,
   withFeature,
 } from "./accountSettings";
@@ -104,5 +110,63 @@ describe("the contact detail mode", () => {
   it("leaves the feature flags alone when the mode changes", () => {
     const some = settings({ notes: false });
     expect(enabledFeatures(withContactMode(some, "detailed"))).toEqual(enabledFeatures(some));
+  });
+});
+
+describe("the accent colour", () => {
+  it("is the theme default for an account that has never chosen", () => {
+    expect(DEFAULT_ACCOUNT_SETTINGS.accent).toBe(DEFAULT_ACCENT);
+  });
+
+  it("round trips through the payload", () => {
+    const stored = serializeAccountSettings(withAccent(settings(), "purple"));
+    expect(parseAccountSettings(stored).accent).toBe("purple");
+  });
+
+  it("reads a payload from a build that never wrote the field as the default", () => {
+    const stored = JSON.stringify({ features: { contacts: true }, contactMode: "detailed" });
+    expect(parseAccountSettings(stored).accent).toBe(DEFAULT_ACCENT);
+  });
+
+  it("reads an unknown accent as the default rather than trusting the string", () => {
+    expect(normalizeAccent("chartreuse")).toBe(DEFAULT_ACCENT);
+    expect(parseAccountSettings(JSON.stringify({ accent: "#ff0000" })).accent).toBe(DEFAULT_ACCENT);
+  });
+
+  it("survives a feature or the contact mode being changed", () => {
+    // withFeature and withContactMode both rebuild the settings, so the accent
+    // has to be carried across or saving any other preference resets the theme.
+    const amber = withAccent(settings(), "amber");
+    expect(withFeature(amber, "calendar", false).accent).toBe("amber");
+    expect(withContactMode(amber, "detailed").accent).toBe("amber");
+  });
+
+  it("leaves the other preferences alone when the accent changes", () => {
+    const detailed = withContactMode(settings({ notes: false }), "detailed");
+    const recoloured = withAccent(detailed, "rose");
+    expect(enabledFeatures(recoloured)).toEqual(enabledFeatures(detailed));
+    expect(isDetailedContacts(recoloured)).toBe(true);
+  });
+
+  it("has a tuned pair of colours for every offered accent", () => {
+    for (const accent of ACCENTS) {
+      expect(ACCENT_COLORS[accent].base).toMatch(/^#[0-9a-f]{6}$/);
+      expect(ACCENT_COLORS[accent].dim).not.toBe(ACCENT_COLORS[accent].base);
+    }
+  });
+
+  it("overrides exactly the four accent tokens index.css declares", () => {
+    const vars = accentVariables("green");
+    expect(Object.keys(vars).sort()).toEqual([
+      "--sb-accent",
+      "--sb-accent-dim",
+      "--sb-accent-glow",
+      "--sb-accent-ring",
+    ]);
+    expect(vars["--sb-accent"]).toBe(ACCENT_COLORS.green.base);
+  });
+
+  it("tints an unreadable stored accent rather than emitting an empty colour", () => {
+    expect(accentVariables(undefined)["--sb-accent"]).toBe(ACCENT_COLORS[DEFAULT_ACCENT].base);
   });
 });

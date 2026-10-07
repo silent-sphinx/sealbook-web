@@ -47,6 +47,19 @@ describe("normalizeSnapshot", () => {
     });
   });
 
+  it("keeps the stored contact mode and accent, not only the toggles", () => {
+    // These used to be dropped here, so opening the vault offline reset the
+    // address book to basic and the shell to the default accent.
+    const snapshot = {
+      ...original,
+      accountSettings: { features: {}, contactMode: "detailed", accent: "purple" },
+    };
+    expect(normalizeSnapshot(snapshot)?.accountSettings).toMatchObject({
+      contactMode: "detailed",
+      accent: "purple",
+    });
+  });
+
   it("defaults a wrong-typed new field rather than discarding the old data", () => {
     expect(normalizeSnapshot({ ...original, notes: "nonsense" })).toMatchObject({ notes: [] });
   });

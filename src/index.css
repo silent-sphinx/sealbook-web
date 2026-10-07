@@ -15,10 +15,10 @@
   --color-text: #ececec;
   --color-mute: #8f8f8f;
   --color-danger: #d27a7a;
-  --color-accent: #7aa2f7;
-  --color-accent-dim: #5a7fcf;
-  --color-accent-glow: rgba(122, 162, 247, 0.08);
-  --color-accent-ring: rgba(122, 162, 247, 0.25);
+  --color-accent: var(--sb-accent);
+  --color-accent-dim: var(--sb-accent-dim);
+  --color-accent-glow: var(--sb-accent-glow);
+  --color-accent-ring: var(--sb-accent-ring);
 
   /*
    * Notes only. Gold marks the note being edited, which in a three-column view
@@ -114,6 +114,10 @@ body,
 
 html {
   color-scheme: dark;
+  --sb-accent: #7aa2f7;
+  --sb-accent-dim: #5a7fcf;
+  --sb-accent-glow: rgba(122, 162, 247, 0.08);
+  --sb-accent-ring: rgba(122, 162, 247, 0.25);
 }
 
 body {

@@ -40,6 +40,7 @@ import {
 } from "./lib/client";
 import {
   DEFAULT_ACCOUNT_SETTINGS,
+  accentVariables,
   isDetailedContacts,
   isFeatureEnabled,
 } from "./lib/accountSettings";
@@ -692,6 +693,18 @@ export default function App() {
       });
     return sortContacts(matches);
   }, [addressBooks, bookFilter, contacts, search]);
+
+  // The accent is a vault preference, so the shell can only be tinted once the
+  // settings are open; until then it keeps the `--sb-accent*` defaults declared
+  // in index.css, which the theme's accent tokens resolve through.
+  // Every token is rewritten on each change, and signing out restores the
+  // default settings, so the override needs no teardown of its own.
+  useEffect(() => {
+    const root = document.documentElement;
+    for (const [token, value] of Object.entries(accentVariables(accountSettings.accent))) {
+      root.style.setProperty(token, value);
+    }
+  }, [accountSettings.accent]);
 
   // Poll for pairing approval. Stops when the request expires.
   useEffect(() => {

@@ -73,12 +73,20 @@ export type FeatureKey = "contacts" | "calendar" | "notes";
 export type ContactMode = "basic" | "detailed";
 
 /**
+ * Which accent the shell is tinted with. One of a fixed set rather than a free
+ * colour: the palette in `lib/accountSettings` is tuned against the dark
+ * surfaces, and an arbitrary stored hex could be unreadable on them.
+ */
+export type AccentKey = "blue" | "cyan" | "green" | "amber" | "rose" | "purple";
+
+/**
  * Account-wide preferences, stored in the vault so they follow the account to
  * every client rather than living in one browser. See `lib/accountSettings`.
  */
 export type AccountSettings = {
   features: Record<FeatureKey, boolean>;
   contactMode: ContactMode;
+  accent: AccentKey;
 };
 
 export type ContactChannelKind = "work" | "home" | "mobile" | "custom";

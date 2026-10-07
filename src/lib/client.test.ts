@@ -540,6 +540,7 @@ describe("listVault", () => {
       serializeAccountSettings({
         features: { contacts: true, calendar: false, notes: false },
         contactMode: "basic",
+        accent: "blue",
       }),
     );
     server({
@@ -776,6 +777,7 @@ describe("putAccountSettings", () => {
     await putAccountSettings(owner.session, {
       features: { contacts: true, calendar: true, notes: false },
       contactMode: "basic",
+      accent: "blue",
     });
 
     const body = sent["/objects"] as {

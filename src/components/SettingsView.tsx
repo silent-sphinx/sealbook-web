@@ -19,13 +19,18 @@ import {
   rotatePhrase,
 } from "../lib/client";
 import {
+  ACCENTS,
+  ACCENT_COLORS,
+  ACCENT_LABELS,
   CONTACT_MODES,
   CONTACT_MODE_LABELS,
   FEATURES,
   FEATURE_LABELS,
   canDisableFeature,
   isFeatureEnabled,
+  normalizeAccent,
   normalizeContactMode,
+  withAccent,
   withContactMode,
   withFeature,
 } from "../lib/accountSettings";
@@ -44,6 +49,7 @@ import {
   selectField,
 } from "../lib/styles";
 import type {
+  AccentKey,
   AccountSettings,
   AddressBook,
   Calendar,
@@ -87,7 +93,13 @@ type Props = {
   initialSection?: SettingsSection;
 };
 
-export type SettingsSection = "account" | "features" | "contacts" | "calendar" | "notes";
+export type SettingsSection =
+  | "account"
+  | "features"
+  | "appearance"
+  | "contacts"
+  | "calendar"
+  | "notes";
 
 /**
  * One place per section, so adding a fourth feature is a row here rather than an
@@ -107,6 +119,13 @@ const SECTIONS: { id: SettingsSection; label: string; nav: string; blurb: string
     nav: "Turn contacts, calendar, or notes off",
     blurb:
       "Choose which parts of Sealbook this account uses. The choice is stored in your vault, so every device signed in to the account follows it.",
+  },
+  {
+    id: "appearance",
+    label: "Appearance",
+    nav: "Accent colour",
+    blurb:
+      "Choose the accent Sealbook highlights things with. Like your other preferences it is stored in your vault, so every device signed in to the account picks it up.",
   },
   {
     id: "contacts",
@@ -214,6 +233,10 @@ export function SettingsView({
   const [featureBusy, setFeatureBusy] = useState<FeatureKey | null>(null);
   const [featureMsg, setFeatureMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  // Accent state
+  const [accentBusy, setAccentBusy] = useState<AccentKey | null>(null);
+  const [accentMsg, setAccentMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
   // Contact mode state
   const [contactModeBusy, setContactModeBusy] = useState(false);
   const [contactModeMsg, setContactModeMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -247,6 +270,23 @@ export function SettingsView({
       setFeatureMsg({ type: "error", text: friendlyError(err) });
     } finally {
       setFeatureBusy(null);
+    }
+  }
+
+  async function handleAccent(accent: AccentKey) {
+    if (normalizeAccent(accountSettings.accent) === accent) return;
+    setAccentBusy(accent);
+    setAccentMsg(null);
+    try {
+      await onSaveAccountSettings(withAccent(accountSettings, accent));
+      setAccentMsg({
+        type: "success",
+        text: `${ACCENT_LABELS[accent]} it is. Other devices pick the change up on their next sync.`,
+      });
+    } catch (err) {
+      setAccentMsg({ type: "error", text: friendlyError(err) });
+    } finally {
+      setAccentBusy(null);
     }
   }
 
@@ -701,6 +741,7 @@ export function SettingsView({
     (section) =>
       section.id === "account" ||
       section.id === "features" ||
+      section.id === "appearance" ||
       isFeatureEnabled(accountSettings, section.id),
   );
   const activeSection = sections.some((section) => section.id === activeSectionState)
@@ -812,6 +853,73 @@ export function SettingsView({
                 : "border-danger/30 bg-danger/10 text-danger"}`}
             >
               {featureMsg.text}
+            </p>
+          ) : null}
+        </section>
+      )}
+
+      {activeSection === "appearance" && (
+        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
+          <h3 className="text-base font-semibold text-text">Accent colour</h3>
+          <p className="mt-1 text-xs leading-relaxed text-mute">
+            The accent tints buttons, links, selected rows, and focus rings. Calendar
+            colours are set per calendar and are left alone, as is the gold a note being
+            edited is marked with.
+          </p>
+
+          <div
+            role="radiogroup"
+            aria-label="Accent colour"
+            className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+          >
+            {ACCENTS.map((accent) => {
+              const active = normalizeAccent(accountSettings.accent) === accent;
+              const { base, dim } = ACCENT_COLORS[accent];
+              return (
+                <button
+                  key={accent}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  disabled={accentBusy !== null}
+                  onClick={() => void handleAccent(accent)}
+                  className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${focusRing} ${active
+                    ? "border-accent/40 bg-accent/10"
+                    : "border-line/80 bg-bg/50 hover:border-line-light"}`}
+                >
+                  {/* The one place the colour cannot come from the accent
+                      tokens: a swatch has to show the accent it offers, not the
+                      one the account is already on. */}
+                  <span
+                    aria-hidden="true"
+                    style={{ backgroundColor: base, borderColor: dim }}
+                    className="h-6 w-6 shrink-0 rounded-full border"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-text">
+                      {ACCENT_LABELS[accent]}
+                    </span>
+                    <span className="mt-0.5 block text-[11px] leading-relaxed text-mute">
+                      {accentBusy === accent
+                        ? "Saving\u2026"
+                        : active
+                          ? "Currently in use."
+                          : base}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {accentMsg ? (
+            <p
+              role="alert"
+              className={`mt-4 rounded-lg border px-3 py-2 text-xs leading-relaxed ${accentMsg.type === "success"
+                ? "border-line bg-bg text-mute"
+                : "border-danger/30 bg-danger/10 text-danger"}`}
+            >
+              {accentMsg.text}
             </p>
           ) : null}
         </section>

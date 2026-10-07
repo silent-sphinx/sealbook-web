@@ -1,4 +1,4 @@
-import type { AccountSettings, ContactMode, FeatureKey } from "./types";
+import type { AccentKey, AccountSettings, ContactMode, FeatureKey } from "./types";
 
 /**
  * Account settings live in the vault as one sealed object, not as a server
@@ -44,30 +44,94 @@ export const CONTACT_MODE_LABELS: Record<ContactMode, string> = {
  */
 export const DEFAULT_CONTACT_MODE: ContactMode = "basic";
 
+/** Also the order the swatches appear in the UI. */
+export const ACCENTS: AccentKey[] = ["blue", "cyan", "green", "amber", "rose", "purple"];
+
+export const ACCENT_LABELS: Record<AccentKey, string> = {
+  blue: "Blue",
+  cyan: "Cyan",
+  green: "Green",
+  amber: "Amber",
+  rose: "Rose",
+  purple: "Purple",
+};
+
+/**
+ * Base and dim tint per accent. `dim` is hand-picked rather than derived: it
+ * backs focus borders and the blockquote rule, where an evenly darkened base
+ * reads as muddy against `--color-panel`. The glow and ring tints are mixed
+ * from the base, which needs no second constant per accent.
+ */
+export const ACCENT_COLORS: Record<AccentKey, { base: string; dim: string }> = {
+  blue: { base: "#7aa2f7", dim: "#5a7fcf" },
+  cyan: { base: "#7dcfff", dim: "#58a3d4" },
+  green: { base: "#9ece6a", dim: "#78a44e" },
+  amber: { base: "#e0af68", dim: "#b4884b" },
+  rose: { base: "#f0859b", dim: "#c66076" },
+  purple: { base: "#bb9af7", dim: "#9377cf" },
+};
+
+/** Blue, which is the accent `index.css` declares as the theme default. */
+export const DEFAULT_ACCENT: AccentKey = "blue";
+
 export const DEFAULT_ACCOUNT_SETTINGS: AccountSettings = {
   features: { contacts: true, calendar: true, notes: true },
   contactMode: DEFAULT_CONTACT_MODE,
+  accent: DEFAULT_ACCENT,
 };
 
+/**
+ * The `--sb-accent*` tokens `index.css` declares, which the theme's
+ * `--color-accent*` resolve through. Overriding these re-tints every accent
+ * utility, including the faded `bg-accent/10` kind: the theme reaching an accent
+ * through a var is what stops Tailwind pre-computing those mixes into a literal
+ * at build time, so keep that indirection in place.
+ */
+export function accentVariables(accent: unknown): Record<string, string> {
+  const { base, dim } = ACCENT_COLORS[normalizeAccent(accent)];
+  return {
+    "--sb-accent": base,
+    "--sb-accent-dim": dim,
+    "--sb-accent-glow": `color-mix(in srgb, ${base} 8%, transparent)`,
+    "--sb-accent-ring": `color-mix(in srgb, ${base} 25%, transparent)`,
+  };
+}
+
 export function serializeAccountSettings(settings: AccountSettings): string {
-  const normalized = normalizeFeatures(settings.features, settings.contactMode);
+  const normalized = normalizeAccountSettings(settings);
   return JSON.stringify({
     "@type": "AccountSettings",
     version: "1.0",
     features: normalized.features,
     contactMode: normalized.contactMode,
+    accent: normalized.accent,
   });
 }
 
 export function parseAccountSettings(raw: string): AccountSettings {
   try {
-    const body = JSON.parse(raw) as { features?: unknown; contactMode?: unknown };
-    return normalizeFeatures(body.features, body.contactMode);
+    return normalizeAccountSettings(JSON.parse(raw));
   } catch {
     // An unreadable payload must not take the vault down or hide a feature the
     // user still has data in, so it reads as the default: everything enabled.
     return DEFAULT_ACCOUNT_SETTINGS;
   }
+}
+
+/**
+ * Coerces a whole stored object, as opposed to `normalizeFeatures`, which takes
+ * the fields apart. Every caller holding a settings-shaped value should use this
+ * one: picking fields off by hand is how a preference a build does not care
+ * about gets dropped on the way through.
+ */
+export function normalizeAccountSettings(value: unknown): AccountSettings {
+  const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  return normalizeFeatures(raw.features, raw.contactMode, raw.accent);
+}
+
+/** Anything other than a known accent is the default, as for the contact mode. */
+export function normalizeAccent(value: unknown): AccentKey {
+  return ACCENTS.includes(value as AccentKey) ? (value as AccentKey) : DEFAULT_ACCENT;
 }
 
 /**
@@ -87,7 +151,11 @@ export function normalizeContactMode(value: unknown): ContactMode {
  * it off. An all-off payload is a client that ignored the rule, and is repaired
  * to the first feature rather than left as a vault with nothing in it.
  */
-export function normalizeFeatures(value: unknown, mode?: unknown): AccountSettings {
+export function normalizeFeatures(
+  value: unknown,
+  mode?: unknown,
+  accent?: unknown,
+): AccountSettings {
   const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
   const features = {} as Record<FeatureKey, boolean>;
   for (const feature of FEATURES) {
@@ -96,7 +164,11 @@ export function normalizeFeatures(value: unknown, mode?: unknown): AccountSettin
   if (!FEATURES.some((feature) => features[feature])) {
     features[FEATURES[0]] = true;
   }
-  return { features, contactMode: normalizeContactMode(mode) };
+  return {
+    features,
+    contactMode: normalizeContactMode(mode),
+    accent: normalizeAccent(accent),
+  };
 }
 
 export function isFeatureEnabled(settings: AccountSettings, feature: FeatureKey): boolean {
@@ -128,7 +200,11 @@ export function withFeature(
   if (!enabled && !canDisableFeature(settings, feature)) {
     return settings;
   }
-  return normalizeFeatures({ ...settings.features, [feature]: enabled }, settings.contactMode);
+  return normalizeFeatures(
+    { ...settings.features, [feature]: enabled },
+    settings.contactMode,
+    settings.accent,
+  );
 }
 
 export function isDetailedContacts(settings: AccountSettings): boolean {
@@ -136,5 +212,9 @@ export function isDetailedContacts(settings: AccountSettings): boolean {
 }
 
 export function withContactMode(settings: AccountSettings, mode: ContactMode): AccountSettings {
-  return normalizeFeatures(settings.features, mode);
+  return normalizeFeatures(settings.features, mode, settings.accent);
+}
+
+export function withAccent(settings: AccountSettings, accent: AccentKey): AccountSettings {
+  return normalizeFeatures(settings.features, settings.contactMode, accent);
 }
