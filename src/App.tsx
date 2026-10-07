@@ -13,8 +13,9 @@ import { DeleteContactModal } from "./components/DeleteContactModal";
 import { DeleteAddressBookModal } from "./components/DeleteAddressBookModal";
 import { Modal } from "./components/Modal";
 import { NotesView } from "./components/NotesView";
-import { SettingsView } from "./components/SettingsView";
+import { SettingsView, type SettingsSection } from "./components/SettingsView";
 import { PasswordField } from "./components/PasswordField";
+import { WelcomeModal } from "./components/WelcomeModal";
 import {
   completeRecoveryRotation,
   deleteAddressBook,
@@ -29,6 +30,7 @@ import {
   pairReady,
   putAccountSettings,
   putAddressBook,
+  putCalendar,
   putNotebook,
   putContact,
   recoverAccount,
@@ -41,6 +43,10 @@ import {
   isDetailedContacts,
   isFeatureEnabled,
 } from "./lib/accountSettings";
+import {
+  ONBOARDING_KEY,
+  type OnboardingPlan,
+} from "./lib/onboarding";
 import { profileSearchText } from "./lib/contactProfile";
 import {
   ALL_ADDRESS_BOOKS,
@@ -79,6 +85,7 @@ import {
   shell,
   focusRing,
 } from "./lib/styles";
+import { DEFAULT_CALENDAR_COLOR } from "./lib/types";
 import type {
   AccountSettings,
   AddressBook,
@@ -87,6 +94,7 @@ import type {
   Contact,
   ContactDraft,
   DeviceState,
+  FeatureKey,
   Note,
   Notebook,
 } from "./lib/types";
@@ -140,6 +148,26 @@ function loadLastTab(): MainTab {
     return stored === "calendar" || stored === "notes" ? stored : "contacts";
   } catch {
     return "contacts";
+  }
+}
+
+function loadOnboarding(): boolean {
+  try {
+    return localStorage.getItem(ONBOARDING_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveOnboarding(pending: boolean): void {
+  try {
+    if (pending) {
+      localStorage.setItem(ONBOARDING_KEY, "1");
+    } else {
+      localStorage.removeItem(ONBOARDING_KEY);
+    }
+  } catch {
+    // storage unavailable; ignore
   }
 }
 
@@ -542,6 +570,10 @@ export default function App() {
   const [loadingVault, setLoadingVault] = useState(false);
   const [idleCountdown, setIdleCountdown] = useState<number | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  const [onboarding, setOnboardingState] = useState(loadOnboarding);
+  // Set when the welcome hands the user off to an importer, so Settings opens on
+  // that feature's section instead of the account one.
+  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   // An interrupted recovery leaves the vault key unrotated, so the phrase that
   // was used still opens it. The banner asks for the password to finish.
   const [finishingRecovery, setFinishingRecovery] = useState(false);
@@ -576,6 +608,14 @@ export default function App() {
   function setActiveTab(tab: MainTab) {
     setActiveTabState(tab);
     saveLastTab(tab);
+    if (tab !== "settings") {
+      setSettingsSection(null);
+    }
+  }
+
+  function setOnboarding(pending: boolean) {
+    setOnboardingState(pending);
+    saveOnboarding(pending);
   }
 
   function setTimezone(value: string) {
@@ -853,6 +893,42 @@ export default function App() {
     setAccountSettings(next);
   }
 
+  /**
+   * Applies the welcome's choices. The settings object goes first so a failure
+   * there cannot leave containers behind for a feature the account did not keep.
+   * Returns the message for the dialog to show, or null once everything is in.
+   */
+  async function onFinishOnboarding(
+    plan: OnboardingPlan,
+    jumpTo: FeatureKey | null,
+  ): Promise<string | null> {
+    if (!session) {
+      return "This vault is locked. Sign in again to finish setting up.";
+    }
+    try {
+      await putAccountSettings(session, plan.settings);
+      setAccountSettings(plan.settings);
+      for (const name of plan.addressBooks) {
+        await putAddressBook(session, name);
+      }
+      for (const name of plan.calendars) {
+        await putCalendar(session, { name, color: DEFAULT_CALENDAR_COLOR, favorite: false });
+      }
+      for (const name of plan.notebooks) {
+        await putNotebook(session, name);
+      }
+      await refreshAfterSave(session);
+      setOnboarding(false);
+      if (jumpTo) {
+        setSettingsSection(jumpTo);
+        setActiveTab("settings");
+      }
+      return null;
+    } catch (err) {
+      return friendlyError(err);
+    }
+  }
+
   // Refresh after a successful write. A refresh failure is reported separately
   // so it isn't mistaken for a failed save. Returns whether the refresh worked.
   async function refreshAfterSave(next: Session): Promise<boolean> {
@@ -922,6 +998,7 @@ export default function App() {
   async function signOut() {
     await lock();
     clearDevice();
+    setOnboarding(false);
     setStored(null);
     resetPair();
     setUsername("");
@@ -998,6 +1075,7 @@ export default function App() {
       setSession(next);
       setPhrase(words);
       setScreen("phrase");
+      setOnboarding(true);
       await refresh(next);
     } catch (err) {
       setError(friendlyError(err));
@@ -2160,6 +2238,7 @@ export default function App() {
             onTimezoneChange={setTimezone}
             accountSettings={accountSettings}
             onSaveAccountSettings={onSaveAccountSettings}
+            initialSection={settingsSection ?? undefined}
           />
         </main>
       ) : activeTab === "calendar" ? (
@@ -2442,6 +2521,15 @@ export default function App() {
           error={error}
           onConfirm={(destinationId) => void onConfirmDeleteBook(destinationId)}
           onClose={closeDeleteBook}
+        />
+      ) : null}
+
+      {/* First-run welcome, shown over the normal UI after registration */}
+      {onboarding ? (
+        <WelcomeModal
+          username={username}
+          onComplete={onFinishOnboarding}
+          onDismiss={() => setOnboarding(false)}
         />
       ) : null}
 

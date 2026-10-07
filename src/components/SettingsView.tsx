@@ -83,9 +83,11 @@ type Props = {
   accountSettings: AccountSettings;
   /** Rejects when the write fails, so the toggle can report it and stay put. */
   onSaveAccountSettings: (settings: AccountSettings) => Promise<void>;
+  /** Read once on mount; the view unmounts whenever the Settings tab is left. */
+  initialSection?: SettingsSection;
 };
 
-type SettingsSection = "account" | "features" | "contacts" | "calendar" | "notes";
+export type SettingsSection = "account" | "features" | "contacts" | "calendar" | "notes";
 
 /**
  * One place per section, so adding a fourth feature is a row here rather than an
@@ -145,8 +147,11 @@ export function SettingsView({
   onTimezoneChange,
   accountSettings,
   onSaveAccountSettings,
+  initialSection,
 }: Props) {
-  const [activeSectionState, setActiveSection] = useState<SettingsSection>("account");
+  const [activeSectionState, setActiveSection] = useState<SettingsSection>(
+    initialSection ?? "account",
+  );
   // Calendar import state
   const icsInputRef = useRef<HTMLInputElement | null>(null);
   const [icsDragActive, setIcsDragActive] = useState(false);
