@@ -160,7 +160,7 @@ option {
 
 @media (min-width: 1024px) {
   .sb-shell {
-    grid-template-columns: var(--sb-sidebar-cols, 244px minmax(0, 1fr));
+    grid-template-columns: var(--sb-sidebar-cols, 17.5rem minmax(0, 1fr));
   }
 }
 

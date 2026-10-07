@@ -766,7 +766,7 @@ export function CalendarView({
     // sitting in a card. The sidebar keeps a translucent panel fill so it still
     // separates from the grid without reintroducing an opaque chrome column.
     <main className="flex flex-col bg-bg pb-[env(safe-area-inset-bottom)] text-text lg:h-[calc(100dvh-var(--sb-header-h,74px))] lg:overflow-hidden lg:pb-0">
-      <div className="sb-shell grid min-h-0 flex-1 lg:h-full" style={sidebar.cols("244px")}>
+      <div className="sb-shell grid min-h-0 flex-1 lg:h-full" style={sidebar.cols}>
         <SidebarDrawer title="Calendars" sidebar={sidebar}>
           <div className="flex items-center justify-between">
             <div><p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">My calendar</p><h2 className="mt-1 text-lg font-semibold">Calendar</h2></div>

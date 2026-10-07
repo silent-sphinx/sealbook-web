@@ -586,7 +586,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
         </p>
       ) : null}
 
-      <div className="sb-shell grid min-h-0 flex-1" style={sidebar.cols("17.5rem")}>
+      <div className="sb-shell grid min-h-0 flex-1" style={sidebar.cols}>
         <SidebarDrawer title="Notes" sidebar={sidebar}>
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">My notes</p>

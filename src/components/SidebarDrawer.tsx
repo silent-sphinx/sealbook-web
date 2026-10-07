@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -12,6 +13,12 @@ import { focusRing } from "../lib/styles";
 
 /** Matches the `lg:` breakpoint the contacts and calendar grids switch on. */
 const DESKTOP = "(min-width: 1024px)";
+
+/**
+ * One width for every view's sidebar, matching the drawer below `DESKTOP` so
+ * the column does not change size as the breakpoint is crossed.
+ */
+const SIDEBAR_WIDTH = "17.5rem";
 
 /** One key, not one per view: the collapse is a property of the shell. */
 const COLLAPSE_KEY = "sealbook.sidebar-collapsed";
@@ -35,8 +42,8 @@ export type Sidebar = {
   toggle: () => void;
   /** Dismisses the drawer; a no-op once the sidebar is a column. */
   close: () => void;
-  /** `--sb-sidebar-cols` for a `.sb-shell` whose sidebar is `width` wide. */
-  cols: (width: string) => CSSProperties;
+  /** `--sb-sidebar-cols` for the `.sb-shell` the sidebar sits in. */
+  cols: CSSProperties;
 };
 
 /**
@@ -46,10 +53,8 @@ export type Sidebar = {
  * content takes the whole row.
  *
  * Called once, in the shell, and handed to each view: contacts, calendar and
- * notes share the one collapse and the one control in the header, so the
- * sidebar does not reappear on switching tabs. The views differ only in how
- * wide their column is, which is why the width is an argument to `cols` rather
- * than to this hook.
+ * notes share the one collapse, the one control in the header and the one
+ * width, so neither the sidebar nor its size changes on switching tabs.
  */
 export function useSidebar(): Sidebar {
   const isDesktop = useMediaQuery(DESKTOP);
@@ -78,10 +83,12 @@ export function useSidebar(): Sidebar {
 
   const close = useCallback(() => setOpen(false), []);
 
-  const cols = useCallback(
-    (width: string) =>
+  const cols = useMemo(
+    () =>
       ({
-        "--sb-sidebar-cols": collapsed ? "minmax(0, 1fr)" : `${width} minmax(0, 1fr)`,
+        "--sb-sidebar-cols": collapsed
+          ? "minmax(0, 1fr)"
+          : `${SIDEBAR_WIDTH} minmax(0, 1fr)`,
       }) as CSSProperties,
     [collapsed],
   );
@@ -173,7 +180,8 @@ export function SidebarDrawer({ title, sidebar, children }: Props) {
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
-        className="relative flex w-[17.5rem] max-w-[85vw] flex-col overflow-y-auto border-r border-line bg-panel px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5 shadow-2xl shadow-black/50 outline-none animate-slide-in-left"
+        style={{ width: SIDEBAR_WIDTH }}
+        className="relative flex max-w-[85vw] flex-col overflow-y-auto border-r border-line bg-panel px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5 shadow-2xl shadow-black/50 outline-none animate-slide-in-left"
       >
         <div className="-mr-1.5 mb-2 flex justify-end">
           <button

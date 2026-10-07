@@ -2263,7 +2263,7 @@ export default function App() {
         // holding the section title and the address books, and a toolbar above
         // the content.
         <main className="flex flex-col bg-bg pb-[env(safe-area-inset-bottom)] text-text lg:h-[calc(100dvh-var(--sb-header-h,74px))] lg:overflow-hidden lg:pb-0">
-          <div className="sb-shell grid min-h-0 flex-1 lg:h-full" style={sidebar.cols("244px")}>
+          <div className="sb-shell grid min-h-0 flex-1 lg:h-full" style={sidebar.cols}>
             <SidebarDrawer title="Contacts and address books" sidebar={sidebar}>
               <div className="flex items-center justify-between">
                 <div>
