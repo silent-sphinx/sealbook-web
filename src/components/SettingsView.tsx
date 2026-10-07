@@ -81,6 +81,7 @@ type Props = {
   onSessionUpdate: (updated: Session) => void;
   onPersistSession: (updated: Session, password: string) => Promise<void>;
   onAccountDeleted: () => void;
+  onSignOut: () => void;
   onRefresh: () => Promise<void>;
   onCreateBook?: (name: string) => Promise<string | undefined>;
   onCreateNotebook?: (name: string) => Promise<string | undefined>;
@@ -159,6 +160,7 @@ export function SettingsView({
   onSessionUpdate,
   onPersistSession,
   onAccountDeleted,
+  onSignOut,
   onRefresh,
   onCreateBook,
   onCreateNotebook,
@@ -240,6 +242,9 @@ export function SettingsView({
   // Contact mode state
   const [contactModeBusy, setContactModeBusy] = useState(false);
   const [contactModeMsg, setContactModeMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Sign out state
+  const [signOutConfirm, setSignOutConfirm] = useState(false);
 
   // Delete account state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -747,6 +752,10 @@ export function SettingsView({
   const activeSection = sections.some((section) => section.id === activeSectionState)
     ? activeSectionState
     : "account";
+  // Until the list loads, the milder warning is still true, so it is the default.
+  const onlyDevice =
+    devices !== null &&
+    !devices.some((device) => device.device_id !== session.state.device_id);
 
   return (
     <div className="grid gap-8 animate-fade-in-up lg:grid-cols-[220px_minmax(0,1fr)]">
@@ -1650,6 +1659,33 @@ export function SettingsView({
         />
       )}
 
+      {activeSection === "account" && (
+        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-base font-semibold text-text">Sign out</h3>
+              <p className="mt-1 max-w-md text-xs leading-relaxed text-mute">
+                Removes this device's keys from this browser. Your account and
+                everything in it stays on the server.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSignOutConfirm(true)}
+              className={`${btnSecondary} shrink-0 px-5`}
+            >
+              Sign out…
+            </button>
+          </div>
+
+          <div className="mt-5 rounded-lg border border-danger/30 bg-danger/10 p-3.5 text-xs leading-relaxed text-danger">
+            {onlyDevice
+              ? `This is the only device signed in to ${session.state.username}. Your 24 recovery words are the only way back in, so make sure you have them before you sign out.`
+              : "To get back in you will need another device that is still signed in, or your 24 recovery words."}
+          </div>
+        </section>
+      )}
+
       {activeSection === "account" && <>
       <section className="rounded-2xl border border-danger/40 bg-danger/5 backdrop-blur-md p-6 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1742,6 +1778,31 @@ export function SettingsView({
         )}
       </section>
       </>}
+      {signOutConfirm ? (
+        <ConfirmDialog
+          title="Sign out"
+          heading="Sign out of this device?"
+          body={
+            <span className="block space-y-3">
+              <span className="block">
+                This device's keys are removed from this browser. Nothing is
+                deleted from your account.
+              </span>
+              <span className="block">
+                {onlyDevice
+                  ? "No other device is signed in, so your 24 recovery words are the only way back into this account. If you do not have them written down, cancel and keep this device signed in."
+                  : "To get back in you will need to pair from another signed-in device, or use your 24 recovery words."}
+              </span>
+            </span>
+          }
+          confirmLabel="Sign out"
+          onConfirm={() => {
+            setSignOutConfirm(false);
+            onSignOut();
+          }}
+          onClose={() => setSignOutConfirm(false)}
+        />
+      ) : null}
       {revokeTarget ? (
         <ConfirmDialog
           title="Revoke device"

@@ -2262,6 +2262,9 @@ export default function App() {
             onAccountDeleted={() => {
               signOut();
             }}
+            onSignOut={() => {
+              void signOut();
+            }}
             onRefresh={() => refresh(session)}
             onCreateBook={isOffline ? undefined : onCreateBook}
             onCreateNotebook={isOffline ? undefined : onCreateNotebook}
