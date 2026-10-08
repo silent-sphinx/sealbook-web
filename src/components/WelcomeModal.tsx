@@ -12,6 +12,7 @@ import {
   withFeature,
 } from "../lib/accountSettings";
 import { DEFAULT_ADDRESS_BOOK_NAME } from "../lib/addressBook";
+import { DEFAULT_CALENDAR_NAME } from "../lib/calendar";
 import { DEFAULT_NOTEBOOK_NAME } from "../lib/note";
 import {
   CONTAINER_KEYS,
@@ -66,7 +67,7 @@ const CONTAINER_COPY: Record<
     label: "Calendars",
     singular: "calendar",
     article: "a",
-    existing: "A new account has no calendar, and an event needs one to live in.",
+    existing: `"${DEFAULT_CALENDAR_NAME}" is created the first time you open Calendar.`,
     placeholder: "Personal",
   },
   notes: {

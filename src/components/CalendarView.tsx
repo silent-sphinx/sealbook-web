@@ -2,12 +2,15 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import {
   deleteCalendarEvent,
   deleteCalendar,
+  ensureDefaultCalendar,
   putCalendar,
   putCalendarEvent,
   type Session,
 } from "../lib/client";
 import type { Calendar, CalendarEvent, RecurrenceRule } from "../lib/types";
 import { DEFAULT_CALENDAR_COLOR } from "../lib/types";
+import { DEFAULT_CALENDAR_ID } from "../lib/calendar";
+import { friendlyError } from "../lib/errors";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SidebarDrawer, type Sidebar } from "./SidebarDrawer";
 import { Modal } from "./Modal";
@@ -399,6 +402,24 @@ export function CalendarView({
     }, 60_000);
     return () => window.clearInterval(tick);
   }, []);
+  // The default calendar is created on first entry here, not on every vault
+  // refresh: a failed write on the refresh path would stop the whole vault
+  // loading, contacts included.
+  const ensuredRef = useRef(false);
+  useEffect(() => {
+    if (readOnlyMode || ensuredRef.current) return;
+    ensuredRef.current = true;
+    if (calendars.some((calendar) => calendar.id === DEFAULT_CALENDAR_ID)) return;
+    void (async () => {
+      try {
+        await ensureDefaultCalendar(session, calendars);
+        await onRefresh();
+      } catch (err) {
+        setError(friendlyError(err));
+      }
+    })();
+  }, [calendars, onRefresh, readOnlyMode, session]);
+
   const days = useMemo(() => monthDays(month), [month]);
   const filtered = useMemo(
     () => events
@@ -807,7 +828,7 @@ export function CalendarView({
       </div>
 
       {composer ? <TaskDialog editing={editingEvent !== null} title={title} start={start} end={end} notes={notes} location={location} participants={participants} allDay={allDay} calendarId={eventCalendarId} calendars={calendars} repeatChoice={repeatChoice} customFrequency={customFrequency} customInterval={customInterval} repeatEnd={repeatEnd} repeatCount={repeatCount} repeatUntil={repeatUntil} minRepeatUntil={start.slice(0, 10)} busy={busy} error={error} onClose={closeTaskDialog} onSave={() => void saveEvent()} onDelete={editingEvent ? () => void removeEvent() : undefined} onTitleChange={setTitle} onStartChange={updateStart} onEndChange={setEnd} onNotesChange={setNotes} onLocationChange={setLocation} onParticipantsChange={setParticipants} onAllDayChange={setAllDay} onCalendarChange={setEventCalendarId} onRepeatChange={setRepeatChoice} onCustomFrequencyChange={setCustomFrequency} onCustomIntervalChange={setCustomInterval} onRepeatEndChange={setRepeatEnd} onRepeatCountChange={setRepeatCount} onRepeatUntilChange={setRepeatUntil} /> : null}
-      {calendarComposer ? <CalendarDialog editing={editingCalendar !== null} name={calendarName} color={calendarColor} busy={busy} error={error} onClose={() => { setCalendarComposer(false); setEditingCalendar(null); }} onSave={() => void saveCalendar()} onDelete={editingCalendar ? () => setConfirmDeleteCalendar(true) : undefined} onNameChange={setCalendarName} onColorChange={setCalendarColor} /> : null}
+      {calendarComposer ? <CalendarDialog editing={editingCalendar !== null} name={calendarName} color={calendarColor} busy={busy} error={error} onClose={() => { setCalendarComposer(false); setEditingCalendar(null); }} onSave={() => void saveCalendar()} onDelete={editingCalendar && editingCalendar.id !== DEFAULT_CALENDAR_ID ? () => setConfirmDeleteCalendar(true) : undefined} onNameChange={setCalendarName} onColorChange={setCalendarColor} /> : null}
       {confirmDeleteCalendar && editingCalendar ? (
         <ConfirmDialog
           title="Delete calendar"

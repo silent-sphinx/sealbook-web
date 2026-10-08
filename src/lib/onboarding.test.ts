@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { normalizeFeatures, withContactMode, withFeature } from "./accountSettings";
 import { DEFAULT_ADDRESS_BOOK_NAME } from "./addressBook";
+import { DEFAULT_CALENDAR_NAME } from "./calendar";
 import { DEFAULT_NOTEBOOK_NAME } from "./note";
 import {
-  SUGGESTED_CALENDAR_NAME,
   initialOnboardingDraft,
   nextOnboardingStep,
   onboardingPlan,
@@ -43,9 +43,9 @@ describe("onboarding steps", () => {
 });
 
 describe("onboarding plan", () => {
-  it("suggests a calendar, since a new account has none", () => {
+  it("plans nothing from an untouched draft, since every feature has a default", () => {
     const plan = onboardingPlan(initialOnboardingDraft());
-    expect(plan.calendars).toEqual([SUGGESTED_CALENDAR_NAME]);
+    expect(plan.calendars).toEqual([]);
     expect(plan.addressBooks).toEqual([]);
     expect(plan.notebooks).toEqual([]);
   });
@@ -70,9 +70,11 @@ describe("onboarding plan", () => {
     const plan = onboardingPlan({
       ...initialOnboardingDraft(),
       addressBooks: [DEFAULT_ADDRESS_BOOK_NAME.toUpperCase(), "Work"],
+      calendars: [DEFAULT_CALENDAR_NAME, "Shared"],
       notebooks: [DEFAULT_NOTEBOOK_NAME, "Ideas"],
     });
     expect(plan.addressBooks).toEqual(["Work"]);
+    expect(plan.calendars).toEqual(["Shared"]);
     expect(plan.notebooks).toEqual(["Ideas"]);
   });
 

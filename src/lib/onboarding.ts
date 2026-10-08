@@ -1,5 +1,6 @@
 import { DEFAULT_ACCOUNT_SETTINGS, isFeatureEnabled } from "./accountSettings";
 import { DEFAULT_ADDRESS_BOOK_NAME } from "./addressBook";
+import { DEFAULT_CALENDAR_NAME } from "./calendar";
 import { DEFAULT_NOTEBOOK_NAME } from "./note";
 import type { AccountSettings, FeatureKey } from "./types";
 
@@ -43,18 +44,14 @@ export const CONTAINER_KEYS: Record<FeatureKey, ContainerKey> = {
 };
 
 /**
- * A new account already has a default address book, and gets a default notebook
- * the first time Notes opens, but it has no calendar at all and cannot hold an
- * event until one exists. So the calendar row starts with a name and the other
- * two start empty.
+ * Every feature has a default container under a reserved id, so each row starts
+ * empty: what the welcome adds is the second container, not the first.
  */
-export const SUGGESTED_CALENDAR_NAME = "Personal";
-
 export function initialOnboardingDraft(): OnboardingDraft {
   return {
     settings: DEFAULT_ACCOUNT_SETTINGS,
     addressBooks: [],
-    calendars: [SUGGESTED_CALENDAR_NAME],
+    calendars: [],
     notebooks: [],
   };
 }
@@ -116,7 +113,7 @@ export function onboardingPlan(draft: OnboardingDraft): OnboardingPlan {
       ? normalizeNames(draft.addressBooks, DEFAULT_ADDRESS_BOOK_NAME)
       : [],
     calendars: isFeatureEnabled(settings, "calendar")
-      ? normalizeNames(draft.calendars)
+      ? normalizeNames(draft.calendars, DEFAULT_CALENDAR_NAME)
       : [],
     notebooks: isFeatureEnabled(settings, "notes")
       ? normalizeNames(draft.notebooks, DEFAULT_NOTEBOOK_NAME)
