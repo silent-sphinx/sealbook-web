@@ -1,3 +1,4 @@
+import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
 import type { AccentKey, AccountSettings, ContactMode, FeatureKey } from "./types";
 
 /**
@@ -97,15 +98,30 @@ export function accentVariables(accent: unknown): Record<string, string> {
   };
 }
 
-export function serializeAccountSettings(settings: AccountSettings): string {
+const ACCOUNT_SETTINGS_KEYS = [
+  "@type",
+  "version",
+  "features",
+  "contactMode",
+  "accent",
+] as const;
+
+export function serializeAccountSettings(
+  settings: AccountSettings,
+  previousRaw?: string,
+): string {
   const normalized = normalizeAccountSettings(settings);
-  return JSON.stringify({
-    "@type": "AccountSettings",
-    version: "1.0",
-    features: normalized.features,
-    contactMode: normalized.contactMode,
-    accent: normalized.accent,
-  });
+  return mergePayload(
+    previousRaw,
+    {
+      "@type": "AccountSettings",
+      version: PAYLOAD_SCHEMA_VERSION,
+      features: normalized.features,
+      contactMode: normalized.contactMode,
+      accent: normalized.accent,
+    },
+    ACCOUNT_SETTINGS_KEYS,
+  );
 }
 
 export function parseAccountSettings(raw: string): AccountSettings {

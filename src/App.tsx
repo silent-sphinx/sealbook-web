@@ -563,6 +563,8 @@ export default function App() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [accountSettings, setAccountSettings] = useState<AccountSettings>(DEFAULT_ACCOUNT_SETTINGS);
+  /** The settings payload last read, so a save merges onto it. */
+  const accountSettingsRaw = useRef<string | undefined>(undefined);
   const [bookFilter, setBookFilter] = useState(ALL_ADDRESS_BOOKS);
   // Set by the sidebar's "+", read by the address book list to open its input.
   const [creatingBook, setCreatingBook] = useState(false);
@@ -881,6 +883,7 @@ export default function App() {
     setNotes(listed.notes);
     setNotebooks(listed.notebooks);
     setAccountSettings(listed.accountSettings);
+    accountSettingsRaw.current = listed.accountSettingsRaw;
     if (password) {
       await saveVaultSnapshot(
         {
@@ -891,6 +894,7 @@ export default function App() {
           notes: listed.notes,
           notebooks: listed.notebooks,
           accountSettings: listed.accountSettings,
+          accountSettingsRaw: listed.accountSettingsRaw,
         },
         password,
       );
@@ -919,7 +923,7 @@ export default function App() {
 
   async function onSaveAccountSettings(next: AccountSettings) {
     if (!session) return;
-    await putAccountSettings(session, next);
+    await putAccountSettings(session, next, accountSettingsRaw.current);
     setAccountSettings(next);
   }
 
@@ -936,7 +940,7 @@ export default function App() {
       return "This vault is locked. Sign in again to finish setting up.";
     }
     try {
-      await putAccountSettings(session, plan.settings);
+      await putAccountSettings(session, plan.settings, accountSettingsRaw.current);
       setAccountSettings(plan.settings);
       for (const name of plan.addressBooks) {
         await putAddressBook(session, name);
@@ -1077,6 +1081,7 @@ export default function App() {
         setNotes(snapshot.notes);
         setNotebooks(snapshot.notebooks);
         setAccountSettings(snapshot.accountSettings);
+        accountSettingsRaw.current = snapshot.accountSettingsRaw;
         setSession({ state: unlocked, collectionKey: "", token: "", latestRevision: 0, keyEpoch: 0, manifestSeq: 0, offline: true });
       } else {
         await openSession(await loginAccount(unlocked, password), password);
@@ -1393,7 +1398,8 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
-      await putAddressBook(session, name, id);
+      const previous = addressBooks.find((book) => book.id === id);
+      await putAddressBook(session, name, id, previous?.raw);
       await refreshAfterSave(session);
     } catch (err) {
       setError(friendlyError(err));

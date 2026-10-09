@@ -1,3 +1,4 @@
+import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
 import type { AddressBook } from "./types";
 
 export const JSCONTACT_CONTENT_TYPE = "application/jscontact+json";
@@ -7,12 +8,18 @@ export const DEFAULT_ADDRESS_BOOK_NAME = "Default Address Book";
 export const DEFAULT_ADDRESS_BOOK_ID = "00000000-0000-0000-0000-000000000001";
 export const ALL_ADDRESS_BOOKS = "all";
 
-export function serializeAddressBook(name: string): string {
-  return JSON.stringify({
-    "@type": "AddressBook",
-    version: "1.0",
-    name: name.trim(),
-  });
+const ADDRESS_BOOK_KEYS = ["@type", "version", "name"] as const;
+
+export function serializeAddressBook(name: string, previousRaw?: string): string {
+  return mergePayload(
+    previousRaw,
+    {
+      "@type": "AddressBook",
+      version: PAYLOAD_SCHEMA_VERSION,
+      name: name.trim(),
+    },
+    ADDRESS_BOOK_KEYS,
+  );
 }
 
 export function parseAddressBook(id: string, raw: string): AddressBook {

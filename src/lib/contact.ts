@@ -12,6 +12,7 @@ import {
   profileOf,
   serializeProfile,
 } from "./contactProfile";
+import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
 import type {
   Contact,
   ContactAddress,
@@ -285,10 +286,35 @@ function serializeAddress(address?: ContactAddress): Record<string, unknown> | u
   return { a1: body };
 }
 
+/**
+ * Every key this build writes for a card, including the ones it only writes
+ * when the field is non-empty. See `mergePayload`.
+ */
+const CARD_KEYS = [
+  "@type",
+  "version",
+  "name",
+  ADDRESS_BOOK_ID_PROP,
+  "nickNames",
+  "emails",
+  "phones",
+  "addresses",
+  "organizations",
+  "titles",
+  "speakToAs",
+  "anniversaries",
+  "onlineServices",
+  "notes",
+  CONTACT_PROFILE_PROP,
+  "media",
+  "created",
+  "updated",
+] as const;
+
 export function serializeCard(draft: ContactDraft): string {
   const body: Record<string, unknown> = {
     "@type": "Card",
-    version: "1.0",
+    version: PAYLOAD_SCHEMA_VERSION,
     name: { full: draft.name.trim() },
     [ADDRESS_BOOK_ID_PROP]: resolveAddressBookId(draft.addressBookId),
   };
@@ -397,7 +423,7 @@ export function serializeCard(draft: ContactDraft): string {
   body.created = draft.createdAt || nowIso;
   body.updated = nowIso;
 
-  return JSON.stringify(body);
+  return mergePayload(draft.raw, body, CARD_KEYS);
 }
 
 type RawCard = {

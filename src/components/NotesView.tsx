@@ -20,6 +20,7 @@ import {
   notePreview,
   noteWordCount,
   resolveNotebookId,
+  serializeNote,
   sortNotes,
 } from "../lib/note";
 import { ancestorsOf, buildNoteTree, canReparent, noteSubtree } from "../lib/noteTree";
@@ -218,11 +219,14 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     }
     const live = () => editingId.current === id;
     if (live()) setSaveState("saving");
-    await putNote(session, payload, id);
+    const saved = await putNote(session, payload, id);
     const now = new Date().toISOString();
     const createdAt = payload.createdAt ?? now;
     savedThisSession.current = true;
-    onSaved({ ...payload, id, raw: "", createdAt, updatedAt: now });
+    // Carries the payload just written, not an empty string: the next edit of
+    // this note merges onto it, and a blank one would drop any field a newer
+    // build had put there.
+    onSaved({ ...payload, id: saved, raw: serializeNote(payload), createdAt, updatedAt: now });
     setError(null);
     // The editor may have moved on to another note while this was in flight.
     if (!live()) return;
@@ -430,7 +434,8 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   async function renameNotebook(id: string, name: string) {
     setError(null);
     try {
-      await putNotebook(session, name, id);
+      const previous = notebooks.find((notebook) => notebook.id === id);
+      await putNotebook(session, name, id, previous?.raw);
       await onRefresh();
     } catch (err) {
       setError(friendlyError(err));

@@ -1,4 +1,5 @@
 import { stripMarkdown } from "./markdown";
+import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
 import type { Note, NoteDraft, Notebook } from "./types";
 
 // Mirrors of the Rust constants in
@@ -10,21 +11,38 @@ export const DEFAULT_NOTEBOOK_NAME = "Default Notebook";
 export const DEFAULT_NOTEBOOK_ID = "00000000-0000-0000-0000-000000000002";
 export const ALL_NOTEBOOKS = "all";
 
+/** Every key this build writes for a note. See `mergePayload`. */
+const NOTE_KEYS = [
+  "@type",
+  "version",
+  "title",
+  "body",
+  "notebookId",
+  "parentId",
+  "createdAt",
+  "updatedAt",
+  "pinned",
+] as const;
+
 export function serializeNote(draft: NoteDraft): string {
   const now = new Date().toISOString();
-  return JSON.stringify({
-    "@type": "Note",
-    version: "1.0",
-    title: draft.title.trim(),
-    body: draft.body,
-    notebookId: resolveNotebookId(draft.notebookId),
-    // Omitted rather than written null, so a note at the top level looks the
-    // same to a reader that predates the field.
-    ...(draft.parentId ? { parentId: draft.parentId } : {}),
-    createdAt: draft.createdAt ?? now,
-    updatedAt: now,
-    pinned: draft.pinned === true,
-  });
+  return mergePayload(
+    draft.raw,
+    {
+      "@type": "Note",
+      version: PAYLOAD_SCHEMA_VERSION,
+      title: draft.title.trim(),
+      body: draft.body,
+      notebookId: resolveNotebookId(draft.notebookId),
+      // Omitted rather than written null, so a note at the top level looks the
+      // same to a reader that predates the field.
+      ...(draft.parentId ? { parentId: draft.parentId } : {}),
+      createdAt: draft.createdAt ?? now,
+      updatedAt: now,
+      pinned: draft.pinned === true,
+    },
+    NOTE_KEYS,
+  );
 }
 
 export function parseNote(id: string, raw: string): Note {
@@ -63,12 +81,18 @@ export function parseNote(id: string, raw: string): Note {
   }
 }
 
-export function serializeNotebook(name: string): string {
-  return JSON.stringify({
-    "@type": "Notebook",
-    version: "1.0",
-    name: name.trim(),
-  });
+const NOTEBOOK_KEYS = ["@type", "version", "name"] as const;
+
+export function serializeNotebook(name: string, previousRaw?: string): string {
+  return mergePayload(
+    previousRaw,
+    {
+      "@type": "Notebook",
+      version: PAYLOAD_SCHEMA_VERSION,
+      name: name.trim(),
+    },
+    NOTEBOOK_KEYS,
+  );
 }
 
 export function parseNotebook(id: string, raw: string): Notebook {

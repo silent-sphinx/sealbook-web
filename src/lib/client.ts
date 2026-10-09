@@ -72,6 +72,8 @@ import {
   sortNotebooks,
   sortNotes,
 } from "./note";
+import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
+import { PROTOCOL_VERSION, speaksProtocol } from "./protocol";
 import type {
   AccountSettings,
   AddressBook,
@@ -183,6 +185,24 @@ async function getJson<T>(url: string, token?: string): Promise<T> {
     headers.authorization = `Bearer ${token}`;
   }
   return parse<T>(await fetch(url, { headers }));
+}
+
+/**
+ * Refuses a server speaking a protocol generation this build does not know.
+ *
+ * Called before the first exchange that carries real material, so that a
+ * version mismatch is reported as itself. Without it the two builds get as far
+ * as some field one of them encodes differently, and the failure surfaces as
+ * whatever that field happens to be.
+ */
+async function checkProtocol(root: string): Promise<void> {
+  const report = await getJson<{ protocol?: string }>(`${root}/health/crypto`);
+  if (!speaksProtocol(report.protocol)) {
+    throw new Error(
+      `This server speaks protocol ${report.protocol ?? "an unknown version"}, ` +
+        `and this app speaks ${PROTOCOL_VERSION}. Update whichever is older.`,
+    );
+  }
 }
 
 async function deleteJson<T>(url: string, token: string, body?: unknown): Promise<T> {
@@ -782,6 +802,7 @@ export async function registerAccount(
   password: string,
 ): Promise<RegisterResult> {
   const root = apiRoot(server);
+  await checkProtocol(root);
   // Chosen here, not by the server, so the initial manifest can be signed over it
   // before the account exists.
   const collectionId = newUuid();
@@ -894,6 +915,7 @@ export async function pairJoin(
   state: DeviceState;
 }> {
   const root = apiRoot(server);
+  await checkProtocol(root);
   const device = createDevice();
   const joined = await postJson<{
     pair_id: string;
@@ -1138,6 +1160,7 @@ export async function recoverAccount(
   password: string,
 ): Promise<{ session: Session; phrase: string }> {
   const root = apiRoot(server);
+  await checkProtocol(root);
   const words = phrase.trim().toLowerCase().split(/\s+/u).join(" ");
   // Begin registering the replacement password, so the server can answer with
   // the OPRF evaluation this needs in the same round trip.
@@ -1276,6 +1299,7 @@ export async function loginAccount(
   password: string,
 ): Promise<Session> {
   const root = apiRoot(state.server);
+  await checkProtocol(root);
   const hpkeSk = bytesFromJson(state.hpke_sk);
   const mldsaSeed = bytesFromJson(state.mldsa_seed);
   const ed25519Sk = bytesFromJson(state.ed25519_sk);
@@ -1449,6 +1473,11 @@ export type VaultListing = {
   notes: Note[];
   notebooks: Notebook[];
   accountSettings: AccountSettings;
+  /**
+   * The settings payload as stored, so a save merges onto it rather than
+   * replacing it with only the fields this build knows.
+   */
+  accountSettingsRaw?: string;
 };
 
 export function listVault(session: Session): Promise<VaultListing> {
@@ -1547,6 +1576,7 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
   // Default until the settings object turns up: an account that has never saved
   // one has every feature enabled.
   let accountSettings = DEFAULT_ACCOUNT_SETTINGS;
+  let accountSettingsRaw: string | undefined;
   const latestByObject = new Map<string, SealedObject>();
   for (const obj of resp.objects) {
     const previous = latestByObject.get(obj.id);
@@ -1566,20 +1596,16 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
   }
   for (const obj of latestByObject.values()) {
     let raw: string;
-    // An object stored before the envelope existed has no type of its own, so
-    // the server's label is all there is. The next rotation seals one in.
-    let contentType = obj.content_type;
+    let contentType: string;
     let tombstone = obj.tombstone;
     try {
       const opened = openObject(collectionKey, obj.id, state.collection_id, obj.nonce, obj.ciphertext, obj.padded_size);
       raw = opened.payload;
-      if (opened.sealed) {
-        contentType = opened.contentType ?? contentType;
-        // Either flag is enough. The row's is what the signed manifest commits
-        // to, and older envelopes written here carry their own, so a delete is
-        // never read back as live whichever of the two it was recorded in.
-        tombstone = tombstone || opened.tombstone;
-      }
+      contentType = opened.contentType;
+      // Either flag is enough. The row's is what the signed manifest commits
+      // to, and the envelope carries its own, so a delete is never read back as
+      // live whichever of the two it was recorded in.
+      tombstone = tombstone || opened.tombstone;
     } catch {
       continue;
     }
@@ -1588,10 +1614,10 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
       sealed.push(obj);
       if (contentType === CALENDAR_EVENT_CONTENT_TYPE || isCalendarEventPayload(raw)) {
         const value = JSON.parse(raw) as { title?: string; start?: string; end?: string; notes?: string; location?: string; participants?: string[]; timezone?: string; calendarId?: string; recurrence?: CalendarEvent["recurrence"] };
-        calendarEvents.push({ id: obj.id, title: value.title?.trim() || "Untitled event", start: value.start ?? "", end: value.end, notes: value.notes, location: value.location, participants: value.participants, timezone: value.timezone, calendarId: value.calendarId, recurrence: value.recurrence });
+        calendarEvents.push({ id: obj.id, title: value.title?.trim() || "Untitled event", start: value.start ?? "", end: value.end, notes: value.notes, location: value.location, participants: value.participants, timezone: value.timezone, calendarId: value.calendarId, recurrence: value.recurrence, raw });
       } else if (contentType === CALENDAR_CONTENT_TYPE || isCalendarPayload(raw)) {
         const value = JSON.parse(raw) as { name?: string; color?: string; favorite?: boolean };
-        calendars.push({ id: obj.id, name: value.name?.trim() || "Untitled calendar", color: value.color || DEFAULT_CALENDAR_COLOR, favorite: value.favorite === true });
+        calendars.push({ id: obj.id, name: value.name?.trim() || "Untitled calendar", color: value.color || DEFAULT_CALENDAR_COLOR, favorite: value.favorite === true, raw });
       } else if (contentType === ADDRESS_BOOK_CONTENT_TYPE || isAddressBookPayload(raw)) {
         addressBooks.push(parseAddressBook(obj.id, raw));
       } else if (contentType === NOTE_CONTENT_TYPE || isPayloadOfType(raw, "Note")) {
@@ -1603,6 +1629,7 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
         isPayloadOfType(raw, "AccountSettings")
       ) {
         accountSettings = parseAccountSettings(raw);
+        accountSettingsRaw = raw;
       } else if (isContactPayload(raw)) {
         contacts.push(parseContact(obj.id, raw, obj.ciphertext, obj.padded_size));
       } else {
@@ -1624,6 +1651,7 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
     notes: sortNotes(notes),
     notebooks: sortNotebooks(notebooks),
     accountSettings,
+    accountSettingsRaw,
   };
 }
 
@@ -1649,8 +1677,9 @@ export async function putAddressBook(
   session: Session,
   name: string,
   id = newUuid(),
+  previousRaw?: string,
 ): Promise<string> {
-  const plaintext = serializeAddressBook(name);
+  const plaintext = serializeAddressBook(name, previousRaw);
   await putSealed(session, id, ADDRESS_BOOK_CONTENT_TYPE, false, plaintext);
   return id;
 }
@@ -1683,16 +1712,44 @@ export async function deleteContact(
   await putSealed(session, id, JSCONTACT_CONTENT_TYPE, true, "");
 }
 
+/** Every key this build writes for an event. See `mergePayload`. */
+const CALENDAR_EVENT_KEYS = [
+  "@type",
+  "version",
+  "title",
+  "start",
+  "end",
+  "notes",
+  "location",
+  "participants",
+  "timezone",
+  "calendarId",
+  "recurrence",
+] as const;
+
+const CALENDAR_KEYS = ["@type", "version", "name", "color", "favorite"] as const;
+
 export async function putCalendarEvent(session: Session, event: Omit<CalendarEvent, "id">, existingId?: string): Promise<string> {
   const id = existingId ?? newUuid();
-  const plaintext = JSON.stringify({ "@type": "CalendarEvent", version: "1.0", ...event });
+  // `raw` is what the merge reads, not a field of the payload itself.
+  const { raw, ...fields } = event;
+  const plaintext = mergePayload(
+    raw,
+    { "@type": "CalendarEvent", version: PAYLOAD_SCHEMA_VERSION, ...fields },
+    CALENDAR_EVENT_KEYS,
+  );
   await putSealed(session, id, CALENDAR_EVENT_CONTENT_TYPE, false, plaintext);
   return id;
 }
 
 export async function putCalendar(session: Session, calendar: Omit<Calendar, "id">, existingId?: string): Promise<string> {
   const id = existingId ?? newUuid();
-  const plaintext = JSON.stringify({ "@type": "Calendar", version: "1.0", ...calendar });
+  const { raw, ...fields } = calendar;
+  const plaintext = mergePayload(
+    raw,
+    { "@type": "Calendar", version: PAYLOAD_SCHEMA_VERSION, ...fields },
+    CALENDAR_KEYS,
+  );
   await putSealed(session, id, CALENDAR_CONTENT_TYPE, false, plaintext);
   return id;
 }
@@ -1762,9 +1819,16 @@ export async function putNotebook(
   session: Session,
   name: string,
   existingId?: string,
+  previousRaw?: string,
 ): Promise<string> {
   const id = existingId ?? newUuid();
-  await putSealed(session, id, NOTEBOOK_CONTENT_TYPE, false, serializeNotebook(name));
+  await putSealed(
+    session,
+    id,
+    NOTEBOOK_CONTENT_TYPE,
+    false,
+    serializeNotebook(name, previousRaw),
+  );
   return id;
 }
 
@@ -1777,13 +1841,14 @@ export async function putNotebook(
 export async function putAccountSettings(
   session: Session,
   settings: AccountSettings,
+  previousRaw?: string,
 ): Promise<void> {
   await putSealed(
     session,
     ACCOUNT_SETTINGS_ID,
     ACCOUNT_SETTINGS_CONTENT_TYPE,
     false,
-    serializeAccountSettings(settings),
+    serializeAccountSettings(settings, previousRaw),
   );
 }
 
@@ -2202,9 +2267,7 @@ async function rotateAuthenticatedInner(
   for (const object of live) {
     // Re-encrypted inside wasm, so the plaintext never becomes a JavaScript
     // string: decoding it as text would rewrite any payload that is not valid
-    // UTF-8, and a rotation touches the whole vault at once. An object with no
-    // envelope gets one here, under the label the server last served for it,
-    // which is the last point that label matters.
+    // UTF-8, and a rotation touches the whole vault at once.
     const sealed = resealObject(
       fresh.collectionKey,
       newCk,
@@ -2213,7 +2276,6 @@ async function rotateAuthenticatedInner(
       object.nonce,
       object.ciphertext,
       object.padded_size,
-      object.content_type,
     );
     objects.push({
       id: object.id,

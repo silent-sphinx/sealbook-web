@@ -18,6 +18,8 @@ import init, {
   object_content_digest,
   open_object,
   pair_confirmation_code,
+  payload_schema_version,
+  protocol_version,
   pair_grant_sign,
   phrase_lookup_id_b64,
   phrase_recovery_json,
@@ -407,6 +409,18 @@ export function sealedContentType(): string {
   return sealed_content_type();
 }
 
+/**
+ * The versions the Rust protocol crate declares, for checking the copies in
+ * `protocol.ts` and `payload.ts` against their source.
+ */
+export function protocolVersion(): string {
+  return protocol_version();
+}
+
+export function payloadSchemaVersion(): string {
+  return payload_schema_version();
+}
+
 /** Seals `payload` under `contentType` and encrypts the envelope. */
 export function sealObject(
   ck: string,
@@ -437,8 +451,7 @@ export function openObject(
  *
  * The plaintext stays inside wasm: decoding it as a JavaScript string would
  * rewrite any payload that is not valid UTF-8, and a rotation touches the whole
- * vault at once. `servedContentType` is only used for an object stored before
- * the envelope existed, which is sealed under that type here.
+ * vault at once.
  */
 export function resealObject(
   oldCk: string,
@@ -448,19 +461,9 @@ export function resealObject(
   nonce: string,
   ciphertext: string,
   paddedSize: number,
-  servedContentType: string,
 ): EncryptedOut {
   return JSON.parse(
-    reseal_object(
-      oldCk,
-      newCk,
-      objectId,
-      collectionId,
-      nonce,
-      ciphertext,
-      paddedSize,
-      servedContentType,
-    ),
+    reseal_object(oldCk, newCk, objectId, collectionId, nonce, ciphertext, paddedSize),
   ) as EncryptedOut;
 }
 

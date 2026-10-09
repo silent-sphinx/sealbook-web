@@ -226,6 +226,8 @@ export type ContactDraft = {
   addressBookId: string;
   createdAt?: string;
   updatedAt?: string;
+  /** As `NoteDraft.raw`: what a save merges onto, so unknown fields survive. */
+  raw?: string;
 };
 
 export type Contact = ContactDraft & {
@@ -253,6 +255,8 @@ export type CalendarEvent = {
   timezone?: string;
   calendarId?: string;
   recurrence?: RecurrenceRule;
+  /** As `NoteDraft.raw`: what a save merges onto, so unknown fields survive. */
+  raw?: string;
 };
 
 export type RecurrenceFrequency = "daily" | "weekly" | "monthly" | "yearly";
@@ -275,6 +279,8 @@ export type Calendar = {
   name: string;
   color: string;
   favorite?: boolean;
+  /** As `NoteDraft.raw`: what a save merges onto, so unknown fields survive. */
+  raw?: string;
 };
 
 export type NoteDraft = {
@@ -297,13 +303,14 @@ export type NoteDraft = {
    */
   createdAt?: string;
   updatedAt?: string;
+  /**
+   * The payload this draft was parsed from, when it came from one. A save
+   * merges onto it, so a field written by a newer build survives an edit here
+   * rather than being dropped. Absent for a draft started from scratch.
+   */
+  raw?: string;
 };
 
-/**
- * `raw` is the payload as stored, kept for parity with `Contact` and for a debug
- * view. It is not authoritative: a save serialises from the draft, so a field a
- * build does not know about is dropped on edit, exactly as for contacts.
- */
 export type Note = NoteDraft & { id: string; raw: string };
 
 export type Notebook = {
@@ -431,12 +438,10 @@ export type EncryptedOut = {
 /** One object's plaintext after its sealed envelope has been opened. */
 export type OpenedObject = {
   /**
-   * False for an object stored before the envelope existed. Its type is only the
-   * label the server serves, which nothing authenticates, and the next rotation
-   * seals a type into it.
+   * Authenticated by the AEAD along with the payload, so this is the type to
+   * parse by rather than the label the server serves.
    */
-  sealed: boolean;
-  contentType: string | null;
+  contentType: string;
   tombstone: boolean;
   payload: string;
 };

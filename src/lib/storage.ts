@@ -28,6 +28,8 @@ export type VaultSnapshot = {
   notes: Note[];
   notebooks: Notebook[];
   accountSettings: AccountSettings;
+  /** As on `VaultListing`: what a save merges onto, so unknown fields survive. */
+  accountSettingsRaw?: string;
 };
 
 export type DeviceMetadata = Pick<
@@ -130,6 +132,8 @@ export function normalizeSnapshot(value: unknown): VaultSnapshot | null {
     accountSettings: raw.accountSettings
       ? normalizeAccountSettings(raw.accountSettings)
       : DEFAULT_ACCOUNT_SETTINGS,
+    accountSettingsRaw:
+      typeof raw.accountSettingsRaw === "string" ? raw.accountSettingsRaw : undefined,
   };
 }
 
