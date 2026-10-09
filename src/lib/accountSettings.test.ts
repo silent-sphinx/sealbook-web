@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 
+import { DEFAULT_ADDRESS_BOOK_ID } from "./addressBook";
+import { DEFAULT_CALENDAR_ID } from "./calendar";
+import { DEFAULT_NOTEBOOK_ID } from "./note";
 import {
   ACCENTS,
   ACCENT_COLORS,
+  ACCOUNT_SETTINGS_ID,
   DEFAULT_ACCENT,
   DEFAULT_ACCOUNT_SETTINGS,
+  LEGACY_ACCOUNT_SETTINGS_ID,
   accentVariables,
   canDisableFeature,
   enabledFeatures,
@@ -168,5 +173,24 @@ describe("the accent colour", () => {
 
   it("tints an unreadable stored accent rather than emitting an empty colour", () => {
     expect(accentVariables(undefined)["--sb-accent"]).toBe(ACCENT_COLORS[DEFAULT_ACCENT].base);
+  });
+});
+
+describe("the well-known object ids", () => {
+  // Two writers to one id take turns overwriting each other: the settings
+  // object sat on the default calendar's id, so creating that calendar reset
+  // every preference and saving a preference deleted the calendar.
+  it("are one per object, so no two writers share a fixed id", () => {
+    const ids = [
+      DEFAULT_ADDRESS_BOOK_ID,
+      DEFAULT_NOTEBOOK_ID,
+      DEFAULT_CALENDAR_ID,
+      ACCOUNT_SETTINGS_ID,
+    ];
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("keeps the legacy settings id pointing at the collision, for the migration", () => {
+    expect(LEGACY_ACCOUNT_SETTINGS_ID).toBe(DEFAULT_CALENDAR_ID);
   });
 });

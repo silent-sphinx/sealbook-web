@@ -13,10 +13,18 @@ export const ACCOUNT_SETTINGS_CONTENT_TYPE = "application/sealbook.settings+json
 /**
  * Fixed id, continuing the well-known ids in
  * `sealbook/crates/sealbook-protocol/src/lib.rs` (1 is the default address book,
- * 2 the default notebook). One id per account means a second device edits the
- * same object instead of creating a rival copy.
+ * 2 the default notebook, 3 the default calendar). One id per account means a
+ * second device edits the same object instead of creating a rival copy.
+ *
+ * Reserve the next free number here rather than reusing one: 3 held these
+ * settings before the default calendar existed, and the two writers then took
+ * turns overwriting one object. `LEGACY_ACCOUNT_SETTINGS_ID` is read for the
+ * accounts that were sealed in that window.
  */
-export const ACCOUNT_SETTINGS_ID = "00000000-0000-0000-0000-000000000003";
+export const ACCOUNT_SETTINGS_ID = "00000000-0000-0000-0000-000000000004";
+
+/** Where these settings used to live, read only to migrate them off it. */
+export const LEGACY_ACCOUNT_SETTINGS_ID = "00000000-0000-0000-0000-000000000003";
 
 /** Also the order the features appear in the UI. */
 export const FEATURES: FeatureKey[] = ["contacts", "calendar", "notes"];

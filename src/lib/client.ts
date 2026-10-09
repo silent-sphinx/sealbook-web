@@ -42,6 +42,7 @@ import {
   ACCOUNT_SETTINGS_CONTENT_TYPE,
   ACCOUNT_SETTINGS_ID,
   DEFAULT_ACCOUNT_SETTINGS,
+  LEGACY_ACCOUNT_SETTINGS_ID,
   parseAccountSettings,
   serializeAccountSettings,
 } from "./accountSettings";
@@ -1478,6 +1479,11 @@ export type VaultListing = {
    * replacing it with only the fields this build knows.
    */
   accountSettingsRaw?: string;
+  /**
+   * The id they were read from, absent when the account has no settings. Only
+   * `LEGACY_ACCOUNT_SETTINGS_ID` needs acting on: see `ensureDefaultCalendar`.
+   */
+  accountSettingsId?: string;
 };
 
 export function listVault(session: Session): Promise<VaultListing> {
@@ -1577,6 +1583,7 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
   // one has every feature enabled.
   let accountSettings = DEFAULT_ACCOUNT_SETTINGS;
   let accountSettingsRaw: string | undefined;
+  let accountSettingsId: string | undefined;
   const latestByObject = new Map<string, SealedObject>();
   for (const obj of resp.objects) {
     const previous = latestByObject.get(obj.id);
@@ -1628,8 +1635,14 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
         contentType === ACCOUNT_SETTINGS_CONTENT_TYPE ||
         isPayloadOfType(raw, "AccountSettings")
       ) {
-        accountSettings = parseAccountSettings(raw);
-        accountSettingsRaw = raw;
+        // Two objects can answer to this shape until a legacy account's copy
+        // at the calendar's id is migrated, so the canonical id wins rather
+        // than whichever the server returned last.
+        if (obj.id === ACCOUNT_SETTINGS_ID || accountSettingsId !== ACCOUNT_SETTINGS_ID) {
+          accountSettings = parseAccountSettings(raw);
+          accountSettingsRaw = raw;
+          accountSettingsId = obj.id;
+        }
       } else if (isContactPayload(raw)) {
         contacts.push(parseContact(obj.id, raw, obj.ciphertext, obj.padded_size));
       } else {
@@ -1652,6 +1665,7 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
     notebooks: sortNotebooks(notebooks),
     accountSettings,
     accountSettingsRaw,
+    accountSettingsId,
   };
 }
 
@@ -1779,6 +1793,12 @@ export async function ensureDefaultCalendar(
   const listed = await listVault(session);
   if (listed.calendars.some((calendar) => calendar.id === DEFAULT_CALENDAR_ID)) {
     return listed.calendars;
+  }
+  // This id holds the settings on an account sealed before they moved off it,
+  // and the write below would reset every preference. Copied first, so the
+  // calendar only lands once they are safe.
+  if (listed.accountSettingsId === LEGACY_ACCOUNT_SETTINGS_ID) {
+    await putAccountSettings(session, listed.accountSettings, listed.accountSettingsRaw);
   }
   const body = {
     name: DEFAULT_CALENDAR_NAME,

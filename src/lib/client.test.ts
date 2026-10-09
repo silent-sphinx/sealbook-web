@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import init from "../pkg/sealbook_wasm.js";
 import {
+  ensureDefaultCalendar,
   genesisRoster,
   listVault,
   pairApprove,
@@ -32,10 +33,12 @@ import {
   wrapCkForDevice,
 } from "./wasm";
 import { DEFAULT_ADDRESS_BOOK_ID, JSCONTACT_CONTENT_TYPE } from "./addressBook";
+import { DEFAULT_CALENDAR_ID } from "./calendar";
 import {
   ACCOUNT_SETTINGS_CONTENT_TYPE,
   ACCOUNT_SETTINGS_ID,
   DEFAULT_ACCOUNT_SETTINGS,
+  LEGACY_ACCOUNT_SETTINGS_ID,
   parseAccountSettings,
   serializeAccountSettings,
 } from "./accountSettings";
@@ -426,6 +429,59 @@ function vaultWith(owner: Account, signer: { seed: string; sk: string; deviceId:
   return { object, manifest };
 }
 
+/** Sealed objects of any types, with the manifest a write of them signed. */
+function vaultOf(owner: Account, items: { id: string; contentType: string; payload: string }[]) {
+  const objects: SealedObject[] = [];
+  const entries: ManifestEntry[] = [];
+  for (const [index, item] of items.entries()) {
+    const sealed = sealObject(
+      owner.session.collectionKey,
+      item.id,
+      owner.collectionId,
+      item.contentType,
+      item.payload,
+    );
+    const revision = index + 1;
+    objects.push({
+      id: item.id,
+      revision,
+      tombstone: false,
+      nonce: sealed.nonce,
+      ciphertext: sealed.ciphertext,
+      padded_size: sealed.padded_size,
+      content_type: sealedContentType(),
+    });
+    entries.push({
+      id: item.id,
+      revision,
+      tombstone: false,
+      content_digest: objectContentDigest(sealed.nonce, sealed.ciphertext),
+    });
+  }
+  const manifest = manifestSign(
+    owner.enrollment.mldsa_seed,
+    owner.enrollment.ed25519_sk,
+    owner.collectionId,
+    owner.enrollment.device_id,
+    2,
+    items.length,
+    items.length,
+    entries,
+  );
+  return { objects, manifest, revision: items.length };
+}
+
+/** One sealed object of any type, with the manifest a write of it signed. */
+function vaultHolding(
+  owner: Account,
+  contentType: string,
+  payload: string,
+  id = ACCOUNT_SETTINGS_ID,
+) {
+  const { objects, manifest } = vaultOf(owner, [{ id, contentType, payload }]);
+  return { object: objects[0]!, manifest };
+}
+
 describe("listVault", () => {
   it("opens a vault whose manifest was signed by a device in the roster", async () => {
     const owner = account();
@@ -493,45 +549,6 @@ describe("listVault", () => {
     return { objects, manifest };
   }
 
-  /** One sealed object of any type, with the manifest a write of it signed. */
-  function vaultHolding(owner: Account, contentType: string, payload: string) {
-    const id = ACCOUNT_SETTINGS_ID;
-    const sealed = sealObject(
-      owner.session.collectionKey,
-      id,
-      owner.collectionId,
-      contentType,
-      payload,
-    );
-    const object: SealedObject = {
-      id,
-      revision: 1,
-      tombstone: false,
-      nonce: sealed.nonce,
-      ciphertext: sealed.ciphertext,
-      padded_size: sealed.padded_size,
-      content_type: sealedContentType(),
-    };
-    const manifest = manifestSign(
-      owner.enrollment.mldsa_seed,
-      owner.enrollment.ed25519_sk,
-      owner.collectionId,
-      owner.enrollment.device_id,
-      2,
-      1,
-      1,
-      [
-        {
-          id,
-          revision: 1,
-          tombstone: false,
-          content_digest: objectContentDigest(sealed.nonce, sealed.ciphertext),
-        },
-      ],
-    );
-    return { object, manifest };
-  }
-
   it("reads the account's feature toggles out of the sealed settings object", async () => {
     const owner = account();
     const { object, manifest } = vaultHolding(
@@ -589,6 +606,84 @@ describe("listVault", () => {
     const listed = await listVault(owner.session);
     expect(listed.accountSettings).toEqual(DEFAULT_ACCOUNT_SETTINGS);
   });
+
+  it("still reads settings an older build left at the default calendar's id", async () => {
+    const owner = account();
+    const { object, manifest } = vaultHolding(
+      owner,
+      ACCOUNT_SETTINGS_CONTENT_TYPE,
+      serializeAccountSettings({
+        features: { contacts: true, calendar: true, notes: false },
+        contactMode: "detailed",
+        accent: "rose",
+      }),
+      LEGACY_ACCOUNT_SETTINGS_ID,
+    );
+    server({
+      "/changes": () => ({
+        latest_revision: 1,
+        key_epoch: 1,
+        objects: [object],
+        has_more: false,
+        manifest,
+        resync: false,
+        tombstone_floor: 1,
+      }),
+      "/roster": () => ({ rosters: [owner.roster] }),
+    });
+    const listed = await listVault(owner.session);
+    expect(listed.accountSettingsId).toBe(LEGACY_ACCOUNT_SETTINGS_ID);
+    expect(listed.accountSettings.contactMode).toBe("detailed");
+    expect(listed.accountSettings.accent).toBe("rose");
+  });
+
+  // Both copies exist between the upgrade and the next save, and the load order
+  // is the server's, so the winner cannot be whichever is read last.
+  for (const legacyFirst of [false, true]) {
+    it(`prefers the canonical settings object with the legacy copy ${
+      legacyFirst ? "ahead of" : "behind"
+    } it`, async () => {
+      const owner = account();
+      const canonical = {
+        id: ACCOUNT_SETTINGS_ID,
+        contentType: ACCOUNT_SETTINGS_CONTENT_TYPE,
+        payload: serializeAccountSettings({
+          features: { contacts: true, calendar: true, notes: true },
+          contactMode: "basic",
+          accent: "green",
+        }),
+      };
+      const legacy = {
+        id: LEGACY_ACCOUNT_SETTINGS_ID,
+        contentType: ACCOUNT_SETTINGS_CONTENT_TYPE,
+        payload: serializeAccountSettings({
+          features: { contacts: true, calendar: true, notes: false },
+          contactMode: "detailed",
+          accent: "rose",
+        }),
+      };
+      const { objects, manifest, revision } = vaultOf(
+        owner,
+        legacyFirst ? [legacy, canonical] : [canonical, legacy],
+      );
+      server({
+        "/changes": () => ({
+          latest_revision: revision,
+          key_epoch: 1,
+          objects,
+          has_more: false,
+          manifest,
+          resync: false,
+          tombstone_floor: 1,
+        }),
+        "/roster": () => ({ rosters: [owner.roster] }),
+      });
+      const listed = await listVault(owner.session);
+      expect(listed.accountSettingsId).toBe(ACCOUNT_SETTINGS_ID);
+      expect(listed.accountSettings.accent).toBe("green");
+      expect(listed.accountSettings.contactMode).toBe("basic");
+    });
+  }
 
   it("walks several pages and verifies them as one set", async () => {
     const owner = account();
@@ -1079,5 +1174,115 @@ describe("rotateAuthenticated", () => {
     expect(
       body.key_wraps.find((wrap) => wrap.recipient_kind === "device")?.recipient_id,
     ).toBe(owner.enrollment.device_id);
+  });
+});
+
+describe("creating the default calendar on an account that predates the settings id move", () => {
+  /** The settings sealed at `id`, plus the vault reads and writes around them. */
+  function accountWithSettingsAt(owner: Account, id: string) {
+    const { objects, manifest, revision } = vaultOf(owner, [
+      {
+        id,
+        contentType: ACCOUNT_SETTINGS_CONTENT_TYPE,
+        payload: serializeAccountSettings({
+          features: { contacts: true, calendar: true, notes: false },
+          contactMode: "detailed",
+          accent: "rose",
+        }),
+      },
+    ]);
+    const writes: {
+      id: string;
+      nonce: string;
+      ciphertext: string;
+      padded_size: number;
+    }[] = [];
+    const entries: ManifestEntry[] = objects.map((object) => ({
+      id: object.id,
+      revision: object.revision,
+      tombstone: false,
+      content_digest: objectContentDigest(object.nonce, object.ciphertext),
+    }));
+    let current = manifest;
+    // The manifest has to move with the writes: served stale, the second write
+    // reads a sequence below the one the first signed and trips the rollback
+    // check the way a genuinely rewound vault would.
+    server({
+      "/changes": () => ({
+        latest_revision: revision,
+        key_epoch: 1,
+        objects,
+        has_more: false,
+        manifest,
+        resync: false,
+        tombstone_floor: 1,
+      }),
+      "/roster": () => ({ rosters: [owner.roster] }),
+      "/manifest": () => ({ manifest: current, entries }),
+      "/objects": (_url, body) => {
+        const sent = body as (typeof writes)[number] & {
+          revision: number;
+          tombstone: boolean;
+          manifest: ManifestBody;
+        };
+        writes.push(sent);
+        const next = entries.filter((existing) => existing.id !== sent.id);
+        next.push({
+          id: sent.id,
+          revision: sent.revision,
+          tombstone: sent.tombstone,
+          content_digest: objectContentDigest(sent.nonce, sent.ciphertext),
+        });
+        entries.length = 0;
+        entries.push(...next);
+        current = sent.manifest;
+        return { revision: sent.revision };
+      },
+    });
+    return writes;
+  }
+
+  it("copies the settings to their own id before writing the calendar over them", async () => {
+    const owner = account();
+    const writes = accountWithSettingsAt(owner, LEGACY_ACCOUNT_SETTINGS_ID);
+
+    const calendars = await ensureDefaultCalendar(owner.session, []);
+
+    // Order matters: the calendar write destroys the settings at that id, so it
+    // must not be what goes out first.
+    expect(writes.map((write) => write.id)).toEqual([ACCOUNT_SETTINGS_ID, DEFAULT_CALENDAR_ID]);
+    expect(calendars.map((calendar) => calendar.id)).toContain(DEFAULT_CALENDAR_ID);
+  });
+
+  it("carries the preferences through the copy rather than resetting them", async () => {
+    const owner = account();
+    const writes = accountWithSettingsAt(owner, LEGACY_ACCOUNT_SETTINGS_ID);
+
+    await ensureDefaultCalendar(owner.session, []);
+
+    const copied = writes[0]!;
+    const opened = openObject(
+      owner.session.collectionKey,
+      ACCOUNT_SETTINGS_ID,
+      owner.collectionId,
+      copied.nonce,
+      copied.ciphertext,
+      copied.padded_size,
+    );
+    expect(opened.contentType).toBe(ACCOUNT_SETTINGS_CONTENT_TYPE);
+    expect(parseAccountSettings(opened.payload)).toEqual({
+      features: { contacts: true, calendar: true, notes: false },
+      contactMode: "detailed",
+      accent: "rose",
+    });
+  });
+
+  it("writes only the calendar when the settings are already at their own id", async () => {
+    const owner = account();
+    const writes = accountWithSettingsAt(owner, ACCOUNT_SETTINGS_ID);
+
+    await ensureDefaultCalendar(owner.session, []);
+
+    expect(writes.map((write) => write.id)).toEqual([DEFAULT_CALENDAR_ID]);
   });
 });
