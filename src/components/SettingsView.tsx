@@ -16,6 +16,7 @@ import {
   putCalendarEvent,
   listDevices,
   revokeDevice,
+  ROTATION_OBJECT_LIMIT,
   rotatePhrase,
 } from "../lib/client";
 import {
@@ -78,6 +79,8 @@ type Props = {
   calendarEvents: CalendarEvent[];
   notes: Note[];
   notebooks: Notebook[];
+  /** Compared against `ROTATION_OBJECT_LIMIT` to warn before a revocation fails. */
+  objectCount: number;
   onSessionUpdate: (updated: Session) => void;
   onPersistSession: (updated: Session, password: string) => Promise<void>;
   onAccountDeleted: () => void;
@@ -157,6 +160,7 @@ export function SettingsView({
   calendarEvents,
   notes,
   notebooks,
+  objectCount,
   onSessionUpdate,
   onPersistSession,
   onAccountDeleted,
@@ -179,6 +183,7 @@ export function SettingsView({
   const [icsFile, setIcsFile] = useState<{ name: string; size: number } | null>(null);
   const [parsedIcsFormat, setParsedIcsFormat] = useState<string | null>(null);
   const [parsedEvents, setParsedEvents] = useState<Omit<CalendarEvent, "id">[]>([]);
+  const [skippedEvents, setSkippedEvents] = useState(0);
   const [icsCalendarId, setIcsCalendarId] = useState("");
   const [isCreatingCalendar, setIsCreatingCalendar] = useState(false);
   const [newCalendarName, setNewCalendarName] = useState("");
@@ -596,11 +601,13 @@ export function SettingsView({
       }
       try {
         const trimmed = content.trimStart();
-        const events = parseCalendarImport(content, timezone, icsCalendarId);
+        const { events, skipped } = parseCalendarImport(content, timezone, icsCalendarId);
         if (events.length === 0) {
           setIcsImportMsg({
             type: "error",
-            text: `No calendar events could be parsed from "${file.name}". Ensure it is a valid .ics or .json file.`,
+            text: skipped.length
+              ? `No calendar events in "${file.name}" could be used: ${skipped.length} could not be read.`
+              : `No calendar events could be parsed from "${file.name}". Ensure it is a valid .ics or .json file.`,
           });
           return;
         }
@@ -612,6 +619,7 @@ export function SettingsView({
         setIcsFile({ name: file.name, size: file.size });
         setParsedIcsFormat(trimmed.startsWith("[") || trimmed.startsWith("{") ? "JSON" : "ICS");
         setParsedEvents(events);
+        setSkippedEvents(skipped.length);
       } catch (err) {
         setIcsImportMsg({ type: "error", text: `Failed to parse file: ${friendlyError(err)}` });
       }
@@ -654,6 +662,7 @@ export function SettingsView({
     setIcsFile(null);
     setParsedIcsFormat(null);
     setParsedEvents([]);
+    setSkippedEvents(0);
     setIcsProgress(null);
     setIsCreatingCalendar(false);
     setNewCalendarName("");
@@ -695,7 +704,9 @@ export function SettingsView({
         type: "success",
         text: `Successfully imported ${parsedEvents.length} event${
           parsedEvents.length === 1 ? "" : "s"
-        } into "${calendarName}".`,
+        } into "${calendarName}".${
+          skippedEvents ? ` ${skippedEvents} could not be read and were skipped.` : ""
+        }`,
       });
 
       resetIcsImport();
@@ -1019,6 +1030,7 @@ export function SettingsView({
                     <p className="text-[11px] text-accent font-medium mt-0.5">
                       Detected {parsedIcsFormat} · {parsedEvents.length} event
                       {parsedEvents.length === 1 ? "" : "s"} found
+                      {skippedEvents ? ` · ${skippedEvents} unreadable and skipped` : ""}
                     </p>
                   </div>
                   <button
@@ -1385,6 +1397,13 @@ export function SettingsView({
             key and re-encrypts your data, so the removed device keeps nothing it
             can still read.
           </p>
+          {objectCount >= ROTATION_OBJECT_LIMIT ? (
+            <p className="mt-2 text-xs leading-relaxed text-amber-300 max-w-md" role="status">
+              This vault holds {objectCount.toLocaleString()} objects. A rotation re-encrypts all
+              of them in one request, which stops at {ROTATION_OBJECT_LIMIT.toLocaleString()}, so
+              revoking a device or retiring a recovery phrase may fail until that limit is lifted.
+            </p>
+          ) : null}
         </div>
 
         <div className="mt-5 space-y-2">

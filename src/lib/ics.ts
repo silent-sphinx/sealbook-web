@@ -104,52 +104,93 @@ function recurrence(ruleValue: string | undefined, start: Date): RecurrenceRule 
   return rule;
 }
 
-export function parseIcs(input: string, timezone: string, calendarId?: string): Omit<CalendarEvent, "id">[] {
+export type CalendarImportResult = {
+  events: Omit<CalendarEvent, "id">[];
+  /**
+   * Entries dropped for being unusable, so the UI can say so rather than lose
+   * them quietly. One unreadable date in an export of hundreds must not cost
+   * the rest.
+   */
+  skipped: { title: string; reason: string }[];
+};
+
+export function parseIcs(input: string, timezone: string, calendarId?: string): CalendarImportResult {
   const lines = unfold(input);
   const events: Omit<CalendarEvent, "id">[] = [];
+  const skipped: CalendarImportResult["skipped"] = [];
   for (let index = 0; index < lines.length; index += 1) {
     if (lines[index].toUpperCase() !== "BEGIN:VEVENT") continue;
     const body: string[] = [];
     for (index += 1; index < lines.length && lines[index].toUpperCase() !== "END:VEVENT"; index += 1) body.push(lines[index]);
     const fields = properties(body);
-    const startProperty = fields.get("DTSTART")?.[0];
-    if (!startProperty) continue;
-    const start = parseDate(startProperty, timezone);
-    const endProperty = fields.get("DTEND")?.[0];
-    const end = endProperty ? parseDate(endProperty, timezone) : undefined;
     const title = decodeIcsText(fields.get("SUMMARY")?.[0]?.value || "Untitled event");
-    const participants = fields.get("ATTENDEE")?.map((attendee) => decodeIcsText(attendee.value.replace(/^mailto:/i, ""))).filter(Boolean);
-    const eventEnd = end ? (start.allDay ? dateOnly(end.value.replaceAll("-", ""), -1) : end.value) : undefined;
-    events.push({
-      title,
-      start: start.value,
-      end: eventEnd,
-      notes: decodeIcsText(fields.get("X-ALT-DESC")?.[0]?.value || fields.get("DESCRIPTION")?.[0]?.value || "") || undefined,
-      location: cleanLocation(fields.get("LOCATION")?.[0]?.value || ""),
-      participants: participants?.length ? participants : undefined,
-      timezone: startProperty.params.TZID || timezone,
-      calendarId,
-      recurrence: recurrence(fields.get("RRULE")?.[0]?.value, start.allDay ? new Date(`${start.value}T00:00:00`) : new Date(start.value)),
-    });
+    const startProperty = fields.get("DTSTART")?.[0];
+    if (!startProperty) {
+      skipped.push({ title, reason: "it has no start date" });
+      continue;
+    }
+    try {
+      const start = parseDate(startProperty, timezone);
+      const endProperty = fields.get("DTEND")?.[0];
+      const end = endProperty ? parseDate(endProperty, timezone) : undefined;
+      const participants = fields.get("ATTENDEE")?.map((attendee) => decodeIcsText(attendee.value.replace(/^mailto:/i, ""))).filter(Boolean);
+      const eventEnd = end ? (start.allDay ? dateOnly(end.value.replaceAll("-", ""), -1) : end.value) : undefined;
+      events.push({
+        title,
+        start: start.value,
+        end: eventEnd,
+        notes: decodeIcsText(fields.get("X-ALT-DESC")?.[0]?.value || fields.get("DESCRIPTION")?.[0]?.value || "") || undefined,
+        location: cleanLocation(fields.get("LOCATION")?.[0]?.value || ""),
+        participants: participants?.length ? participants : undefined,
+        timezone: startProperty.params.TZID || timezone,
+        calendarId,
+        recurrence: recurrence(fields.get("RRULE")?.[0]?.value, start.allDay ? new Date(`${start.value}T00:00:00`) : new Date(start.value)),
+      });
+    } catch (err) {
+      skipped.push({ title, reason: err instanceof Error ? err.message : String(err) });
+    }
   }
-  return events;
+  return { events, skipped };
 }
 
-export function parseCalendarImport(input: string, timezone: string, calendarId?: string): Omit<CalendarEvent, "id">[] {
+function titleOf(value: Record<string, unknown>): string {
+  return typeof value.title === "string" && value.title.trim() ? value.title : "Untitled event";
+}
+
+export function parseCalendarImport(input: string, timezone: string, calendarId?: string): CalendarImportResult {
   if (!input.trimStart().startsWith("[") && !input.trimStart().startsWith("{")) {
     return parseIcs(input, timezone, calendarId);
   }
 
   const parsed: unknown = JSON.parse(input);
   const entries = Array.isArray(parsed) ? parsed : [parsed];
-  return entries.flatMap((entry) => {
-    if (!entry || typeof entry !== "object") return [];
+  const events: Omit<CalendarEvent, "id">[] = [];
+  const skipped: CalendarImportResult["skipped"] = [];
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object") {
+      skipped.push({ title: "Untitled event", reason: "it is not an event" });
+      continue;
+    }
     const record = entry as Record<string, unknown>;
-    const payload = typeof record.payload === "string" ? JSON.parse(record.payload) : record;
-    if (!payload || typeof payload !== "object") return [];
+    let payload: unknown = record;
+    if (typeof record.payload === "string") {
+      try {
+        payload = JSON.parse(record.payload);
+      } catch {
+        skipped.push({ title: titleOf(record), reason: "its payload could not be read" });
+        continue;
+      }
+    }
+    if (!payload || typeof payload !== "object") {
+      skipped.push({ title: titleOf(record), reason: "its payload is not an event" });
+      continue;
+    }
     const event = payload as Record<string, unknown>;
-    if (typeof event.title !== "string" || typeof event.start !== "string") return [];
-    return [{
+    if (typeof event.title !== "string" || typeof event.start !== "string") {
+      skipped.push({ title: titleOf(event), reason: "it has no title or start date" });
+      continue;
+    }
+    events.push({
       title: event.title,
       start: event.start,
       end: typeof event.end === "string" ? event.end : undefined,
@@ -161,8 +202,9 @@ export function parseCalendarImport(input: string, timezone: string, calendarId?
       timezone: typeof event.timezone === "string" ? event.timezone : timezone,
       calendarId: calendarId || (typeof event.calendarId === "string" ? event.calendarId : undefined),
       recurrence: event.recurrence as CalendarEvent["recurrence"],
-    }];
-  });
+    });
+  }
+  return { events, skipped };
 }
 
 // --- Export -----------------------------------------------------------------

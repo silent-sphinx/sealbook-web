@@ -99,6 +99,14 @@ import type {
 } from "./types";
 import { DEFAULT_CALENDAR_COLOR } from "./types";
 
+/**
+ * Objects one rotation can carry, since it sends the re-encrypted set in a
+ * single request. Revoking a device is a rotation, so a vault past this cannot
+ * revoke one at all: the UI compares against it rather than letting that
+ * surface as a failure mid-revocation.
+ */
+export const ROTATION_OBJECT_LIMIT = 2_000;
+
 export const CALENDAR_EVENT_CONTENT_TYPE = "application/sealbook.calendar-event+json";
 export const CALENDAR_CONTENT_TYPE = "application/sealbook.calendar+json";
 
@@ -125,6 +133,8 @@ async function parse<T>(res: Response): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
 export function normalizeServer(server: string): string {
   const trimmed = server.trim().replace(/\/$/u, "");
   if (!trimmed) {
@@ -137,6 +147,12 @@ export function normalizeServer(server: string): string {
   }
   if (parsed.username || parsed.password) {
     throw new Error("Connection domain cannot contain credentials.");
+  }
+  // A production build's `connect-src` allows only https and wss, so an http
+  // origin fails as an opaque fetch error later. Said here instead, where the
+  // scheme is what the user typed. Loopback stays allowed for development.
+  if (parsed.protocol === "http:" && !LOOPBACK_HOSTS.has(parsed.hostname)) {
+    throw new Error("Connection domain must use https.");
   }
   return `${parsed.origin}${parsed.pathname.replace(/\/$/u, "")}`;
 }
@@ -1484,6 +1500,14 @@ export type VaultListing = {
    * `LEGACY_ACCOUNT_SETTINGS_ID` needs acting on: see `ensureDefaultCalendar`.
    */
   accountSettingsId?: string;
+  /** Rows the vault holds, which is what a rotation would have to carry. */
+  objectCount: number;
+  /**
+   * Rows the manifest verified but this device could not open, so a partly
+   * unreadable vault is not presented as a partly empty one. A non-zero count
+   * also means the snapshot must not be overwritten with this listing.
+   */
+  unopened: number;
 };
 
 export function listVault(session: Session): Promise<VaultListing> {
@@ -1584,6 +1608,7 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
   let accountSettings = DEFAULT_ACCOUNT_SETTINGS;
   let accountSettingsRaw: string | undefined;
   let accountSettingsId: string | undefined;
+  let unopened = 0;
   const latestByObject = new Map<string, SealedObject>();
   for (const obj of resp.objects) {
     const previous = latestByObject.get(obj.id);
@@ -1614,6 +1639,10 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
       // live whichever of the two it was recorded in.
       tombstone = tombstone || opened.tombstone;
     } catch {
+      // The manifest already verified, so this row is one a device signed for
+      // and the server served faithfully: the failure is local, and dropping it
+      // silently is what made an unreadable vault look like an emptied one.
+      unopened += 1;
       continue;
     }
     if (tombstone) continue;
@@ -1666,6 +1695,8 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
     accountSettings,
     accountSettingsRaw,
     accountSettingsId,
+    objectCount: latestByObject.size,
+    unopened,
   };
 }
 
@@ -2205,7 +2236,10 @@ async function rotateAuthenticatedInner(
     objects: SealedObject[];
     has_more: boolean;
     tombstone_floor?: number;
-  }>(`${root}/v1/collections/${collectionId}/changes?after=0&limit=2000`, fresh.token);
+  }>(
+    `${root}/v1/collections/${collectionId}/changes?after=0&limit=${ROTATION_OBJECT_LIMIT}`,
+    fresh.token,
+  );
   if (listed.has_more) {
     throw new Error(
       "This vault is too large to rotate in one request. Rotation cannot yet be split across " +

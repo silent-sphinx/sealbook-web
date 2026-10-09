@@ -181,6 +181,17 @@ function awaitImportPassword(password: string): Promise<CryptoKey> {
   );
 }
 
+export class DeviceStorageError extends Error {
+  constructor(cause: unknown) {
+    super(
+      "This browser would not store this device's key, so it is not enrolled. " +
+        "Private browsing or blocked site data is the usual cause; allow site data and sign in again.",
+    );
+    this.name = "DeviceStorageError";
+    this.cause = cause;
+  }
+}
+
 export async function saveDevice(state: DeviceState, password: string): Promise<void> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -198,7 +209,15 @@ export async function saveDevice(state: DeviceState, password: string): Promise<
     iv: b64encode(iv),
     ciphertext: b64encode(new Uint8Array(ciphertext)),
   };
-  localStorage.setItem(KEY, JSON.stringify(envelope));
+  try {
+    localStorage.setItem(KEY, JSON.stringify(envelope));
+  } catch (err) {
+    // The one write here that cannot degrade like the others: without the
+    // envelope the browser is not enrolled, and the server-side work has
+    // already succeeded by this point, so the failure is named rather than
+    // swallowed or left as an opaque DOMException.
+    throw new DeviceStorageError(err);
+  }
 }
 
 /**

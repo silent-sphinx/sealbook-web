@@ -95,7 +95,7 @@ export function parseCsvRows(text: string): string[][] {
 function escapeCsv(value: string | undefined): string {
   if (!value) return "";
   const raw = String(value);
-  const str = /^[=+\-@]/u.test(raw) ? `'${raw}` : raw;
+  const str = /^[=+\-@\t\r]/u.test(raw) ? `'${raw}` : raw;
   if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
     return `"${str.replace(/"/g, '""')}"`;
   }

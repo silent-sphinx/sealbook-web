@@ -5,6 +5,7 @@ import {
   ensureDefaultCalendar,
   genesisRoster,
   listVault,
+  normalizeServer,
   pairApprove,
   pairPreview,
   putAccountSettings,
@@ -504,6 +505,91 @@ describe("listVault", () => {
     });
     const listed = await listVault(owner.session);
     expect(listed.contacts.map((contact) => contact.name)).toEqual(["Ada Lovelace"]);
+  });
+
+  it("counts the rows it could not open instead of returning a shorter vault", async () => {
+    const owner = account();
+    const objects: SealedObject[] = [];
+    const entries: ManifestEntry[] = [];
+    // The second row is sealed under a key this device does not hold, which is
+    // what a key epoch the refresh did not resolve, or corruption, looks like
+    // from here: the manifest still commits to exactly what was served.
+    const keys = [owner.session.collectionKey, newCollectionKey()];
+    for (const [index, key] of keys.entries()) {
+      const id = newUuid();
+      const sealed = sealObject(
+        key,
+        id,
+        owner.collectionId,
+        JSCONTACT_CONTENT_TYPE,
+        JSON.stringify({ "@type": "Card", name: { full: index === 0 ? "Ada Lovelace" : "Unreadable" } }),
+      );
+      objects.push({
+        id,
+        revision: index + 1,
+        tombstone: false,
+        nonce: sealed.nonce,
+        ciphertext: sealed.ciphertext,
+        padded_size: sealed.padded_size,
+        content_type: sealedContentType(),
+      });
+      entries.push({
+        id,
+        revision: index + 1,
+        tombstone: false,
+        content_digest: objectContentDigest(sealed.nonce, sealed.ciphertext),
+      });
+    }
+    const manifest = manifestSign(
+      owner.enrollment.mldsa_seed,
+      owner.enrollment.ed25519_sk,
+      owner.collectionId,
+      owner.enrollment.device_id,
+      2,
+      1,
+      2,
+      entries,
+    );
+    server({
+      "/changes": () => ({
+        latest_revision: 2,
+        key_epoch: 1,
+        objects,
+        has_more: false,
+        manifest,
+        resync: false,
+        tombstone_floor: 1,
+      }),
+      "/roster": () => ({ rosters: [owner.roster] }),
+    });
+
+    const listed = await listVault(owner.session);
+    expect(listed.contacts.map((contact) => contact.name)).toEqual(["Ada Lovelace"]);
+    expect(listed.unopened).toBe(1);
+    // Both rows count: this is what a rotation would have to carry.
+    expect(listed.objectCount).toBe(2);
+  });
+
+  it("reports nothing unopened for a vault it can read whole", async () => {
+    const owner = account();
+    const { object, manifest } = vaultWith(owner, {
+      seed: owner.enrollment.mldsa_seed,
+      sk: owner.enrollment.ed25519_sk,
+      deviceId: owner.enrollment.device_id,
+    });
+    server({
+      "/changes": () => ({
+        latest_revision: 1,
+        key_epoch: 1,
+        objects: [object],
+        has_more: false,
+        manifest,
+        resync: false,
+        tombstone_floor: 1,
+      }),
+      "/roster": () => ({ rosters: [owner.roster] }),
+    });
+    expect((await listVault(owner.session)).unopened).toBe(0);
   });
 
   /** Two sealed contacts and the manifest a write of both would have signed. */
@@ -1284,5 +1370,25 @@ describe("creating the default calendar on an account that predates the settings
     await ensureDefaultCalendar(owner.session, []);
 
     expect(writes.map((write) => write.id)).toEqual([DEFAULT_CALENDAR_ID]);
+  });
+});
+
+describe("normalizeServer", () => {
+  it("defaults a bare host to https and trims a trailing slash", () => {
+    expect(normalizeServer("vault.example.com/")).toBe("https://vault.example.com");
+  });
+
+  it("rejects an http origin, which a production build's CSP would block", () => {
+    expect(() => normalizeServer("http://vault.example.com")).toThrow(/https/u);
+  });
+
+  it("keeps http for a loopback host, which is how the dev server is reached", () => {
+    expect(normalizeServer("http://localhost:9999")).toBe("http://localhost:9999");
+    expect(normalizeServer("http://127.0.0.1:8443")).toBe("http://127.0.0.1:8443");
+    expect(normalizeServer("http://[::1]:8443")).toBe("http://[::1]:8443");
+  });
+
+  it("still rejects embedded credentials", () => {
+    expect(() => normalizeServer("https://user:pw@vault.example.com")).toThrow(/credentials/u);
   });
 });

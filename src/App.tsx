@@ -108,6 +108,7 @@ const LAST_TAB_KEY = "sealbook.last-tab";
 const TIMEZONE_KEY = "sealbook.timezone";
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const IDLE_WARNING_MS = IDLE_TIMEOUT_MS - 60 * 1000;
+const IDLE_BURST_THROTTLE_MS = 1000;
 
 function passwordStrength(value: string): { score: number; label: string } {
   if (!value) return { score: 0, label: "" };
@@ -555,6 +556,8 @@ export default function App() {
   const [phrase, setPhrase] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unopened, setUnopened] = useState(0);
+  const [objectCount, setObjectCount] = useState(0);
   const [session, setSession] = useState<Session | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
@@ -794,13 +797,31 @@ export default function App() {
       }, IDLE_TIMEOUT_MS);
     };
 
+    // Reading a long note is activity, but a wheel fires none of the events
+    // below, so the vault used to lock mid-read. These two reset on a throttle
+    // rather than rescheduling three timers per event, and `scroll` is taken in
+    // the capture phase because it does not bubble out of the app's own panes.
+    let lastBurstReset = 0;
+    const resetFromBurst = () => {
+      const now = Date.now();
+      if (now - lastBurstReset < IDLE_BURST_THROTTLE_MS) return;
+      lastBurstReset = now;
+      resetIdleTimer();
+    };
+
     const events = ["pointerdown", "keydown", "touchstart"] as const;
+    const burstEvents = ["wheel", "scroll"] as const;
+    const burstOptions = { capture: true, passive: true } as const;
     events.forEach((event) => window.addEventListener(event, resetIdleTimer));
+    burstEvents.forEach((event) => window.addEventListener(event, resetFromBurst, burstOptions));
     resetIdleTimer();
     return () => {
       clearTimers();
       setIdleCountdown(null);
       events.forEach((event) => window.removeEventListener(event, resetIdleTimer));
+      burstEvents.forEach((event) =>
+        window.removeEventListener(event, resetFromBurst, burstOptions),
+      );
     };
   }, [session]);
 
@@ -884,7 +905,11 @@ export default function App() {
     setNotebooks(listed.notebooks);
     setAccountSettings(listed.accountSettings);
     accountSettingsRaw.current = listed.accountSettingsRaw;
-    if (password) {
+    setUnopened(listed.unopened);
+    setObjectCount(listed.objectCount);
+    // A listing missing rows this device could not open is the worse copy: the
+    // previous snapshot still holds them, so it is left alone.
+    if (password && listed.unopened === 0) {
       await saveVaultSnapshot(
         {
           addressBooks: books,
@@ -984,6 +1009,8 @@ export default function App() {
   }
 
   function resetVaultState() {
+    setUnopened(0);
+    setObjectCount(0);
     setContacts([]);
     setCalendarEvents([]);
     setCalendars([]);
@@ -2133,6 +2160,12 @@ export default function App() {
             App is offline. Showing your last synced vault; editing is unavailable.
           </div>
         ) : null}
+        {unopened > 0 ? (
+          <div className="border-b border-amber-400/25 bg-amber-500/10 px-5 py-2 text-center text-xs font-medium text-amber-200" role="alert">
+            {unopened} item{unopened === 1 ? "" : "s"} in this vault could not be opened by this
+            device, so {unopened === 1 ? "it is" : "they are"} not shown. Nothing has been changed.
+          </div>
+        ) : null}
         {session.recoveryPending ? (
           <div className="border-b border-amber-400/25 bg-amber-500/10 px-5 py-2.5 text-center text-xs font-medium text-amber-200" role="alert">
             {finishingRecovery ? (
@@ -2263,6 +2296,7 @@ export default function App() {
             calendarEvents={calendarEvents}
             notes={notes}
             notebooks={notebooks}
+            objectCount={objectCount}
             onSessionUpdate={(updated) => setSession(updated)}
             onPersistSession={persistSession}
             onAccountDeleted={() => {

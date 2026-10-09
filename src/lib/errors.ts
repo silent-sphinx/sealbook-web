@@ -42,6 +42,11 @@ export function friendlyError(err: unknown): string {
   if (err instanceof Error && err.name === "ManifestError") {
     return `The server's answer doesn't match what your devices signed for, so nothing was changed. ${raw}`;
   }
+  // Written for a person already, and the cause is local rather than anything
+  // the server did. Matched on the name, as above.
+  if (err instanceof Error && err.name === "DeviceStorageError") {
+    return raw;
+  }
   if (text.includes("confirmation")) {
     return "The two devices don't show the same code. Start the pairing again.";
   }

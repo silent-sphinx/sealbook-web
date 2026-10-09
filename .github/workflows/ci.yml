@@ -5,31 +5,61 @@ on:
   pull_request:
 
 # The WebAssembly package in src/pkg is built from the sealbook repository and
-# is not committed here, so a full `tsc -b` / `vite build` cannot run without
-# first building it. The unit tests cover pure logic that does not touch wasm,
-# so they run directly. The Docker image build is what exercises the full
-# compile, wasm included.
+# is not committed here. The protocol suites import it directly, so the tests
+# need it as much as the typecheck and the bundle do, and the build job below
+# runs the same wasm-pack command as sealbook-web/Dockerfile before any of them.
 #
-# To add full typechecking here, check out the sealbook repository, install the
-# wasm32-unknown-unknown target and wasm-pack, and run the same wasm-pack
-# command as sealbook-web/Dockerfile before the typecheck step.
+# SEALBOOK_REPO_TOKEN must be a token with read access to the contents of the
+# sealbook repository: both repositories are private and the default
+# GITHUB_TOKEN is scoped to this one. scripts/build-wasm.sh resolves the crate
+# at ../sealbook, which is why both checkouts are given an explicit path.
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sealbook-web
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: sealbook-web
+
+      - uses: actions/checkout@v4
+        with:
+          repository: silent-sphinx/sealbook
+          path: sealbook
+          token: ${{ secrets.SEALBOOK_REPO_TOKEN }}
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+          workspaces: sealbook
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: sealbook-web/package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
+      - name: Build the WebAssembly package
+        run: npm run wasm
+
       - name: Run tests
         run: npm test
+
+      - name: Typecheck
+        run: npx tsc -b
+
+      - name: Build the bundle
+        run: npx vite build
 
   audit:
     runs-on: ubuntu-latest

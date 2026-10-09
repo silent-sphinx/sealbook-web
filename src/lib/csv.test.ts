@@ -76,6 +76,21 @@ describe("parseCsvContacts", () => {
   });
 });
 
+describe("exported cells a spreadsheet could execute", () => {
+  const nameRow = (name: string) =>
+    serializeCsvContacts([{ ...emptyDraft(BOOK), name }], []).split("\n")[1];
+
+  it("prefixes every prefix a spreadsheet treats as a formula", () => {
+    for (const prefix of ["=", "+", "-", "@", "\t", "\r"]) {
+      expect(nameRow(`${prefix}cmd|'/c calc'!A1`)).toMatch(/^("?)'/u);
+    }
+  });
+
+  it("leaves an ordinary name alone", () => {
+    expect(nameRow("Ada Lovelace").startsWith("Ada")).toBe(true);
+  });
+});
+
 describe("the relationship profile", () => {
   it("survives an export and re-import through the JSON column", () => {
     const draft = {
