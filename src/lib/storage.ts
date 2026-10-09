@@ -1,4 +1,5 @@
 import { b64ToByteArray, b64encode } from "./bytes";
+import { describeError, log } from "./log";
 import { idbDelete, idbGet, idbPut } from "./idb";
 import { DEFAULT_ACCOUNT_SETTINGS, normalizeAccountSettings } from "./accountSettings";
 import type {
@@ -55,7 +56,8 @@ type VaultEnvelope = {
 export function loadConnectionDomain(): string | null {
   try {
     return localStorage.getItem(DOMAIN_KEY);
-  } catch {
+  } catch (err) {
+    log.warn("could not read the stored connection domain", { reason: describeError(err) });
     return null;
   }
 }
@@ -63,8 +65,10 @@ export function loadConnectionDomain(): string | null {
 export function saveConnectionDomain(server: string): void {
   try {
     localStorage.setItem(DOMAIN_KEY, server);
-  } catch {
-    // storage unavailable; ignore
+  } catch (err) {
+    log.warn("could not store the connection domain, so it will be asked for again", {
+      reason: describeError(err),
+    });
   }
 }
 
@@ -80,7 +84,8 @@ function readStored(): DeviceEnvelope | DeviceState | null {
   }
   try {
     return JSON.parse(raw) as DeviceEnvelope | DeviceState;
-  } catch {
+  } catch (err) {
+    log.error("the stored device record is not readable JSON", { reason: describeError(err) });
     return null;
   }
 }
@@ -216,6 +221,9 @@ export async function saveDevice(state: DeviceState, password: string): Promise<
     // envelope the browser is not enrolled, and the server-side work has
     // already succeeded by this point, so the failure is named rather than
     // swallowed or left as an opaque DOMException.
+    log.error("this browser refused to store the device's keys", {
+      reason: describeError(err),
+    });
     throw new DeviceStorageError(err);
   }
 }
@@ -251,8 +259,17 @@ export function loadUnverifiedLegacyDevice(): DeviceState | null {
 export async function loadDevice(password: string): Promise<DeviceState | null> {
   const stored = readStored();
   if (!stored) return null;
-  if ("hpke_sk" in stored) return null;
-  if (stored.version !== STORAGE_VERSION) return null;
+  if ("hpke_sk" in stored) {
+    log.info("this device was enrolled before stored keys were encrypted; signing in to re-save it");
+    return null;
+  }
+  if (stored.version !== STORAGE_VERSION) {
+    log.warn("the stored device record is from another storage version", {
+      stored_version: stored.version,
+      expected_version: STORAGE_VERSION,
+    });
+    return null;
+  }
   try {
     const salt = Uint8Array.from(b64ToByteArray(stored.salt));
     const key = await deriveStorageKey(password, salt);
@@ -263,6 +280,8 @@ export async function loadDevice(password: string): Promise<DeviceState | null> 
     );
     return JSON.parse(new TextDecoder().decode(plaintext)) as DeviceState;
   } catch {
+    // Expected on a wrong password: the AEAD tag is what checks it.
+    log.debug("the stored device record did not decrypt under this password");
     return null;
   }
 }
@@ -289,7 +308,13 @@ export async function saveVaultSnapshot(
   };
   // A full or unavailable storage area must not block normal online use, so a
   // failed write is reported rather than thrown.
-  return idbPut(VAULT_RECORD, envelope);
+  const written = await idbPut(VAULT_RECORD, envelope);
+  if (!written) {
+    log.warn("the offline snapshot could not be saved, so offline use will show older data");
+  } else {
+    log.debug("offline snapshot saved", { bytes: envelope.ciphertext.length });
+  }
+  return written;
 }
 
 export async function loadVaultSnapshot(password: string): Promise<VaultSnapshot | null> {
@@ -305,11 +330,13 @@ export async function loadVaultSnapshot(password: string): Promise<VaultSnapshot
     );
     return normalizeSnapshot(JSON.parse(new TextDecoder().decode(plaintext)));
   } catch {
+    log.debug("the offline snapshot did not decrypt under this password");
     return null;
   }
 }
 
 export function clearDevice(): void {
+  log.info("clearing this device's stored keys and offline snapshot");
   localStorage.removeItem(KEY);
   localStorage.removeItem(LEGACY_VAULT_KEY);
   void idbDelete(VAULT_RECORD);

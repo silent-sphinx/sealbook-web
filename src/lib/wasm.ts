@@ -36,6 +36,9 @@ import init, {
   wrap_ck_for_device,
   wrap_ck_for_password,
 } from "../pkg/sealbook_wasm.js";
+import { log } from "./log";
+import { PAYLOAD_SCHEMA_VERSION } from "./payload";
+import { PROTOCOL_VERSION } from "./protocol";
 import type {
   DeviceOut,
   DevicePublic,
@@ -57,8 +60,28 @@ import type {
   RotatedObject,
 } from "./types";
 
+/**
+ * Loads the crypto module and checks its versions against this build's copies.
+ *
+ * `src/pkg` is generated from the `sealbook` repository rather than built from
+ * this one, so it can be left behind by a protocol change. The constants in
+ * `protocol.ts` and `payload.ts` are hand-mirrored from the same source, so a
+ * disagreement between them means the package is stale. Said here, rather than
+ * left to surface as a transcript that will not verify.
+ */
 export async function initWasm(): Promise<void> {
   await init();
+  const built = { protocol: protocol_version(), payload_schema: payload_schema_version() };
+  if (built.protocol !== PROTOCOL_VERSION || built.payload_schema !== PAYLOAD_SCHEMA_VERSION) {
+    log.error("crypto module disagrees with this build; rebuild it with npm run wasm", {
+      module_protocol: built.protocol,
+      app_protocol: PROTOCOL_VERSION,
+      module_payload_schema: built.payload_schema,
+      app_payload_schema: PAYLOAD_SCHEMA_VERSION,
+    });
+    return;
+  }
+  log.debug("crypto module versions match", { ...built });
 }
 
 export function wrapCkForPassword(ck: string, password: string): PasswordWrapOut {

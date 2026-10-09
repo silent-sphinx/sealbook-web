@@ -11,6 +11,8 @@
  * behaviour is no offline snapshot, not a failed unlock.
  */
 
+import { describeError, log } from "./log";
+
 const DB_NAME = "sealbook";
 const DB_VERSION = 1;
 const STORE = "vault";
@@ -20,7 +22,10 @@ function open(): Promise<IDBDatabase | null> {
     let request: IDBOpenDBRequest;
     try {
       request = indexedDB.open(DB_NAME, DB_VERSION);
-    } catch {
+    } catch (err) {
+      log.warn("IndexedDB is unavailable, so the vault cannot be kept offline", {
+        reason: describeError(err),
+      });
       resolve(null);
       return;
     }
@@ -31,10 +36,18 @@ function open(): Promise<IDBDatabase | null> {
       }
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => resolve(null);
+    request.onerror = () => {
+      log.warn("the offline database would not open", {
+        reason: describeError(request.error),
+      });
+      resolve(null);
+    };
     // A second tab holding an older version would otherwise leave this pending
     // for ever.
-    request.onblocked = () => resolve(null);
+    request.onblocked = () => {
+      log.warn("another tab is holding an older offline database open");
+      resolve(null);
+    };
   });
 }
 

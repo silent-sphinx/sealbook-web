@@ -1,6 +1,10 @@
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  // Mirrors the build-time define in `vite.config.ts`.
+  define: {
+    __APP_VERSION__: JSON.stringify("test"),
+  },
   test: {
     include: ["src/**/*.test.ts"],
     // Date handling is a real source of bugs here, and several helpers convert

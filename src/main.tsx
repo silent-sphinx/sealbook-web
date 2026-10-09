@@ -2,6 +2,7 @@ import { Component, StrictMode, type ErrorInfo, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { describeError, elapsed, log, logStartup } from "./lib/log";
 import { initWasm } from "./lib/wasm";
 
 const root = createRoot(document.getElementById("root")!);
@@ -13,8 +14,14 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: bool
     return { failed: true };
   }
 
-  componentDidCatch(_error: Error, _info: ErrorInfo): void {
-    // Keep unexpected imported data from taking down the whole document.
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    // Keep unexpected imported data from taking down the whole document. The
+    // component stack is the only record of where it came from, so it is logged
+    // rather than swallowed with the render.
+    log.error("render failed, showing the recovery screen", undefined, error);
+    if (info.componentStack) {
+      log.debug(`component stack${info.componentStack}`);
+    }
   }
 
   render() {
@@ -29,15 +36,31 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: bool
   }
 }
 
+logStartup();
+
+// An unhandled rejection in a fire-and-forget write is otherwise reported by the
+// browser without saying which part of the app it came from.
+window.addEventListener("unhandledrejection", (event) => {
+  log.error("unhandled promise rejection", undefined, event.reason);
+});
+
+const started = performance.now();
+
 initWasm()
   .then(() => {
+    log.info("crypto module ready", { ms: elapsed(started) });
     root.render(
       <StrictMode>
         <AppErrorBoundary><App /></AppErrorBoundary>
       </StrictMode>,
     );
   })
-  .catch(() => {
+  .catch((err: unknown) => {
+    log.error(
+      "crypto module failed to load, so the app cannot start",
+      { ms: elapsed(started), reason: describeError(err) },
+      err,
+    );
     root.render(
       <div className="flex min-h-screen items-center justify-center px-5 text-center">
         <p className="text-sm text-mute">Sealbook couldn’t start. Refresh the page.</p>

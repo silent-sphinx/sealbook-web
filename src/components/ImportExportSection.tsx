@@ -5,6 +5,7 @@ import { putContact } from "../lib/client";
 import { DEFAULT_ADDRESS_BOOK_ID, bookNameById, resolveAddressBookId } from "../lib/addressBook";
 import { sortContacts } from "../lib/contact";
 import { optimizeAvatar } from "../lib/image";
+import { describeError, log } from "../lib/log";
 import {
   parseImportContent,
   generateExportData,
@@ -162,7 +163,7 @@ export function ImportExportSection({
           try {
             draft.avatar = await optimizeAvatar(draft.avatar);
           } catch (e) {
-            console.warn("Could not optimize imported avatar, preserving or skipping", e);
+            log.warn("could not optimize an imported avatar", { reason: describeError(e) });
           }
         }
         await putContact(session, draft);

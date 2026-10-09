@@ -76,6 +76,7 @@ import {
 } from "./lib/storage";
 import { browserTimezone } from "./lib/timezone";
 import { friendlyError } from "./lib/errors";
+import { describeError, log, serverHost } from "./lib/log";
 import {
   btnPrimary,
   btnSecondary,
@@ -181,6 +182,10 @@ function saveLastTab(tab: MainTab): void {
     // storage unavailable; ignore
   }
 }
+
+// StrictMode runs a mount effect twice in development, and two startup lines
+// read as two loads.
+let startupLogged = false;
 
 function Logo({ className }: { className: string }) {
   return <img src={logo} alt="" className={className} />;
@@ -608,6 +613,24 @@ export default function App() {
   // Remembered for the session, not for good: see `useSplitPane`.
   const contactsSplit = useSplitPane("sealbook.contacts-split");
 
+  // Which server this browser is pointed at, and whether it is enrolled, decide
+  // which of the auth screens is shown; neither is visible from the screen
+  // itself.
+  useEffect(() => {
+    if (startupLogged) return;
+    startupLogged = true;
+    log.info("app ready", {
+      server: connectionDomain ? serverHost(connectionDomain) : "unset",
+      enrolled: Boolean(initial),
+      online: navigator.onLine,
+      timezone,
+    });
+    if (!connectionDomain) {
+      log.info("no server configured yet; showing the connection setup screen");
+    }
+    // Startup state only, so it is not repeated on every later change.
+  }, []);
+
   // The calendar fills the viewport below the header, so it needs the header's
   // real height. That height is not a constant: the nav wraps to its own row on
   // narrow screens and the offline banner adds another row, so a hardcoded value
@@ -660,9 +683,11 @@ export default function App() {
       }
       setConnectionDomain(server);
       saveConnectionDomain(server);
+      log.info("connection domain set", { server: serverHost(server) });
       setError(null);
       return true;
     } catch (err) {
+      log.warn("rejected a connection domain", { reason: describeError(err) });
       setError(err instanceof Error ? err.message : String(err));
       return false;
     }
@@ -792,6 +817,7 @@ export default function App() {
       lockTimeout = window.setTimeout(() => {
         clearTimers();
         setIdleCountdown(null);
+        log.info("locking the vault after an idle timeout", { minutes: IDLE_TIMEOUT_MS / 60000 });
         void lock();
       }, IDLE_TIMEOUT_MS);
     };
@@ -851,8 +877,12 @@ export default function App() {
   }, [connectionDomain, session, stored]);
 
   useEffect(() => {
-    const handleOffline = () => setOnline(false);
+    const handleOffline = () => {
+      log.info("the browser went offline");
+      setOnline(false);
+    };
     const handleOnline = () => {
+      log.info("the browser came back online", { reconnecting: session?.offline === true });
       setOnline(true);
       if (!session?.offline || !password) return;
       void loginAccount(session.state, password)
@@ -860,8 +890,11 @@ export default function App() {
           setSession(reconnected);
           await refresh(reconnected);
         })
-        .catch(() => {
+        .catch((err: unknown) => {
           // Keep showing the last local snapshot until the server is reachable.
+          log.warn("could not reconnect; still showing the offline snapshot", {
+            reason: describeError(err),
+          });
         });
     };
     window.addEventListener("offline", handleOffline);
@@ -992,7 +1025,10 @@ export default function App() {
     try {
       await refresh(next);
       return true;
-    } catch {
+    } catch (err) {
+      log.error("the write succeeded but the vault could not be re-read", {
+        reason: describeError(err),
+      });
       setError("Saved, but the list couldn't refresh. Reload to see the change.");
       return false;
     }
@@ -1036,8 +1072,11 @@ export default function App() {
     if (active) {
       try {
         await revokeSession(active);
-      } catch {
+      } catch (err) {
         // Local lock still protects the in-memory vault if the server is unavailable.
+        log.warn("the server session could not be revoked on lock", {
+          reason: describeError(err),
+        });
       }
     }
   }
@@ -1106,6 +1145,11 @@ export default function App() {
         setNotebooks(snapshot.notebooks);
         setAccountSettings(snapshot.accountSettings);
         accountSettingsRaw.current = snapshot.accountSettingsRaw;
+        log.info("opened the offline snapshot", {
+          contacts: snapshot.contacts.length,
+          events: snapshot.calendarEvents.length,
+          notes: snapshot.notes.length,
+        });
         setSession({ state: unlocked, collectionKey: "", token: "", latestRevision: 0, keyEpoch: 0, manifestSeq: 0, offline: true });
       } else {
         await openSession(await loginAccount(unlocked, password), password);

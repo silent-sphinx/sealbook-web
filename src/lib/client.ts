@@ -73,6 +73,7 @@ import {
   sortNotebooks,
   sortNotes,
 } from "./note";
+import { describeError, elapsed, log, logPath, serverHost } from "./log";
 import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
 import { PROTOCOL_VERSION, speaksProtocol } from "./protocol";
 import type {
@@ -112,19 +113,45 @@ class ApiError extends Error {
   }
 }
 
-async function parse<T>(res: Response): Promise<T> {
+function errorMessage(text: string, statusText: string): string {
+  try {
+    const body = JSON.parse(text) as { error?: string };
+    return body.error ?? text;
+  } catch {
+    return text || statusText;
+  }
+}
+
+/**
+ * Every call to the server, so that one place can time it and name it.
+ *
+ * A rejected `fetch` carries only "Failed to fetch", and a refusal reaches the
+ * user through `friendlyError`, which deliberately flattens most messages into
+ * a sentence. Neither says which request it was; the console does.
+ */
+async function request<T>(method: string, url: string, init: RequestInit): Promise<T> {
+  const path = logPath(url);
+  const started = performance.now();
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch (err) {
+    log.error("request did not reach the server", {
+      method,
+      path,
+      ms: elapsed(started),
+      reason: describeError(err),
+    });
+    throw err;
+  }
+  const ms = elapsed(started);
   const text = await res.text();
   if (!res.ok) {
-    try {
-      const body = JSON.parse(text) as { error?: string };
-      throw new ApiError(body.error ?? text);
-    } catch (err) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-      throw new ApiError(text || res.statusText);
-    }
+    const message = errorMessage(text, res.statusText);
+    log.warn("server refused a request", { method, path, status: res.status, ms, reason: message });
+    throw new ApiError(message);
   }
+  log.debug("request", { method, path, status: res.status, ms, bytes: text.length });
   return JSON.parse(text) as T;
 }
 
@@ -169,26 +196,18 @@ async function postJson<T>(url: string, body: unknown, token?: string): Promise<
   if (token) {
     headers.authorization = `Bearer ${token}`;
   }
-  return parse<T>(
-    await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    }),
-  );
+  return request<T>("POST", url, { method: "POST", headers, body: JSON.stringify(body) });
 }
 
 async function putJson<T>(url: string, body: unknown, token: string): Promise<T> {
-  return parse<T>(
-    await fetch(url, {
-      method: "PUT",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(body),
-    }),
-  );
+  return request<T>("PUT", url, {
+    method: "PUT",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
 }
 
 async function getJson<T>(url: string, token?: string): Promise<T> {
@@ -196,7 +215,7 @@ async function getJson<T>(url: string, token?: string): Promise<T> {
   if (token) {
     headers.authorization = `Bearer ${token}`;
   }
-  return parse<T>(await fetch(url, { headers }));
+  return request<T>("GET", url, { headers });
 }
 
 /**
@@ -209,6 +228,11 @@ async function getJson<T>(url: string, token?: string): Promise<T> {
  */
 async function checkProtocol(root: string): Promise<void> {
   const report = await getJson<{ protocol?: string }>(`${root}/health/crypto`);
+  log.info("server reached", {
+    host: root ? serverHost(root) : "same-origin",
+    server_protocol: report.protocol ?? "unknown",
+    app_protocol: PROTOCOL_VERSION,
+  });
   if (!speaksProtocol(report.protocol)) {
     throw new Error(
       `This server speaks protocol ${report.protocol ?? "an unknown version"}, ` +
@@ -218,16 +242,14 @@ async function checkProtocol(root: string): Promise<void> {
 }
 
 async function deleteJson<T>(url: string, token: string, body?: unknown): Promise<T> {
-  return parse<T>(
-    await fetch(url, {
-      method: "DELETE",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${token}`,
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    }),
-  );
+  return request<T>("DELETE", url, {
+    method: "DELETE",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
 }
 
 export type Session = {
@@ -377,6 +399,10 @@ async function verifiedRosterChain(session: Session): Promise<RosterVerified> {
   const response = await getJson<{ rosters: Roster[]; floor?: number }>(url, token);
   const floor = response.floor ?? 0;
   if (pin.seq > 0 && floor > pin.seq) {
+    log.error("roster history no longer reaches this device's pin", {
+      pinned_seq: pin.seq,
+      server_floor: floor,
+    });
     throw new RosterTooOldError(
       "This device is further behind than the server's device-list history reaches, so the " +
         "chain from the roster it pinned cannot be checked. Pair this device again to anchor " +
@@ -384,7 +410,7 @@ async function verifiedRosterChain(session: Session): Promise<RosterVerified> {
     );
   }
   try {
-    return rosterVerify(
+    const verified = rosterVerify(
       state.collection_id,
       pin.seq,
       pin.transcript,
@@ -393,9 +419,22 @@ async function verifiedRosterChain(session: Session): Promise<RosterVerified> {
       session.keyEpoch,
       state.device_id,
     );
+    log.info("device roster verified", {
+      from_seq: pin.seq,
+      to_seq: verified.pin_seq,
+      links: response.rosters.length,
+      devices: verified.roster.devices.length,
+      key_epoch: verified.roster.key_epoch,
+    });
+    return verified;
   } catch (err) {
     // Not transient: it means the server served a device list no member of the
     // roster this device pinned ever signed for.
+    log.error("device roster failed to verify", {
+      pinned_seq: pin.seq,
+      links: response.rosters.length,
+      reason: describeError(err),
+    });
     throw new ManifestError(err instanceof Error ? err.message : String(err));
   }
 }
@@ -519,12 +558,20 @@ async function verifyManifest(
   entries: ManifestEntry[],
 ): Promise<void> {
   if (manifest.manifest_seq < session.manifestSeq) {
+    log.error("vault manifest went backwards", {
+      seen_seq: session.manifestSeq,
+      served_seq: manifest.manifest_seq,
+    });
     throw new ManifestError(
       `The vault went backwards: this device has seen manifest ${session.manifestSeq} but the ` +
         `server served ${manifest.manifest_seq}.`,
     );
   }
   if (manifest.object_count !== entries.length) {
+    log.error("vault manifest commits to a different object count", {
+      served_objects: entries.length,
+      manifest_objects: manifest.object_count,
+    });
     throw new ManifestError(
       `Server sent ${entries.length} objects but the manifest commits to ${manifest.object_count}.`,
     );
@@ -532,6 +579,9 @@ async function verifyManifest(
   const devices = await rosterDevices(session, manifest.key_epoch, manifest.device_id);
   const signer = devices.find((device) => device.device_id === manifest.device_id);
   if (!signer) {
+    log.error("vault manifest was signed by a device outside the roster", {
+      roster_devices: devices.length,
+    });
     throw new ManifestError(
       "The vault manifest was signed by a device that is not in this account's signed roster.",
     );
@@ -545,8 +595,18 @@ async function verifyManifest(
       entries,
     );
   } catch (err) {
+    log.error("vault manifest signature did not verify", {
+      seq: manifest.manifest_seq,
+      objects: entries.length,
+      reason: describeError(err),
+    });
     throw new ManifestError(err instanceof Error ? err.message : String(err));
   }
+  log.debug("vault manifest verified", {
+    seq: manifest.manifest_seq,
+    objects: entries.length,
+    key_epoch: manifest.key_epoch,
+  });
   rememberManifestSeq(session, manifest.manifest_seq);
 }
 
@@ -815,6 +875,7 @@ export async function registerAccount(
 ): Promise<RegisterResult> {
   const root = apiRoot(server);
   await checkProtocol(root);
+  log.info("registering a new account");
   // Chosen here, not by the server, so the initial manifest can be signed over it
   // before the account exists.
   const collectionId = newUuid();
@@ -909,6 +970,7 @@ export async function registerAccount(
   );
   state.roster_seq = pin.pin_seq;
   state.roster_transcript = pin.pin_transcript;
+  log.info("account registered, signing in");
   return {
     session: await loginAccount(state, password),
     phrase: enrollment.phrase,
@@ -1311,6 +1373,7 @@ export async function loginAccount(
   password: string,
 ): Promise<Session> {
   const root = apiRoot(state.server);
+  const loginStarted = performance.now();
   await checkProtocol(root);
   const hpkeSk = bytesFromJson(state.hpke_sk);
   const mldsaSeed = bytesFromJson(state.mldsa_seed);
@@ -1418,6 +1481,18 @@ export async function loginAccount(
   // longer in it has been revoked and should say so here rather than fail
   // confusingly later.
   await syncRoster(session);
+  log.info("signed in", {
+    key_epoch: session.keyEpoch,
+    latest_revision: session.latestRevision,
+    recovery_pending: session.recoveryPending === true,
+    ms: elapsed(loginStarted),
+  });
+  if (session.recoveryPending) {
+    log.warn(
+      "a recovery is unfinished, so the phrase used for it still opens this vault and " +
+        "writes are refused until it is rotated",
+    );
+  }
   return session;
 }
 
@@ -1459,6 +1534,7 @@ export async function refreshCollectionKey(session: Session): Promise<number> {
     (wrap) => wrap.recipient_kind === "device" && wrap.recipient_id === state.device_id,
   );
   if (!deviceWrap) {
+    log.error("this device has no key wrap in the current epoch", { key_epoch: resp.key_epoch });
     throw new Error(
       "This device no longer has access to the vault. It may have been revoked; sign in again.",
     );
@@ -1472,6 +1548,7 @@ export async function refreshCollectionKey(session: Session): Promise<number> {
     state.device_id,
     JSON.stringify([deviceWrap]),
   );
+  log.info("collection key refreshed", { from_epoch: session.keyEpoch, to_epoch: resp.key_epoch });
   session.keyEpoch = resp.key_epoch;
   return resp.key_epoch;
 }
@@ -1526,6 +1603,8 @@ type ChangesWalk = {
  */
 async function walkChanges(session: Session): Promise<ChangesWalk> {
   const { state, token } = session;
+  const started = performance.now();
+  let pages = 0;
   let after = 0;
   let keyEpoch = session.keyEpoch;
   let latestRevision = session.latestRevision;
@@ -1563,10 +1642,13 @@ async function walkChanges(session: Session): Promise<ChangesWalk> {
         `&limit=${CHANGES_PAGE_LIMIT}${snapshot ? "&snapshot=true" : ""}`,
       token,
     );
+    pages += 1;
     if (page.resync && !snapshot) {
       if (restarted) {
+        log.error("the server asked for a second resync in one walk", { pages });
         throw new Error("The server keeps asking this device to restart its sync.");
       }
+      log.warn("the revision log no longer reaches this device; reading a snapshot instead");
       restarted = true;
       snapshot = true;
       after = 0;
@@ -1579,11 +1661,16 @@ async function walkChanges(session: Session): Promise<ChangesWalk> {
       expectedSeq = pageSeq;
     } else if (pageSeq !== expectedSeq) {
       if (moved >= MAX_SYNC_RESTARTS) {
+        log.warn("the vault was written to on every attempt to read it", {
+          attempts: moved,
+          pages,
+        });
         throw new Error(
           "The vault kept changing while it was being read. Another device may be writing to it; try again.",
         );
       }
       moved += 1;
+      log.debug("vault changed mid-read, restarting the walk", { attempt: moved, pages });
       expectedSeq = undefined;
       after = 0;
       pageObjects = [];
@@ -1606,6 +1693,14 @@ async function walkChanges(session: Session): Promise<ChangesWalk> {
       latestByObject.set(object.id, object);
     }
   }
+  log.debug("walked the change log", {
+    pages,
+    rows: pageObjects.length,
+    objects: latestByObject.size,
+    key_epoch: keyEpoch,
+    snapshot,
+    ms: elapsed(started),
+  });
   return {
     objects: [...latestByObject.values()],
     keyEpoch,
@@ -1645,6 +1740,9 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
   if (walk.manifest) {
     await verifyManifest(session, walk.manifest, walk.objects.map(entryFor));
   } else if (session.manifestSeq > 0) {
+    log.error("the vault was served with no manifest after this device had seen one", {
+      seen_seq: session.manifestSeq,
+    });
     throw new ManifestError(
       "The server served this vault with no manifest, but this device has seen one. Refusing to continue.",
     );
@@ -1707,6 +1805,24 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
       sealed.pop();
     }
   }
+  if (unopened > 0) {
+    // The manifest verified, so these rows are genuine and the failure is local:
+    // a key epoch this device cannot reach, or a payload a newer build wrote.
+    log.warn("some vault objects could not be opened on this device", {
+      unopened,
+      objects: walk.objects.length,
+      key_epoch: session.keyEpoch,
+    });
+  }
+  log.info("vault opened", {
+    contacts: contacts.length,
+    address_books: addressBooks.length,
+    events: calendarEvents.length,
+    calendars: calendars.length,
+    notes: notes.length,
+    notebooks: notebooks.length,
+    unopened,
+  });
   return {
     sealed,
     addressBooks: sortAddressBooks(addressBooks),
@@ -2261,6 +2377,14 @@ async function rotateAuthenticatedInner(
   // to be holding it rather than one a rotation elsewhere has retired.
   await alignKeyEpoch(fresh, walk.keyEpoch);
   const { live, tombstones, retired } = splitForRotation(walk.objects, walk.tombstoneFloor);
+  const rotationStarted = performance.now();
+  log.info("rotating the vault key", {
+    revoking: revokeDeviceId !== null,
+    live: live.length,
+    tombstones: tombstones.length,
+    retiring: retired.length,
+    from_epoch: walk.keyEpoch,
+  });
   // `manifestState` verified the collection above, so what is re-encrypted below
   // is what a device signed for rather than whatever the server chose to serve.
   //
@@ -2432,6 +2556,11 @@ async function rotateAuthenticatedInner(
   // A rotation is exactly what an unfinished recovery owes, whatever prompted
   // it: a new collection key, a new phrase, and everything re-encrypted.
   fresh.recoveryPending = false;
+  log.info("vault key rotated", {
+    key_epoch: fresh.keyEpoch,
+    devices: newRoster.devices.length,
+    ms: elapsed(rotationStarted),
+  });
   return { session: fresh, phrase: phraseOut.phrase };
 }
 
