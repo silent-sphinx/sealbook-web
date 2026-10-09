@@ -138,6 +138,83 @@ describe("expandCalendarEvents", () => {
     expect(out.map((e) => dayOf(e.start))).toEqual(["2026-03-04", "2027-03-04"]);
   });
 
+  it("expands a rule anchored decades before the window", () => {
+    // A birthday carries its real year, so the anchor is as far back as the
+    // person's birth: walking there a day at a time ran out of budget and
+    // returned nothing.
+    const birthday: CalendarEvent = {
+      id: "b",
+      title: "Birthday",
+      start: "1960-10-15",
+      recurrence: { frequency: "yearly" },
+    };
+    const out = expandCalendarEvents([birthday], at(2026, 10, 1), at(2026, 10, 31), TZ);
+    expect(out.map((e) => dayOf(e.start))).toEqual(["2026-10-15"]);
+
+    const monthly: CalendarEvent = {
+      id: "m",
+      title: "Rent",
+      start: "1990-01-15",
+      recurrence: { frequency: "monthly" },
+    };
+    expect(
+      expandCalendarEvents([monthly], at(2026, 10, 1), at(2026, 10, 31), TZ).map((e) => dayOf(e.start)),
+    ).toEqual(["2026-10-15"]);
+
+    const daily: CalendarEvent = {
+      id: "d",
+      title: "Daily",
+      start: "1985-01-01T09:00:00Z",
+      recurrence: { frequency: "daily" },
+    };
+    expect(expandCalendarEvents([daily], at(2026, 9, 1), at(2026, 9, 7), TZ)).toHaveLength(7);
+  });
+
+  it("applies `until` to a rule anchored decades before the window", () => {
+    const event: CalendarEvent = {
+      id: "u",
+      title: "Lapsed",
+      start: "1960-10-15",
+      recurrence: { frequency: "yearly", until: "2000-10-15" },
+    };
+    expect(expandCalendarEvents([event], at(2026, 10, 1), at(2026, 10, 31), TZ)).toEqual([]);
+  });
+
+  it("counts `count` across the periods it skips to reach the window", () => {
+    const weekly: CalendarEvent = {
+      id: "w",
+      title: "Twice a week, five times",
+      start: "2026-09-07T09:00:00Z",
+      recurrence: { frequency: "weekly", weekdays: [1, 3], count: 5 },
+    };
+    expect(
+      expandCalendarEvents([weekly], at(2026, 9, 14), at(2026, 12, 31), TZ).map((e) => dayOf(e.start)),
+    ).toEqual(["2026-09-14", "2026-09-16", "2026-09-21"]);
+
+    // The 31st has no occurrence in a short month, so the skipped span holds
+    // fewer occurrences than it holds periods.
+    const monthly: CalendarEvent = {
+      id: "m",
+      title: "Four times",
+      start: "2026-01-31T09:00:00Z",
+      recurrence: { frequency: "monthly", count: 4 },
+    };
+    expect(
+      expandCalendarEvents([monthly], at(2026, 4, 1), at(2026, 12, 31), TZ).map((e) => dayOf(e.start)),
+    ).toEqual(["2026-05-31", "2026-07-31"]);
+  });
+
+  it("yields a leap-day anchor only in leap years", () => {
+    const event: CalendarEvent = {
+      id: "l",
+      title: "Leap",
+      start: "2024-02-29",
+      recurrence: { frequency: "yearly" },
+    };
+    const out = expandCalendarEvents([event], at(2026, 1, 1), at(2032, 12, 31), TZ);
+    expect(out.map((e) => dayOf(e.start))).toEqual(["2028-02-29", "2032-02-29"]);
+  });
+
   it("keeps each occurrence's own identity so they can be keyed apart", () => {
     const event: CalendarEvent = {
       id: "base",

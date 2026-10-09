@@ -6,7 +6,11 @@ export type CalendarOccurrence = CalendarEvent & {
   occurrenceKey: string;
 };
 
-const MAX_RECURRENCE_ITERATIONS = 10_000;
+/**
+ * Periods a rule has no date in are walked past, so a rule with no date in any
+ * of them needs this to stop.
+ */
+const MAX_RECURRENCE_PERIODS = 10_000;
 
 function dateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -66,26 +70,85 @@ function dayDeltaBetween(date: Date, anchor: Date): number {
   return Math.round((startOfDay(date).getTime() - startOfDay(anchor).getTime()) / 86400000);
 }
 
-function matchesRule(date: Date, anchor: Date, rule: RecurrenceRule): boolean {
-  const interval = Math.max(1, rule.interval ?? 1);
-  const dayDelta = dayDeltaBetween(date, anchor);
-  if (rule.frequency === "daily") return dayDelta >= 0 && dayDelta % interval === 0;
+type RecurrencePeriod = {
+  start: Date;
+  dates: Date[];
+};
+
+function ruleWeekdays(anchor: Date, rule: RecurrenceRule): number[] {
+  const named = rule.weekdays?.length ? rule.weekdays : [anchor.getDay()];
+  return [...new Set(named)]
+    .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
+    .sort((a, b) => a - b);
+}
+
+/**
+ * The `index`th period of the rule, counted from the one holding the anchor.
+ *
+ * `dates` is empty for a period the rule cannot land in, such as the 31st in a
+ * short month, a fifth weekday the month does not have, or a leap day in a
+ * common year, so `start` is what bounds the walk across those.
+ */
+function periodOf(anchor: Date, rule: RecurrenceRule, index: number): RecurrencePeriod {
+  const offset = index * Math.max(1, rule.interval ?? 1);
+  if (rule.frequency === "daily") {
+    const date = new Date(anchor);
+    date.setDate(date.getDate() + offset);
+    return { start: date, dates: [date] };
+  }
   if (rule.frequency === "weekly") {
-    const weeks = Math.floor(dayDelta / 7);
-    const weekdays = rule.weekdays?.length ? rule.weekdays : [anchor.getDay()];
-    return weeks >= 0 && weeks % interval === 0 && weekdays.includes(date.getDay());
+    const start = new Date(anchor);
+    start.setDate(start.getDate() + offset * 7);
+    const dates = ruleWeekdays(anchor, rule).map((weekday) => {
+      const date = new Date(start);
+      date.setDate(date.getDate() + ((weekday - start.getDay() + 7) % 7));
+      return date;
+    });
+    return { start, dates: dates.sort((a, b) => a.getTime() - b.getTime()) };
   }
   if (rule.frequency === "monthly") {
-    const months = (date.getFullYear() - anchor.getFullYear()) * 12 + date.getMonth() - anchor.getMonth();
-    if (months < 0 || months % interval !== 0) return false;
+    const start = new Date(anchor.getFullYear(), anchor.getMonth() + offset, 1);
+    let date: Date | null;
     if (rule.nthWeekday) {
-      const occurrence = nthWeekdayDate(date.getFullYear(), date.getMonth(), rule.nthWeekday.ordinal, rule.nthWeekday.weekday);
-      return occurrence !== null && date.getTime() === occurrence.getTime();
+      date = nthWeekdayDate(start.getFullYear(), start.getMonth(), rule.nthWeekday.ordinal, rule.nthWeekday.weekday);
+    } else {
+      const day = rule.dayOfMonth ?? anchor.getDate();
+      const candidate = dateAt(start.getFullYear(), start.getMonth(), day);
+      date = candidate.getDate() === day ? candidate : null;
     }
-    return date.getDate() === (rule.dayOfMonth ?? anchor.getDate());
+    // The anchor's own period runs from the anchor, not from the 1st.
+    return { start, dates: date && date >= anchor ? [date] : [] };
   }
-  const years = date.getFullYear() - anchor.getFullYear();
-  return years >= 0 && years % interval === 0 && date.getMonth() === anchor.getMonth() && date.getDate() === anchor.getDate();
+  const year = anchor.getFullYear() + offset;
+  const date = dateAt(year, anchor.getMonth(), anchor.getDate());
+  return { start: new Date(year, 0, 1), dates: date.getDate() === anchor.getDate() ? [date] : [] };
+}
+
+/**
+ * The last period starting at or before `from`.
+ *
+ * A period starts no later than any of its own dates, so beginning the walk
+ * here cannot step over an occurrence inside the window.
+ */
+function firstPeriodIndex(anchor: Date, rule: RecurrenceRule, from: Date): number {
+  if (from <= anchor) return 0;
+  const units = rule.frequency === "daily"
+    ? dayDeltaBetween(from, anchor)
+    : rule.frequency === "weekly"
+      ? Math.floor(dayDeltaBetween(from, anchor) / 7)
+      : rule.frequency === "monthly"
+        ? (from.getFullYear() - anchor.getFullYear()) * 12 + from.getMonth() - anchor.getMonth()
+        : from.getFullYear() - anchor.getFullYear();
+  return Math.max(0, Math.floor(units / Math.max(1, rule.interval ?? 1)));
+}
+
+/** Occurrences in the periods before `index`, which `count` has to include. */
+function occurrencesBefore(anchor: Date, rule: RecurrenceRule, index: number): number {
+  if (rule.frequency === "daily") return index;
+  if (rule.frequency === "weekly") return index * ruleWeekdays(anchor, rule).length;
+  let total = 0;
+  for (let period = 0; period < index; period += 1) total += periodOf(anchor, rule, period).dates.length;
+  return total;
 }
 
 export function expandCalendarEvents(events: CalendarEvent[], from: Date, to: Date, fallbackTimezone: string): CalendarOccurrence[] {
@@ -101,22 +164,21 @@ export function expandCalendarEvents(events: CalendarEvent[], from: Date, to: Da
       continue;
     }
     const untilKey = rule.until?.slice(0, 10);
-    let occurrenceCount = 0;
-    const cursor = new Date(anchor);
-    cursor.setHours(0, 0, 0, 0);
-    let iterations = 0;
-    while (cursor <= to && iterations < MAX_RECURRENCE_ITERATIONS) {
-      iterations += 1;
-      if (untilKey && dateKey(cursor) > untilKey) break;
-      if (matchesRule(cursor, anchor, rule)) {
+    const anchorDay = startOfDay(anchor);
+    const first = firstPeriodIndex(anchorDay, rule, from);
+    let occurrenceCount = rule.count ? occurrencesBefore(anchorDay, rule, first) : 0;
+    walk: for (let index = first; index < first + MAX_RECURRENCE_PERIODS; index += 1) {
+      const period = periodOf(anchorDay, rule, index);
+      if (period.start > to) break;
+      for (const date of period.dates) {
+        if (date > to) break walk;
+        if (untilKey && dateKey(date) > untilKey) break walk;
         occurrenceCount += 1;
-        if (cursor >= from && (!rule.count || occurrenceCount <= rule.count)) {
-          const occurrence = sameTime(event, cursor, timezone);
-          output.push(occurrence);
+        if (date >= from && (!rule.count || occurrenceCount <= rule.count)) {
+          output.push(sameTime(event, date, timezone));
         }
-        if (rule.count && occurrenceCount >= rule.count) break;
+        if (rule.count && occurrenceCount >= rule.count) break walk;
       }
-      cursor.setDate(cursor.getDate() + 1);
     }
   }
   return output.filter((event) => {
