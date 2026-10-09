@@ -557,7 +557,6 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [unopened, setUnopened] = useState(0);
-  const [objectCount, setObjectCount] = useState(0);
   const [session, setSession] = useState<Session | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
@@ -906,7 +905,6 @@ export default function App() {
     setAccountSettings(listed.accountSettings);
     accountSettingsRaw.current = listed.accountSettingsRaw;
     setUnopened(listed.unopened);
-    setObjectCount(listed.objectCount);
     // A listing missing rows this device could not open is the worse copy: the
     // previous snapshot still holds them, so it is left alone.
     if (password && listed.unopened === 0) {
@@ -1010,7 +1008,6 @@ export default function App() {
 
   function resetVaultState() {
     setUnopened(0);
-    setObjectCount(0);
     setContacts([]);
     setCalendarEvents([]);
     setCalendars([]);
@@ -2296,7 +2293,6 @@ export default function App() {
             calendarEvents={calendarEvents}
             notes={notes}
             notebooks={notebooks}
-            objectCount={objectCount}
             onSessionUpdate={(updated) => setSession(updated)}
             onPersistSession={persistSession}
             onAccountDeleted={() => {

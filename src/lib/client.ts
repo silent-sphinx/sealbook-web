@@ -99,13 +99,8 @@ import type {
 } from "./types";
 import { DEFAULT_CALENDAR_COLOR } from "./types";
 
-/**
- * Objects one rotation can carry, since it sends the re-encrypted set in a
- * single request. Revoking a device is a rotation, so a vault past this cannot
- * revoke one at all: the UI compares against it rather than letting that
- * surface as a failure mid-revocation.
- */
-export const ROTATION_OBJECT_LIMIT = 2_000;
+/** Most objects to ask for per `/changes` page; the server clamps above this. */
+const CHANGES_PAGE_LIMIT = 500;
 
 export const CALENDAR_EVENT_CONTENT_TYPE = "application/sealbook.calendar-event+json";
 export const CALENDAR_CONTENT_TYPE = "application/sealbook.calendar+json";
@@ -1500,8 +1495,6 @@ export type VaultListing = {
    * `LEGACY_ACCOUNT_SETTINGS_ID` needs acting on: see `ensureDefaultCalendar`.
    */
   accountSettingsId?: string;
-  /** Rows the vault holds, which is what a rotation would have to carry. */
-  objectCount: number;
   /**
    * Rows the manifest verified but this device could not open, so a partly
    * unreadable vault is not presented as a partly empty one. A non-zero count
@@ -1514,14 +1507,30 @@ export function listVault(session: Session): Promise<VaultListing> {
   return serializeVault(session.state.collection_id, () => listVaultInner(session));
 }
 
-async function listVaultInner(session: Session): Promise<VaultListing> {
+type ChangesWalk = {
+  /** The newest revision of each object, in the order the pages served them. */
+  objects: SealedObject[];
+  keyEpoch: number;
+  latestRevision: number;
+  manifest: ManifestBody | null;
+  tombstoneFloor: number;
+};
+
+/**
+ * Walks `/changes` to its end and keeps the newest revision of each object.
+ *
+ * A page carries at most the server's `MAX_CHANGES_LIMIT` rows, so everything
+ * that needs the whole collection pages through it, rotation included: the
+ * manifest commits to the collection rather than to any one page of it, and the
+ * callers check their assembled set against it.
+ */
+async function walkChanges(session: Session): Promise<ChangesWalk> {
   const { state, token } = session;
-  // Walk every page before verifying: the manifest commits to the collection, not
-  // to any one page of it.
   let after = 0;
   let keyEpoch = session.keyEpoch;
   let latestRevision = session.latestRevision;
   let manifest: ManifestBody | null = null;
+  let tombstoneFloor = 0;
   let pageObjects: SealedObject[] = [];
   // Superseded revisions are pruned after a retention window, so a walk can name
   // a watermark whose successors no longer exist. The server answers `resync`
@@ -1548,9 +1557,10 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
       has_more: boolean;
       manifest: ManifestBody | null;
       resync?: boolean;
+      tombstone_floor?: number;
     }>(
       `${apiRoot(state.server)}/v1/collections/${state.collection_id}/changes?after=${after}` +
-        `&limit=500${snapshot ? "&snapshot=true" : ""}`,
+        `&limit=${CHANGES_PAGE_LIMIT}${snapshot ? "&snapshot=true" : ""}`,
       token,
     );
     if (page.resync && !snapshot) {
@@ -1582,17 +1592,37 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
     keyEpoch = page.key_epoch;
     latestRevision = Math.max(latestRevision, page.latest_revision);
     manifest = page.manifest;
+    tombstoneFloor = page.tombstone_floor ?? 0;
     pageObjects.push(...page.objects);
     const high = page.objects.reduce((top, object) => Math.max(top, object.revision), 0);
     if (!page.has_more || high <= after) break;
     after = high;
   }
-  const resp = { latest_revision: latestRevision, key_epoch: keyEpoch, objects: pageObjects };
-  session.latestRevision = resp.latest_revision;
+  // Only the newest revision of each object is carried out of the walk.
+  const latestByObject = new Map<string, SealedObject>();
+  for (const object of pageObjects) {
+    const previous = latestByObject.get(object.id);
+    if (!previous || object.revision > previous.revision) {
+      latestByObject.set(object.id, object);
+    }
+  }
+  return {
+    objects: [...latestByObject.values()],
+    keyEpoch,
+    latestRevision,
+    manifest,
+    tombstoneFloor,
+  };
+}
+
+async function listVaultInner(session: Session): Promise<VaultListing> {
+  const { state } = session;
+  const walk = await walkChanges(session);
+  session.latestRevision = walk.latestRevision;
   // If another device revoked someone, the key was rotated and everything was
   // re-encrypted. Pick up the new key before decrypting, otherwise every object
   // would fail to open and the vault would look empty.
-  if (resp.key_epoch !== session.keyEpoch) {
+  if (walk.keyEpoch !== session.keyEpoch) {
     await refreshCollectionKey(session);
   }
   const { collectionKey } = session;
@@ -1609,24 +1639,17 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
   let accountSettingsRaw: string | undefined;
   let accountSettingsId: string | undefined;
   let unopened = 0;
-  const latestByObject = new Map<string, SealedObject>();
-  for (const obj of resp.objects) {
-    const previous = latestByObject.get(obj.id);
-    if (!previous || obj.revision > previous.revision) {
-      latestByObject.set(obj.id, obj);
-    }
-  }
   // Check what was served against what a device signed for, before decrypting any
   // of it. A failure here means an object was withheld, rolled back or
   // substituted, and must not be presented as an empty or partial vault.
-  if (manifest) {
-    await verifyManifest(session, manifest, [...latestByObject.values()].map(entryFor));
+  if (walk.manifest) {
+    await verifyManifest(session, walk.manifest, walk.objects.map(entryFor));
   } else if (session.manifestSeq > 0) {
     throw new ManifestError(
       "The server served this vault with no manifest, but this device has seen one. Refusing to continue.",
     );
   }
-  for (const obj of latestByObject.values()) {
+  for (const obj of walk.objects) {
     let raw: string;
     let contentType: string;
     let tombstone = obj.tombstone;
@@ -1695,7 +1718,6 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
     accountSettings,
     accountSettingsRaw,
     accountSettingsId,
-    objectCount: latestByObject.size,
     unopened,
   };
 }
@@ -2230,38 +2252,15 @@ async function rotateAuthenticatedInner(
   const collectionId = fresh.state.collection_id;
 
   const { seq, latestRevision } = await manifestState(fresh);
-  const listed = await getJson<{
-    latest_revision: number;
-    key_epoch: number;
-    objects: SealedObject[];
-    has_more: boolean;
-    tombstone_floor?: number;
-  }>(
-    `${root}/v1/collections/${collectionId}/changes?after=0&limit=${ROTATION_OBJECT_LIMIT}`,
-    fresh.token,
-  );
-  if (listed.has_more) {
-    throw new Error(
-      "This vault is too large to rotate in one request. Rotation cannot yet be split across " +
-        "requests, so it has to be done from a client that can send the whole vault at once.",
-    );
-  }
-
-  // Only the newest revision of each object is carried across.
-  const latestByObject = new Map<string, SealedObject>();
-  for (const object of listed.objects) {
-    const previous = latestByObject.get(object.id);
-    if (!previous || object.revision > previous.revision) {
-      latestByObject.set(object.id, object);
-    }
-  }
+  // Paged like any other full read. The server's own ceiling is the rotation
+  // body, which it holds every write to, so the vault it accepted writes for is
+  // one it can rotate: what used to stop here at a single page was this
+  // client's own read, not anything the protocol could not carry.
+  const walk = await walkChanges(fresh);
   // Everything below is re-encrypted from the current key, so this session has
   // to be holding it rather than one a rotation elsewhere has retired.
-  await alignKeyEpoch(fresh, listed.key_epoch);
-  const { live, tombstones, retired } = splitForRotation(
-    [...latestByObject.values()],
-    listed.tombstone_floor ?? 0,
-  );
+  await alignKeyEpoch(fresh, walk.keyEpoch);
+  const { live, tombstones, retired } = splitForRotation(walk.objects, walk.tombstoneFloor);
   // `manifestState` verified the collection above, so what is re-encrypted below
   // is what a device signed for rather than whatever the server chose to serve.
   //
@@ -2346,7 +2345,7 @@ async function rotateAuthenticatedInner(
     onProgress?.(done, total);
   }
 
-  const keyEpoch = listed.key_epoch + 1;
+  const keyEpoch = walk.keyEpoch + 1;
   // Tombstones are not re-encrypted, since there is no plaintext left to
   // re-encrypt, but the ones this rotation keeps are still rows the manifest
   // commits to, so they carry their stored revision and digest through

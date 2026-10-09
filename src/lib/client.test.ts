@@ -566,8 +566,6 @@ describe("listVault", () => {
     const listed = await listVault(owner.session);
     expect(listed.contacts.map((contact) => contact.name)).toEqual(["Ada Lovelace"]);
     expect(listed.unopened).toBe(1);
-    // Both rows count: this is what a rotation would have to carry.
-    expect(listed.objectCount).toBe(2);
   });
 
   it("reports nothing unopened for a vault it can read whole", async () => {
@@ -1208,6 +1206,88 @@ describe("rotateAuthenticated", () => {
       },
     };
   }
+
+  it("rotates a vault that takes more than one page to read", async () => {
+    const owner = account();
+    // Three objects the server hands over one page at a time. A single-page read
+    // stopped here with "too large to rotate", although the server's own ceiling
+    // is the rotation body, which it holds every write to.
+    const sealedObjects = [3, 4, 5].map((revision) => {
+      const id = newUuid();
+      const sealed = sealObject(
+        owner.session.collectionKey,
+        id,
+        owner.collectionId,
+        JSCONTACT_CONTENT_TYPE,
+        JSON.stringify({ "@type": "Card", name: { full: `Contact ${revision}` } }),
+      );
+      const object: SealedObject = {
+        id,
+        revision,
+        tombstone: false,
+        nonce: sealed.nonce,
+        ciphertext: sealed.ciphertext,
+        padded_size: sealed.padded_size,
+        content_type: sealedContentType(),
+      };
+      const entry: ManifestEntry = {
+        id,
+        revision,
+        tombstone: false,
+        content_digest: objectContentDigest(sealed.nonce, sealed.ciphertext),
+      };
+      return { object, entry };
+    });
+    const entries = sealedObjects.map((item) => item.entry);
+    const manifest = manifestSign(
+      owner.enrollment.mldsa_seed,
+      owner.enrollment.ed25519_sk,
+      owner.collectionId,
+      owner.enrollment.device_id,
+      2,
+      1,
+      5,
+      entries,
+    );
+    owner.session.manifestSeq = 2;
+    owner.session.state.manifest_seq = 2;
+    const pagesServed: number[] = [];
+    const { sent } = server({
+      "/manifest": () => ({ manifest, entries }),
+      "/changes": (url) => {
+        const after = Number(url.searchParams.get("after") ?? 0);
+        pagesServed.push(after);
+        const remaining = sealedObjects.filter((item) => item.object.revision > after);
+        const [next] = remaining;
+        return {
+          latest_revision: 5,
+          key_epoch: 1,
+          objects: next ? [next.object] : [],
+          has_more: remaining.length > 1,
+          manifest,
+          resync: false,
+          tombstone_floor: 3,
+        };
+      },
+      "/roster": () => ({ rosters: [owner.roster] }),
+      "/rotate": () => ({ key_epoch: 2, latest_revision: 8 }),
+    });
+
+    await rotateAuthenticated(owner.session, null, PASSWORD);
+
+    const body = sent["/rotate"] as {
+      objects: { id: string; revision: number }[];
+      manifest: { object_count: number };
+    };
+    expect(pagesServed).toEqual([0, 3, 4]);
+    // Every object re-encrypted, numbered consecutively from the collection's
+    // next revision, which is what the server requires of a rotation.
+    expect(body.objects.map((object) => object.id)).toEqual(
+      sealedObjects.map((item) => item.object.id),
+    );
+    expect(body.objects.map((object) => object.revision)).toEqual([6, 7, 8]);
+    expect(body.manifest.object_count).toBe(3);
+  });
 
   it("re-encrypts the live objects, keeps the reachable tombstone and retires the old one", async () => {
     const { body, liveId, keptId, oldId } = await rotate({ tombstoneFloor: 3 });

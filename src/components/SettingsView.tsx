@@ -16,7 +16,6 @@ import {
   putCalendarEvent,
   listDevices,
   revokeDevice,
-  ROTATION_OBJECT_LIMIT,
   rotatePhrase,
 } from "../lib/client";
 import {
@@ -79,8 +78,6 @@ type Props = {
   calendarEvents: CalendarEvent[];
   notes: Note[];
   notebooks: Notebook[];
-  /** Compared against `ROTATION_OBJECT_LIMIT` to warn before a revocation fails. */
-  objectCount: number;
   onSessionUpdate: (updated: Session) => void;
   onPersistSession: (updated: Session, password: string) => Promise<void>;
   onAccountDeleted: () => void;
@@ -160,7 +157,6 @@ export function SettingsView({
   calendarEvents,
   notes,
   notebooks,
-  objectCount,
   onSessionUpdate,
   onPersistSession,
   onAccountDeleted,
@@ -1397,13 +1393,6 @@ export function SettingsView({
             key and re-encrypts your data, so the removed device keeps nothing it
             can still read.
           </p>
-          {objectCount >= ROTATION_OBJECT_LIMIT ? (
-            <p className="mt-2 text-xs leading-relaxed text-amber-300 max-w-md" role="status">
-              This vault holds {objectCount.toLocaleString()} objects. A rotation re-encrypts all
-              of them in one request, which stops at {ROTATION_OBJECT_LIMIT.toLocaleString()}, so
-              revoking a device or retiring a recovery phrase may fail until that limit is lifted.
-            </p>
-          ) : null}
         </div>
 
         <div className="mt-5 space-y-2">
