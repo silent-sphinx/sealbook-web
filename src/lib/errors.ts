@@ -57,6 +57,11 @@ export function friendlyError(err: unknown): string {
   if (err instanceof Error && err.name === "DeviceStorageError") {
     return raw;
   }
+  // Also written for a person, and it names the remedy. The generic fallback
+  // would say "try again", which offline is exactly what will not help.
+  if (err instanceof Error && err.name === "OfflineUnavailableError") {
+    return raw;
+  }
   if (text.includes("confirmation")) {
     return "The two devices don't show the same code. Start the pairing again.";
   }

@@ -186,6 +186,21 @@ function awaitImportPassword(password: string): Promise<CryptoKey> {
   );
 }
 
+/**
+ * The vault cannot be opened without reaching the server this once.
+ *
+ * Raised where there is no offline snapshot to fall back on, or where the one
+ * stored predates the current password. The message is written for a person and
+ * names the remedy, so `friendlyError` passes it through instead of flattening
+ * it into "try again", which is the one thing that cannot work here.
+ */
+export class OfflineUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OfflineUnavailableError";
+  }
+}
+
 export class DeviceStorageError extends Error {
   constructor(cause: unknown) {
     super(

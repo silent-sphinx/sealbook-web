@@ -69,6 +69,7 @@ import {
   loadDeviceMetadata,
   loadUnverifiedLegacyDevice,
   loadVaultSnapshot,
+  OfflineUnavailableError,
   saveConnectionDomain,
   saveDevice,
   saveVaultSnapshot,
@@ -1137,7 +1138,9 @@ export default function App() {
           throw new Error("Wrong password");
         }
         if (!navigator.onLine) {
-          throw new Error("Connect to the server once to finish securing this device's stored keys.");
+          throw new OfflineUnavailableError(
+            "Connect to the server once to finish securing this device's stored keys.",
+          );
         }
         await openSession(await loginAccount(legacy, password), password);
         return;
@@ -1145,7 +1148,9 @@ export default function App() {
       if (!navigator.onLine) {
         const snapshot = await loadVaultSnapshot(password);
         if (!snapshot) {
-          throw new Error("Connect to the server once before using the vault offline.");
+          throw new OfflineUnavailableError(
+            "Connect to the server once before using the vault offline.",
+          );
         }
         setAddressBooks(snapshot.addressBooks);
         setContacts(snapshot.contacts);

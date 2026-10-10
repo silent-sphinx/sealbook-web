@@ -6,6 +6,7 @@ import {
   RosterTooOldError,
   ServerUnreachableError,
 } from "./client";
+import { OfflineUnavailableError } from "./storage";
 
 describe("friendlyError", () => {
   it("passes a manifest failure through instead of calling it a glitch", () => {
@@ -69,6 +70,13 @@ describe("friendlyError", () => {
     const text = friendlyError(new RequestTimeoutError("sent nothing back within 30 seconds"));
     expect(text).not.toBe("Something went wrong. Try again.");
     expect(text).toContain("in time");
+  });
+
+  it("keeps the remedy when the vault needs the server this once", () => {
+    // The generic fallback tells the user to try again, which is the one thing
+    // that cannot work while they are offline.
+    const message = "Connect to the server once before using the vault offline.";
+    expect(friendlyError(new OfflineUnavailableError(message))).toBe(message);
   });
 
   it("falls back for anything it does not recognise", () => {
