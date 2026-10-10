@@ -4,3 +4,4 @@ src/pkg
 .DS_Store
 *.local
 BUGS.md
+tsconfig.app.tsbuildinfo

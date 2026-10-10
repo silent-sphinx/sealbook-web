@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import logo from "./assets/sealbook-white.png";
+// 192px: four times the largest size it is drawn at, so it stays sharp at
+// any display density. The 1254px original beside it is the master to
+// regenerate from and is not bundled.
+import logo from "./assets/sealbook-white-192.png";
 import { AddressBookList } from "./components/AddressBookList";
 import { SidebarDrawer, useSidebar } from "./components/SidebarDrawer";
 import { SplitHandle, useSplitPane } from "./components/SplitPane";

@@ -1,0 +1,22 @@
+version: 2
+
+updates:
+  # The browser bundle and the toolchain around it.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the patch and minor churn, so a major is the only thing that
+      # needs reading carefully.
+      routine:
+        update-types:
+          - minor
+          - patch
+
+  # The actions in ci.yml pin a major each; this moves them when one lands.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

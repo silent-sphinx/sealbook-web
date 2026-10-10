@@ -7,3 +7,11 @@ services:
     restart: unless-stopped
     ports:
       - "8080:80"
+    # nginx answering for the SPA entry point is what "up" means here; the
+    # image carries no curl, so this uses the busybox wget it does have.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/ || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
