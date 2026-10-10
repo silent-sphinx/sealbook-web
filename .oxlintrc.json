@@ -1,0 +1,47 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  // oxlint rather than ESLint because this project is on TypeScript 7, and
+  // typescript-eslint peers on `typescript <6.1.0`: installing it needs
+  // --legacy-peer-deps, which would weaken resolution for every other
+  // dependency too. oxlint parses TypeScript itself and has no such peer.
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "react", "jsx-a11y", "vitest"],
+  "categories": {
+    "correctness": "error"
+  },
+  "ignorePatterns": ["src/pkg/**", "dist/**"],
+  "rules": {
+    // Off: each of these fights a pattern this codebase uses on purpose.
+    //
+    // `ref.current` is assigned during render in Modal, NotesView and
+    // NoteEditor so a queued callback closes over the current props while the
+    // effect that owns it is created once. Each site says so.
+    "react/refs": "off",
+    "react/purity": "off",
+    // Modal's focus trap looks for `[autofocus]` inside the panel to decide
+    // where to put the caret, so the attribute is load-bearing here.
+    "jsx-a11y/no-autofocus": "off",
+    // The radio and status roles sit on styled elements that cannot be an
+    // `input` or an `output` without losing the styling they exist for.
+    "jsx-a11y/prefer-tag-over-role": "off",
+    // Deliberate preallocation on the base64 path in `bytes.ts`.
+    "unicorn/no-new-array": "off",
+    // Several suites assert through helpers that take the expectation with
+    // them, which this rule cannot see into.
+    "vitest/expect-expect": "off",
+
+    // Warn: a real backlog, surfaced on every run but not yet blocking. Flip
+    // these to "error" as they are cleared, and add --max-warnings 0 to the
+    // lint script once the last one is gone.
+    "jsx-a11y/label-has-associated-control": "warn",
+    "jsx-a11y/control-has-associated-label": "warn",
+    "jsx-a11y/click-events-have-key-events": "warn",
+    "jsx-a11y/no-static-element-interactions": "warn",
+    "jsx-a11y/no-noninteractive-element-interactions": "warn",
+    "jsx-a11y/autocomplete-valid": "warn",
+    // Usually a prop-to-state sync, which is legitimate, but it is also how a
+    // cascading-render bug looks, so it stays visible.
+    "react/set-state-in-effect": "warn",
+    "vitest/require-to-throw-message": "warn",
+    "vitest/require-mock-type-parameters": "warn"
+  }
+}

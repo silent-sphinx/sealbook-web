@@ -49,6 +49,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Needs neither the wasm package nor the toolchain that builds it, so it
+      # runs ahead of both. Warnings are reported without failing the job; see
+      # the backlog noted in .oxlintrc.json.
+      - name: Lint
+        run: npm run lint
+
       - name: Build the WebAssembly package
         run: npm run wasm
 

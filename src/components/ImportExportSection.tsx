@@ -157,8 +157,10 @@ export function ImportExportSection({
       }
 
       for (let i = 0; i < parsedContacts.length; i++) {
-        const draft = parsedContacts[i];
-        draft.addressBookId = finalBookId;
+        // Copied rather than assigned into: `parsedContacts` is state, and
+        // leaving the originals as parsed means a re-run after a partial
+        // failure starts from the same drafts rather than from edited ones.
+        const draft = { ...parsedContacts[i], addressBookId: finalBookId };
         if (draft.avatar && (draft.avatar.startsWith("data:") || draft.avatar.startsWith("blob:"))) {
           try {
             draft.avatar = await optimizeAvatar(draft.avatar);

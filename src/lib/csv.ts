@@ -114,7 +114,7 @@ export function parseCsvContacts(
 
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
-    if (row.length === 0 || row.every((c) => !c)) continue;
+    if (row.every((c) => !c)) continue;
 
     const get = (patterns: string[]): string => {
       for (const pattern of patterns) {

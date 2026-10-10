@@ -629,6 +629,7 @@ export default function App() {
       log.info("no server configured yet; showing the connection setup screen");
     }
     // Startup state only, so it is not repeated on every later change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // The calendar fills the viewport below the header, so it needs the header's
@@ -848,6 +849,11 @@ export default function App() {
         window.removeEventListener(event, resetFromBurst, burstOptions),
       );
     };
+    // `lock` is redeclared every render, so listing it here would tear down and
+    // rebuild these timers on every render and the vault would never reach the
+    // idle timeout. The only state it reads is `session`, which is already a
+    // dependency, so the one it closes over is never stale.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
   useEffect(() => {
@@ -903,6 +909,10 @@ export default function App() {
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
     };
+    // As above: `refresh` is redeclared every render, and the only state it
+    // reads is `password`, which is already a dependency. It takes the session
+    // to load as an argument rather than closing over one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [password, session]);
 
   async function openSession(next: Session, passwordForStorage: string) {

@@ -124,7 +124,7 @@ describe("the profile payload", () => {
       value: `Interest ${index}`,
     }));
     const body = serializeProfile(profile({ interests: many }));
-    expect((body?.interests as string[]).length).toBe(MAX_PROFILE_ENTRIES);
+    expect(body?.interests).toHaveLength(MAX_PROFILE_ENTRIES);
     const back = parseProfile({ interests: many.map((row) => row.value) });
     expect(back?.interests.length).toBe(MAX_PROFILE_ENTRIES);
   });
