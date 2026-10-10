@@ -14,6 +14,19 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(version),
   },
   plugins: [
+    {
+      name: "sealbook-dev-csp",
+      transformIndexHtml(html, context) {
+        if (!context.server) {
+          return html;
+        }
+
+        return html.replace(
+          "script-src 'self' 'wasm-unsafe-eval'",
+          "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+        );
+      },
+    },
     react(),
     tailwindcss(),
     basicSsl(),
