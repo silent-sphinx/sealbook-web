@@ -42,13 +42,24 @@ export function parseImportContent(
     trimmed.startsWith("[") ||
     trimmed.startsWith("{")
   ) {
+    // Only the parse is guarded. A wider `try` here also swallowed the limit
+    // below, so an oversized list fell through to the CSV branch and the import
+    // reported no contacts rather than saying what was wrong with the file.
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(trimmed);
-      const list = Array.isArray(parsed)
-        ? parsed
-        : Array.isArray(parsed.contacts)
-          ? parsed.contacts
-          : [parsed];
+      parsed = JSON.parse(trimmed);
+    } catch {
+      parsed = null;
+    }
+    if (parsed !== null && typeof parsed === "object") {
+      const wrapper = parsed as { contacts?: unknown };
+      const list = (
+        Array.isArray(parsed)
+          ? parsed
+          : Array.isArray(wrapper.contacts)
+            ? wrapper.contacts
+            : [parsed]
+      ) as Record<string, unknown>[];
       if (list.length > MAX_IMPORTED_CONTACTS) {
         throw new Error("Import contains too many contacts (maximum 1,000).");
       }
@@ -82,8 +93,6 @@ export function parseImportContent(
       if (drafts.length > 0) {
         return { format: "JSON", contacts: drafts };
       }
-    } catch {
-      // Not JSON, continue to vCard or CSV
     }
   }
 
