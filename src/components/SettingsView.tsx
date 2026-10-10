@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
   type ChangeEvent,
@@ -176,6 +177,8 @@ export function SettingsView({
   );
   // Calendar import state
   const icsInputRef = useRef<HTMLInputElement | null>(null);
+  // Prefix for the ids that tie this view's labels to their controls.
+  const ids = useId();
   const [icsDragActive, setIcsDragActive] = useState(false);
   const [icsFile, setIcsFile] = useState<{ name: string; size: number } | null>(null);
   const [parsedIcsFormat, setParsedIcsFormat] = useState<string | null>(null);
@@ -977,13 +980,25 @@ export function SettingsView({
 
             {/* Dropzone / File Picker */}
             {!icsFile ? (
+              // The file input below is `display: none`, so it is not in the
+              // accessibility tree and cannot be tabbed to. This zone is the only
+              // way to pick a file, so it carries the button semantics and the
+              // keyboard activation itself.
               <div
+                role="button"
+                tabIndex={0}
+                aria-label="Choose a calendar file to import, or drop one here"
                 onDragEnter={handleIcsDrag}
                 onDragLeave={handleIcsDrag}
                 onDragOver={handleIcsDrag}
                 onDrop={handleIcsDrop}
                 onClick={() => icsInputRef.current?.click()}
-                className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-7 text-center transition-all cursor-pointer ${
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  icsInputRef.current?.click();
+                }}
+                className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-7 text-center transition-all cursor-pointer ${focusRing} ${
                   icsDragActive
                     ? "border-accent bg-accent/10 scale-[0.99]"
                     : "border-line/80 hover:border-line-light hover:bg-surface/30"
@@ -1043,7 +1058,7 @@ export function SettingsView({
                 {/* Calendar Selection Prompt */}
                 <div className="space-y-2 pt-1">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-medium text-text">
+                    <label htmlFor={`${ids}-ics-calendar`} className="text-xs font-medium text-text">
                       Target Calendar
                     </label>
                     <button
@@ -1058,6 +1073,7 @@ export function SettingsView({
 
                   {isCreatingCalendar || calendars.length === 0 ? (
                     <input
+                      id={`${ids}-ics-calendar`}
                       type="text"
                       value={newCalendarName}
                       onChange={(e) => setNewCalendarName(e.target.value)}
@@ -1068,6 +1084,7 @@ export function SettingsView({
                     />
                   ) : (
                     <select
+                      id={`${ids}-ics-calendar`}
                       value={icsCalendarId}
                       onChange={(e) => setIcsCalendarId(e.target.value)}
                       disabled={importingIcs}
@@ -1186,10 +1203,11 @@ export function SettingsView({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Source Calendar */}
               <div>
-                <label className="block text-xs font-medium text-text mb-1">
+                <label htmlFor={`${ids}-export-calendar`} className="block text-xs font-medium text-text mb-1">
                   Source Calendar
                 </label>
                 <select
+                  id={`${ids}-export-calendar`}
                   value={exportCalendarId}
                   onChange={(e) => setExportCalendarId(e.target.value)}
                   className={selectField}
@@ -1212,10 +1230,11 @@ export function SettingsView({
 
               {/* Export Format */}
               <div>
-                <label className="block text-xs font-medium text-text mb-1">
+                <label htmlFor={`${ids}-export-format`} className="block text-xs font-medium text-text mb-1">
                   Export Format
                 </label>
                 <select
+                  id={`${ids}-export-format`}
                   value={calendarExportFormat}
                   onChange={(e) => setCalendarExportFormat(e.target.value as "ics" | "json")}
                   className={selectField}
@@ -1270,10 +1289,11 @@ export function SettingsView({
 
         <form onSubmit={handleChangeUsername} className="mt-6 space-y-4">
           <div>
-            <label className="block text-xs font-medium text-text">
+            <label htmlFor={`${ids}-new-username`} className="block text-xs font-medium text-text">
               New Username
             </label>
             <input
+              id={`${ids}-new-username`}
               type="text"
               value={newUsername}
               onChange={(e) => setNewUsername(e.target.value)}
@@ -1284,10 +1304,11 @@ export function SettingsView({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-text">
+            <label htmlFor={`${ids}-username-password`} className="block text-xs font-medium text-text">
               Current Password (to confirm)
             </label>
             <PasswordField
+              id={`${ids}-username-password`}
               value={usernamePassword}
               onChange={(e) => setUsernamePassword(e.target.value)}
               placeholder="Current password"
@@ -1325,10 +1346,11 @@ export function SettingsView({
         </div>
         <form onSubmit={handleChangePassword} className="mt-6 space-y-4">
           <div>
-            <label className="block text-xs font-medium text-text">
+            <label htmlFor={`${ids}-current-password`} className="block text-xs font-medium text-text">
               Current Password
             </label>
             <PasswordField
+              id={`${ids}-current-password`}
               value={passwordCurrent}
               onChange={(e) => setPasswordCurrent(e.target.value)}
               placeholder="Current password"
@@ -1338,10 +1360,11 @@ export function SettingsView({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-text">
+            <label htmlFor={`${ids}-new-password`} className="block text-xs font-medium text-text">
               New Password
             </label>
             <PasswordField
+              id={`${ids}-new-password`}
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="At least 8 characters"
@@ -1351,10 +1374,11 @@ export function SettingsView({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-text">
+            <label htmlFor={`${ids}-confirm-password`} className="block text-xs font-medium text-text">
               Confirm New Password
             </label>
             <PasswordField
+              id={`${ids}-confirm-password`}
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Re-type new password"

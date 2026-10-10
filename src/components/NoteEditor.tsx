@@ -265,6 +265,10 @@ export function NoteEditor({ noteId, value, editable, onChange, header }: Props)
   }
 
   return (
+    // Clicking the margin drops the caret into the editor, a pointer-only
+    // convenience: the body is a contenteditable that the keyboard reaches
+    // by tabbing to it directly.
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
     <div
       onClick={focusFromMargin}
       className="note-editor note-scroll relative min-h-0 flex-1 overflow-y-auto px-5 lg:px-10"
@@ -272,7 +276,10 @@ export function NoteEditor({ noteId, value, editable, onChange, header }: Props)
       <div className="note-column flex min-h-full flex-col pb-24 pt-7">
         {header ? (
           // Enter or Down from the title carries on into the body, the way one
-          // field flowing into the next is expected to.
+          // field flowing into the next is expected to. Delegated from the
+          // wrapper rather than bound to the title, which `header` owns; the
+          // control itself is the input inside.
+          // eslint-disable-next-line jsx-a11y/no-static-element-interactions
           <div
             onKeyDown={(event) => {
               if (event.key !== "Enter" && event.key !== "ArrowDown") return;

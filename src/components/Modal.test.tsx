@@ -91,7 +91,7 @@ describe("Modal", () => {
   });
 
   it("closes on Escape", () => {
-    const onClose = vi.fn();
+    const onClose = vi.fn<() => void>();
     render(
       <Modal title="Settings" onClose={onClose}>
         body
@@ -103,8 +103,8 @@ describe("Modal", () => {
   });
 
   it("dismisses only the topmost of two stacked dialogs", () => {
-    const onCloseOuter = vi.fn();
-    const onCloseInner = vi.fn();
+    const onCloseOuter = vi.fn<() => void>();
+    const onCloseInner = vi.fn<() => void>();
     render(
       <>
         <Modal title="Form" onClose={onCloseOuter}>
@@ -123,7 +123,7 @@ describe("Modal", () => {
   });
 
   it("closes from the header button", () => {
-    const onClose = vi.fn();
+    const onClose = vi.fn<() => void>();
     render(
       <Modal title="Settings" onClose={onClose}>
         body
@@ -135,7 +135,7 @@ describe("Modal", () => {
   });
 
   it("closes on a click on the backdrop but not on one inside the panel", () => {
-    const onClose = vi.fn();
+    const onClose = vi.fn<() => void>();
     render(
       <Modal title="Settings" onClose={onClose}>
         <p>body</p>

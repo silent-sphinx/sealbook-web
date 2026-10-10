@@ -204,6 +204,9 @@ export function ContactForm({
                 value={draft.nickname ?? ""}
                 onChange={(e) => patch({ nickname: e.target.value })}
                 className={field}
+                // `nickname` is in the HTML autofill field names; oxlint's
+                // list of them is short of it.
+                // eslint-disable-next-line jsx-a11y/autocomplete-valid
                 autoComplete="nickname"
               />
             </label>

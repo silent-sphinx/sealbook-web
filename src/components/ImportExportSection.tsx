@@ -1,4 +1,4 @@
-import { useState, useRef, type ChangeEvent, type DragEvent } from "react";
+import { useId, useState, useRef, type ChangeEvent, type DragEvent } from "react";
 import type { AddressBook, Contact, ContactDraft } from "../lib/types";
 import type { Session } from "../lib/client";
 import { putContact } from "../lib/client";
@@ -17,6 +17,7 @@ import {
   btnSecondary,
   field,
   selectField,
+  focusRing,
 } from "../lib/styles";
 
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
@@ -45,6 +46,8 @@ export function ImportExportSection({
   const [targetBookId, setTargetBookId] = useState<string>(
     addressBooks[0]?.id ?? DEFAULT_ADDRESS_BOOK_ID,
   );
+  // Prefix for the ids that tie this section's labels to their controls.
+  const ids = useId();
   const [isCreatingBook, setIsCreatingBook] = useState(false);
   const [newBookName, setNewBookName] = useState("");
   const [importing, setImporting] = useState(false);
@@ -248,13 +251,25 @@ export function ImportExportSection({
 
         {/* Dropzone / File Picker */}
         {!importFile ? (
+          // The file input below is `display: none`, so it is not in the
+          // accessibility tree and cannot be tabbed to. This zone is the only
+          // way to pick a file, so it carries the button semantics and the
+          // keyboard activation itself.
           <div
+            role="button"
+            tabIndex={0}
+            aria-label="Choose a contacts file to import, or drop one here"
             onDragEnter={handleDrag}
             onDragLeave={handleDrag}
             onDragOver={handleDrag}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
-            className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-7 text-center transition-all cursor-pointer ${
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              fileInputRef.current?.click();
+            }}
+            className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-7 text-center transition-all cursor-pointer ${focusRing} ${
               dragActive
                 ? "border-accent bg-accent/10 scale-[0.99]"
                 : "border-line/80 hover:border-line-light hover:bg-surface/30"
@@ -313,7 +328,7 @@ export function ImportExportSection({
             {/* Address Book Selection Prompt */}
             <div className="space-y-2 pt-1">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-text">
+                <label htmlFor={`${ids}-target-book`} className="text-xs font-medium text-text">
                   Target Address Book
                 </label>
                 {onCreateBook && (
@@ -330,6 +345,7 @@ export function ImportExportSection({
 
               {isCreatingBook ? (
                 <input
+                  id={`${ids}-target-book`}
                   type="text"
                   value={newBookName}
                   onChange={(e) => setNewBookName(e.target.value)}
@@ -340,6 +356,7 @@ export function ImportExportSection({
                 />
               ) : (
                 <select
+                  id={`${ids}-target-book`}
                   value={targetBookId}
                   onChange={(e) => setTargetBookId(e.target.value)}
                   disabled={importing}
@@ -459,10 +476,11 @@ export function ImportExportSection({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* Source Address Book */}
           <div>
-            <label className="block text-xs font-medium text-text mb-1">
+            <label htmlFor={`${ids}-source-book`} className="block text-xs font-medium text-text mb-1">
               Source Address Book
             </label>
             <select
+              id={`${ids}-source-book`}
               value={exportBookFilter}
               onChange={(e) => setExportBookFilter(e.target.value)}
               className={selectField}
@@ -485,10 +503,11 @@ export function ImportExportSection({
 
           {/* Export Format */}
           <div>
-            <label className="block text-xs font-medium text-text mb-1">
+            <label htmlFor={`${ids}-export-format`} className="block text-xs font-medium text-text mb-1">
               Export Format
             </label>
             <select
+              id={`${ids}-export-format`}
               value={exportFormat}
               onChange={(e) => setExportFormat(e.target.value as ExportFormat)}
               className={selectField}

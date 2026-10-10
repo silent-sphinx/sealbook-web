@@ -1,4 +1,4 @@
-import { useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { useId, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 
 import { putNote } from "../lib/client";
 import type { Session } from "../lib/client";
@@ -17,7 +17,7 @@ import {
   type NoteExportFormat,
   type NoteImportResult,
 } from "../lib/noteExport";
-import { btnPrimary, btnSecondary, field, selectField } from "../lib/styles";
+import { btnPrimary, btnSecondary, field, focusRing, selectField } from "../lib/styles";
 import type { Note, NoteDraft, Notebook } from "../lib/types";
 
 const MAX_IMPORT_FILE_BYTES = 128 * 1024 * 1024;
@@ -46,6 +46,8 @@ export function NotesImportExportSection({
   const [targetNotebookId, setTargetNotebookId] = useState<string>(
     notebooks[0]?.id ?? DEFAULT_NOTEBOOK_ID,
   );
+  // Prefix for the ids that tie this section's labels to their controls.
+  const ids = useId();
   const [isCreatingNotebook, setIsCreatingNotebook] = useState(false);
   const [newNotebookName, setNewNotebookName] = useState("");
   const [importing, setImporting] = useState(false);
@@ -219,13 +221,25 @@ export function NotesImportExportSection({
         </div>
 
         {!importFile || !parsed ? (
+          // The file input below is `display: none`, so it is not in the
+          // accessibility tree and cannot be tabbed to. This zone is the only
+          // way to pick a file, so it carries the button semantics and the
+          // keyboard activation itself.
           <div
+            role="button"
+            tabIndex={0}
+            aria-label="Choose a notes file to import, or drop one here"
             onDragEnter={handleDrag}
             onDragLeave={handleDrag}
             onDragOver={handleDrag}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
-            className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-7 text-center transition-all cursor-pointer ${
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              fileInputRef.current?.click();
+            }}
+            className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-7 text-center transition-all cursor-pointer ${focusRing} ${
               dragActive
                 ? "border-accent bg-accent/10 scale-[0.99]"
                 : "border-line/80 hover:border-line-light hover:bg-surface/30"
@@ -279,7 +293,9 @@ export function NotesImportExportSection({
 
             <div className="space-y-2 pt-1">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-text">Target notebook</label>
+                <label htmlFor={`${ids}-target-notebook`} className="text-xs font-medium text-text">
+                  Target notebook
+                </label>
                 {onCreateNotebook ? (
                   <button
                     type="button"
@@ -293,6 +309,7 @@ export function NotesImportExportSection({
               </div>
               {isCreatingNotebook || notebooks.length === 0 ? (
                 <input
+                  id={`${ids}-target-notebook`}
                   type="text"
                   value={newNotebookName}
                   onChange={(event) => setNewNotebookName(event.target.value)}
@@ -303,6 +320,7 @@ export function NotesImportExportSection({
                 />
               ) : (
                 <select
+                  id={`${ids}-target-notebook`}
                   value={targetNotebookId}
                   onChange={(event) => setTargetNotebookId(event.target.value)}
                   disabled={importing}
@@ -391,8 +409,11 @@ export function NotesImportExportSection({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-text mb-1">Source notebook</label>
+            <label htmlFor={`${ids}-source-notebook`} className="block text-xs font-medium text-text mb-1">
+              Source notebook
+            </label>
             <select
+              id={`${ids}-source-notebook`}
               value={exportNotebookFilter}
               onChange={(event) => setExportNotebookFilter(event.target.value)}
               className={selectField}
@@ -412,8 +433,11 @@ export function NotesImportExportSection({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-text mb-1">Export format</label>
+            <label htmlFor={`${ids}-note-export-format`} className="block text-xs font-medium text-text mb-1">
+              Export format
+            </label>
             <select
+              id={`${ids}-note-export-format`}
               value={exportFormat}
               onChange={(event) => setExportFormat(event.target.value as NoteExportFormat)}
               className={selectField}

@@ -9,6 +9,16 @@
     "correctness": "error"
   },
   "ignorePatterns": ["src/pkg/**", "dist/**"],
+  "settings": {
+    "jsx-a11y": {
+      // PasswordField renders an input and forwards every prop to it, so the
+      // a11y rules can reason about it as one. Without this a label wrapping
+      // it reads as a label wrapping nothing.
+      "components": {
+        "PasswordField": "input"
+      }
+    }
+  },
   "rules": {
     // Off: each of these fights a pattern this codebase uses on purpose.
     //
@@ -29,15 +39,39 @@
     // them, which this rule cannot see into.
     "vitest/expect-expect": "off",
 
-    // Warn: a real backlog, surfaced on every run but not yet blocking. Flip
-    // these to "error" as they are cleared, and add --max-warnings 0 to the
-    // lint script once the last one is gone.
-    "jsx-a11y/label-has-associated-control": "warn",
-    "jsx-a11y/control-has-associated-label": "warn",
-    "jsx-a11y/click-events-have-key-events": "warn",
-    "jsx-a11y/no-static-element-interactions": "warn",
-    "jsx-a11y/no-noninteractive-element-interactions": "warn",
-    "jsx-a11y/autocomplete-valid": "warn",
+    // The jsx-a11y set is clean, so it gates as an error through the
+    // correctness category above. These two keep an override only to carry
+    // their options.
+    //
+    // depth 3, not the default 2: the delete-choice radios put their text in
+    // a nested span pair, which a browser still reads as the label's text.
+    "jsx-a11y/label-has-associated-control": ["error", { "depth": 3 }],
+    // A datalist option carries its text in `value`, and the mailto/tel rows in
+    // ContactDetailModal name themselves from descendant text one level below
+    // the default search depth. `ignoreElements` restates the rule's own
+    // defaults, which supplying the list replaces.
+    "jsx-a11y/control-has-associated-label": [
+      "error",
+      {
+        "depth": 3,
+        "ignoreElements": [
+          "audio",
+          "canvas",
+          "datalist",
+          "embed",
+          "input",
+          "option",
+          "textarea",
+          "tr",
+          "video"
+        ]
+      }
+    ],
+
+    // Warn: what is left of the backlog, surfaced on every run but not
+    // blocking. Flip each to "error" as it is cleared, and add
+    // --max-warnings 0 to the lint script once the last one is gone.
+    //
     // Usually a prop-to-state sync, which is legitimate, but it is also how a
     // cascading-render bug looks, so it stays visible.
     "react/set-state-in-effect": "warn",

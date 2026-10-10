@@ -95,9 +95,17 @@ export function Modal({ title, children, onClose }: Props) {
   }, []);
 
   return createPortal(
+    // Closing on a backdrop click has no keyboard equivalent of its own, by
+    // design: Escape is the keyboard path, handled in the effect above.
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 sm:p-6 animate-fade-in"
-      onClick={onClose}
+      onClick={(event) => {
+        // Only a click that landed on the backdrop itself. Testing the target
+        // rather than stopping propagation on the panel leaves clicks inside
+        // the dialog visible to anything else listening on the document.
+        if (event.target === event.currentTarget) onClose();
+      }}
     >
       <div
         ref={panelRef}
@@ -106,7 +114,6 @@ export function Modal({ title, children, onClose }: Props) {
         aria-labelledby={titleId}
         tabIndex={-1}
         className="flex max-h-[min(92dvh,42rem)] w-full min-w-0 max-w-xl flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl shadow-black/50 outline-none animate-scale-in"
-        onClick={(event) => event.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between gap-4 border-b border-line px-6 py-4.5">
           <h2
