@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { friendlyError } from "./errors";
-import { ManifestError, RosterTooOldError } from "./client";
+import {
+  ManifestError,
+  RequestTimeoutError,
+  RosterTooOldError,
+  ServerUnreachableError,
+} from "./client";
 
 describe("friendlyError", () => {
   it("passes a manifest failure through instead of calling it a glitch", () => {
@@ -51,6 +56,19 @@ describe("friendlyError", () => {
     expect(friendlyError(new Error("those words didn't match the phrase"))).toBe(
       "Those words didn't match.",
     );
+  });
+
+  it("names an unreachable server instead of advising a retry", () => {
+    const text = friendlyError(new ServerUnreachableError("The server could not be reached."));
+    expect(text).not.toBe("Something went wrong. Try again.");
+    expect(text).toContain("reach the server");
+    expect(text).toContain("address");
+  });
+
+  it("separates a server that never answered from one that was never there", () => {
+    const text = friendlyError(new RequestTimeoutError("sent nothing back within 30 seconds"));
+    expect(text).not.toBe("Something went wrong. Try again.");
+    expect(text).toContain("in time");
   });
 
   it("falls back for anything it does not recognise", () => {

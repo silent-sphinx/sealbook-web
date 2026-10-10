@@ -13,6 +13,7 @@ import {
   putContact,
   rotateAuthenticated,
   RosterTooOldError,
+  ServerUnreachableError,
   splitForRotation,
   syncRoster,
   verifiedRoster,
@@ -1585,5 +1586,36 @@ describe("normalizeServer", () => {
 
   it("still rejects embedded credentials", () => {
     expect(() => normalizeServer("https://user:pw@vault.example.com")).toThrow(/credentials/u);
+  });
+});
+
+describe("every request", () => {
+  it("is bounded by an abort signal, so a server that answers nothing cannot hang the caller", async () => {
+    const owner = account();
+    const { fetchMock } = server({ "/v1/pair/PAIRCODE": () => ({}) });
+
+    // The answer is beside the point here; what was sent is the subject.
+    await expect(pairPreview(owner.session, "PAIRCODE")).rejects.toThrow();
+
+    const [, options] = fetchMock.mock.calls[0]!;
+    expect(options?.signal).toBeInstanceOf(AbortSignal);
+    expect(options?.signal?.aborted).toBe(false);
+  });
+
+  it("names a server it could not reach rather than passing on the engine's wording", async () => {
+    const owner = account();
+    // What `fetch` rejects with when nothing is listening. The message is
+    // "Failed to fetch" in Chrome and "Load failed" in Safari, which is why the
+    // client names the case instead of matching either.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+
+    await expect(pairPreview(owner.session, "PAIRCODE")).rejects.toBeInstanceOf(
+      ServerUnreachableError,
+    );
   });
 });

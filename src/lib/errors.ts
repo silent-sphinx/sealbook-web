@@ -1,6 +1,16 @@
 export function friendlyError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   const text = raw.toLowerCase();
+  // Matched by name, before the message branches below: the engine's own
+  // wording for a failed request ("Failed to fetch", "Load failed") matches
+  // none of them, and the generic fallback's "try again" is not the remedy for
+  // a wrong address or a server that is down. Named in `client`.
+  if (err instanceof Error && err.name === "ServerUnreachableError") {
+    return "Couldn't reach the server. Check your connection, and the server address in Settings.";
+  }
+  if (err instanceof Error && err.name === "RequestTimeoutError") {
+    return "The server didn't answer in time. It may be starting up, or the address may point somewhere else.";
+  }
   if (text.includes("username taken")) {
     return "That name is taken.";
   }

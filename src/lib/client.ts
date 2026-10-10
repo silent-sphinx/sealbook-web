@@ -113,6 +113,41 @@ class ApiError extends Error {
   }
 }
 
+/**
+ * How long a single call to the server may take before it is abandoned.
+ *
+ * A server that accepts the connection and then never answers, which is what a
+ * suspended machine or a captive portal looks like, would otherwise leave the
+ * promise pending for as long as the tab is open: the caller's spinner stays up
+ * and there is nothing for the user to act on. Generous enough that no healthy
+ * request reaches it, since a `/changes` page is bounded by
+ * `CHANGES_PAGE_LIMIT` rows rather than by the size of the vault.
+ */
+const REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * The request never reached a server: wrong address, nothing listening, TLS
+ * refused, or the network dropped mid-flight.
+ *
+ * Named rather than left as the `TypeError` `fetch` rejects with, whose message
+ * is "Failed to fetch" in Chrome and "Load failed" in Safari. `friendlyError`
+ * matches on the name, so neither wording has to be guessed at there.
+ */
+export class ServerUnreachableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ServerUnreachableError";
+  }
+}
+
+/** The connection was accepted but nothing came back inside the timeout. */
+export class RequestTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RequestTimeoutError";
+  }
+}
+
 function errorMessage(text: string, statusText: string): string {
   try {
     const body = JSON.parse(text) as { error?: string };
@@ -123,7 +158,8 @@ function errorMessage(text: string, statusText: string): string {
 }
 
 /**
- * Every call to the server, so that one place can time it and name it.
+ * Every call to the server, so that one place can time it, bound it, and name
+ * it.
  *
  * A rejected `fetch` carries only "Failed to fetch", and a refusal reaches the
  * user through `friendlyError`, which deliberately flattens most messages into
@@ -132,20 +168,46 @@ function errorMessage(text: string, statusText: string): string {
 async function request<T>(method: string, url: string, init: RequestInit): Promise<T> {
   const path = logPath(url);
   const started = performance.now();
-  let res: Response;
-  try {
-    res = await fetch(url, init);
-  } catch (err) {
-    log.error("request did not reach the server", {
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  // No caller cancels a request today, but dropping a signal that was passed in
+  // would be silent, so the two are merged rather than the timeout winning.
+  const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+
+  // Reached from the body read as well as the request: the timeout can fire
+  // while the response is still streaming, which rejects there instead.
+  const failure = (err: unknown): Error => {
+    if (signal.aborted && !timeout.aborted) {
+      // The caller cancelled. Not a fault to report, and not ours to rename.
+      return err instanceof Error ? err : new Error(describeError(err));
+    }
+    log.error(timeout.aborted ? "request timed out" : "request did not reach the server", {
       method,
       path,
       ms: elapsed(started),
       reason: describeError(err),
     });
-    throw err;
+    return timeout.aborted
+      ? new RequestTimeoutError(
+          `The server accepted the connection but sent nothing back within ${
+            REQUEST_TIMEOUT_MS / 1000
+          } seconds.`,
+        )
+      : new ServerUnreachableError("The server could not be reached.");
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(url, { ...init, signal });
+  } catch (err) {
+    throw failure(err);
   }
   const ms = elapsed(started);
-  const text = await res.text();
+  let text: string;
+  try {
+    text = await res.text();
+  } catch (err) {
+    throw failure(err);
+  }
   if (!res.ok) {
     const message = errorMessage(text, res.statusText);
     log.warn("server refused a request", { method, path, status: res.status, ms, reason: message });
