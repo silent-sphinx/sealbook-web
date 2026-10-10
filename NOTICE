@@ -1,0 +1,17 @@
+Sealbook Web
+Copyright 2026 Silent Sphinx
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not
+use this file except in compliance with the License. You may obtain a copy of
+the License in the LICENSE file beside this one, or at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+The built bundle redistributes the Inter typeface:
+
+    Inter (https://github.com/rsms/inter)
+    Copyright 2016 The Inter Project Authors
+    Licensed under the SIL Open Font License, Version 1.1.
+
+The remaining runtime dependencies are MIT or BSD-3-Clause, and their
+notices travel with their packages.
