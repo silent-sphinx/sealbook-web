@@ -1,6 +1,7 @@
 import { Component, StrictMode, type ErrorInfo, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { UpdatePrompt } from "./components/UpdatePrompt";
 import "./index.css";
 import { describeError, elapsed, log, logStartup } from "./lib/log";
 import { initWasm } from "./lib/wasm";
@@ -52,6 +53,7 @@ initWasm()
     root.render(
       <StrictMode>
         <AppErrorBoundary><App /></AppErrorBoundary>
+        <UpdatePrompt />
       </StrictMode>,
     );
   })

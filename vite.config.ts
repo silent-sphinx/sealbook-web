@@ -18,7 +18,16 @@ export default defineConfig({
     tailwindcss(),
     basicSsl(),
     VitePWA({
-      registerType: "autoUpdate",
+      // "prompt", not "autoUpdate": an auto-updating worker calls skipWaiting
+      // and claims open tabs as soon as a new build lands, while those tabs are
+      // still running the previous bundle. Their lazy chunks are gone from both
+      // the new precache and the server, so the next dynamic import fails. On
+      // "prompt" the new worker waits, the old one keeps serving the assets its
+      // tab was built against, and `UpdatePrompt` offers the reload.
+      registerType: "prompt",
+      // Registration happens in app code through `virtual:pwa-register/react`,
+      // so the generated registerSW.js script is not injected as well.
+      injectRegister: null,
       includeAssets: ["favicon.png", "pwa-192x192.png", "pwa-512x512.png", "apple-touch-icon.png"],
       manifest: {
         name: "Sealbook",
