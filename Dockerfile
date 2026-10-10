@@ -20,7 +20,11 @@ RUN npm ci
 
 COPY sealbook-web/ ./
 COPY --from=wasm-builder /workspace/sealbook-web/src/pkg/ ./src/pkg/
-RUN SKIP_WASM=1 npm run build
+RUN SKIP_WASM=1 npm run build \
+		&& find dist -type f \
+			\( -name '*.css' -o -name '*.html' -o -name '*.js' -o -name '*.json' \
+				-o -name '*.svg' -o -name '*.wasm' -o -name '*.webmanifest' \) \
+			-size +1k -exec gzip -9 -k {} +
 
 FROM nginx:1.27-alpine AS runtime
 

@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import init from "../pkg/sealbook_wasm.js";
 import {
   ensureDefaultCalendar,
+  exportVault,
   genesisRoster,
   listVault,
   normalizeServer,
@@ -35,6 +36,7 @@ import {
 } from "./wasm";
 import { DEFAULT_ADDRESS_BOOK_ID, JSCONTACT_CONTENT_TYPE } from "./addressBook";
 import { DEFAULT_CALENDAR_ID } from "./calendar";
+import { NOTE_CONTENT_TYPE } from "./note";
 import {
   ACCOUNT_SETTINGS_CONTENT_TYPE,
   ACCOUNT_SETTINGS_ID,
@@ -857,6 +859,119 @@ describe("listVault", () => {
       "/roster": () => ({ rosters: [owner.roster] }),
     });
     await expect(listVault(owner.session)).rejects.toThrow(/roster/iu);
+  });
+});
+
+describe("exportVault", () => {
+  it("carries every object, including the content type the listing drops", async () => {
+    const owner = account();
+    const contactId = newUuid();
+    const noteId = newUuid();
+    const futureId = newUuid();
+    const { objects, manifest, revision } = vaultOf(owner, [
+      {
+        id: contactId,
+        contentType: JSCONTACT_CONTENT_TYPE,
+        payload: JSON.stringify({ "@type": "Card", name: { full: "Ada Lovelace" } }),
+      },
+      {
+        id: noteId,
+        contentType: NOTE_CONTENT_TYPE,
+        payload: JSON.stringify({ "@type": "Note", title: "Plan", body: "- ship", pinned: true }),
+      },
+      // A type no build here knows: the listing has to skip it, and the export
+      // has to keep it, or a backup silently loses what a newer client wrote.
+      {
+        id: futureId,
+        contentType: "application/sealbook.future+json",
+        payload: JSON.stringify({ keep: "me" }),
+      },
+    ]);
+    server({
+      "/changes": () => ({
+        latest_revision: revision,
+        key_epoch: 1,
+        objects,
+        has_more: false,
+        manifest,
+        resync: false,
+        tombstone_floor: 1,
+      }),
+      "/roster": () => ({ rosters: [owner.roster] }),
+    });
+
+    const exported = await exportVault(owner.session);
+    expect(exported.unreadable).toBe(0);
+    expect(exported.objects.map((object) => object.id).sort()).toEqual(
+      [contactId, noteId, futureId].sort(),
+    );
+    const future = exported.objects.find((object) => object.id === futureId);
+    expect(future?.contentType).toBe("application/sealbook.future+json");
+    expect(JSON.parse(future!.payload)).toEqual({ keep: "me" });
+    // Payloads come out as stored, so a field no view of a note reads is there.
+    const note = exported.objects.find((object) => object.id === noteId);
+    expect(JSON.parse(note!.payload)).toMatchObject({ pinned: true });
+
+    const listed = await listVault(owner.session);
+    expect(listed.sealed.map((object) => object.id)).not.toContain(futureId);
+  });
+
+  it("counts the rows it could not open, so a backup can say it is short", async () => {
+    const owner = account();
+    const readable = newUuid();
+    const sealedBy = (key: string, id: string, name: string) =>
+      sealObject(
+        key,
+        id,
+        owner.collectionId,
+        JSCONTACT_CONTENT_TYPE,
+        JSON.stringify({ "@type": "Card", name: { full: name } }),
+      );
+    const unreadableId = newUuid();
+    const pairs = [
+      { id: readable, sealed: sealedBy(owner.session.collectionKey, readable, "Ada Lovelace") },
+      { id: unreadableId, sealed: sealedBy(newCollectionKey(), unreadableId, "Unreadable") },
+    ];
+    const objects: SealedObject[] = pairs.map(({ id, sealed }, index) => ({
+      id,
+      revision: index + 1,
+      tombstone: false,
+      nonce: sealed.nonce,
+      ciphertext: sealed.ciphertext,
+      padded_size: sealed.padded_size,
+      content_type: sealedContentType(),
+    }));
+    const manifest = manifestSign(
+      owner.enrollment.mldsa_seed,
+      owner.enrollment.ed25519_sk,
+      owner.collectionId,
+      owner.enrollment.device_id,
+      2,
+      1,
+      2,
+      objects.map((object) => ({
+        id: object.id,
+        revision: object.revision,
+        tombstone: false,
+        content_digest: objectContentDigest(object.nonce, object.ciphertext),
+      })),
+    );
+    server({
+      "/changes": () => ({
+        latest_revision: 2,
+        key_epoch: 1,
+        objects,
+        has_more: false,
+        manifest,
+        resync: false,
+        tombstone_floor: 1,
+      }),
+      "/roster": () => ({ rosters: [owner.roster] }),
+    });
+
+    const exported = await exportVault(owner.session);
+    expect(exported.objects.map((object) => object.id)).toEqual([readable]);
+    expect(exported.unreadable).toBe(1);
   });
 });
 

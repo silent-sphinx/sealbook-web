@@ -1710,7 +1710,33 @@ async function walkChanges(session: Session): Promise<ChangesWalk> {
   };
 }
 
-async function listVaultInner(session: Session): Promise<VaultListing> {
+/** One live object, opened: the row it came from and what its envelope held. */
+type OpenedVaultObject = {
+  object: SealedObject;
+  /**
+   * Authenticated by the AEAD, so this is the type to dispatch on rather than
+   * the label the server served.
+   */
+  contentType: string;
+  payload: string;
+};
+
+type OpenedVault = {
+  opened: OpenedVaultObject[];
+  /** Rows the manifest verified but this device could not open. */
+  unopened: number;
+};
+
+/**
+ * The whole collection, verified against the manifest and decrypted, with
+ * tombstones dropped.
+ *
+ * Shared by the typed listing and by a full export, which need the same walk,
+ * the same manifest check and the same key alignment but disagree about what to
+ * do with a content type this build does not know: the listing skips it, the
+ * export carries it.
+ */
+async function openVault(session: Session): Promise<OpenedVault> {
   const { state } = session;
   const walk = await walkChanges(session);
   session.latestRevision = walk.latestRevision;
@@ -1721,18 +1747,7 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
     await refreshCollectionKey(session);
   }
   const { collectionKey } = session;
-  const sealed: SealedObject[] = [];
-  const addressBooks: AddressBook[] = [];
-  const contacts: Contact[] = [];
-  const calendarEvents: CalendarEvent[] = [];
-  const calendars: Calendar[] = [];
-  const notes: Note[] = [];
-  const notebooks: Notebook[] = [];
-  // Default until the settings object turns up: an account that has never saved
-  // one has every feature enabled.
-  let accountSettings = DEFAULT_ACCOUNT_SETTINGS;
-  let accountSettingsRaw: string | undefined;
-  let accountSettingsId: string | undefined;
+  const opened: OpenedVaultObject[] = [];
   let unopened = 0;
   // Check what was served against what a device signed for, before decrypting any
   // of it. A failure here means an object was withheld, rolled back or
@@ -1752,13 +1767,13 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
     let contentType: string;
     let tombstone = obj.tombstone;
     try {
-      const opened = openObject(collectionKey, obj.id, state.collection_id, obj.nonce, obj.ciphertext, obj.padded_size);
-      raw = opened.payload;
-      contentType = opened.contentType;
+      const result = openObject(collectionKey, obj.id, state.collection_id, obj.nonce, obj.ciphertext, obj.padded_size);
+      raw = result.payload;
+      contentType = result.contentType;
       // Either flag is enough. The row's is what the signed manifest commits
       // to, and the envelope carries its own, so a delete is never read back as
       // live whichever of the two it was recorded in.
-      tombstone = tombstone || opened.tombstone;
+      tombstone = tombstone || result.tombstone;
     } catch {
       // The manifest already verified, so this row is one a device signed for
       // and the server served faithfully: the failure is local, and dropping it
@@ -1767,6 +1782,63 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
       continue;
     }
     if (tombstone) continue;
+    opened.push({ object: obj, contentType, payload: raw });
+  }
+  if (unopened > 0) {
+    // The manifest verified, so these rows are genuine and the failure is local:
+    // a key epoch this device cannot reach, or a payload a newer build wrote.
+    log.warn("some vault objects could not be opened on this device", {
+      unopened,
+      objects: walk.objects.length,
+      key_epoch: session.keyEpoch,
+    });
+  }
+  return { opened, unopened };
+}
+
+export type VaultExport = {
+  /** Every live object, whatever its content type, in the order read. */
+  objects: { id: string; contentType: string; payload: string }[];
+  /** Objects this device could not open, so an export can say it is partial. */
+  unreadable: number;
+};
+
+/**
+ * Every object in the vault as stored, for a full account export.
+ *
+ * Deliberately not built from a `VaultListing`: that drops the content types
+ * this build does not parse, and an export of an account has to carry an object
+ * a newer client wrote rather than quietly leaving it out of the backup.
+ */
+export function exportVault(session: Session): Promise<VaultExport> {
+  return serializeVault(session.state.collection_id, async () => {
+    const { opened, unopened } = await openVault(session);
+    return {
+      objects: opened.map(({ object, contentType, payload }) => ({
+        id: object.id,
+        contentType,
+        payload,
+      })),
+      unreadable: unopened,
+    };
+  });
+}
+
+async function listVaultInner(session: Session): Promise<VaultListing> {
+  const { opened, unopened } = await openVault(session);
+  const sealed: SealedObject[] = [];
+  const addressBooks: AddressBook[] = [];
+  const contacts: Contact[] = [];
+  const calendarEvents: CalendarEvent[] = [];
+  const calendars: Calendar[] = [];
+  const notes: Note[] = [];
+  const notebooks: Notebook[] = [];
+  // Default until the settings object turns up: an account that has never saved
+  // one has every feature enabled.
+  let accountSettings = DEFAULT_ACCOUNT_SETTINGS;
+  let accountSettingsRaw: string | undefined;
+  let accountSettingsId: string | undefined;
+  for (const { object: obj, contentType, payload: raw } of opened) {
     try {
       sealed.push(obj);
       if (contentType === CALENDAR_EVENT_CONTENT_TYPE || isCalendarEventPayload(raw)) {
@@ -1804,15 +1876,6 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
     } catch {
       sealed.pop();
     }
-  }
-  if (unopened > 0) {
-    // The manifest verified, so these rows are genuine and the failure is local:
-    // a key epoch this device cannot reach, or a payload a newer build wrote.
-    log.warn("some vault objects could not be opened on this device", {
-      unopened,
-      objects: walk.objects.length,
-      key_epoch: session.keyEpoch,
-    });
   }
   log.info("vault opened", {
     contacts: contacts.length,
