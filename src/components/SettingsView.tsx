@@ -16,7 +16,7 @@ import {
   deleteCalendarEvent,
   deleteAccount,
   putCalendar,
-  putCalendarEvent,
+  putCalendarEvents,
   listDevices,
   revokeDevice,
   rotatePhrase,
@@ -694,9 +694,13 @@ export function SettingsView({
         createdCalendarId = finalCalendarId;
       }
 
-      for (let i = 0; i < parsedEvents.length; i++) {
-        importedEventIds.push(await putCalendarEvent(session, { ...parsedEvents[i], calendarId: finalCalendarId }));
-        setIcsProgress({ current: i + 1, total: parsedEvents.length });
+      for (let offset = 0; offset < parsedEvents.length; offset += 256) {
+        const batch = parsedEvents.slice(offset, offset + 256).map((event) => ({
+          ...event,
+          calendarId: finalCalendarId,
+        }));
+        importedEventIds.push(...await putCalendarEvents(session, batch));
+        setIcsProgress({ current: Math.min(offset + batch.length, parsedEvents.length), total: parsedEvents.length });
       }
 
       await onRefresh();

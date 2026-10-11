@@ -809,6 +809,78 @@ async function putSealed(
   });
 }
 
+const MAX_CALENDAR_EVENT_BATCH = 256;
+
+/** Writes calendar events in atomic batches so large imports do not hit request limits. */
+export async function putCalendarEvents(
+  session: Session,
+  events: Omit<CalendarEvent, "id">[],
+): Promise<string[]> {
+  const ids = events.map(() => newUuid());
+  for (let offset = 0; offset < events.length; offset += MAX_CALENDAR_EVENT_BATCH) {
+    const batch = events.slice(offset, offset + MAX_CALENDAR_EVENT_BATCH);
+    const batchIds = ids.slice(offset, offset + MAX_CALENDAR_EVENT_BATCH);
+    await serializeVault(session.state.collection_id, async () => {
+      const { seq, keyEpoch, latestRevision, entries } = await manifestState(session);
+      await alignKeyEpoch(session, keyEpoch);
+      const writes = batch.map((event, index) => {
+        const { raw, ...fields } = event;
+        const revision = latestRevision + index + 1;
+        const sealed = sealPayload(
+          session,
+          batchIds[index],
+          CALENDAR_EVENT_CONTENT_TYPE,
+          mergePayload(raw, { "@type": "CalendarEvent", version: PAYLOAD_SCHEMA_VERSION, ...fields }, [
+            "@type", "version", "title", "start", "end", "notes", "location",
+            "participants", "timezone", "calendarId", "recurrence",
+          ]),
+          revision,
+        );
+        return { id: batchIds[index], revision, sealed };
+      });
+      const manifestEntries = [
+        ...entries,
+        ...writes.map((write) => entryFor({
+          id: write.id,
+          revision: write.revision,
+          tombstone: false,
+          nonce: write.sealed.encrypted.nonce,
+          ciphertext: write.sealed.encrypted.ciphertext,
+        })),
+      ];
+      const manifest = manifestSign(
+        bytesFromJson(session.state.mldsa_seed),
+        bytesFromJson(session.state.ed25519_sk),
+        session.state.collection_id,
+        session.state.device_id,
+        seq + 1,
+        keyEpoch,
+        latestRevision + writes.length,
+        manifestEntries,
+      );
+      const response = await putJson<{ latest_revision: number }>(
+        `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects/batch`,
+        {
+          objects: writes.map((write) => ({
+            id: write.id,
+            revision: write.revision,
+            nonce: write.sealed.encrypted.nonce,
+            ciphertext: write.sealed.encrypted.ciphertext,
+            padded_size: write.sealed.encrypted.padded_size,
+            content_type: sealedContentType(),
+            tombstone: false,
+          })),
+          manifest,
+        },
+        session.token,
+      );
+      session.latestRevision = response.latest_revision;
+      rememberManifestSeq(session, seq + 1);
+    });
+  }
+  return ids;
+}
+
 export async function revokeSession(session: Session): Promise<void> {
   await deleteJson(`${apiRoot(session.state.server)}/v1/session`, session.token);
 }
