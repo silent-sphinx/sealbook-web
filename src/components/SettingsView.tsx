@@ -12,6 +12,8 @@ import type { DeviceSummary, Session } from "../lib/client";
 import {
   changePassword,
   changeUsername,
+  deleteCalendar,
+  deleteCalendarEvent,
   deleteAccount,
   putCalendar,
   putCalendarEvent,
@@ -670,7 +672,6 @@ export function SettingsView({
 
   async function createIcsCalendar(name: string): Promise<string> {
     const id = await putCalendar(session, { name, color: DEFAULT_CALENDAR_COLOR });
-    await onRefresh();
     setIcsCalendarId(id);
     return id;
   }
@@ -681,6 +682,8 @@ export function SettingsView({
     setImportingIcs(true);
     setIcsImportMsg(null);
     setIcsProgress({ current: 0, total: parsedEvents.length });
+    const importedEventIds: string[] = [];
+    let createdCalendarId: string | undefined;
 
     try {
       let finalCalendarId = icsCalendarId;
@@ -688,10 +691,11 @@ export function SettingsView({
 
       if (isCreatingCalendar && creatingName) {
         finalCalendarId = await createIcsCalendar(creatingName);
+        createdCalendarId = finalCalendarId;
       }
 
       for (let i = 0; i < parsedEvents.length; i++) {
-        await putCalendarEvent(session, { ...parsedEvents[i], calendarId: finalCalendarId });
+        importedEventIds.push(await putCalendarEvent(session, { ...parsedEvents[i], calendarId: finalCalendarId }));
         setIcsProgress({ current: i + 1, total: parsedEvents.length });
       }
 
@@ -711,6 +715,9 @@ export function SettingsView({
 
       resetIcsImport();
     } catch (err) {
+      await Promise.allSettled(importedEventIds.map((id) => deleteCalendarEvent(session, id)));
+      if (createdCalendarId) await deleteCalendar(session, createdCalendarId);
+      if (importedEventIds.length > 0 || createdCalendarId) await onRefresh();
       setIcsImportMsg({ type: "error", text: `Import failed: ${friendlyError(err)}` });
     } finally {
       setImportingIcs(false);

@@ -1,7 +1,7 @@
 import { useId, useState, useRef, type ChangeEvent, type DragEvent } from "react";
 import type { AddressBook, Contact, ContactDraft } from "../lib/types";
 import type { Session } from "../lib/client";
-import { putContact } from "../lib/client";
+import { deleteAddressBook, deleteContact, putContact } from "../lib/client";
 import { DEFAULT_ADDRESS_BOOK_ID, bookNameById, resolveAddressBookId } from "../lib/addressBook";
 import { sortContacts } from "../lib/contact";
 import { optimizeAvatar } from "../lib/image";
@@ -148,6 +148,8 @@ export function ImportExportSection({
     setImporting(true);
     setImportMsg(null);
     setImportProgress({ current: 0, total: parsedContacts.length });
+    const importedContactIds: string[] = [];
+    let createdBookId: string | undefined;
 
     try {
       let finalBookId = targetBookId;
@@ -156,6 +158,7 @@ export function ImportExportSection({
         const createdId = await onCreateBook(newBookName.trim());
         if (createdId) {
           finalBookId = createdId;
+          createdBookId = createdId;
         }
       }
 
@@ -171,7 +174,7 @@ export function ImportExportSection({
             log.warn("could not optimize an imported avatar", { reason: describeError(e) });
           }
         }
-        await putContact(session, draft);
+        importedContactIds.push(await putContact(session, draft));
         setImportProgress({ current: i + 1, total: parsedContacts.length });
       }
 
@@ -187,6 +190,9 @@ export function ImportExportSection({
 
       resetImport();
     } catch (err) {
+      await Promise.allSettled(importedContactIds.map((id) => deleteContact(session, id)));
+      if (createdBookId) await deleteAddressBook(session, createdBookId);
+      if (importedContactIds.length > 0 || createdBookId) await onRefresh();
       const msg = err instanceof Error ? err.message : String(err);
       setImportMsg({ type: "error", text: `Import failed: ${msg}` });
     } finally {

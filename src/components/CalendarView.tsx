@@ -389,6 +389,8 @@ export function CalendarView({
   const [repeatUntil, setRepeatUntil] = useState("");
   const [deletingCalendar, setDeletingCalendar] = useState(false);
   const [confirmDeleteCalendar, setConfirmDeleteCalendar] = useState(false);
+  const [confirmPurgeEvents, setConfirmPurgeEvents] = useState(false);
+  const [purgingEvents, setPurgingEvents] = useState(false);
   const [deleteProgress, setDeleteProgress] = useState({ current: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
   // Minutes past midnight, for the "now" rule on today's timeline column.
@@ -782,6 +784,27 @@ export function CalendarView({
     }
   }
 
+  async function purgeEvents() {
+    if (!editingCalendar) return;
+    setConfirmPurgeEvents(false);
+    setError(null);
+    setPurgingEvents(true);
+    const calendarEvents = events.filter((item) => item.calendarId === editingCalendar.id);
+    setDeleteProgress({ current: 0, total: calendarEvents.length });
+    try {
+      for (let index = 0; index < calendarEvents.length; index += 1) {
+        await deleteCalendarEvent(session, calendarEvents[index].id);
+        setDeleteProgress({ current: index + 1, total: calendarEvents.length });
+      }
+      await onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPurgingEvents(false);
+      setDeleteProgress({ current: 0, total: 0 });
+    }
+  }
+
   return (
     // Full-bleed: the month grid uses the whole viewport width rather than
     // sitting in a card. The sidebar keeps a translucent panel fill so it still
@@ -828,7 +851,7 @@ export function CalendarView({
       </div>
 
       {composer ? <TaskDialog editing={editingEvent !== null} title={title} start={start} end={end} notes={notes} location={location} participants={participants} allDay={allDay} calendarId={eventCalendarId} calendars={calendars} repeatChoice={repeatChoice} customFrequency={customFrequency} customInterval={customInterval} repeatEnd={repeatEnd} repeatCount={repeatCount} repeatUntil={repeatUntil} minRepeatUntil={start.slice(0, 10)} busy={busy} error={error} onClose={closeTaskDialog} onSave={() => void saveEvent()} onDelete={editingEvent ? () => void removeEvent() : undefined} onTitleChange={setTitle} onStartChange={updateStart} onEndChange={setEnd} onNotesChange={setNotes} onLocationChange={setLocation} onParticipantsChange={setParticipants} onAllDayChange={setAllDay} onCalendarChange={setEventCalendarId} onRepeatChange={setRepeatChoice} onCustomFrequencyChange={setCustomFrequency} onCustomIntervalChange={setCustomInterval} onRepeatEndChange={setRepeatEnd} onRepeatCountChange={setRepeatCount} onRepeatUntilChange={setRepeatUntil} /> : null}
-      {calendarComposer ? <CalendarDialog editing={editingCalendar !== null} name={calendarName} color={calendarColor} busy={busy} error={error} onClose={() => { setCalendarComposer(false); setEditingCalendar(null); }} onSave={() => void saveCalendar()} onDelete={editingCalendar && editingCalendar.id !== DEFAULT_CALENDAR_ID ? () => setConfirmDeleteCalendar(true) : undefined} onNameChange={setCalendarName} onColorChange={setCalendarColor} /> : null}
+      {calendarComposer ? <CalendarDialog editing={editingCalendar !== null} name={calendarName} color={calendarColor} busy={busy || purgingEvents} error={error} eventCount={editingCalendar ? events.filter((event) => event.calendarId === editingCalendar.id).length : 0} onClose={() => { setCalendarComposer(false); setEditingCalendar(null); }} onSave={() => void saveCalendar()} onDelete={editingCalendar && editingCalendar.id !== DEFAULT_CALENDAR_ID ? () => setConfirmDeleteCalendar(true) : undefined} onPurge={editingCalendar ? () => setConfirmPurgeEvents(true) : undefined} onNameChange={setCalendarName} onColorChange={setCalendarColor} /> : null}
       {confirmDeleteCalendar && editingCalendar ? (
         <ConfirmDialog
           title="Delete calendar"
@@ -844,7 +867,18 @@ export function CalendarView({
           onClose={() => setConfirmDeleteCalendar(false)}
         />
       ) : null}
+      {confirmPurgeEvents && editingCalendar ? (
+        <ConfirmDialog
+          title="Purge Events"
+          heading={`Purge Events from “${editingCalendar.name}”?`}
+          body={`This permanently deletes all ${events.filter((event) => event.calendarId === editingCalendar.id).length} event${events.filter((event) => event.calendarId === editingCalendar.id).length === 1 ? "" : "s"} in this calendar. The calendar itself will remain.`}
+          confirmLabel="Purge Events"
+          onConfirm={() => void purgeEvents()}
+          onClose={() => setConfirmPurgeEvents(false)}
+        />
+      ) : null}
       {deletingCalendar ? <ImportProgressModal title="Deleting calendar" description="Removing events and calendar data. Keep this window open." current={deleteProgress.current} total={deleteProgress.total} /> : null}
+      {purgingEvents ? <ImportProgressModal title="Purging Events" description="Removing events from this calendar. Keep this window open." current={deleteProgress.current} total={deleteProgress.total} /> : null}
     </main>
   );
 }
@@ -1595,7 +1629,7 @@ function TaskDialog({ editing, title, start, end, notes, location, participants,
   );
 }
 
-function CalendarDialog({ editing, name, color, busy, error, onClose, onSave, onDelete, onNameChange, onColorChange }: { editing: boolean; name: string; color: string; busy: boolean; error: string | null; onClose: () => void; onSave: () => void; onDelete?: () => void; onNameChange: (value: string) => void; onColorChange: (value: string) => void }) {
+function CalendarDialog({ editing, name, color, busy, error, eventCount, onClose, onSave, onDelete, onPurge, onNameChange, onColorChange }: { editing: boolean; name: string; color: string; busy: boolean; error: string | null; eventCount: number; onClose: () => void; onSave: () => void; onDelete?: () => void; onPurge?: () => void; onNameChange: (value: string) => void; onColorChange: (value: string) => void }) {
   return (
     <Modal title={editing ? "Edit calendar" : "Create calendar"} onClose={onClose}>
       <div className="space-y-4 p-6">
@@ -1632,12 +1666,17 @@ function CalendarDialog({ editing, name, color, busy, error, onClose, onSave, on
 
         <div className="flex items-center justify-between gap-3 pt-1">
           <div>
+            {onPurge ? (
+              <button type="button" onClick={onPurge} disabled={busy || eventCount === 0} className={btnDanger}>
+                Purge Events
+              </button>
+            ) : null}
             {onDelete ? (
               <button
                 type="button"
                 onClick={onDelete}
                 disabled={busy}
-                className={btnDanger}
+                className={`${btnDanger} ml-2`}
               >
                 Delete calendar
               </button>
