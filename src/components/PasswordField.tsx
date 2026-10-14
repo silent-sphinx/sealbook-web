@@ -1,20 +1,37 @@
-import { useState, type InputHTMLAttributes } from "react";
+import { forwardRef, useState, type InputHTMLAttributes } from "react";
 
 type Props = Omit<InputHTMLAttributes<HTMLInputElement>, "type">;
 
-export function PasswordField({ className = "", ...props }: Props) {
+// Margin utilities move to the wrapper: `input` is inline-block, so a
+// margin-top passed in `className` (eg. the shared `field` style) would
+// otherwise sit inside the relative wrapper instead of collapsing outside
+// it, throwing off the toggle button's vertical centering.
+function splitMargin(className: string): { margin: string; rest: string } {
+  const classes = className.split(/\s+/).filter(Boolean);
+  const margin = classes.filter((cls) => /^-?m[trblxy]?-/.test(cls));
+  const rest = classes.filter((cls) => !margin.includes(cls));
+  return { margin: margin.join(" "), rest: rest.join(" ") };
+}
+
+export const PasswordField = forwardRef<HTMLInputElement, Props>(function PasswordField(
+  { className = "", ...props },
+  ref,
+) {
   const [visible, setVisible] = useState(false);
+  const { margin, rest } = splitMargin(className);
   return (
-    <div className="relative">
+    <div className={`relative ${margin}`}>
       <input
         {...props}
+        ref={ref}
         type={visible ? "text" : "password"}
-        className={`${className} pr-16`}
+        className={`${rest} pr-16`}
       />
       <button
         type="button"
-        className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text"
+        className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text disabled:pointer-events-none disabled:opacity-50"
         onClick={() => setVisible((current) => !current)}
+        disabled={props.disabled}
         aria-label={visible ? "Hide password" : "Show password"}
         title={visible ? "Hide password" : "Show password"}
         aria-pressed={visible}
@@ -23,7 +40,7 @@ export function PasswordField({ className = "", ...props }: Props) {
       </button>
     </div>
   );
-}
+});
 
 function EyeIcon() {
   return (

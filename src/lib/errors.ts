@@ -14,7 +14,10 @@ export function friendlyError(err: unknown): string {
   if (text.includes("username taken")) {
     return "That name is taken.";
   }
-  if (text.includes("invalid credentials")) {
+  // "invalid credentials" is the server's wording for a bad login; "wrong
+  // password" is thrown locally when a modern device's stored keys fail to
+  // decrypt under the entered password, without any server round trip.
+  if (text.includes("invalid credentials") || text.includes("wrong password")) {
     return "Wrong password.";
   }
   if (text.includes("unauthorized")) {

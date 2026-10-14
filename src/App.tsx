@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 // 192px: four times the largest size it is drawn at, so it stays sharp at
 // any display density. The 1254px original beside it is the master to
 // regenerate from and is not bundled.
@@ -204,13 +204,41 @@ function Logo({ className }: { className: string }) {
   return <img src={logo} alt="" className={className} />;
 }
 
-function Brand({ title, subtitle }: { title: string; subtitle: string }) {
+function Brand({ title, subtitle }: { title: string; subtitle: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3">
       <Logo className="h-12 w-12 shrink-0" />
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
         <p className="mt-0.5 text-sm text-mute">{subtitle}</p>
+      </div>
+    </div>
+  );
+}
+
+/** One entry in a vertical numbered stepper, connected to the next by a line. */
+function Step({
+  number,
+  title,
+  last = false,
+  children,
+}: {
+  number: number;
+  title: string;
+  last?: boolean;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="relative flex gap-4">
+      <div className="flex flex-col items-center">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent font-semibold text-xs ring-1 ring-accent/25">
+          {number}
+        </span>
+        {!last ? <span className="mt-1 w-px flex-1 bg-line" aria-hidden="true" /> : null}
+      </div>
+      <div className={`min-w-0 flex-1 ${last ? "" : "pb-6"}`}>
+        <p className="text-sm font-semibold text-text">{title}</p>
+        {children ? <div className="mt-2">{children}</div> : null}
       </div>
     </div>
   );
@@ -246,7 +274,7 @@ function ServerSetupScreen({
 
   return (
     <>
-      <Brand title="Connect to Sealbook" subtitle="Choose the server to use on this device." />
+      <Brand title="Connect to Sealbook" subtitle="Enter the URL of your Sealbook server." />
 
       <form onSubmit={submit} className="mt-7">
         <label htmlFor="setup-domain" className="block text-sm font-medium text-text">
@@ -265,8 +293,7 @@ function ServerSetupScreen({
           required
         />
         <p className="mt-2 text-xs leading-relaxed text-mute">
-          The address of your own Sealbook server. <code className="text-text/80">https://</code> is
-          assumed if you leave it off.
+          A sealbook server is required to continue, visit <a className="text-danger" href="https://github.com/silent-sphinx/sealbook" target="_blank">GitHub.</a>
         </p>
 
         {error ? (
@@ -279,11 +306,6 @@ function ServerSetupScreen({
           Continue
         </button>
       </form>
-
-      <p className="mt-6 border-t border-line pt-5 text-xs leading-relaxed text-mute">
-        Sealbook has no central service. Your contacts, calendar and notes are encrypted on this
-        device and stored only on the server you run.
-      </p>
     </>
   );
 }
@@ -589,6 +611,7 @@ export default function App() {
     loadConnectionDomain() ?? initial?.server ?? "",
   );
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [phrase, setPhrase] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -658,6 +681,9 @@ export default function App() {
   const [finishingRecovery, setFinishingRecovery] = useState(false);
   const [recoveryPassword, setRecoveryPassword] = useState("");
   const headerRef = useRef<HTMLDivElement>(null);
+  const unlockPasswordRef = useRef<HTMLInputElement>(null);
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [tabPillRect, setTabPillRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   // One sidebar state for the whole shell, so contacts, calendar and notes
   // share the collapse rather than each reappearing on switching tabs. Below
   // `lg` the sidebar is a slide-over rather than a column.
@@ -775,6 +801,26 @@ export default function App() {
   const activeTab = visibleTabs.some((tab) => tab.id === activeTabState)
     ? activeTabState
     : visibleTabs[0].id;
+
+  // Tracks the active tab button so the pill behind it can slide to match,
+  // rather than snapping. Also runs on resize: the label that widens a
+  // button only shows above `sm`, and the nav itself wraps on narrow screens.
+  useLayoutEffect(() => {
+    const track = () => {
+      const button = tabRefs.current[activeTab];
+      if (!button) return;
+      setTabPillRect({
+        left: button.offsetLeft,
+        top: button.offsetTop,
+        width: button.offsetWidth,
+        height: button.offsetHeight,
+      });
+    };
+    track();
+    window.addEventListener("resize", track);
+    return () => window.removeEventListener("resize", track);
+  }, [activeTab, visibleTabs]);
+
   const contactsEnabled = isFeatureEnabled(accountSettings, "contacts");
   const detailedContacts = isDetailedContacts(accountSettings);
 
@@ -1236,7 +1282,7 @@ export default function App() {
 
   async function onUnlock(event: FormEvent) {
     event.preventDefault();
-    if (!stored) {
+    if (!stored || busy) {
       return;
     }
     setBusy(true);
@@ -1288,6 +1334,14 @@ export default function App() {
       }
     } catch (err) {
       setError(friendlyError(err));
+      // Disabling the field while busy blurs it, so once it is re-enabled the
+      // wrong attempt is handed straight back for the next try rather than
+      // leaving the user to click back into it. Deferred past the next paint
+      // so it runs after `busy` has actually cleared the `disabled` attribute.
+      requestAnimationFrame(() => {
+        unlockPasswordRef.current?.focus();
+        unlockPasswordRef.current?.select();
+      });
     } finally {
       setBusy(false);
     }
@@ -1295,6 +1349,10 @@ export default function App() {
 
   async function onRegister(event: FormEvent) {
     event.preventDefault();
+    if (password !== confirmPassword) {
+      setError("Passwords don't match.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -1858,94 +1916,69 @@ export default function App() {
 
   // ---------- PAIR SCREEN ----------
   if (screen === "pair") {
+    const pairWords = pairId.split(" ").filter(Boolean);
+
     return (
       <AuthCard
         connectionDomain={connectionDomain}
         onConnectionDomainSave={saveDomain}
         domainError={error}
-        wide
       >
         <Brand
           title="Pair this device"
           subtitle="Connect with an active device to transfer encryption keys."
         />
 
-        <div className="mt-7 grid gap-4 sm:grid-cols-2 sm:items-start">
-          <div className="min-w-0 space-y-4">
-          {/* Step 1 */}
-          <div className="min-w-0 rounded-xl border border-line bg-surface/30 p-4">
-            <div className="flex items-start gap-3">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent font-semibold text-xs mt-0.5">
-                1
-              </span>
-              <div>
-                <p className="text-sm font-semibold text-text">Open your signed-in device</p>
-                <p className="mt-1 text-sm leading-relaxed text-mute">
-                  On your signed-in device, click <strong className="font-semibold text-text">Add device</strong> at the top.
-                </p>
-              </div>
-            </div>
-          </div>
+        <div className="mt-8">
+          <Step number={1} title="Open your signed-in device">
+            <p className="text-sm leading-relaxed text-mute">
+              On your signed-in device, click <strong className="font-semibold text-text">Add device</strong> at the top.
+            </p>
+          </Step>
 
-          {/* Step 2: Pairing ID */}
-          <div className="rounded-xl border border-line bg-surface/30 p-4">
-            <div className="flex items-start gap-3">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent font-semibold text-xs mt-0.5">
-                2
-              </span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-text">Enter this pairing code</p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void navigator.clipboard.writeText(pairId);
-                      setCopied(true);
-                      setTimeout(() => setCopied(false), 2000);
-                    }}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-accent transition-colors hover:border-line-light cursor-pointer"
-                    aria-label={copied ? "Pairing code copied" : "Copy pairing code"}
-                    title={copied ? "Pairing code copied" : "Copy pairing code"}
-                  >
-                    {copied ? <CheckIcon /> : <CopyIcon />}
-                  </button>
-                </div>
-                <p className="mt-2.5 max-w-full select-all whitespace-normal rounded-lg border border-line bg-bg/90 px-3.5 py-2.5 font-mono text-[10px] leading-relaxed text-accent [overflow-wrap:normal]">
-                  {pairId}
-                </p>
-              </div>
+          <Step number={2} title="Enter this pairing code">
+            <div className="flex flex-wrap gap-1.5">
+              {pairWords.map((word, index) => (
+                <span
+                  key={`${index}-${word}`}
+                  className="select-all rounded-md border border-line bg-bg/90 px-2.5 py-1 font-mono text-sm text-accent"
+                >
+                  {word}
+                </span>
+              ))}
             </div>
-          </div>
+            <button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard.writeText(pairId);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+              className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1 text-xs font-medium text-accent transition-colors hover:border-line-light hover:text-accent-dim cursor-pointer"
+            >
+              {copied ? <CheckIcon /> : <CopyIcon />}
+              {copied ? "Copied" : "Copy code"}
+            </button>
+          </Step>
 
-          </div>
-
-          {/* Step 3: Confirmation Code */}
-          <div className="min-w-0 rounded-xl border border-line bg-surface/30 p-4">
-            <div className="flex items-start gap-3">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent font-semibold text-xs mt-0.5">
-                3
-              </span>
-              <div className="flex-1 min-w-0 text-center">
-                <p className="text-sm font-semibold text-left text-text">Verify code</p>
-                <p className="mt-1 text-sm text-mute text-left leading-relaxed">
-                  Confirm both devices show this code:
-                </p>
-                <div className="my-3 rounded-xl border border-accent/25 bg-bg/90 px-2 py-3">
-                  <p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 font-mono text-base font-bold leading-relaxed tracking-[0.05em] text-accent">
-                    {confirmationGroups(pairConfirm).map((group, index) => (
-                      <span key={`${index}-${group}`}>{group}</span>
-                    ))}
-                  </p>
-                </div>
-                <p className="text-xs leading-relaxed text-mute">
-                  Check the other device, then approve the pairing there.
-                </p>
-              </div>
+          <Step number={3} title="Verify code" last>
+            <p className="text-sm leading-relaxed text-mute">
+              Confirm both devices show this code:
+            </p>
+            <div className="mt-3 rounded-xl border border-accent/25 bg-accent/5 px-4 py-4 text-center">
+              <p className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 font-mono text-xl font-bold tracking-[0.08em] text-accent">
+                {confirmationGroups(pairConfirm).map((group, index) => (
+                  <span key={`${index}-${group}`}>{group}</span>
+                ))}
+              </p>
             </div>
-          </div>
+            <p className="mt-2 text-xs leading-relaxed text-mute">
+              Check the other device, then approve the pairing there.
+            </p>
+          </Step>
         </div>
 
-        {error ? <p role="alert" className="mt-4 text-sm text-danger sm:col-span-2">{error}</p> : null}
+        {error ? <p role="alert" className="mt-2 text-sm text-danger">{error}</p> : null}
 
         {/* Step 4: Live status / Password completion */}
         {pairApproved ? (
@@ -2204,19 +2237,31 @@ export default function App() {
           onConnectionDomainSave={saveDomain}
           domainError={error}
         >
-          <Brand title="Sealbook" subtitle={stored.username} />
+          <Brand
+            title="Sealbook"
+            subtitle={
+              <span className="inline-flex items-center gap-1">
+                <LockIcon />
+                {stored.username}
+              </span>
+            }
+          />
           <form onSubmit={onUnlock} className="mt-8">
-            <label className="block text-sm text-mute">
+            <label htmlFor="unlock-password" className="block text-sm font-medium text-text">
               Password
-              <PasswordField
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-                autoFocus
-                className={field}
-                required
-              />
             </label>
+            <PasswordField
+              id="unlock-password"
+              ref={unlockPasswordRef}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              placeholder="Enter your password"
+              autoFocus
+              className={field}
+              disabled={busy}
+              required
+            />
             {error ? <p role="alert" className="mt-4 text-sm text-danger">{error}</p> : null}
             <button type="submit" disabled={busy} className={`${primary} mt-6`}>
               {busy ? "Please wait…" : "Unlock"}
@@ -2259,7 +2304,7 @@ export default function App() {
           subtitle={
             mode === "signin"
               ? "Set up this device with your existing account."
-              : "Your private, end-to-end encrypted contacts, calendar and notes."
+              : "Welcome, to continue create an account."
           }
         />
         <div
@@ -2339,10 +2384,21 @@ export default function App() {
                   </div>
                 );
               })() : null}
-              <p className="mt-2 text-xs leading-relaxed text-mute">
-                This password encrypts your vault. Nobody can reset it for you — if you lose it,
-                your 24 recovery words are the only way back in.
-              </p>
+            </div>
+
+            <div>
+              <label htmlFor="register-password-confirm" className="block text-sm font-medium text-text">
+                Confirm password
+              </label>
+              <PasswordField
+                id="register-password-confirm"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
+                placeholder="Re-enter your password"
+                className={field}
+                required
+              />
             </div>
 
             {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
@@ -2353,74 +2409,65 @@ export default function App() {
           </form>
         ) : (
           <div className="space-y-4">
-            {/* Method 1: Pair with active device */}
+            {/* Method: Pair with active device */}
             <form
               onSubmit={onPairJoin}
               className="rounded-xl border border-line bg-surface/30 p-5 transition-colors hover:border-line-light"
             >
-              <div className="flex items-start gap-3">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/20 text-accent font-semibold text-xs mt-0.5">
-                  1
-                </span>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-sm font-semibold text-text">Pair with an active device</h3>
-                  <p className="mt-1 text-xs text-mute leading-relaxed">
-                    Recommended if Sealbook is already signed in on your phone, laptop, or tablet.
-                  </p>
-
-                  <div className="mt-3.5">
-                    <label htmlFor="pair-username" className="block text-xs font-medium text-text">
-                      Username
-                    </label>
-                    <input
-                      id="pair-username"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      autoComplete="username"
-                      placeholder="Enter your username"
-                      className={field}
-                      spellCheck={false}
-                      required
-                    />
-                  </div>
-
-                  {error ? <p role="alert" className="mt-3 text-xs text-danger">{error}</p> : null}
-
-                  <button
-                    type="submit"
-                    disabled={busy}
-                    className={`${btnPrimary} mt-4`}
-                  >
-                    {busy ? "Generating code…" : "Start pairing →"}
-                  </button>
-                </div>
+              <h3 className="text-sm font-semibold text-text">Pair with an active device</h3>
+              <p className="mt-1 text-xs text-mute leading-relaxed">
+                Login to your account using an already logged-in device.
+              </p>
+              <div className="mt-3.5">
+                <label htmlFor="pair-username" className="block text-xs font-medium text-text">
+                  Username
+                </label>
+                <input
+                  id="pair-username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  autoComplete="username"
+                  placeholder="Enter your username"
+                  className={field}
+                  spellCheck={false}
+                  required
+                />
               </div>
+
+              {error ? <p role="alert" className="mt-3 text-xs text-danger">{error}</p> : null}
+
+              <button
+                type="submit"
+                disabled={busy}
+                className={`${btnPrimary} mt-4`}
+              >
+                {busy ? "Generating code…" : "Start pairing →"}
+              </button>
             </form>
 
-            {/* Method 2: Recovery words */}
-            <div className="rounded-xl border border-line bg-surface/30 p-5 transition-colors hover:border-line-light">
-              <div className="flex items-start gap-3">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface text-mute font-semibold text-xs mt-0.5 border border-line">
-                  2
-                </span>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-sm font-semibold text-text">Use 24 recovery words</h3>
-                  <p className="mt-1 text-xs text-mute leading-relaxed">
-                    Set up independently if you don't have another signed-in device handy.
-                  </p>
+            <div className="flex items-center gap-3 text-xs text-mute">
+              <div className="h-px flex-1 bg-line" />
+              <span>or</span>
+              <div className="h-px flex-1 bg-line" />
+            </div>
 
-                  <button
-                    type="button"
-                    className={`${btnSecondary} mt-3.5`}
-                    onClick={() => {
-                      setScreen("recover");
-                      setError(null);
-                    }}
-                  >
-                    Restore with recovery words →
-                  </button>
-                </div>
-              </div>
+            {/* Method: Recovery words */}
+            <div className="rounded-xl border border-line bg-surface/30 p-5 transition-colors hover:border-line-light">
+              <h3 className="text-sm font-semibold text-text">Use 24 recovery words</h3>
+              <p className="mt-1 text-xs text-mute leading-relaxed">
+                Recover your account using your 24 recovery words generated at account creation.
+              </p>
+
+              <button
+                type="button"
+                className={`${btnSecondary} mt-3.5`}
+                onClick={() => {
+                  setScreen("recover");
+                  setError(null);
+                }}
+              >
+                Restore with recovery words →
+              </button>
             </div>
           </div>
         )}
@@ -2510,18 +2557,34 @@ export default function App() {
 
             {/* Navigation Tabs */}
             <nav
-              className="order-3 flex w-full items-center justify-center rounded-xl border border-line bg-surface/80 p-1 sm:order-none sm:w-auto"
+              className="relative order-3 flex w-full items-center justify-center rounded-xl border border-line bg-surface/80 p-1 sm:order-none sm:w-auto"
               aria-label="Main Navigation"
             >
+              {/* Slides to the active tab's button instead of each button
+                  owning its own background, so the highlight moves rather
+                  than jumping. Hidden until a size is measured so it never
+                  flashes at the top-left corner on first paint. */}
+              <span
+                aria-hidden="true"
+                className="absolute rounded-lg bg-accent shadow-sm transition-[left,top,width,height] duration-200 ease-out"
+                style={
+                  tabPillRect
+                    ? { left: tabPillRect.left, top: tabPillRect.top, width: tabPillRect.width, height: tabPillRect.height }
+                    : { display: "none" }
+                }
+              />
               {visibleTabs.map((tab) => (
                 <button
                   key={tab.id}
+                  ref={(el) => {
+                    tabRefs.current[tab.id] = el;
+                  }}
                   type="button"
                   aria-current={activeTab === tab.id ? "page" : undefined}
                   aria-label={tab.label}
                   title={tab.label}
-                  className={`inline-flex min-w-0 flex-none items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition-all duration-150 cursor-pointer sm:px-3 ${focusRing} ${activeTab === tab.id
-                      ? "bg-accent text-bg shadow-sm"
+                  className={`relative z-10 inline-flex min-w-0 flex-none items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors duration-150 cursor-pointer sm:px-3 ${focusRing} ${activeTab === tab.id
+                      ? "text-bg"
                       : "text-mute hover:text-text hover:bg-surface/50"
                     }`}
                   onClick={() => guardEditing(() => setActiveTab(tab.id))}
