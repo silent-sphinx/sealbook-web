@@ -8,6 +8,14 @@ export const DEFAULT_ADDRESS_BOOK_NAME = "Default Address Book";
 export const DEFAULT_ADDRESS_BOOK_ID = "00000000-0000-0000-0000-000000000001";
 export const ALL_ADDRESS_BOOKS = "all";
 
+/**
+ * The archive, which is a view rather than a stored book: an archived contact
+ * keeps its `addressBookId` and carries `sealbook:archived` instead, so nothing
+ * has to be moved back on restore. Never written to a card.
+ */
+export const ARCHIVE_VIEW = "archive";
+export const ARCHIVE_VIEW_NAME = "Archived Contacts";
+
 const ADDRESS_BOOK_KEYS = ["@type", "version", "name"] as const;
 
 export function serializeAddressBook(name: string, previousRaw?: string): string {

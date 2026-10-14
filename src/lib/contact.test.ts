@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CONTACT_ARCHIVED_PROP,
   MAX_CONTACT_NOTES_CHARS,
   addressLines,
   channelKindLabel,
@@ -178,6 +179,38 @@ describe("parsing a card another client wrote", () => {
       JSON.stringify({ ...minimal, phones: { p1: { number: "1", label: "Mobile" } } }),
     );
     expect(byLabel.phones[0]?.kind).toBe("mobile");
+  });
+});
+
+describe("the archive flag", () => {
+  it("is left out of a card that is not archived", () => {
+    const body = JSON.parse(serializeCard(fullDraft())) as Record<string, unknown>;
+    expect(CONTACT_ARCHIVED_PROP in body).toBe(false);
+  });
+
+  it("round trips, keeping the address book the contact came from", () => {
+    const draft = { ...fullDraft(), archived: true };
+    const raw = serializeCard(draft);
+    expect((JSON.parse(raw) as Record<string, unknown>)[CONTACT_ARCHIVED_PROP]).toBe(true);
+    const parsed = parseDraft(raw);
+    expect(parsed.archived).toBe(true);
+    expect(parsed.addressBookId).toBe(draft.addressBookId);
+  });
+
+  it("is dropped from the payload when the contact is restored", () => {
+    const archived = serializeCard({ ...fullDraft(), archived: true });
+    const restored = serializeCard({ ...parseDraft(archived), archived: undefined, raw: archived });
+    expect(CONTACT_ARCHIVED_PROP in (JSON.parse(restored) as Record<string, unknown>)).toBe(false);
+    expect(parseDraft(restored).archived).toBeUndefined();
+  });
+
+  it("reads a non-boolean value as not archived", () => {
+    const raw = JSON.stringify({
+      "@type": "Card",
+      name: { full: "Ada" },
+      [CONTACT_ARCHIVED_PROP]: "yes",
+    });
+    expect(parseDraft(raw).archived).toBeUndefined();
   });
 });
 

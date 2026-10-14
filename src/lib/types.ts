@@ -224,6 +224,14 @@ export type ContactDraft = {
   avatar?: string;
   profile?: ContactProfile;
   addressBookId: string;
+  /**
+   * Out of its address book and the contact list, into the archive the
+   * sidebar shows on its own, with the card left in the vault untouched.
+   * `addressBookId` is kept rather than cleared, so restoring puts the contact
+   * back where it was. Absent rather than `false` on a contact that has never
+   * been archived.
+   */
+  archived?: boolean;
   createdAt?: string;
   updatedAt?: string;
   /** As `NoteDraft.raw`: what a save merges onto, so unknown fields survive. */

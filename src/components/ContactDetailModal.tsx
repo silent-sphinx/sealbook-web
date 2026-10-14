@@ -12,6 +12,7 @@ type Props = {
   contact: Contact;
   bookName?: string;
   onDelete?: () => void;
+  onArchive?: () => void;
   onClose: () => void;
   addressBooks: AddressBook[];
   busy: boolean;
@@ -67,6 +68,7 @@ export function ContactDetailModal({
   contact,
   bookName,
   onDelete,
+  onArchive,
   onClose,
   addressBooks,
   busy,
@@ -75,6 +77,7 @@ export function ContactDetailModal({
   readOnly = false,
   detailed = false,
 }: Props) {
+  const archived = contact.archived === true;
   const addresses = addressLines(contact.address);
   const [editing, setEditing] = useState(false);
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
@@ -185,6 +188,11 @@ export function ContactDetailModal({
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-mute">
               {contact.nickname ? <span>"{contact.nickname}"</span> : null}
               {bookName ? <span>{bookName}</span> : null}
+              {archived ? (
+                <span className="rounded-md border border-line bg-panel px-2 py-0.5 font-medium">
+                  Archived
+                </span>
+              ) : null}
             </div>
           </div>
         </div>
@@ -220,6 +228,18 @@ export function ContactDetailModal({
               <EditIcon />
             </button>
           )}
+          {!readOnly && onArchive ? (
+            <button
+              type="button"
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-line bg-surface/40 text-mute transition-colors hover:border-line-light hover:text-accent disabled:opacity-50"
+              aria-label={archived ? "Restore contact" : "Archive contact"}
+              title={archived ? "Restore to its address book" : "Move to the Archive"}
+              onClick={onArchive}
+              disabled={busy}
+            >
+              {archived ? <UnarchiveIcon /> : <ArchiveIcon />}
+            </button>
+          ) : null}
           {!readOnly && onDelete ? (
             <button
               type="button"
@@ -551,6 +571,26 @@ function EditIcon() {
     <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
       <path d="m5.433 13.917 1.262-3.155A4 4 0 0 1 7.58 9.42l6.92-6.918a2.121 2.121 0 0 1 3 3l-6.92 6.918c-.383.383-.84.685-1.343.886l-3.154 1.262a.5.5 0 0 1-.65-.65Z" />
       <path d="M3.5 5.75c0-.69.56-1.25 1.25-1.25H10A.75.75 0 0 0 10 3H4.75A2.75 2.75 0 0 0 2 5.75v9.5A2.75 2.75 0 0 0 4.75 18h9.5A2.75 2.75 0 0 0 17 15.25V10a.75.75 0 0 0-1.5 0v5.25c0 .69-.56 1.25-1.25 1.25h-9.5c-.69 0-1.25-.56-1.25-1.25v-9.5Z" />
+    </svg>
+  );
+}
+
+function ArchiveIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 4h18v4H3z" />
+      <path d="M5 8h14v11a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
+      <path d="M10 12h4" />
+    </svg>
+  );
+}
+
+function UnarchiveIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 4h18v4H3z" />
+      <path d="M5 8h14v11a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
+      <path d="M12 17v-5m0 0-2 2m2-2 2 2" />
     </svg>
   );
 }

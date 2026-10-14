@@ -53,6 +53,7 @@ import {
 } from "./lib/onboarding";
 import { profileSearchText } from "./lib/contactProfile";
 import {
+  ARCHIVE_VIEW_NAME,
   DEFAULT_ADDRESS_BOOK_ID,
   bookNameById,
   isAddressBookVisible,
@@ -472,6 +473,15 @@ function SettingsIcon() {
   );
 }
 
+function ArchiveIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 3.25h12v2.5H2v-2.5ZM3 5.75h10V12a.75.75 0 0 1-.75.75h-8.5A.75.75 0 0 1 3 12V5.75Z" />
+      <path d="M6.5 8.5h3" />
+    </svg>
+  );
+}
+
 // Plus icon for FAB
 function PlusIcon() {
   return (
@@ -586,6 +596,12 @@ export default function App() {
    * the collection's.
    */
   const [hiddenBooks, setHiddenBooks] = useState<Set<string>>(new Set());
+  /**
+   * Whether the list is showing the Archive instead of the address books. A
+   * view rather than a book filter: an archived contact is out of every book
+   * until it is restored, so the two cannot both be on.
+   */
+  const [viewingArchive, setViewingArchive] = useState(false);
   // Set by the sidebar's "+", read by the address book list to open its input.
   const [creatingBook, setCreatingBook] = useState(false);
   const [formKey, setFormKey] = useState(0);
@@ -731,12 +747,22 @@ export default function App() {
     setHiddenBooks(collectionId ? loadHiddenAddressBooks(collectionId) : new Set());
   }, [collectionId]);
 
+  const archivedContacts = useMemo(
+    () => contacts.filter((contact) => contact.archived === true),
+    [contacts],
+  );
+
   const filtered = useMemo(() => {
     // Hidden rather than shown is what is matched, so a contact whose book was
-    // deleted out from under it still appears instead of vanishing.
-    const inBook = contacts.filter(
-      (contact) => !hiddenBooks.has(resolveAddressBookId(contact.addressBookId)),
-    );
+    // deleted out from under it still appears instead of vanishing. The archive
+    // ignores the book filter: an archived contact is in no book's view.
+    const inBook = viewingArchive
+      ? archivedContacts
+      : contacts.filter(
+        (contact) =>
+          contact.archived !== true &&
+          !hiddenBooks.has(resolveAddressBookId(contact.addressBookId)),
+      );
     const query = search.trim().toLowerCase();
     const matches = !query
       ? inBook
@@ -758,7 +784,7 @@ export default function App() {
         return haystack.includes(query);
       });
     return sortContacts(matches);
-  }, [addressBooks, contacts, hiddenBooks, search]);
+  }, [addressBooks, archivedContacts, contacts, hiddenBooks, search, viewingArchive]);
 
   const shownBooks = useMemo(
     () => visibleAddressBooks(addressBooks, hiddenBooks),
@@ -776,6 +802,7 @@ export default function App() {
       : shownBooks.length === 0
         ? "No address books shown"
         : `${shownBooks.length} address books`;
+  const listTitle = viewingArchive ? ARCHIVE_VIEW_NAME : contactsTitle;
 
   // The accent is a vault preference, so the shell can only be tinted once the
   // settings are open; until then it keeps the `--sb-accent*` defaults declared
@@ -1098,6 +1125,7 @@ export default function App() {
     setNotebooks([]);
     setAccountSettings(DEFAULT_ACCOUNT_SETTINGS);
     setHiddenBooks(new Set());
+    setViewingArchive(false);
     setAdding(false);
     setAddConfirm(null);
     setAddCode("");
@@ -1437,6 +1465,37 @@ export default function App() {
     setError(null);
   }
 
+  /**
+   * Moves one contact into the Archive, or back out of it. `archived` is
+   * cleared rather than written false, so a restored card reads as one that was
+   * never archived.
+   */
+  async function onToggleArchive(contact: Contact): Promise<void> {
+    if (!session) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await putContact(
+        session,
+        { ...contact, archived: contact.archived ? undefined : true },
+        contact.id,
+      );
+      if (viewingContact?.id === contact.id) {
+        setViewingContact(null);
+      }
+      if (editingContact?.id === contact.id) {
+        setEditingContact(null);
+      }
+      await refreshAfterSave(session);
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function promptDelete(contact: Contact) {
     setError(null);
     setDeletingContact(contact);
@@ -1491,8 +1550,19 @@ export default function App() {
     }
   }
 
-  /** Switches one address book on or off in the contact list. */
+  /**
+   * Switches one address book on or off in the contact list.
+   *
+   * From the archive the click only leaves it, without taking the book it
+   * landed on out of the list: these rows hide rather than show, so toggling
+   * one on the way back would answer "show me my books again" with everything
+   * except the book that was clicked.
+   */
   function toggleBookVisibility(id: string) {
+    if (viewingArchive) {
+      setViewingArchive(false);
+      return;
+    }
     setHiddenBooks((current) => {
       const next = new Set(current);
       if (next.has(id)) {
@@ -1506,6 +1576,7 @@ export default function App() {
   }
 
   function showAllBooks() {
+    setViewingArchive(false);
     setHiddenBooks(new Set());
     if (session) storeHiddenAddressBooks(session.state.collection_id, new Set());
   }
@@ -1596,6 +1667,7 @@ export default function App() {
   function openComposer() {
     setError(null);
     setFormKey((key) => key + 1);
+    setViewingArchive(false);
     setComposing(true);
   }
 
@@ -2501,6 +2573,23 @@ export default function App() {
                   readOnly={isOffline}
                   busy={busy}
                 />
+                {/* Below the line rather than in a section of its own: the
+                    archive is not a book, and nothing can be filed into it by
+                    picking it here. */}
+                <div className="my-1.5 border-t border-line" aria-hidden="true" />
+                <button
+                  type="button"
+                  onClick={() => setViewingArchive((showing) => !showing)}
+                  aria-current={viewingArchive ? "true" : undefined}
+                  title={viewingArchive ? "Back to the address books" : "Show archived contacts"}
+                  className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${viewingArchive ? "bg-surface text-text" : "text-mute hover:bg-surface/40 hover:text-text"}`}
+                >
+                  <ArchiveIcon />
+                  <span className="min-w-0 flex-1 truncate font-medium">{ARCHIVE_VIEW_NAME}</span>
+                  <span className="shrink-0 text-[10px] tabular-nums text-mute/70">
+                    {archivedContacts.length}
+                  </span>
+                </button>
               </div>
             </SidebarDrawer>
 
@@ -2508,7 +2597,7 @@ export default function App() {
               <header className="flex flex-col gap-2.5 border-b border-line px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4 sm:px-5 sm:py-3.5 lg:px-6">
                 <div className="flex min-w-0 items-center gap-2">
                   <h1 className="truncate text-base font-semibold tracking-tight">
-                    {contactsTitle}
+                    {listTitle}
                   </h1>
                   <span
                     className="ml-1 rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium text-mute"
@@ -2575,6 +2664,17 @@ export default function App() {
                         Clear search
                       </button>
                     </div>
+                  ) : viewingArchive && filtered.length === 0 ? (
+                    <div className="flex flex-col items-center rounded-xl border border-dashed border-line px-6 py-12 text-center animate-fade-in-up sm:py-16">
+                      <p className="text-sm font-medium text-text">The Archive is empty</p>
+                      <p className="mt-1.5 max-w-xs text-sm leading-relaxed text-mute">
+                        Archiving a contact takes it out of its address book and
+                        puts it here, without deleting anything.
+                      </p>
+                      <button type="button" className={`${ghost} mt-3`} onClick={() => setViewingArchive(false)}>
+                        Back to contacts
+                      </button>
+                    </div>
                   ) : contacts.length === 0 ? (
                     <div className="flex flex-col items-center rounded-xl border border-dashed border-line px-6 py-12 text-center animate-fade-in-up sm:py-16">
                       <p className="text-sm font-medium text-text">No contacts yet</p>
@@ -2607,7 +2707,7 @@ export default function App() {
                           key={card.id}
                           contact={card}
                           bookName={
-                            soleShownBook
+                            soleShownBook && !viewingArchive
                               ? undefined
                               : bookNameById(addressBooks, card.addressBookId)
                           }
@@ -2635,6 +2735,7 @@ export default function App() {
                       contact={viewingContact}
                       bookName={bookNameById(addressBooks, viewingContact.addressBookId)}
                       onDelete={() => promptDelete(viewingContact)}
+                      onArchive={() => void onToggleArchive(viewingContact)}
                       onClose={() => setViewingContact(null)}
                       addressBooks={addressBooks}
                       busy={busy}

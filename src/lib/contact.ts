@@ -27,6 +27,9 @@ import type {
 
 export const CHANNEL_KINDS: ContactChannelKind[] = ["work", "home", "mobile", "custom"];
 
+/** Written only when true, so a reader predating it sees the card it expects. */
+export const CONTACT_ARCHIVED_PROP = "sealbook:archived";
+
 export function channelKindLabel(kind: ContactChannelKind, label?: string): string {
   if (kind === "custom") {
     return label?.trim() || "Custom";
@@ -295,6 +298,7 @@ const CARD_KEYS = [
   "version",
   "name",
   ADDRESS_BOOK_ID_PROP,
+  CONTACT_ARCHIVED_PROP,
   "nickNames",
   "emails",
   "phones",
@@ -318,6 +322,9 @@ export function serializeCard(draft: ContactDraft): string {
     name: { full: draft.name.trim() },
     [ADDRESS_BOOK_ID_PROP]: resolveAddressBookId(draft.addressBookId),
   };
+  if (draft.archived) {
+    body[CONTACT_ARCHIVED_PROP] = true;
+  }
   const nickname = trim(draft.nickname);
   if (nickname) {
     body.nickNames = { n1: { name: nickname } };
@@ -483,6 +490,7 @@ type RawCard = {
   updated?: string;
   updatedAt?: string;
   [ADDRESS_BOOK_ID_PROP]?: string;
+  [CONTACT_ARCHIVED_PROP]?: boolean;
   [CONTACT_PROFILE_PROP]?: unknown;
 };
 
@@ -679,6 +687,7 @@ export function parseDraft(raw: string): ContactDraft {
     avatar: parseAvatar(card),
     profile: parseProfile(card[CONTACT_PROFILE_PROP]),
     addressBookId: resolveAddressBookId(card[ADDRESS_BOOK_ID_PROP]),
+    archived: card[CONTACT_ARCHIVED_PROP] === true ? true : undefined,
     createdAt: card.created ?? card.createdAt,
     updatedAt: card.updated ?? card.updatedAt,
   };
