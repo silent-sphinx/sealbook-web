@@ -5,6 +5,9 @@ import {
   ensureDefaultCalendar,
   exportVault,
   genesisRoster,
+  importBatches,
+  importVault,
+  paddedLength,
   listVault,
   normalizeServer,
   pairApprove,
@@ -975,6 +978,185 @@ describe("exportVault", () => {
     const exported = await exportVault(owner.session);
     expect(exported.objects.map((object) => object.id)).toEqual([readable]);
     expect(exported.unreadable).toBe(1);
+  });
+});
+
+describe("the padded length a batch is sized by", () => {
+  /// The same cases `padding_above_the_bucket_table_is_a_power_of_two` pins in
+  /// `sealbook-crypto`. If these drift, a batch is sized against the wrong
+  /// numbers and the request limit is the thing that discovers it.
+  it("matches the buckets the Rust padding uses", () => {
+    expect(paddedLength(1)).toBe(256);
+    expect(paddedLength(0)).toBe(256);
+    expect(paddedLength(600 * 1024)).toBe(1024 * 1024);
+    expect(paddedLength(3 * 1024 * 1024)).toBe(4 * 1024 * 1024);
+    expect(paddedLength(5 * 1024 * 1024)).toBe(8 * 1024 * 1024);
+    // The bucket edges: four bytes of length prefix go in front of the payload.
+    expect(paddedLength(252)).toBe(256);
+    expect(paddedLength(253)).toBe(512);
+  });
+});
+
+describe("importBatches", () => {
+  const sized = (bytes: number) => ({
+    id: newUuid(),
+    contentType: NOTE_CONTENT_TYPE,
+    payload: "x".repeat(bytes),
+  });
+
+  it("bounds a batch of small objects by the count", () => {
+    const objects = Array.from({ length: 517 }, () => sized(8));
+    const batches = importBatches(objects);
+    expect(batches.map((batch) => batch.length)).toEqual([256, 256, 5]);
+  });
+
+  /// The bug this guards: batching on count alone sent a request past the
+  /// server's body limit, and a vault of large notes could not be imported.
+  it("bounds a batch of large objects by the bytes", () => {
+    const objects = Array.from({ length: 20 }, () => sized(1024 * 1024));
+    const batches = importBatches(objects);
+    expect(batches.length).toBeGreaterThan(1);
+    for (const batch of batches) {
+      const bytes = batch.reduce((sum, object) => sum + paddedLength(object.payload.length), 0);
+      expect(bytes).toBeLessThanOrEqual(8 * 1024 * 1024);
+    }
+    expect(batches.flat()).toHaveLength(objects.length);
+  });
+
+  it("sends an object larger than the whole budget on its own", () => {
+    const batches = importBatches([sized(8), sized(9 * 1024 * 1024), sized(8)]);
+    expect(batches.map((batch) => batch.length)).toEqual([1, 1, 1]);
+  });
+
+  it("makes no batch out of nothing", () => {
+    expect(importBatches([])).toEqual([]);
+  });
+});
+
+describe("importVault", () => {
+  const live = (owner: Account, id: string, payload: string) => {
+    const { objects, manifest } = vaultOf(owner, [
+      { id, contentType: JSCONTACT_CONTENT_TYPE, payload },
+    ]);
+    return {
+      manifest,
+      entries: objects.map((object) => ({
+        id: object.id,
+        revision: object.revision,
+        tombstone: false,
+        content_digest: objectContentDigest(object.nonce, object.ciphertext),
+      })),
+    };
+  };
+
+  type BatchBody = {
+    objects: { id: string; nonce: string; ciphertext: string; padded_size: number }[];
+  };
+
+  /** The vault holds `held`; the file carries `held` and one id it does not. */
+  function importing(owner: Account, held: string) {
+    const { manifest, entries } = live(owner, held, JSON.stringify({ "@type": "Card" }));
+    const batches: BatchBody[] = [];
+    server({
+      "/manifest": () => ({ manifest, entries }),
+      "/roster": () => ({ rosters: [owner.roster] }),
+      "/objects/batch": (_url, body) => {
+        batches.push(body as BatchBody);
+        return { latest_revision: 9 };
+      },
+    });
+    return batches;
+  }
+
+  it("leaves an object the vault already holds alone", async () => {
+    const owner = account();
+    const held = newUuid();
+    const fresh = newUuid();
+    const batches = importing(owner, held);
+
+    const result = await importVault(owner.session, [
+      {
+        id: held,
+        contentType: JSCONTACT_CONTENT_TYPE,
+        payload: JSON.stringify({ "@type": "Card", name: { full: "From the file" } }),
+      },
+      {
+        id: fresh,
+        contentType: "application/sealbook.future+json",
+        payload: JSON.stringify({ keep: "me" }),
+      },
+    ]);
+
+    expect(result).toEqual({ imported: 1, skipped: 1 });
+    // Only the id the vault did not have, and at the id the file gave it rather
+    // than a minted one, so a restore rebuilds the vault instead of doubling it.
+    expect(batches).toHaveLength(1);
+    expect(batches[0]!.objects.map((object) => object.id)).toEqual([fresh]);
+  });
+
+  it("replaces a held object when overwrite is asked for", async () => {
+    const owner = account();
+    const held = newUuid();
+    const fresh = newUuid();
+    const batches = importing(owner, held);
+
+    const result = await importVault(
+      owner.session,
+      [
+        {
+          id: held,
+          contentType: JSCONTACT_CONTENT_TYPE,
+          payload: JSON.stringify({ "@type": "Card", name: { full: "From the file" } }),
+        },
+        {
+          id: fresh,
+          contentType: "application/sealbook.future+json",
+          payload: JSON.stringify({ keep: "me" }),
+        },
+      ],
+      { overwrite: true },
+    );
+
+    expect(result).toEqual({ imported: 2, skipped: 0 });
+    expect(batches[0]!.objects.map((object) => object.id).sort()).toEqual([held, fresh].sort());
+  });
+
+  it("writes back the content type the file holds, including one it cannot parse", async () => {
+    const owner = account();
+    const fresh = newUuid();
+    const batches = importing(owner, newUuid());
+
+    await importVault(owner.session, [
+      {
+        id: fresh,
+        contentType: "application/sealbook.future+json",
+        payload: JSON.stringify({ keep: "me" }),
+      },
+    ]);
+
+    const written = batches[0]!.objects[0]!;
+    const opened = openObject(
+      owner.session.collectionKey,
+      fresh,
+      owner.collectionId,
+      written.nonce,
+      written.ciphertext,
+      written.padded_size,
+    );
+    expect(opened.contentType).toBe("application/sealbook.future+json");
+    expect(JSON.parse(opened.payload)).toEqual({ keep: "me" });
+  });
+
+  it("writes nothing when the file's objects are all already held", async () => {
+    const owner = account();
+    const held = newUuid();
+    const batches = importing(owner, held);
+
+    const result = await importVault(owner.session, [
+      { id: held, contentType: JSCONTACT_CONTENT_TYPE, payload: '{"@type":"Card"}' },
+    ]);
+    expect(result).toEqual({ imported: 0, skipped: 1 });
+    expect(batches).toHaveLength(0);
   });
 });
 

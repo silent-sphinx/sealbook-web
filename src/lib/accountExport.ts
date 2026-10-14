@@ -101,3 +101,102 @@ export function generateAccountExportData(
     data: JSON.stringify(bundle, null, 2),
   };
 }
+
+/** One object as an import writes it: the payload is the text that goes back. */
+export type AccountImportObject = {
+  id: string;
+  contentType: string;
+  payload: string;
+};
+
+export type AccountImport = {
+  objects: AccountImportObject[];
+  /** The account the file was written from, for the line the import reports. */
+  source: string;
+  /**
+   * Objects the exporting device could not open, from the file's `unreadable`
+   * count. The file is short of the vault it came from by this many, so an
+   * import of it cannot be a complete restore and has to say so.
+   */
+  unreadable: number;
+};
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+
+const major = (version: string) => version.split(".")[0] ?? "";
+
+/**
+ * Reads an export document, refusing one that cannot be restored faithfully.
+ *
+ * Mirrors `parse_account_export` in `sealbook/crates/sealbook-cli/src/main.rs`:
+ * a file written by either client has to read back in the other. A payload is
+ * carried as the file writes it, so a field this build does not know survives
+ * the round trip, and `text` is restored as those same bytes. A newer minor
+ * version is accepted, since the format only gains fields and objects go back
+ * untouched either way; a newer major is refused, because the meaning of what is
+ * already there may have changed.
+ */
+export function parseAccountExport(document: string): AccountImport {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(document);
+  } catch {
+    throw new Error("This is not a JSON document.");
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error("This is not a JSON document.");
+  }
+  const bundle = parsed as Record<string, unknown>;
+  if (bundle["@type"] !== ACCOUNT_EXPORT_TYPE) {
+    throw new Error(`This is not a Sealbook account export file.`);
+  }
+  const version = bundle.version;
+  if (typeof version !== "string") {
+    throw new Error("The file has no version.");
+  }
+  if (major(version) !== major(ACCOUNT_EXPORT_VERSION)) {
+    throw new Error(
+      `The file is version ${version} and this app reads ${ACCOUNT_EXPORT_VERSION}. ` +
+        `Update whichever is older.`,
+    );
+  }
+  if (!Array.isArray(bundle.objects)) {
+    throw new Error("The file has no objects.");
+  }
+
+  const objects: AccountImportObject[] = [];
+  const seen = new Set<string>();
+  bundle.objects.forEach((entry: unknown, index) => {
+    const position = index + 1;
+    if (typeof entry !== "object" || entry === null) {
+      throw new Error(`Object ${position} is not an object.`);
+    }
+    const { id, contentType, payload, text } = entry as Record<string, unknown>;
+    if (typeof id !== "string" || !UUID.test(id)) {
+      throw new Error(`Object ${position} has an id that is not a UUID.`);
+    }
+    if (seen.has(id)) {
+      throw new Error(`Object ${position} repeats id ${id}.`);
+    }
+    seen.add(id);
+    if (typeof contentType !== "string" || contentType === "") {
+      throw new Error(`Object ${id} has no contentType.`);
+    }
+    if (payload === undefined || payload === null) {
+      if (typeof text !== "string") {
+        throw new Error(`Object ${id} has neither a payload nor text.`);
+      }
+      objects.push({ id, contentType, payload: text });
+      return;
+    }
+    objects.push({ id, contentType, payload: JSON.stringify(payload) });
+  });
+
+  const account = (bundle.account ?? {}) as Record<string, unknown>;
+  const source =
+    typeof account.username === "string" && typeof account.server === "string"
+      ? `${account.username} at ${account.server}`
+      : "an export with no account block";
+  const unreadable = typeof bundle.unreadable === "number" ? bundle.unreadable : 0;
+  return { objects, source, unreadable };
+}

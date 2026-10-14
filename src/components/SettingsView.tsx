@@ -67,6 +67,7 @@ import { DEFAULT_CALENDAR_COLOR } from "../lib/types";
 import { allTimezones, utcOffsetLabel } from "../lib/timezone";
 import { Modal } from "./Modal";
 import { AccountExportSection } from "./AccountExportSection";
+import { AccountImportSection } from "./AccountImportSection";
 import { ImportExportSection } from "./ImportExportSection";
 import { NotesImportExportSection } from "./NotesImportExportSection";
 import { PasswordField } from "./PasswordField";
@@ -1731,6 +1732,10 @@ export function SettingsView({
       )}
 
       {activeSection === "account" && <AccountExportSection session={session} />}
+
+      {activeSection === "account" && (
+        <AccountImportSection session={session} onRefresh={onRefresh} />
+      )}
 
       {activeSection === "account" && <>
       <section className="rounded-2xl border border-danger/40 bg-danger/5 backdrop-blur-md p-6 shadow-sm">

@@ -1,3 +1,4 @@
+import type { AccountImportObject } from "./accountExport";
 import { b64ToByteArray, bytesFromJson } from "./bytes";
 import {
   accountOpSign,
@@ -1975,6 +1976,153 @@ export function exportVault(session: Session): Promise<VaultExport> {
       unreadable: unopened,
     };
   });
+}
+
+const MAX_IMPORT_BATCH = 256;
+
+/**
+ * Most padded bytes one batch may carry. Mirrors `MAX_BATCH_BYTES` in
+ * `sealbook/crates/sealbook-protocol/src/lib.rs`.
+ */
+const MAX_IMPORT_BYTES = 8 * 1024 * 1024;
+
+/**
+ * The bucket a payload of this length pads into, without doing the padding.
+ *
+ * Mirrors `padded_len` in `sealbook/crates/sealbook-crypto/src/aead.rs`, which
+ * is the only place the buckets are defined. A batch has to be sized before it
+ * is sealed, because the request it will become is bounded by these numbers.
+ */
+export function paddedLength(payloadBytes: number): number {
+  const len = payloadBytes + 4;
+  for (const bucket of [256, 512, 1024, 2048, 4096, 8192, 16384, 32768]) {
+    if (bucket >= len) return bucket;
+  }
+  return 2 ** Math.ceil(Math.log2(len));
+}
+
+/**
+ * Splits objects into batches that fit a single request.
+ *
+ * Bounded by object count and by padded bytes: the count alone lets a batch of
+ * large notes exceed the server's body limit, which fails the write rather than
+ * splitting it. An object past the whole budget goes out alone, since it is
+ * within the limit as a single write and would otherwise be unimportable.
+ */
+export function importBatches(objects: AccountImportObject[]): AccountImportObject[][] {
+  const batches: AccountImportObject[][] = [];
+  let batch: AccountImportObject[] = [];
+  let bytes = 0;
+  for (const object of objects) {
+    // The payload is sealed as UTF-8, so its byte length is what pads, not its
+    // length in code units.
+    const size = paddedLength(new TextEncoder().encode(object.payload).length);
+    if (batch.length > 0 && (batch.length === MAX_IMPORT_BATCH || bytes + size > MAX_IMPORT_BYTES)) {
+      batches.push(batch);
+      batch = [];
+      bytes = 0;
+    }
+    batch.push(object);
+    bytes += size;
+  }
+  if (batch.length > 0) batches.push(batch);
+  return batches;
+}
+
+export type VaultImportResult = {
+  /** Objects written. */
+  imported: number;
+  /** Objects left alone because the vault already holds that id. */
+  skipped: number;
+};
+
+/**
+ * Writes the objects of an account export back into the vault.
+ *
+ * The counterpart of `exportVault`. Ids come from the file rather than being
+ * minted, so an import into the account the file came from restores it instead
+ * of duplicating it, and one into an empty account is the migration path. An
+ * object whose id is already live is left alone unless `overwrite` says
+ * otherwise: that id is someone's current object, and replacing it loses what is
+ * there.
+ *
+ * Sent in batches bounded by both `MAX_IMPORT_BATCH` and `MAX_IMPORT_BYTES`,
+ * each its own request and manifest signature. A batch that fails leaves the
+ * batches before it written; a rerun is harmless because the ids are fixed.
+ */
+export async function importVault(
+  session: Session,
+  objects: AccountImportObject[],
+  { overwrite = false }: { overwrite?: boolean } = {},
+): Promise<VaultImportResult> {
+  // The manifest names every id and says which are tombstones, so the live set
+  // comes back without decrypting the vault.
+  const live = new Set(
+    (await manifestState(session)).entries
+      .filter((entry) => !entry.tombstone)
+      .map((entry) => entry.id),
+  );
+  const writes = overwrite ? objects : objects.filter((object) => !live.has(object.id));
+  const skipped = objects.length - writes.length;
+
+  for (const batch of importBatches(writes)) {
+    await serializeVault(session.state.collection_id, async () => {
+      const { seq, keyEpoch, latestRevision, entries } = await manifestState(session);
+      await alignKeyEpoch(session, keyEpoch);
+      const sealed = batch.map((object, index) => {
+        const revision = latestRevision + index + 1;
+        return {
+          id: object.id,
+          revision,
+          // Payload and content type go back as the file holds them, including a
+          // content type this build has no parser for.
+          sealed: sealPayload(session, object.id, object.contentType, object.payload, revision),
+        };
+      });
+      const manifestEntries = [
+        ...entries,
+        ...sealed.map((write) =>
+          entryFor({
+            id: write.id,
+            revision: write.revision,
+            tombstone: false,
+            nonce: write.sealed.encrypted.nonce,
+            ciphertext: write.sealed.encrypted.ciphertext,
+          }),
+        ),
+      ];
+      const manifest = manifestSign(
+        bytesFromJson(session.state.mldsa_seed),
+        bytesFromJson(session.state.ed25519_sk),
+        session.state.collection_id,
+        session.state.device_id,
+        seq + 1,
+        keyEpoch,
+        latestRevision + sealed.length,
+        manifestEntries,
+      );
+      const response = await putJson<{ latest_revision: number }>(
+        `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects/batch`,
+        {
+          objects: sealed.map((write) => ({
+            id: write.id,
+            revision: write.revision,
+            nonce: write.sealed.encrypted.nonce,
+            ciphertext: write.sealed.encrypted.ciphertext,
+            padded_size: write.sealed.encrypted.padded_size,
+            content_type: sealedContentType(),
+            tombstone: false,
+          })),
+          manifest,
+        },
+        session.token,
+      );
+      session.latestRevision = response.latest_revision;
+      rememberManifestSeq(session, seq + 1);
+    });
+  }
+
+  return { imported: writes.length, skipped };
 }
 
 async function listVaultInner(session: Session): Promise<VaultListing> {
