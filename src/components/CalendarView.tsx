@@ -9,7 +9,7 @@ import {
 } from "../lib/client";
 import type { Calendar, CalendarEvent, RecurrenceRule } from "../lib/types";
 import { DEFAULT_CALENDAR_COLOR } from "../lib/types";
-import { DEFAULT_CALENDAR_ID } from "../lib/calendar";
+import { DEFAULT_CALENDAR_ID, activeCalendars, archivedCalendars, isCalendarVisible, visibleCalendarIds } from "../lib/calendar";
 import { friendlyError } from "../lib/errors";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SidebarDrawer, type Sidebar } from "./SidebarDrawer";
@@ -24,17 +24,31 @@ type RepeatEnd = "never" | "count" | "date";
 
 const DEFAULT_REPEAT_COUNT = 10;
 
-function hiddenCalendarStorageKey(collectionId: string): string {
-  return `sealbook.hidden-calendars.${collectionId}`;
+/**
+ * The two visibility toggles, each the exception to its group's default. See
+ * `isCalendarVisible`.
+ */
+const HIDDEN_CALENDARS = "hidden-calendars";
+const SHOWN_ARCHIVED_CALENDARS = "shown-archived-calendars";
+
+function calendarIdsStorageKey(collectionId: string, group: string): string {
+  return `sealbook.${group}.${collectionId}`;
 }
 
-function loadHiddenCalendarIds(collectionId: string): Set<string> {
+function loadCalendarIds(collectionId: string, group: string): Set<string> {
   try {
-    const stored = sessionStorage.getItem(hiddenCalendarStorageKey(collectionId));
+    const stored = sessionStorage.getItem(calendarIdsStorageKey(collectionId, group));
     const ids = stored ? JSON.parse(stored) : [];
     return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []);
   } catch {
     return new Set();
+  }
+}
+
+function storeCalendarIds(collectionId: string, group: string, ids: ReadonlySet<string>): void {
+  try {
+    sessionStorage.setItem(calendarIdsStorageKey(collectionId, group), JSON.stringify([...ids]));
+  } catch {
   }
 }
 
@@ -325,7 +339,7 @@ function buildDaySlots(days: Date[], events: CalendarEvent[], spans: Map<string,
   return map;
 }
 
-function Icon({ name, className = "h-4 w-4" }: { name: "plus" | "search" | "chevron" | "pencil" | "star" | "x"; className?: string }) {
+function Icon({ name, className = "h-4 w-4" }: { name: "plus" | "search" | "chevron" | "pencil" | "star" | "x" | "archive" | "unarchive"; className?: string }) {
   const content = {
     plus: <path d="M8 2.5v11M2.5 8h11" />,
     search: <><circle cx="6.5" cy="6.5" r="4" /><path d="m10 10 3.5 3.5" /></>,
@@ -333,6 +347,8 @@ function Icon({ name, className = "h-4 w-4" }: { name: "plus" | "search" | "chev
     x: <path d="m4 4 8 8M12 4l-8 8" />,
     pencil: <><path d="m10.75 2.75 2.5 2.5M3 13l1.5-3.75 6.25-6.25a1.77 1.77 0 0 1 2.5 2.5L7 11.75 3 13Z" /></>,
     star: <path d="m8 1.75 1.9 3.85 4.25.62-3.08 3 .73 4.23L8 11.45l-3.8 2 .73-4.23-3.08-3 4.25-.62L8 1.75Z" fill="currentColor" />,
+    archive: <><path d="M2 3.5h12v3H2z" /><path d="M3.5 6.5v6h9v-6" /><path d="M6.5 9h3" /></>,
+    unarchive: <><path d="M2 3.5h12v3H2z" /><path d="M3.5 6.5v6h9v-6" /><path d="M8 11.5V8m-1.5 1.5L8 8l1.5 1.5" /></>,
   }[name];
   const resolvedClassName = name === "search"
     ? `${className} pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-mute`
@@ -369,7 +385,8 @@ export function CalendarView({
   const [composer, setComposer] = useState(false);
   const [calendarComposer, setCalendarComposer] = useState(false);
   const [editingCalendar, setEditingCalendar] = useState<Calendar | null>(null);
-  const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(() => loadHiddenCalendarIds(session.state.collection_id));
+  const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(() => loadCalendarIds(session.state.collection_id, HIDDEN_CALENDARS));
+  const [shownArchivedIds, setShownArchivedIds] = useState<Set<string>>(() => loadCalendarIds(session.state.collection_id, SHOWN_ARCHIVED_CALENDARS));
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [calendarName, setCalendarName] = useState("");
   const [calendarColor, setCalendarColor] = useState(DEFAULT_CALENDAR_COLOR);
@@ -423,10 +440,28 @@ export function CalendarView({
   }, [calendars, onRefresh, readOnlyMode, session]);
 
   const days = useMemo(() => monthDays(month), [month]);
+  const activeCals = useMemo(() => activeCalendars(calendars), [calendars]);
+  const archivedCals = useMemo(() => archivedCalendars(calendars), [calendars]);
+  /**
+   * Hiding a calendar in play is a passing view toggle, so its events stay
+   * findable. Archiving is the standing decision to put a calendar away, so its
+   * events leave search with it — until it is switched back on, which is the
+   * point at which the user has said they want to see it again.
+   */
+  const visibleIds = useMemo(
+    () => visibleCalendarIds(calendars, hiddenCalendarIds, shownArchivedIds),
+    [calendars, hiddenCalendarIds, shownArchivedIds],
+  );
+  const searchable = useMemo(
+    () => events.filter((event) => !event.calendarId
+      || !archivedCals.some((calendar) => calendar.id === event.calendarId && !visibleIds.has(calendar.id))),
+    [archivedCals, events, visibleIds],
+  );
   const filtered = useMemo(
     () => events
-      .filter((event) => !event.calendarId || calendars.some((calendar) => calendar.id === event.calendarId))
-      .filter((event) => !event.calendarId || !hiddenCalendarIds.has(event.calendarId))
+      // An event whose calendar is missing or switched off is left out; one
+      // belonging to no calendar at all is kept.
+      .filter((event) => !event.calendarId || visibleIds.has(event.calendarId))
       .sort((a, b) => {
         const aStart = a.start;
         const bStart = b.start;
@@ -435,8 +470,12 @@ export function CalendarView({
         const bEnd = b.end || b.start;
         return bEnd.localeCompare(aEnd);
       }),
-    [calendars, events, hiddenCalendarIds],
+    [events, visibleIds],
   );
+  const composerCalendars = useMemo(() => {
+    const current = calendars.find((calendar) => calendar.id === eventCalendarId);
+    return current && current.archived === true ? [...activeCals, current] : activeCals;
+  }, [activeCals, calendars, eventCalendarId]);
   const selectedDate = useMemo(() => dateFromKey(selected), [selected]);
   const week = useMemo(() => weekDays(selectedDate), [selectedDate]);
   const yearMonths = useMemo(
@@ -501,11 +540,11 @@ export function CalendarView({
   }
 
   const searchResults = useMemo(
-    () => searchEvents(events, calendars, search, today, timezone),
+    () => searchEvents(searchable, calendars, search, today, timezone),
     // `today` is recreated each render but only its date matters, so the key
     // stands in for it to avoid recomputing the whole search every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [calendars, events, search, timezone, todayKey],
+    [calendars, search, searchable, timezone, todayKey],
   );
 
   /**
@@ -532,28 +571,46 @@ export function CalendarView({
     : (event: CalendarEvent) =>
       openEditTask(events.find((source) => event.id === source.id || event.id.startsWith(`${source.id}:`)) ?? event);
 
+  /**
+   * Switches one calendar on or off on the grid. Which set the id moves in and
+   * out of depends on the calendar's own default, so an archived calendar can
+   * be switched on without being restored.
+   */
   function toggleCalendar(calendarId: string) {
-    setHiddenCalendarIds((current) => {
+    const archived = calendars.some((calendar) => calendar.id === calendarId && calendar.archived === true);
+    const group = archived ? SHOWN_ARCHIVED_CALENDARS : HIDDEN_CALENDARS;
+    const update = archived ? setShownArchivedIds : setHiddenCalendarIds;
+    update((current) => {
       const next = new Set(current);
       if (next.has(calendarId)) {
         next.delete(calendarId);
       } else {
         next.add(calendarId);
       }
-      try {
-        sessionStorage.setItem(hiddenCalendarStorageKey(session.state.collection_id), JSON.stringify([...next]));
-      } catch {
-      }
+      storeCalendarIds(session.state.collection_id, group, next);
       return next;
     });
   }
 
+  /** Clears the switched-off calendars in play. The archive is left as it is. */
   function showAllCalendars() {
     setHiddenCalendarIds(new Set());
-    try {
-      sessionStorage.setItem(hiddenCalendarStorageKey(session.state.collection_id), "[]");
-    } catch {
-    }
+    storeCalendarIds(session.state.collection_id, HIDDEN_CALENDARS, new Set());
+  }
+
+  /**
+   * Drops a calendar's recorded exception so it starts at the default of the
+   * group it is moving into: archiving one hides it, restoring one shows it.
+   */
+  function forgetCalendarToggle(calendarId: string, group: string) {
+    const update = group === SHOWN_ARCHIVED_CALENDARS ? setShownArchivedIds : setHiddenCalendarIds;
+    update((current) => {
+      if (!current.has(calendarId)) return current;
+      const next = new Set(current);
+      next.delete(calendarId);
+      storeCalendarIds(session.state.collection_id, group, next);
+      return next;
+    });
   }
 
   function openNewCalendar() {
@@ -592,7 +649,7 @@ export function CalendarView({
     setLocation("");
     setParticipants("");
     setAllDay(false);
-    setEventCalendarId(calendars[0]?.id ?? "");
+    setEventCalendarId(activeCals[0]?.id ?? "");
     const startHour = hour === undefined ? 9 : Math.min(23, Math.max(0, hour));
     setStart(`${dayKey}T${String(startHour).padStart(2, "0")}:00`);
     // The last hour of the day ends at 23:59 rather than rolling past midnight.
@@ -616,7 +673,7 @@ export function CalendarView({
     setNotes(event.notes ?? "");
     setLocation(event.location ?? "");
     setParticipants(event.participants?.join(", ") ?? "");
-    setEventCalendarId(event.calendarId ?? calendars[0]?.id ?? "");
+    setEventCalendarId(event.calendarId ?? activeCals[0]?.id ?? "");
     const rule = event.recurrence;
     if (!rule) {
       setRepeatChoice("none");
@@ -736,7 +793,17 @@ export function CalendarView({
     if (!calendarName.trim()) return;
     setError(null);
     try {
-      await putCalendar(session, { name: calendarName.trim(), color: calendarColor, favorite: editingCalendar?.favorite ?? false }, editingCalendar?.id);
+      await putCalendar(
+        session,
+        {
+          name: calendarName.trim(),
+          color: calendarColor,
+          favorite: editingCalendar?.favorite ?? false,
+          archived: editingCalendar?.archived ?? false,
+          raw: editingCalendar?.raw,
+        },
+        editingCalendar?.id,
+      );
       setCalendarName("");
       setCalendarColor(DEFAULT_CALENDAR_COLOR);
       setEditingCalendar(null);
@@ -750,7 +817,39 @@ export function CalendarView({
   async function toggleFavorite(calendar: Calendar) {
     setError(null);
     try {
-      await putCalendar(session, { name: calendar.name, color: calendar.color, favorite: !calendar.favorite }, calendar.id);
+      await putCalendar(
+        session,
+        { name: calendar.name, color: calendar.color, favorite: !calendar.favorite, archived: calendar.archived, raw: calendar.raw },
+        calendar.id,
+      );
+      await onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /**
+   * Moves a calendar in or out of the archive.
+   *
+   * Refused where it would leave no calendar in play, since a new event would
+   * then have nowhere to go. An archived calendar stays readable: it drops out
+   * of the list and the pickers and off the grid, and can be switched back on
+   * from the archived group without being restored.
+   */
+  async function toggleArchived(calendar: Calendar) {
+    const archiving = calendar.archived !== true;
+    if (archiving && activeCals.length <= 1) {
+      setError(`“${calendar.name}” is your only calendar in use. Create or restore another one before archiving it.`);
+      return;
+    }
+    setError(null);
+    try {
+      await putCalendar(
+        session,
+        { name: calendar.name, color: calendar.color, favorite: calendar.favorite, archived: archiving, raw: calendar.raw },
+        calendar.id,
+      );
+      forgetCalendarToggle(calendar.id, archiving ? HIDDEN_CALENDARS : SHOWN_ARCHIVED_CALENDARS);
       await onRefresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -819,7 +918,7 @@ export function CalendarView({
           <MiniMonth month={month} selected={selected} events={miniEvents} spans={miniSpans} onSelect={(day) => { selectDay(day); sidebar.close(); }} />
           <div className="mt-8 border-t border-line pt-5">
             <div className="flex items-center justify-between"><p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">Calendars</p>{!readOnlyMode ? <button type="button" onClick={openNewCalendar} className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`} aria-label="Add calendar"><Icon name="plus" /></button> : null}</div>
-            <CalendarList calendars={calendars} hiddenCalendarIds={hiddenCalendarIds} readOnly={readOnlyMode} onToggle={toggleCalendar} onShowAll={showAllCalendars} onToggleFavorite={(calendar) => void toggleFavorite(calendar)} onEdit={openEditCalendar} onCreate={openNewCalendar} />
+            <CalendarList calendars={activeCals} archived={archivedCals} isVisible={(calendar) => isCalendarVisible(calendar, hiddenCalendarIds, shownArchivedIds)} readOnly={readOnlyMode} canArchive={activeCals.length > 1} onToggle={toggleCalendar} onShowAll={showAllCalendars} onToggleFavorite={(calendar) => void toggleFavorite(calendar)} onToggleArchived={(calendar) => void toggleArchived(calendar)} onEdit={openEditCalendar} onCreate={openNewCalendar} />
           </div>
         </SidebarDrawer>
 
@@ -850,7 +949,7 @@ export function CalendarView({
         </section>
       </div>
 
-      {composer ? <TaskDialog editing={editingEvent !== null} title={title} start={start} end={end} notes={notes} location={location} participants={participants} allDay={allDay} calendarId={eventCalendarId} calendars={calendars} repeatChoice={repeatChoice} customFrequency={customFrequency} customInterval={customInterval} repeatEnd={repeatEnd} repeatCount={repeatCount} repeatUntil={repeatUntil} minRepeatUntil={start.slice(0, 10)} busy={busy} error={error} onClose={closeTaskDialog} onSave={() => void saveEvent()} onDelete={editingEvent ? () => void removeEvent() : undefined} onTitleChange={setTitle} onStartChange={updateStart} onEndChange={setEnd} onNotesChange={setNotes} onLocationChange={setLocation} onParticipantsChange={setParticipants} onAllDayChange={setAllDay} onCalendarChange={setEventCalendarId} onRepeatChange={setRepeatChoice} onCustomFrequencyChange={setCustomFrequency} onCustomIntervalChange={setCustomInterval} onRepeatEndChange={setRepeatEnd} onRepeatCountChange={setRepeatCount} onRepeatUntilChange={setRepeatUntil} /> : null}
+      {composer ? <TaskDialog editing={editingEvent !== null} title={title} start={start} end={end} notes={notes} location={location} participants={participants} allDay={allDay} calendarId={eventCalendarId} calendars={composerCalendars} repeatChoice={repeatChoice} customFrequency={customFrequency} customInterval={customInterval} repeatEnd={repeatEnd} repeatCount={repeatCount} repeatUntil={repeatUntil} minRepeatUntil={start.slice(0, 10)} busy={busy} error={error} onClose={closeTaskDialog} onSave={() => void saveEvent()} onDelete={editingEvent ? () => void removeEvent() : undefined} onTitleChange={setTitle} onStartChange={updateStart} onEndChange={setEnd} onNotesChange={setNotes} onLocationChange={setLocation} onParticipantsChange={setParticipants} onAllDayChange={setAllDay} onCalendarChange={setEventCalendarId} onRepeatChange={setRepeatChoice} onCustomFrequencyChange={setCustomFrequency} onCustomIntervalChange={setCustomInterval} onRepeatEndChange={setRepeatEnd} onRepeatCountChange={setRepeatCount} onRepeatUntilChange={setRepeatUntil} /> : null}
       {calendarComposer ? <CalendarDialog editing={editingCalendar !== null} name={calendarName} color={calendarColor} busy={busy || purgingEvents} error={error} eventCount={editingCalendar ? events.filter((event) => event.calendarId === editingCalendar.id).length : 0} onClose={() => { setCalendarComposer(false); setEditingCalendar(null); }} onSave={() => void saveCalendar()} onDelete={editingCalendar && editingCalendar.id !== DEFAULT_CALENDAR_ID ? () => setConfirmDeleteCalendar(true) : undefined} onPurge={editingCalendar ? () => setConfirmPurgeEvents(true) : undefined} onNameChange={setCalendarName} onColorChange={setCalendarColor} /> : null}
       {confirmDeleteCalendar && editingCalendar ? (
         <ConfirmDialog
@@ -1194,28 +1293,99 @@ function CalendarSwatch({ color, hidden }: { color: string; hidden: boolean }) {
   );
 }
 
-function CalendarList({ calendars, hiddenCalendarIds, readOnly, onToggle, onShowAll, onToggleFavorite, onEdit, onCreate }: { calendars: Calendar[]; hiddenCalendarIds: Set<string>; readOnly: boolean; onToggle: (calendarId: string) => void; onShowAll: () => void; onToggleFavorite: (calendar: Calendar) => void; onEdit: (calendar: Calendar) => void; onCreate: () => void }) {
+/**
+ * The sidebar list. `calendars` is the ones in play; `archived` sit in a
+ * collapsed group under them, where they can still be switched on for a look
+ * without being restored.
+ */
+function CalendarList({ calendars, archived, isVisible, readOnly, canArchive, onToggle, onShowAll, onToggleFavorite, onToggleArchived, onEdit, onCreate }: { calendars: Calendar[]; archived: Calendar[]; isVisible: (calendar: Calendar) => boolean; readOnly: boolean; canArchive: boolean; onToggle: (calendarId: string) => void; onShowAll: () => void; onToggleFavorite: (calendar: Calendar) => void; onToggleArchived: (calendar: Calendar) => void; onEdit: (calendar: Calendar) => void; onCreate: () => void }) {
+  const [archivedOpen, setArchivedOpen] = useState(false);
   const ordered = useMemo(
     () => [...calendars].sort((a, b) => Number(b.favorite === true) - Number(a.favorite === true)),
     [calendars],
   );
-  const anyHidden = calendars.some((calendar) => hiddenCalendarIds.has(calendar.id));
+  const anyHidden = calendars.some((calendar) => !isVisible(calendar));
+
+  const archivedGroup = archived.length === 0 ? null : (
+    <div className="mt-3 border-t border-line pt-2">
+      <button
+        type="button"
+        onClick={() => setArchivedOpen((open) => !open)}
+        aria-expanded={archivedOpen}
+        className={`-ml-2 flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-mute transition-colors hover:text-text ${focusRing}`}
+      >
+        <Icon name="chevron" className={`h-3 w-3 transition-transform ${archivedOpen ? "rotate-90" : ""}`} />
+        Archived ({archived.length})
+      </button>
+
+      {archivedOpen ? (
+        <div className="mt-1 space-y-0.5">
+          {archived.map((calendar) => {
+            const shown = isVisible(calendar);
+            return (
+              <div key={calendar.id} className="group -mx-2 flex items-center rounded-lg pr-2 transition-colors hover:bg-surface/40">
+                <button
+                  type="button"
+                  onClick={() => onToggle(calendar.id)}
+                  aria-pressed={shown}
+                  title={`${shown ? "Hide" : "Show"} ${calendar.name}`}
+                  className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing}`}
+                >
+                  <CalendarSwatch color={calendar.color} hidden={!shown} />
+                  <span className={`min-w-0 flex-1 truncate font-medium transition-colors ${shown ? "text-text" : "text-mute"}`}>{calendar.name}</span>
+                </button>
+                {readOnly ? null : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onToggleArchived(calendar)}
+                      title="Restore calendar"
+                      aria-label={`Restore ${calendar.name} calendar`}
+                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-accent transition-colors hover:bg-elevated ${focusRing}`}
+                    >
+                      <Icon name="unarchive" className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onEdit(calendar)}
+                      title="Edit calendar"
+                      aria-label={`Edit ${calendar.name} calendar`}
+                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-mute transition-colors hover:bg-elevated hover:text-text ${focusRing}`}
+                    >
+                      <Icon name="pencil" className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
 
   if (calendars.length === 0) {
-    return readOnly
-      ? <p className="mt-3 text-xs text-mute">No calendars yet.</p>
-      : (
-        <button type="button" onClick={onCreate} className={`mt-3 w-full rounded-lg border border-dashed border-line px-3 py-3 text-xs text-mute transition-colors hover:border-line-light hover:text-text ${focusRing}`}>
-          Create your first calendar
-        </button>
-      );
+    return (
+      <>
+        {readOnly
+          ? <p className="mt-3 text-xs text-mute">{archived.length === 0 ? "No calendars yet." : "Every calendar is archived."}</p>
+          : archived.length === 0
+            ? (
+              <button type="button" onClick={onCreate} className={`mt-3 w-full rounded-lg border border-dashed border-line px-3 py-3 text-xs text-mute transition-colors hover:border-line-light hover:text-text ${focusRing}`}>
+                Create your first calendar
+              </button>
+            )
+            : <p className="mt-3 text-xs text-mute">Every calendar is archived. Restore one below to use it again.</p>}
+        {archivedGroup}
+      </>
+    );
   }
 
   return (
     <>
       <div className="mt-2.5 space-y-0.5">
         {ordered.map((calendar) => {
-          const hidden = hiddenCalendarIds.has(calendar.id);
+          const hidden = !isVisible(calendar);
           return (
             <div key={calendar.id} className="list-row group -mx-2 flex items-center rounded-lg pr-2 transition-colors hover:bg-surface/40">
               <button
@@ -1230,7 +1400,7 @@ function CalendarList({ calendars, hiddenCalendarIds, readOnly, onToggle, onShow
               </button>
 
               {/* Fixed-width slot so swapping count for actions never shifts the name. */}
-              <span className="relative flex h-7 w-[50px] shrink-0 items-center justify-end">
+              <span className="relative flex h-7 w-[76px] shrink-0 items-center justify-end">
                 <span className="list-row-rest absolute inset-0 flex items-center justify-end pr-1">
                   {calendar.favorite ? <Icon name="star" className="h-3 w-3 text-accent" /> : null}
                 </span>
@@ -1245,6 +1415,16 @@ function CalendarList({ calendars, hiddenCalendarIds, readOnly, onToggle, onShow
                       className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-elevated ${calendar.favorite ? "text-accent" : "text-mute hover:text-text"} ${focusRing}`}
                     >
                       <Icon name="star" className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onToggleArchived(calendar)}
+                      disabled={!canArchive}
+                      title={canArchive ? "Archive calendar" : "Your only calendar in use cannot be archived"}
+                      aria-label={`Archive ${calendar.name} calendar`}
+                      className={`flex h-6 w-6 items-center justify-center rounded-md text-mute transition-colors hover:bg-elevated hover:text-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-mute ${focusRing}`}
+                    >
+                      <Icon name="archive" className="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"
@@ -1268,6 +1448,8 @@ function CalendarList({ calendars, hiddenCalendarIds, readOnly, onToggle, onShow
           Show all calendars
         </button>
       ) : null}
+
+      {archivedGroup}
     </>
   );
 }

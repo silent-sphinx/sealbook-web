@@ -59,6 +59,8 @@ import {
 import {
   DEFAULT_CALENDAR_ID,
   DEFAULT_CALENDAR_NAME,
+  parseCalendar,
+  serializeCalendar,
   sortCalendars,
 } from "./calendar";
 import {
@@ -1979,8 +1981,7 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
         const value = JSON.parse(raw) as { title?: string; start?: string; end?: string; notes?: string; location?: string; participants?: string[]; timezone?: string; calendarId?: string; recurrence?: CalendarEvent["recurrence"] };
         calendarEvents.push({ id: obj.id, title: value.title?.trim() || "Untitled event", start: value.start ?? "", end: value.end, notes: value.notes, location: value.location, participants: value.participants, timezone: value.timezone, calendarId: value.calendarId, recurrence: value.recurrence, raw });
       } else if (contentType === CALENDAR_CONTENT_TYPE || isCalendarPayload(raw)) {
-        const value = JSON.parse(raw) as { name?: string; color?: string; favorite?: boolean };
-        calendars.push({ id: obj.id, name: value.name?.trim() || "Untitled calendar", color: value.color || DEFAULT_CALENDAR_COLOR, favorite: value.favorite === true, raw });
+        calendars.push(parseCalendar(obj.id, raw));
       } else if (contentType === ADDRESS_BOOK_CONTENT_TYPE || isAddressBookPayload(raw)) {
         addressBooks.push(parseAddressBook(obj.id, raw));
       } else if (contentType === NOTE_CONTENT_TYPE || isPayloadOfType(raw, "Note")) {
@@ -2107,8 +2108,6 @@ const CALENDAR_EVENT_KEYS = [
   "recurrence",
 ] as const;
 
-const CALENDAR_KEYS = ["@type", "version", "name", "color", "favorite"] as const;
-
 export async function putCalendarEvent(session: Session, event: Omit<CalendarEvent, "id">, existingId?: string): Promise<string> {
   const id = existingId ?? newUuid();
   // `raw` is what the merge reads, not a field of the payload itself.
@@ -2124,13 +2123,7 @@ export async function putCalendarEvent(session: Session, event: Omit<CalendarEve
 
 export async function putCalendar(session: Session, calendar: Omit<Calendar, "id">, existingId?: string): Promise<string> {
   const id = existingId ?? newUuid();
-  const { raw, ...fields } = calendar;
-  const plaintext = mergePayload(
-    raw,
-    { "@type": "Calendar", version: PAYLOAD_SCHEMA_VERSION, ...fields },
-    CALENDAR_KEYS,
-  );
-  await putSealed(session, id, CALENDAR_CONTENT_TYPE, false, plaintext);
+  await putSealed(session, id, CALENDAR_CONTENT_TYPE, false, serializeCalendar(calendar));
   return id;
 }
 

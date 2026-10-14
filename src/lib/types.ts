@@ -279,6 +279,13 @@ export type Calendar = {
   name: string;
   color: string;
   favorite?: boolean;
+  /**
+   * Put away: out of the calendar list and the event pickers, and off the grid
+   * unless it is switched on for a look, with its events left in the vault
+   * untouched. Absent rather than `false` on a calendar that has never been
+   * archived.
+   */
+  archived?: boolean;
   /** As `NoteDraft.raw`: what a save merges onto, so unknown fields survive. */
   raw?: string;
 };
