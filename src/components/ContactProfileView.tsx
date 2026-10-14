@@ -8,10 +8,9 @@ import {
   profileOf,
   type ProfileSection,
 } from "../lib/contactProfile";
-import { sectionBar } from "../lib/styles";
 import type { ContactProfile } from "../lib/types";
 
-const row = "rounded-lg border border-line/70 bg-bg/50 px-3.5 py-2.5 text-sm";
+const row = "border-b border-line/60 px-5 py-3 text-sm";
 const chip = "rounded-md border border-line bg-bg/50 px-2.5 py-1 text-xs text-text";
 
 /**
@@ -160,7 +159,7 @@ function Timeline({ profile }: { profile: ContactProfile }) {
     ...undated,
   ];
   return (
-    <ol className="relative space-y-3 border-l border-line/70 pl-4">
+    <ol className="relative mx-5 space-y-3 border-l border-line/70 py-3 pl-4">
       {ordered.map((item) => (
         <li key={item.id} className="relative">
           <span
@@ -185,12 +184,12 @@ function Timeline({ profile }: { profile: ContactProfile }) {
 }
 
 function Rows({ children }: { children: ReactNode }) {
-  return <div className="space-y-2">{children}</div>;
+  return <div>{children}</div>;
 }
 
 function Chips({ values }: { values: string[] }) {
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-1.5 border-b border-line/60 px-5 py-3">
       {values.map((value, index) => (
         <span key={`${value}-${index}`} className={chip}>
           {value}
@@ -212,10 +211,8 @@ function Note({ text }: { text?: string }) {
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="mb-5 break-inside-avoid">
-      <h4
-        className={`mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-mute ${sectionBar}`}
-      >
+    <section className="break-inside-avoid">
+      <h4 className="sticky top-0 z-10 border-b border-line/60 bg-surface/80 px-5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-mute backdrop-blur-sm">
         {title}
       </h4>
       {children}

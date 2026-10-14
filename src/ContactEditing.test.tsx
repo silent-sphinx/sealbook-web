@@ -109,6 +109,26 @@ beforeEach(() => {
   writes.length = 0;
 });
 
+describe("leaving a contact that is open for editing", () => {
+  it("keeps the draft when the prompt is dismissed", async () => {
+    await unlock();
+
+    fireEvent.click(screen.getByRole("button", { name: "View Ada Lovelace" }));
+    await paneIdle();
+    fireEvent.click(screen.getByRole("button", { name: "Edit contact" }));
+    fireEvent.change(await screen.findByLabelText("Full name"), {
+      target: { value: "Ada King" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "View Grace Hopper" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Keep editing" }));
+
+    // Still the same form, still carrying what was typed into it.
+    expect(nameField().value).toBe("Ada King");
+    expect(screen.queryByRole("heading", { name: "Grace Hopper" })).toBeNull();
+  });
+});
+
 describe("selecting another contact while the pane is editing one", () => {
   it("closes the form rather than swapping the contact under it", async () => {
     await unlock();
@@ -120,6 +140,8 @@ describe("selecting another contact while the pane is editing one", () => {
     expect(nameField().value).toBe("Ada Lovelace");
 
     fireEvent.click(screen.getByRole("button", { name: "View Grace Hopper" }));
+    // Leaving an open edit is held until the draft is given up.
+    fireEvent.click(await screen.findByRole("button", { name: "Discard changes" }));
 
     // The pane remounts, so it comes back in its read-only state on the new
     // contact instead of showing the previous one's half-finished form.
@@ -141,6 +163,7 @@ describe("selecting another contact while the pane is editing one", () => {
 
     // Move to the second contact and edit that one instead.
     fireEvent.click(screen.getByRole("button", { name: "View Grace Hopper" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Discard changes" }));
     await paneIdle();
     fireEvent.click(await screen.findByRole("button", { name: "Edit contact" }));
     expect(nameField().value).toBe("Grace Hopper");

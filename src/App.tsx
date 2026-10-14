@@ -608,6 +608,14 @@ export default function App() {
   const [composing, setComposing] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [viewingContact, setViewingContact] = useState<Contact | null>(null);
+  /**
+   * Whether the detail pane has its edit form open. Owned here rather than in
+   * the pane so that leaving the contact behind can be stopped first: the draft
+   * lives in the form and is gone the moment it unmounts.
+   */
+  const [editingDetail, setEditingDetail] = useState(false);
+  // The navigation an unsaved edit interrupted, replayed once it is discarded.
+  const [pendingNav, setPendingNav] = useState<{ run: () => void } | null>(null);
   const [deletingContact, setDeletingContact] = useState<Contact | null>(null);
   const [deletingAddressBook, setDeletingAddressBook] = useState<AddressBook | null>(null);
   const [pairId, setPairId] = useState("");
@@ -679,6 +687,21 @@ export default function App() {
     observer.observe(node);
     return () => observer.disconnect();
   }, [session]);
+
+  // The pane is keyed on the contact, so closing it or having the contact go
+  // away (deleted, archived, filtered out) throws the draft away with it.
+  useEffect(() => {
+    if (!viewingContact) setEditingDetail(false);
+  }, [viewingContact]);
+
+  // The in-app guards cannot see a reload or a closed tab, so the browser's own
+  // prompt stands in for them while an edit is open.
+  useEffect(() => {
+    if (!editingDetail) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [editingDetail]);
 
   function setActiveTab(tab: MainTab) {
     setActiveTabState(tab);
@@ -1132,6 +1155,8 @@ export default function App() {
     setComposing(false);
     setEditingContact(null);
     setViewingContact(null);
+    setEditingDetail(false);
+    setPendingNav(null);
     setDeletingContact(null);
     setDeletingAddressBook(null);
     setSearch("");
@@ -1662,6 +1687,18 @@ export default function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * Runs `action` unless the detail pane is mid-edit, in which case it is held
+   * until the user confirms losing the draft.
+   */
+  function guardEditing(action: () => void) {
+    if (!editingDetail) {
+      action();
+      return;
+    }
+    setPendingNav({ run: action });
   }
 
   function openComposer() {
@@ -2435,7 +2472,7 @@ export default function App() {
                       ? "bg-accent text-bg shadow-sm"
                       : "text-mute hover:text-text hover:bg-surface/50"
                     }`}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => guardEditing(() => setActiveTab(tab.id))}
                 >
                   {tab.icon}
                   {tab.label}
@@ -2565,8 +2602,8 @@ export default function App() {
                   creating={creatingBook}
                   onCreateHandled={() => setCreatingBook(false)}
                   isVisible={(book) => isAddressBookVisible(book, hiddenBooks)}
-                  onToggleVisible={toggleBookVisibility}
-                  onShowAll={showAllBooks}
+                  onToggleVisible={(id) => guardEditing(() => toggleBookVisibility(id))}
+                  onShowAll={() => guardEditing(showAllBooks)}
                   onCreate={onCreateBook}
                   onRename={onRenameBook}
                   onDelete={onDeleteBook}
@@ -2579,7 +2616,7 @@ export default function App() {
                 <div className="my-1.5 border-t border-line" aria-hidden="true" />
                 <button
                   type="button"
-                  onClick={() => setViewingArchive((showing) => !showing)}
+                  onClick={() => guardEditing(() => setViewingArchive((showing) => !showing))}
                   aria-current={viewingArchive ? "true" : undefined}
                   title={viewingArchive ? "Back to the address books" : "Show archived contacts"}
                   className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${viewingArchive ? "bg-surface text-text" : "text-mute hover:bg-surface/40 hover:text-text"}`}
@@ -2650,22 +2687,22 @@ export default function App() {
                 style={contactsSplit.cols}
                 className="sb-split grid min-h-0 flex-1"
               >
-                <div className={`min-w-0 overflow-y-auto px-4 py-4 sm:px-5 lg:px-6 ${viewingContact ? "hidden lg:block" : ""}`}>
+                <div className={`min-w-0 overflow-y-auto ${viewingContact ? "hidden lg:block" : ""}`}>
                   {error && !composing && !editingContact && !deletingContact && !deletingAddressBook ? (
-                    <p className="mb-4 text-sm text-danger" role="alert">{error}</p>
+                    <p className="border-b border-line/60 px-4 py-3 text-sm text-danger sm:px-5 lg:px-6" role="alert">{error}</p>
                   ) : null}
 
                   {loadingVault && contacts.length === 0 ? (
                     <ContactListSkeleton />
                   ) : filtered.length === 0 && search.trim() ? (
-                    <div className="flex flex-col items-center py-16 animate-fade-in-up">
+                    <div className="flex flex-col items-center px-6 py-16 animate-fade-in-up">
                       <p className="text-sm text-mute">No contacts matching "{search}"</p>
                       <button type="button" className={`${ghost} mt-3`} onClick={() => setSearch("")}>
                         Clear search
                       </button>
                     </div>
                   ) : viewingArchive && filtered.length === 0 ? (
-                    <div className="flex flex-col items-center rounded-xl border border-dashed border-line px-6 py-12 text-center animate-fade-in-up sm:py-16">
+                    <div className="flex flex-col items-center px-6 py-12 text-center animate-fade-in-up sm:py-16">
                       <p className="text-sm font-medium text-text">The Archive is empty</p>
                       <p className="mt-1.5 max-w-xs text-sm leading-relaxed text-mute">
                         Archiving a contact takes it out of its address book and
@@ -2676,7 +2713,7 @@ export default function App() {
                       </button>
                     </div>
                   ) : contacts.length === 0 ? (
-                    <div className="flex flex-col items-center rounded-xl border border-dashed border-line px-6 py-12 text-center animate-fade-in-up sm:py-16">
+                    <div className="flex flex-col items-center px-6 py-12 text-center animate-fade-in-up sm:py-16">
                       <p className="text-sm font-medium text-text">No contacts yet</p>
                       <p className="mt-1.5 max-w-xs text-sm leading-relaxed text-mute">
                         Everything you add here is encrypted on this device before it
@@ -2690,7 +2727,7 @@ export default function App() {
                       ) : null}
                     </div>
                   ) : filtered.length === 0 ? (
-                    <div className="flex flex-col items-center rounded-xl border border-dashed border-line px-6 py-12 text-center animate-fade-in-up sm:py-16">
+                    <div className="flex flex-col items-center px-6 py-12 text-center animate-fade-in-up sm:py-16">
                       <p className="text-sm text-mute">
                         {soleShownBook
                           ? `${soleShownBook.name} has no contacts yet.`
@@ -2701,20 +2738,23 @@ export default function App() {
                       </button>
                     </div>
                   ) : (
-                    <ul className="min-w-0 overflow-hidden rounded-xl border border-line/80 bg-panel/25">
+                    <ul className="min-w-0">
                       {filtered.map((card) => (
                         <ContactCard
                           key={card.id}
                           contact={card}
+                          selected={viewingContact?.id === card.id}
                           bookName={
                             soleShownBook && !viewingArchive
                               ? undefined
                               : bookNameById(addressBooks, card.addressBookId)
                           }
-                          onSelect={(contact) => {
-                            setError(null);
-                            setViewingContact(contact);
-                          }}
+                          onSelect={(contact) =>
+                            guardEditing(() => {
+                              setError(null);
+                              setViewingContact(contact);
+                            })
+                          }
                         />
                       ))}
                     </ul>
@@ -2723,7 +2763,7 @@ export default function App() {
 
                 <SplitHandle split={contactsSplit} label="Resize the contact list" />
 
-                <div className={`min-w-0 flex-col overflow-hidden px-4 py-4 sm:px-5 lg:flex lg:px-6 ${viewingContact ? "flex" : "hidden"}`}>
+                <div className={`min-w-0 flex-col overflow-hidden lg:flex ${viewingContact ? "flex" : "hidden"}`}>
                   {viewingContact ? (
                     // Keyed, so selecting another row while the pane's own edit
                     // form is open remounts it rather than swapping the contact
@@ -2736,7 +2776,9 @@ export default function App() {
                       bookName={bookNameById(addressBooks, viewingContact.addressBookId)}
                       onDelete={() => promptDelete(viewingContact)}
                       onArchive={() => void onToggleArchive(viewingContact)}
-                      onClose={() => setViewingContact(null)}
+                      onClose={() => guardEditing(() => setViewingContact(null))}
+                      editing={editingDetail}
+                      onEditingChange={setEditingDetail}
                       addressBooks={addressBooks}
                       busy={busy}
                       error={error}
@@ -2745,7 +2787,7 @@ export default function App() {
                       detailed={detailedContacts}
                     />
                   ) : (
-                    <div className="hidden min-h-56 flex-1 items-center justify-center rounded-xl border border-dashed border-line bg-panel/20 px-6 text-center lg:flex">
+                    <div className="hidden min-h-56 flex-1 items-center justify-center px-6 text-center lg:flex">
                       <p className="max-w-xs text-sm leading-relaxed text-mute">
                         Select a contact to view their details.
                       </p>
@@ -2791,6 +2833,24 @@ export default function App() {
             onDelete={() => promptDelete(editingContact)}
           />
         </Modal>
+      ) : null}
+
+      {/* Leaving a contact mid-edit */}
+      {pendingNav ? (
+        <ConfirmDialog
+          title="Unsaved changes"
+          heading="Discard your changes to this contact?"
+          body="The contact is still open for editing. Anything you have typed since you started is lost, and the saved contact is left as it was."
+          confirmLabel="Discard changes"
+          cancelLabel="Keep editing"
+          onConfirm={() => {
+            const next = pendingNav;
+            setPendingNav(null);
+            setEditingDetail(false);
+            next.run();
+          }}
+          onClose={() => setPendingNav(null)}
+        />
       ) : null}
 
       {/* Delete confirmation modal */}

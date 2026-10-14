@@ -4,10 +4,12 @@ import type { Contact } from "../lib/types";
 export function ContactCard({
   contact,
   bookName,
+  selected = false,
   onSelect,
 }: {
   contact: Contact;
   bookName?: string;
+  selected?: boolean;
   onSelect?: (contact: Contact) => void;
 }) {
   const subtitle =
@@ -17,17 +19,18 @@ export function ContactCard({
 
   return (
     <li
-      className="group flex items-center gap-3 overflow-hidden border-b border-line/80 transition-colors duration-150 last:border-b-0 hover:bg-surface/60"
+      className={`group flex items-center gap-3 border-b border-line/60 transition-colors duration-150 ${selected ? "bg-surface/70" : "hover:bg-surface/40"}`}
     >
       <button
         type="button"
         aria-label={`View ${contact.name}`}
+        aria-current={selected ? "true" : undefined}
         onClick={() => onSelect?.(contact)}
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-4 py-3 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className={`flex min-w-0 flex-1 items-center gap-3 border-l-2 px-4 py-2.5 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring sm:px-5 lg:px-6 ${selected ? "border-accent" : "border-transparent"}`}
       >
         <Avatar name={contact.name} avatar={contact.avatar} />
         <div className="min-w-0 flex-1">
-          <p className="truncate font-medium tracking-tight text-text">
+          <p className={`truncate font-medium tracking-tight ${selected ? "text-accent" : "text-text"}`}>
             {contact.name}
             {contact.nickname ? (
               <span className="ml-1.5 font-normal text-xs text-mute">
@@ -131,14 +134,11 @@ export function Initials({
  */
 export function ContactListSkeleton({ rows = 5 }: { rows?: number }) {
   return (
-    <ul
-      className="min-w-0 overflow-hidden rounded-xl border border-line/80 bg-panel/25"
-      aria-hidden="true"
-    >
+    <ul className="min-w-0" aria-hidden="true">
       {Array.from({ length: rows }, (_, index) => (
         <li
           key={index}
-          className="flex items-center gap-3 border-b border-line/80 px-4 py-3 last:border-b-0"
+          className="flex items-center gap-3 border-b border-line/60 px-4 py-2.5 sm:px-5 lg:px-6"
         >
           <span className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-surface" />
           <div className="min-w-0 flex-1 space-y-2">

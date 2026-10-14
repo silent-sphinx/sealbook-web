@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { addressLines, channelKindLabel, dateKindLabel } from "../lib/contact";
 import { optimizeAvatar } from "../lib/image";
-import { sectionBar } from "../lib/styles";
 import type { AddressBook, Contact, ContactDraft } from "../lib/types";
 import { Avatar } from "./ContactCard";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -19,6 +18,9 @@ type Props = {
   error?: string | null;
   onSave: (draft: ContactDraft) => boolean | Promise<boolean>;
   readOnly?: boolean;
+  /** Owned by the caller so it can guard navigation while changes are unsaved. */
+  editing: boolean;
+  onEditingChange: (editing: boolean) => void;
   /** Detailed contact mode: adds the relationship sections. */
   detailed?: boolean;
 };
@@ -75,11 +77,12 @@ export function ContactDetailModal({
   error,
   onSave,
   readOnly = false,
+  editing,
+  onEditingChange,
   detailed = false,
 }: Props) {
   const archived = contact.archived === true;
   const addresses = addressLines(contact.address);
-  const [editing, setEditing] = useState(false);
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
   const [confirmRemovePhoto, setConfirmRemovePhoto] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
@@ -129,9 +132,9 @@ export function ContactDetailModal({
   return (
     <aside
       aria-label={`${contact.name} details`}
-      className="flex min-h-[28rem] min-w-0 flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-xl shadow-black/10 animate-fade-in-up max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:h-dvh max-lg:min-h-0 max-lg:max-h-none max-lg:w-screen max-lg:rounded-none max-lg:border-0 lg:h-full lg:min-h-0"
+      className="flex min-h-[28rem] min-w-0 flex-col overflow-hidden bg-bg animate-fade-in-up max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:h-dvh max-lg:min-h-0 max-lg:max-h-none max-lg:w-screen lg:h-full lg:min-h-0"
     >
-      <div className="relative z-30 shrink-0 overflow-visible border-b border-line bg-surface/40 px-6 py-4">
+      <div className="relative z-30 shrink-0 overflow-visible border-b border-line px-5 py-4">
         <div className="flex items-center gap-4 pr-36">
             <div ref={avatarMenuRef} className="relative z-40 shrink-0">
             <Avatar name={contact.name} avatar={contact.avatar} size="lg" />
@@ -197,37 +200,16 @@ export function ContactDetailModal({
           </div>
         </div>
 
-        <div className="absolute right-4 top-4 flex items-center gap-1.5">
-          {editing ? (
-            <>
-              <button
-                type="button"
-                className="h-8 rounded-md border border-line bg-surface px-2.5 text-xs font-medium text-mute transition-colors hover:border-line-light hover:text-text disabled:opacity-50"
-                onClick={() => setEditing(false)}
-                disabled={busy}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                form="contact-detail-form"
-                className="h-8 rounded-md border border-accent-dim/60 bg-accent/15 px-2.5 text-xs font-semibold text-accent transition-colors hover:bg-accent/25 disabled:opacity-50"
-                disabled={busy}
-              >
-                {busy ? "Saving" : "Save"}
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-accent-dim/40 bg-accent/10 text-accent transition-colors hover:border-accent-dim hover:bg-accent/20 disabled:opacity-50"
-              aria-label="Edit contact"
-              title="Edit contact"
-              onClick={() => setEditing(true)}
-            >
-              <EditIcon />
-            </button>
-          )}
+        <div className={`absolute right-4 top-4 flex items-center gap-1.5 ${editing ? "hidden" : ""}`}>
+          <button
+            type="button"
+            className="flex h-8 w-8 items-center justify-center rounded-md border border-accent-dim/40 bg-accent/10 text-accent transition-colors hover:border-accent-dim hover:bg-accent/20 disabled:opacity-50"
+            aria-label="Edit contact"
+            title="Edit contact"
+            onClick={() => onEditingChange(true)}
+          >
+            <EditIcon />
+          </button>
           {!readOnly && onArchive ? (
             <button
               type="button"
@@ -267,6 +249,32 @@ export function ContactDetailModal({
         </div>
       </div>
 
+      {editing ? (
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-accent-dim/50 bg-accent/10 px-5 py-2">
+          <span className="min-w-0 truncate text-xs font-semibold text-accent">
+            Editing contact
+          </span>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              className="h-8 rounded-md border border-line bg-surface px-3 text-xs font-medium text-mute transition-colors hover:border-line-light hover:text-text disabled:opacity-50"
+              onClick={() => onEditingChange(false)}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="contact-detail-form"
+              className="h-8 rounded-md bg-accent px-3.5 text-xs font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
+              disabled={busy}
+            >
+              {busy ? "Saving" : "Save"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {avatarError ? <p role="alert" className="border-b border-danger/30 bg-danger/10 px-5 py-2.5 text-xs text-danger">{avatarError}</p> : null}
 
       {editing ? (
@@ -283,36 +291,36 @@ export function ContactDetailModal({
           detailed={detailed}
           onSubmit={async (draft) => {
             if (await onSave(draft)) {
-              setEditing(false);
+              onEditingChange(false);
             }
           }}
-          onCancel={() => setEditing(false)}
+          onCancel={() => onEditingChange(false)}
         />
         </>
       ) : (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <div className="2xl:columns-2 2xl:gap-6">
           {/* Emails */}
           {contact.emails.length > 0 ? (
             <Section title="Emails">
-              <div className="space-y-2">
+              <div>
                 {contact.emails.map((e) => (
                   <a
                     key={e.id}
                     href={`mailto:${e.value}`}
-                    className="group flex items-center justify-between gap-3 rounded-lg border border-line/70 bg-bg/50 px-3.5 py-2.5 text-sm transition-colors hover:border-accent-dim hover:bg-surface/50"
+                    className="group flex items-center justify-between gap-3 border-b border-line/60 px-5 py-2.5 text-sm transition-colors hover:bg-surface/40"
                   >
-                    <div className="min-w-0 flex-1">
-                      <span className="text-xs uppercase tracking-wider text-mute/80 font-medium mr-2">
+                    <div className="flex min-w-0 flex-1 items-baseline gap-3">
+                      <span className="w-20 shrink-0 truncate text-[11px] font-medium uppercase tracking-wider text-mute/70">
                         {channelKindLabel(e.kind, e.label)}
                       </span>
-                      <span className="font-medium text-text group-hover:text-accent transition-colors">
+                      <span className="truncate font-medium text-text transition-colors group-hover:text-accent">
                         {e.value}
                       </span>
                     </div>
                     <svg
-                      className="h-4 w-4 shrink-0 text-mute group-hover:text-accent transition-colors"
+                      className="h-4 w-4 shrink-0 text-mute/40 transition-colors group-hover:text-accent"
                       viewBox="0 0 20 20"
                       fill="currentColor"
                     >
@@ -328,23 +336,23 @@ export function ContactDetailModal({
           {/* Phones */}
           {contact.phones.length > 0 ? (
             <Section title="Phones">
-              <div className="space-y-2">
+              <div>
                 {contact.phones.map((p) => (
                   <a
                     key={p.id}
                     href={`tel:${p.value}`}
-                    className="group flex items-center justify-between gap-3 rounded-lg border border-line/70 bg-bg/50 px-3.5 py-2.5 text-sm transition-colors hover:border-accent-dim hover:bg-surface/50"
+                    className="group flex items-center justify-between gap-3 border-b border-line/60 px-5 py-2.5 text-sm transition-colors hover:bg-surface/40"
                   >
-                    <div className="min-w-0 flex-1">
-                      <span className="text-xs uppercase tracking-wider text-mute/80 font-medium mr-2">
+                    <div className="flex min-w-0 flex-1 items-baseline gap-3">
+                      <span className="w-20 shrink-0 truncate text-[11px] font-medium uppercase tracking-wider text-mute/70">
                         {channelKindLabel(p.kind, p.label)}
                       </span>
-                      <span className="font-medium text-text group-hover:text-accent transition-colors">
+                      <span className="truncate font-medium text-text transition-colors group-hover:text-accent">
                         {p.value}
                       </span>
                     </div>
                     <svg
-                      className="h-4 w-4 shrink-0 text-mute group-hover:text-accent transition-colors"
+                      className="h-4 w-4 shrink-0 text-mute/40 transition-colors group-hover:text-accent"
                       viewBox="0 0 20 20"
                       fill="currentColor"
                     >
@@ -363,22 +371,22 @@ export function ContactDetailModal({
           {/* Dates */}
           {contact.dates && contact.dates.length > 0 ? (
             <Section title="Dates">
-              <div className="space-y-2">
+              <div>
                 {contact.dates.map((d) => (
                   <div
                     key={d.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-line/70 bg-bg/50 px-3.5 py-2.5 text-sm"
+                    className="flex items-center justify-between gap-3 border-b border-line/60 px-5 py-2.5 text-sm"
                   >
-                    <div className="min-w-0 flex-1">
-                      <span className="text-xs uppercase tracking-wider text-mute/80 font-medium mr-2">
+                    <div className="flex min-w-0 flex-1 items-baseline gap-3">
+                      <span className="w-20 shrink-0 truncate text-[11px] font-medium uppercase tracking-wider text-mute/70">
                         {dateKindLabel(d.kind, d.label)}
                       </span>
-                      <span className="font-medium text-text">
+                      <span className="truncate font-medium text-text">
                         {formatDate(d.date)}
                       </span>
                     </div>
                     <svg
-                      className="h-4 w-4 shrink-0 text-mute"
+                      className="h-4 w-4 shrink-0 text-mute/30"
                       viewBox="0 0 20 20"
                       fill="currentColor"
                     >
@@ -397,22 +405,22 @@ export function ContactDetailModal({
           {/* Social Profiles */}
           {contact.socials && contact.socials.length > 0 ? (
             <Section title="Social Profiles">
-              <div className="space-y-2">
+              <div>
                 {contact.socials.map((s) => {
                   const url = socialUrl(s.platform, s.handle);
                   const Content = (
                     <>
-                      <div className="min-w-0 flex-1">
-                        <span className="text-xs uppercase tracking-wider text-mute/80 font-medium mr-2">
+                      <div className="flex min-w-0 flex-1 items-baseline gap-3">
+                        <span className="w-20 shrink-0 truncate text-[11px] font-medium uppercase tracking-wider text-mute/70">
                           {s.platform}
                         </span>
-                        <span className="font-medium text-text group-hover:text-accent transition-colors">
+                        <span className="truncate font-medium text-text transition-colors group-hover:text-accent">
                           {s.handle}
                         </span>
                       </div>
                       {url ? (
                         <svg
-                          className="h-4 w-4 shrink-0 text-mute group-hover:text-accent transition-colors"
+                          className="h-4 w-4 shrink-0 text-mute/40 transition-colors group-hover:text-accent"
                           viewBox="0 0 20 20"
                           fill="currentColor"
                         >
@@ -437,14 +445,14 @@ export function ContactDetailModal({
                       href={url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="group flex items-center justify-between gap-3 rounded-lg border border-line/70 bg-bg/50 px-3.5 py-2.5 text-sm transition-colors hover:border-accent-dim hover:bg-surface/50"
+                      className="group flex items-center justify-between gap-3 border-b border-line/60 px-5 py-2.5 text-sm transition-colors hover:bg-surface/40"
                     >
                       {Content}
                     </a>
                   ) : (
                     <div
                       key={s.id}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-line/70 bg-bg/50 px-3.5 py-2.5 text-sm"
+                      className="flex items-center justify-between gap-3 border-b border-line/60 px-5 py-2.5 text-sm"
                     >
                       {Content}
                     </div>
@@ -457,11 +465,11 @@ export function ContactDetailModal({
           {/* Work */}
           {contact.work.length > 0 ? (
             <Section title="Work">
-              <div className="space-y-2">
+              <div>
                 {contact.work.map((w) => (
                   <div
                     key={w.id}
-                    className="rounded-lg border border-line/70 bg-bg/50 px-3.5 py-2.5 text-sm"
+                    className="border-b border-line/60 px-5 py-3 text-sm"
                   >
                     <p className="font-medium text-text">{w.organization}</p>
                     {w.title ? (
@@ -476,7 +484,7 @@ export function ContactDetailModal({
           {/* Address */}
           {addresses.length > 0 ? (
             <Section title="Address">
-              <div className="rounded-lg border border-line/70 bg-bg/50 px-3.5 py-2.5 text-sm leading-relaxed text-text">
+              <div className="border-b border-line/60 px-5 py-3 text-sm leading-relaxed text-text">
                 {addresses.map((line, idx) => (
                   <p key={idx}>{line}</p>
                 ))}
@@ -487,7 +495,7 @@ export function ContactDetailModal({
           {/* Notes */}
           {contact.notes ? (
             <Section title="Notes">
-              <div className="rounded-lg border border-line/70 bg-bg/50 px-3.5 py-2.5 text-sm leading-relaxed text-text whitespace-pre-wrap">
+              <div className="border-b border-line/60 px-5 py-3 text-sm leading-relaxed text-text whitespace-pre-wrap">
                 {contact.notes}
               </div>
             </Section>
@@ -543,10 +551,8 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <section className="mb-5 break-inside-avoid">
-      <h4
-        className={`mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-mute ${sectionBar}`}
-      >
+    <section className="break-inside-avoid">
+      <h4 className="sticky top-0 z-10 border-b border-line/60 bg-surface/80 px-5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-mute backdrop-blur-sm">
         {title}
       </h4>
       {children}
