@@ -127,6 +127,7 @@ export function ContainerList<T extends Container>({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const committing = useRef(false);
 
   useEffect(() => {
     if (creating) setDraft("");
@@ -143,17 +144,23 @@ export function ContainerList<T extends Container>({
   }
 
   async function commit() {
+    if (committing.current) return;
     const name = draft.trim();
     if (!name) {
       cancel();
       return;
     }
-    if (editingId) {
-      await onRename(editingId, name);
-    } else {
-      await onCreate(name);
+    committing.current = true;
+    try {
+      if (editingId) {
+        await onRename(editingId, name);
+      } else {
+        await onCreate(name);
+      }
+      cancel();
+    } finally {
+      committing.current = false;
     }
-    cancel();
   }
 
   function startRename(book: T) {
