@@ -53,10 +53,14 @@ import {
 } from "./lib/onboarding";
 import { profileSearchText } from "./lib/contactProfile";
 import {
-  ALL_ADDRESS_BOOKS,
   DEFAULT_ADDRESS_BOOK_ID,
   bookNameById,
+  isAddressBookVisible,
+  loadHiddenAddressBooks,
+  pruneHiddenAddressBooks,
   resolveAddressBookId,
+  storeHiddenAddressBooks,
+  visibleAddressBooks,
 } from "./lib/addressBook";
 import { emptyDraft, sortContacts } from "./lib/contact";
 import {
@@ -576,7 +580,12 @@ export default function App() {
   const [accountSettings, setAccountSettings] = useState<AccountSettings>(DEFAULT_ACCOUNT_SETTINGS);
   /** The settings payload last read, so a save merges onto it. */
   const accountSettingsRaw = useRef<string | undefined>(undefined);
-  const [bookFilter, setBookFilter] = useState(ALL_ADDRESS_BOOKS);
+  /**
+   * The address books switched off in the sidebar, as `loadHiddenAddressBooks`
+   * holds them. Loaded per collection once a vault is open, since the key is
+   * the collection's.
+   */
+  const [hiddenBooks, setHiddenBooks] = useState<Set<string>>(new Set());
   // Set by the sidebar's "+", read by the address book list to open its input.
   const [creatingBook, setCreatingBook] = useState(false);
   const [formKey, setFormKey] = useState(0);
@@ -715,13 +724,19 @@ export default function App() {
   const contactsEnabled = isFeatureEnabled(accountSettings, "contacts");
   const detailedContacts = isDetailedContacts(accountSettings);
 
+  // The sidebar's switched-off books are stored per collection, so they can only
+  // be read once a vault is open, and are dropped again when one is signed out.
+  const collectionId = session?.state.collection_id ?? null;
+  useEffect(() => {
+    setHiddenBooks(collectionId ? loadHiddenAddressBooks(collectionId) : new Set());
+  }, [collectionId]);
+
   const filtered = useMemo(() => {
-    const inBook =
-      bookFilter === ALL_ADDRESS_BOOKS
-        ? contacts
-        : contacts.filter(
-          (contact) => resolveAddressBookId(contact.addressBookId) === bookFilter,
-        );
+    // Hidden rather than shown is what is matched, so a contact whose book was
+    // deleted out from under it still appears instead of vanishing.
+    const inBook = contacts.filter(
+      (contact) => !hiddenBooks.has(resolveAddressBookId(contact.addressBookId)),
+    );
     const query = search.trim().toLowerCase();
     const matches = !query
       ? inBook
@@ -743,7 +758,24 @@ export default function App() {
         return haystack.includes(query);
       });
     return sortContacts(matches);
-  }, [addressBooks, bookFilter, contacts, search]);
+  }, [addressBooks, contacts, hiddenBooks, search]);
+
+  const shownBooks = useMemo(
+    () => visibleAddressBooks(addressBooks, hiddenBooks),
+    [addressBooks, hiddenBooks],
+  );
+  /**
+   * Where exactly one book is showing it stands in for the whole view: it
+   * titles the list and is what a new contact lands in.
+   */
+  const soleShownBook = shownBooks.length === 1 ? shownBooks[0] : null;
+  const contactsTitle = hiddenBooks.size === 0
+    ? "All contacts"
+    : soleShownBook
+      ? soleShownBook.name
+      : shownBooks.length === 0
+        ? "No address books shown"
+        : `${shownBooks.length} address books`;
 
   // The accent is a vault preference, so the shell can only be tinted once the
   // settings are open; until then it keeps the `--sb-accent*` defaults declared
@@ -969,11 +1001,11 @@ export default function App() {
         password,
       );
     }
-    setBookFilter((current) => {
-      if (current === ALL_ADDRESS_BOOKS) {
-        return current;
-      }
-      return books.some((book) => book.id === current) ? current : ALL_ADDRESS_BOOKS;
+    setHiddenBooks((current) => {
+      const pruned = pruneHiddenAddressBooks(books, current);
+      if (pruned.size === current.size) return current;
+      storeHiddenAddressBooks(next.state.collection_id, pruned);
+      return pruned;
     });
   }
 
@@ -1065,7 +1097,7 @@ export default function App() {
     setNotes([]);
     setNotebooks([]);
     setAccountSettings(DEFAULT_ACCOUNT_SETTINGS);
-    setBookFilter(ALL_ADDRESS_BOOKS);
+    setHiddenBooks(new Set());
     setAdding(false);
     setAddConfirm(null);
     setAddCode("");
@@ -1459,6 +1491,36 @@ export default function App() {
     }
   }
 
+  /** Switches one address book on or off in the contact list. */
+  function toggleBookVisibility(id: string) {
+    setHiddenBooks((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      if (session) storeHiddenAddressBooks(session.state.collection_id, next);
+      return next;
+    });
+  }
+
+  function showAllBooks() {
+    setHiddenBooks(new Set());
+    if (session) storeHiddenAddressBooks(session.state.collection_id, new Set());
+  }
+
+  /** Drops a deleted book's toggle, so a later book cannot inherit it. */
+  function forgetBookVisibility(id: string) {
+    setHiddenBooks((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      if (session) storeHiddenAddressBooks(session.state.collection_id, next);
+      return next;
+    });
+  }
+
   async function onCreateBook(name: string): Promise<string | undefined> {
     if (!session || !name.trim()) {
       return undefined;
@@ -1467,9 +1529,7 @@ export default function App() {
     setError(null);
     try {
       const id = await putAddressBook(session, name.trim());
-      if (await refreshAfterSave(session)) {
-        setBookFilter(id);
-      }
+      await refreshAfterSave(session);
       return id;
     } catch (err) {
       setError(friendlyError(err));
@@ -1523,7 +1583,7 @@ export default function App() {
         }
       }
       await deleteAddressBook(session, book.id);
-      if (bookFilter === book.id) setBookFilter(ALL_ADDRESS_BOOKS);
+      forgetBookVisibility(book.id);
       setDeletingAddressBook(null);
       await refreshAfterSave(session);
     } catch (err) {
@@ -2430,13 +2490,11 @@ export default function App() {
                 </div>
                 <AddressBookList
                   books={addressBooks}
-                  selectedId={bookFilter}
                   creating={creatingBook}
                   onCreateHandled={() => setCreatingBook(false)}
-                  onSelect={(id) => {
-                    setBookFilter(id);
-                    sidebar.close();
-                  }}
+                  isVisible={(book) => isAddressBookVisible(book, hiddenBooks)}
+                  onToggleVisible={toggleBookVisibility}
+                  onShowAll={showAllBooks}
                   onCreate={onCreateBook}
                   onRename={onRenameBook}
                   onDelete={onDeleteBook}
@@ -2450,7 +2508,7 @@ export default function App() {
               <header className="flex flex-col gap-2.5 border-b border-line px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4 sm:px-5 sm:py-3.5 lg:px-6">
                 <div className="flex min-w-0 items-center gap-2">
                   <h1 className="truncate text-base font-semibold tracking-tight">
-                    {bookFilter === ALL_ADDRESS_BOOKS ? "All contacts" : bookNameById(addressBooks, bookFilter)}
+                    {contactsTitle}
                   </h1>
                   <span
                     className="ml-1 rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium text-mute"
@@ -2534,9 +2592,11 @@ export default function App() {
                   ) : filtered.length === 0 ? (
                     <div className="flex flex-col items-center rounded-xl border border-dashed border-line px-6 py-12 text-center animate-fade-in-up sm:py-16">
                       <p className="text-sm text-mute">
-                        {bookNameById(addressBooks, bookFilter)} has no contacts yet.
+                        {soleShownBook
+                          ? `${soleShownBook.name} has no contacts yet.`
+                          : "No contacts in the address books you are showing."}
                       </p>
-                      <button type="button" className={`${ghost} mt-3`} onClick={() => setBookFilter(ALL_ADDRESS_BOOKS)}>
+                      <button type="button" className={`${ghost} mt-3`} onClick={showAllBooks}>
                         Show all address books
                       </button>
                     </div>
@@ -2547,9 +2607,9 @@ export default function App() {
                           key={card.id}
                           contact={card}
                           bookName={
-                            bookFilter === ALL_ADDRESS_BOOKS
-                              ? bookNameById(addressBooks, card.addressBookId)
-                              : undefined
+                            soleShownBook
+                              ? undefined
+                              : bookNameById(addressBooks, card.addressBookId)
                           }
                           onSelect={(contact) => {
                             setError(null);
@@ -2565,7 +2625,13 @@ export default function App() {
 
                 <div className={`min-w-0 flex-col overflow-hidden px-4 py-4 sm:px-5 lg:flex lg:px-6 ${viewingContact ? "flex" : "hidden"}`}>
                   {viewingContact ? (
+                    // Keyed, so selecting another row while the pane's own edit
+                    // form is open remounts it rather than swapping the contact
+                    // under it. `ContactForm` snapshots its draft on mount, so
+                    // without this the form kept the previous contact's values
+                    // and its `raw`, and the save wrote them to this one's id.
                     <ContactDetailModal
+                      key={viewingContact.id}
                       contact={viewingContact}
                       bookName={bookNameById(addressBooks, viewingContact.addressBookId)}
                       onDelete={() => promptDelete(viewingContact)}
@@ -2599,11 +2665,7 @@ export default function App() {
             busy={busy}
             error={error}
             addressBooks={addressBooks}
-            initialDraft={emptyDraft(
-              bookFilter === ALL_ADDRESS_BOOKS
-                ? DEFAULT_ADDRESS_BOOK_ID
-                : bookFilter,
-            )}
+            initialDraft={emptyDraft(soleShownBook?.id ?? DEFAULT_ADDRESS_BOOK_ID)}
             submitLabel="Add contact"
             detailed={detailedContacts}
             onSubmit={onAdd}

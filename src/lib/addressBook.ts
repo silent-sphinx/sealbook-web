@@ -58,3 +58,58 @@ export function bookNameById(
     books.find((book) => book.id === id)?.name ?? DEFAULT_ADDRESS_BOOK_NAME
   );
 }
+
+const HIDDEN_BOOKS_KEY = "sealbook.hidden-address-books";
+
+function hiddenBooksStorageKey(collectionId: string): string {
+  return `${HIDDEN_BOOKS_KEY}.${collectionId}`;
+}
+
+/**
+ * The books switched off in the sidebar. Held as the exception rather than the
+ * selection, so a book added on another device shows up instead of staying
+ * hidden until it is found and ticked.
+ *
+ * localStorage rather than sessionStorage: the choice is meant to survive a
+ * reload and a new tab, which is the one thing a filter here is used for.
+ */
+export function loadHiddenAddressBooks(collectionId: string): Set<string> {
+  try {
+    const stored = localStorage.getItem(hiddenBooksStorageKey(collectionId));
+    const ids = stored ? JSON.parse(stored) : [];
+    return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function storeHiddenAddressBooks(collectionId: string, hidden: ReadonlySet<string>): void {
+  try {
+    localStorage.setItem(hiddenBooksStorageKey(collectionId), JSON.stringify([...hidden]));
+  } catch {
+    // Storage unavailable; the choice then lasts for this session only.
+  }
+}
+
+export function isAddressBookVisible(book: AddressBook, hidden: ReadonlySet<string>): boolean {
+  return !hidden.has(book.id);
+}
+
+export function visibleAddressBooks(
+  books: AddressBook[],
+  hidden: ReadonlySet<string>,
+): AddressBook[] {
+  return books.filter((book) => isAddressBookVisible(book, hidden));
+}
+
+/**
+ * Drops hidden ids with no book behind them, so deleting a book cannot leave a
+ * toggle that silently hides a later book reusing its id.
+ */
+export function pruneHiddenAddressBooks(
+  books: AddressBook[],
+  hidden: ReadonlySet<string>,
+): Set<string> {
+  const known = new Set(books.map((book) => book.id));
+  return new Set([...hidden].filter((id) => known.has(id)));
+}

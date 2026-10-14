@@ -1,12 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_ADDRESS_BOOK_ID,
   DEFAULT_ADDRESS_BOOK_NAME,
   bookNameById,
+  isAddressBookVisible,
+  loadHiddenAddressBooks,
   parseAddressBook,
+  pruneHiddenAddressBooks,
   resolveAddressBookId,
   serializeAddressBook,
   sortAddressBooks,
+  storeHiddenAddressBooks,
+  visibleAddressBooks,
 } from "./addressBook";
 import type { AddressBook } from "./types";
 
@@ -106,5 +111,81 @@ describe("bookNameById", () => {
   it("falls back to the default name when the book is gone", () => {
     // A contact whose book was deleted elsewhere still has to render a row.
     expect(bookNameById(books, "deleted")).toBe(DEFAULT_ADDRESS_BOOK_NAME);
+  });
+});
+
+describe("address book visibility", () => {
+  const books = [book(DEFAULT_ADDRESS_BOOK_ID, "Contacts"), book("b1", "Work"), book("b2", "Family")];
+
+  it("shows every book until one is switched off", () => {
+    expect(visibleAddressBooks(books, new Set()).map((row) => row.id)).toEqual([
+      DEFAULT_ADDRESS_BOOK_ID,
+      "b1",
+      "b2",
+    ]);
+  });
+
+  it("hides only the books named", () => {
+    const hidden = new Set(["b1"]);
+    expect(isAddressBookVisible(books[1], hidden)).toBe(false);
+    expect(isAddressBookVisible(books[2], hidden)).toBe(true);
+    expect(visibleAddressBooks(books, hidden).map((row) => row.id)).toEqual([
+      DEFAULT_ADDRESS_BOOK_ID,
+      "b2",
+    ]);
+  });
+
+  it("forgets a toggle whose book is gone", () => {
+    // Left in place it would hide a later book that reuses the id.
+    expect([...pruneHiddenAddressBooks(books, new Set(["b1", "deleted"]))]).toEqual(["b1"]);
+  });
+});
+
+describe("hidden address book storage", () => {
+  const stored: Record<string, string> = {};
+
+  afterEach(() => {
+    for (const key of Object.keys(stored)) delete stored[key];
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+  });
+
+  function stubStorage(setItem?: (key: string, value: string) => void) {
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: (key: string) => stored[key] ?? null,
+      setItem: setItem ?? ((key: string, value: string) => { stored[key] = value; }),
+      removeItem: (key: string) => delete stored[key],
+    };
+  }
+
+  it("survives a reload, and is kept per collection", () => {
+    stubStorage();
+    storeHiddenAddressBooks("c1", new Set(["b1", "b2"]));
+    expect([...loadHiddenAddressBooks("c1")].sort()).toEqual(["b1", "b2"]);
+    expect([...loadHiddenAddressBooks("c2")]).toEqual([]);
+  });
+
+  it("reads nothing from a value that is not a list of ids", () => {
+    stubStorage();
+    stored["sealbook.hidden-address-books.c1"] = '{"b1":true}';
+    expect([...loadHiddenAddressBooks("c1")]).toEqual([]);
+  });
+
+  it("drops non-string entries rather than the whole record", () => {
+    stubStorage();
+    stored["sealbook.hidden-address-books.c1"] = '["b1",7]';
+    expect([...loadHiddenAddressBooks("c1")]).toEqual(["b1"]);
+  });
+
+  it("treats a refused write as showing every book", () => {
+    // A blocked storage area must not stop the sidebar working.
+    stubStorage(() => {
+      throw new DOMException("quota exceeded", "QuotaExceededError");
+    });
+    expect(() => storeHiddenAddressBooks("c1", new Set(["b1"]))).not.toThrow();
+    expect([...loadHiddenAddressBooks("c1")]).toEqual([]);
+  });
+
+  it("reads nothing where there is no storage area at all", () => {
+    expect([...loadHiddenAddressBooks("c1")]).toEqual([]);
   });
 });

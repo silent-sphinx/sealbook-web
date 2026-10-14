@@ -36,9 +36,37 @@ type Props<T extends Container> = {
   renderUnder?: (item: T) => ReactNode;
   /** False where the caller already offers the unfiltered row of its own. */
   showAll?: boolean;
+  /**
+   * Given together with `onToggleVisible`, rows become visibility checkboxes
+   * rather than a single-selection filter, mirroring the calendar list. The
+   * "all" row then has nothing to select, so it gives way to "Show all".
+   */
+  isVisible?: (item: T) => boolean;
+  onToggleVisible?: (id: string) => void;
+  onShowAll?: () => void;
   readOnly?: boolean;
   busy?: boolean;
 };
+
+/**
+ * The visibility tick: filled in the accent when the container is showing, a
+ * hollow square when it is hidden. Takes the leading slot the icon holds in
+ * selection mode, so a row carries one mark rather than two.
+ */
+function VisibilityBox({ shown }: { shown: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border-2 transition-colors duration-150 ${shown ? "border-accent bg-accent" : "border-line-light"}`}
+    >
+      {shown ? (
+        <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" stroke="var(--color-bg)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="m1.5 5.2 2.2 2.2L8.5 2.6" />
+        </svg>
+      ) : null}
+    </span>
+  );
+}
 
 function BookIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
   return (
@@ -68,8 +96,10 @@ function TrashIcon() {
 /**
  * Containers as a sidebar list, mirroring the calendar list: a quiet row at rest,
  * with rename and delete taking the trailing slot on hover or keyboard focus.
- * Selection is single, the "all" row plus one container, so rows read as a filter
- * rather than as checkboxes.
+ *
+ * Rows are single selection by default, the "all" row plus one container, so they
+ * read as a filter. Given `isVisible` and `onToggleVisible` they become
+ * visibility checkboxes instead, as the calendar list has them.
  */
 export function ContainerList<T extends Container>({
   items,
@@ -88,6 +118,9 @@ export function ContainerList<T extends Container>({
   renderMeta,
   renderUnder,
   showAll = true,
+  isVisible,
+  onToggleVisible,
+  onShowAll,
   readOnly = false,
   busy = false,
 }: Props<T>) {
@@ -130,10 +163,14 @@ export function ContainerList<T extends Container>({
   }
 
   const rowBase = `list-row group -mx-2 flex items-center rounded-lg pr-2 transition-colors`;
+  // Both callbacks are needed for a row to work as a checkbox, so one without
+  // the other leaves the list in selection mode rather than half in each.
+  const toggling = Boolean(isVisible && onToggleVisible);
+  const anyHidden = toggling && items.some((item) => !isVisible!(item));
 
   return (
     <div className="mt-2.5 space-y-0.5">
-      {showAll ? (
+      {showAll && !toggling ? (
         <button
           type="button"
           onClick={() => onSelect(allId)}
@@ -168,16 +205,19 @@ export function ContainerList<T extends Container>({
           );
         }
         const under = renderUnder?.(book);
+        const shown = toggling ? isVisible!(book) : true;
         return (
           <div key={book.id}>
-          <div className={`${rowBase} ${selected ? "bg-surface" : "hover:bg-surface/40"}`}>
+          <div className={`${rowBase} ${selected && !toggling ? "bg-surface" : "hover:bg-surface/40"}`}>
             <button
               type="button"
-              onClick={() => onSelect(book.id)}
-              aria-current={selected ? "true" : undefined}
-              className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${selected ? "text-text" : "text-mute"}`}
+              onClick={() => (toggling ? onToggleVisible!(book.id) : onSelect(book.id))}
+              aria-pressed={toggling ? shown : undefined}
+              aria-current={!toggling && selected ? "true" : undefined}
+              title={toggling ? `${shown ? "Hide" : "Show"} ${book.name}` : undefined}
+              className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${(toggling ? shown : selected) ? "text-text" : "text-mute"}`}
             >
-              {renderIcon ? renderIcon(book) : <BookIcon />}
+              {toggling ? <VisibilityBox shown={shown} /> : renderIcon ? renderIcon(book) : <BookIcon />}
               <span className="min-w-0 flex-1 truncate font-medium">{book.name}</span>
             </button>
 
@@ -234,6 +274,16 @@ export function ContainerList<T extends Container>({
             className="h-8 w-full rounded-lg border border-accent-dim bg-bg px-2 text-xs text-text outline-none ring-1 ring-accent-ring placeholder:text-mute/60"
           />
         </form>
+      ) : null}
+
+      {anyHidden ? (
+        <button
+          type="button"
+          onClick={onShowAll}
+          className={`-ml-2 mt-2.5 rounded-md px-2 py-1 text-[11px] text-mute transition-colors hover:text-accent ${focusRing}`}
+        >
+          Show all {kindLabel}s
+        </button>
       ) : null}
     </div>
   );
