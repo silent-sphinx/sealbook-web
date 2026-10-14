@@ -29,6 +29,7 @@ import type { Note, NoteDraft, Notebook } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ContainerList } from "./ContainerList";
 import { NoteTreeList } from "./NoteTreeList";
+import { ContextMenu, useContextMenu } from "./ContextMenu";
 import { SidebarDrawer, type Sidebar } from "./SidebarDrawer";
 
 /**
@@ -128,6 +129,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   const [deletingNotebook, setDeletingNotebook] = useState<Notebook | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Note | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const menu = useContextMenu();
 
   // The editor buffer. Held here rather than read from `notes` so an in-progress
   // edit is not overwritten by a refresh.
@@ -506,6 +508,26 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
               <button
                 type="button"
                 onClick={() => openNote(note)}
+                onContextMenu={(event) =>
+                  menu.open(
+                    event,
+                    // Offline the vault is read only, so the row offers nothing
+                    // and the browser's own menu is left alone.
+                    readOnlyMode
+                      ? []
+                      : [
+                          {
+                            label: note.pinned ? "Unpin note" : "Pin note",
+                            onSelect: () => void togglePinned(note),
+                          },
+                          {
+                            label: "Delete note",
+                            danger: true,
+                            onSelect: () => setConfirmDelete(note),
+                          },
+                        ],
+                  )
+                }
                 aria-current={selectedId === note.id ? "true" : undefined}
                 className={`flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-lg px-2 py-1.5 text-left transition-colors ${
                   selectedId === note.id ? "bg-surface" : "hover:bg-surface/40"
@@ -585,6 +607,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
 
   return (
     <main className="flex h-[calc(100dvh-var(--sb-header-h,74px))] flex-col overflow-hidden bg-bg text-text">
+      <ContextMenu state={menu.menu} onClose={menu.close} />
       {error ? (
         <p role="alert" className="shrink-0 border-b border-danger/30 bg-danger/10 px-4 py-2 text-xs text-danger lg:px-6">
           {error}

@@ -121,7 +121,7 @@ const SECTIONS: { id: SettingsSection; label: string; nav: string; blurb: string
   {
     id: "features",
     label: "Feature settings",
-    nav: "Turn contacts, calendar, or notes off",
+    nav: "Turn features on or off",
     blurb:
       "Choose which parts of Sealbook this account uses. The choice is stored in your vault, so every device signed in to the account follows it.",
   },

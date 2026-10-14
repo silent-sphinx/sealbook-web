@@ -642,7 +642,7 @@ describe("listVault", () => {
       owner,
       ACCOUNT_SETTINGS_CONTENT_TYPE,
       serializeAccountSettings({
-        features: { contacts: true, calendar: false, notes: false },
+        features: { contacts: true, calendar: false, notes: false, bookmarks: true },
         contactMode: "basic",
         accent: "blue",
       }),
@@ -664,11 +664,13 @@ describe("listVault", () => {
       contacts: true,
       calendar: false,
       notes: false,
+      bookmarks: true,
     });
     // The settings are not data: they must not turn up as a contact or a
     // container, which is what the type dispatch is there to prevent.
     expect(listed.contacts).toEqual([]);
     expect(listed.notebooks).toEqual([]);
+    expect(listed.bookmarkCollections).toEqual([]);
   });
 
   it("defaults to every feature enabled when the account has no settings object", async () => {
@@ -700,7 +702,7 @@ describe("listVault", () => {
       owner,
       ACCOUNT_SETTINGS_CONTENT_TYPE,
       serializeAccountSettings({
-        features: { contacts: true, calendar: true, notes: false },
+        features: { contacts: true, calendar: true, notes: false, bookmarks: true },
         contactMode: "detailed",
         accent: "rose",
       }),
@@ -735,7 +737,7 @@ describe("listVault", () => {
         id: ACCOUNT_SETTINGS_ID,
         contentType: ACCOUNT_SETTINGS_CONTENT_TYPE,
         payload: serializeAccountSettings({
-          features: { contacts: true, calendar: true, notes: true },
+          features: { contacts: true, calendar: true, notes: true, bookmarks: true },
           contactMode: "basic",
           accent: "green",
         }),
@@ -744,7 +746,7 @@ describe("listVault", () => {
         id: LEGACY_ACCOUNT_SETTINGS_ID,
         contentType: ACCOUNT_SETTINGS_CONTENT_TYPE,
         payload: serializeAccountSettings({
-          features: { contacts: true, calendar: true, notes: false },
+          features: { contacts: true, calendar: true, notes: false, bookmarks: true },
           contactMode: "detailed",
           accent: "rose",
         }),
@@ -1070,7 +1072,7 @@ describe("putAccountSettings", () => {
     });
 
     await putAccountSettings(owner.session, {
-      features: { contacts: true, calendar: true, notes: false },
+      features: { contacts: true, calendar: true, notes: false, bookmarks: true },
       contactMode: "basic",
       accent: "blue",
     });
@@ -1100,6 +1102,7 @@ describe("putAccountSettings", () => {
       contacts: true,
       calendar: true,
       notes: false,
+      bookmarks: true,
     });
   });
 });
@@ -1467,7 +1470,7 @@ describe("creating the default calendar on an account that predates the settings
         id,
         contentType: ACCOUNT_SETTINGS_CONTENT_TYPE,
         payload: serializeAccountSettings({
-          features: { contacts: true, calendar: true, notes: false },
+          features: { contacts: true, calendar: true, notes: false, bookmarks: true },
           contactMode: "detailed",
           accent: "rose",
         }),
@@ -1553,7 +1556,7 @@ describe("creating the default calendar on an account that predates the settings
     );
     expect(opened.contentType).toBe(ACCOUNT_SETTINGS_CONTENT_TYPE);
     expect(parseAccountSettings(opened.payload)).toEqual({
-      features: { contacts: true, calendar: true, notes: false },
+      features: { contacts: true, calendar: true, notes: false, bookmarks: true },
       contactMode: "detailed",
       accent: "rose",
     });

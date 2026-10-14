@@ -27,12 +27,13 @@ export const ACCOUNT_SETTINGS_ID = "00000000-0000-0000-0000-000000000004";
 export const LEGACY_ACCOUNT_SETTINGS_ID = "00000000-0000-0000-0000-000000000003";
 
 /** Also the order the features appear in the UI. */
-export const FEATURES: FeatureKey[] = ["contacts", "calendar", "notes"];
+export const FEATURES: FeatureKey[] = ["contacts", "calendar", "notes", "bookmarks"];
 
 export const FEATURE_LABELS: Record<FeatureKey, string> = {
   contacts: "Contacts",
   calendar: "Calendar",
   notes: "Notes",
+  bookmarks: "Bookmarks",
 };
 
 /**
@@ -84,7 +85,7 @@ export const ACCENT_COLORS: Record<AccentKey, { base: string; dim: string }> = {
 export const DEFAULT_ACCENT: AccentKey = "blue";
 
 export const DEFAULT_ACCOUNT_SETTINGS: AccountSettings = {
-  features: { contacts: true, calendar: true, notes: true },
+  features: { contacts: true, calendar: true, notes: true, bookmarks: true },
   contactMode: DEFAULT_CONTACT_MODE,
   accent: DEFAULT_ACCENT,
 };
@@ -124,7 +125,9 @@ export function serializeAccountSettings(
     {
       "@type": "AccountSettings",
       version: PAYLOAD_SCHEMA_VERSION,
-      features: normalized.features,
+      // The flags this build does not know go in first, so a known one always
+      // wins if both somehow carry the same key.
+      features: { ...normalized.unknownFeatures, ...normalized.features },
       contactMode: normalized.contactMode,
       accent: normalized.accent,
     },
@@ -150,7 +153,14 @@ export function parseAccountSettings(raw: string): AccountSettings {
  */
 export function normalizeAccountSettings(value: unknown): AccountSettings {
   const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
-  return normalizeFeatures(raw.features, raw.contactMode, raw.accent);
+  // Takes a stored payload, whose unknown flags sit in `features`, or an
+  // `AccountSettings` already taken apart, whose unknown flags sit beside it.
+  // Folding both back together is what stops a re-normalization dropping them.
+  const flags = {
+    ...(raw.unknownFeatures as Record<string, unknown> | undefined),
+    ...(raw.features as Record<string, unknown> | undefined),
+  };
+  return normalizeFeatures(flags, raw.contactMode, raw.accent);
 }
 
 /** Anything other than a known accent is the default, as for the contact mode. */
@@ -167,13 +177,17 @@ export function normalizeContactMode(value: unknown): ContactMode {
 }
 
 /**
- * Coerces any stored shape into the three flags, keeping the "at least one on"
- * rule.
+ * Coerces any stored shape into the known flags, keeping the "at least one on"
+ * rule, and sets aside the flags this build does not know.
  *
  * A missing or non-boolean flag is enabled: a build that predates a feature
  * writes no flag for it, and that must not read back as the user having turned
  * it off. An all-off payload is a client that ignored the rule, and is repaired
  * to the first feature rather than left as a vault with nothing in it.
+ *
+ * `features` is a single key as far as `mergePayload` is concerned, so rebuilding
+ * it from `FEATURES` alone would drop a newer client's flag on every save. The
+ * leftovers are kept in `unknownFeatures` and written back untouched.
  */
 export function normalizeFeatures(
   value: unknown,
@@ -188,8 +202,14 @@ export function normalizeFeatures(
   if (!FEATURES.some((feature) => features[feature])) {
     features[FEATURES[0]] = true;
   }
+  const unknownFeatures: Record<string, boolean> = {};
+  for (const [key, flag] of Object.entries(raw)) {
+    if (FEATURES.includes(key as FeatureKey)) continue;
+    if (typeof flag === "boolean") unknownFeatures[key] = flag;
+  }
   return {
     features,
+    ...(Object.keys(unknownFeatures).length > 0 ? { unknownFeatures } : {}),
     contactMode: normalizeContactMode(mode),
     accent: normalizeAccent(accent),
   };
@@ -225,7 +245,7 @@ export function withFeature(
     return settings;
   }
   return normalizeFeatures(
-    { ...settings.features, [feature]: enabled },
+    { ...settings.unknownFeatures, ...settings.features, [feature]: enabled },
     settings.contactMode,
     settings.accent,
   );
@@ -236,9 +256,14 @@ export function isDetailedContacts(settings: AccountSettings): boolean {
 }
 
 export function withContactMode(settings: AccountSettings, mode: ContactMode): AccountSettings {
-  return normalizeFeatures(settings.features, mode, settings.accent);
+  return normalizeFeatures(allFlags(settings), mode, settings.accent);
 }
 
 export function withAccent(settings: AccountSettings, accent: AccentKey): AccountSettings {
-  return normalizeFeatures(settings.features, settings.contactMode, accent);
+  return normalizeFeatures(allFlags(settings), settings.contactMode, accent);
+}
+
+/** Known and unknown flags together, which is what a round trip has to preserve. */
+function allFlags(settings: AccountSettings): Record<string, boolean> {
+  return { ...settings.unknownFeatures, ...settings.features };
 }

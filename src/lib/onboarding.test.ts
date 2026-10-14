@@ -84,6 +84,7 @@ describe("onboarding plan", () => {
       addressBooks: ["Work"],
       calendars: ["Personal"],
       notebooks: ["Ideas"],
+      collections: [],
     });
     expect(plan.calendars).toEqual([]);
     expect(plannedContainerCount(plan)).toBe(2);

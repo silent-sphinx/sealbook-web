@@ -11,6 +11,8 @@ import type {
   DeviceState,
   Note,
   Notebook,
+  Bookmark,
+  BookmarkCollection,
 } from "./types";
 
 const KEY = "sealbook.device";
@@ -28,6 +30,8 @@ export type VaultSnapshot = {
   calendarEvents: CalendarEvent[];
   notes: Note[];
   notebooks: Notebook[];
+  bookmarks: Bookmark[];
+  bookmarkCollections: BookmarkCollection[];
   accountSettings: AccountSettings;
   /** As on `VaultListing`: what a save merges onto, so unknown fields survive. */
   accountSettingsRaw?: string;
@@ -130,6 +134,11 @@ export function normalizeSnapshot(value: unknown): VaultSnapshot | null {
     calendarEvents: raw.calendarEvents,
     notes: Array.isArray(raw.notes) ? raw.notes : [],
     notebooks: Array.isArray(raw.notebooks) ? raw.notebooks : [],
+    // Absent from every snapshot written before bookmarks existed, so these
+    // default rather than refusing: an account upgrading to this build has to be
+    // able to open the snapshot it already has.
+    bookmarks: Array.isArray(raw.bookmarks) ? raw.bookmarks : [],
+    bookmarkCollections: Array.isArray(raw.bookmarkCollections) ? raw.bookmarkCollections : [],
     // A snapshot written before the feature toggles existed carries no settings,
     // which reads as every feature enabled rather than as none. The whole object
     // is normalized, not just its flags, so an offline open keeps the contact

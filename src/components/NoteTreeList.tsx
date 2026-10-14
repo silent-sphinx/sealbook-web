@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import type { NoteTreeNode } from "../lib/noteTree";
 import { focusRing } from "../lib/styles";
+import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 import type { Note } from "../lib/types";
 
 type Props = {
@@ -34,6 +35,16 @@ export function NoteTreeList({
 }: Props) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
+  const menu = useContextMenu();
+
+  /** The same actions the row's own buttons carry, for the context menu. */
+  function itemsFor(note: Note): MenuItem[] {
+    if (readOnly) return [];
+    return [
+      { label: "Add a note inside", onSelect: () => onAddChild(note.id) },
+      { label: "Delete note", danger: true, onSelect: () => onDelete(note) },
+    ];
+  }
 
   function rows(nodes: NoteTreeNode[]): React.ReactNode {
     return nodes.map((node) => {
@@ -115,6 +126,7 @@ export function NoteTreeList({
               setDragging(null);
               if (id) onMove(id, note.id);
             }}
+            onContextMenu={(event) => menu.open(event, itemsFor(note))}
             style={{ paddingLeft: `calc(0.5rem + ${node.depth * 0.75}rem)` }}
             className={`list-row tree-row group -mx-2 flex items-center rounded-lg pr-2 transition-colors ${
               active ? "bg-surface" : "hover:bg-surface/40"
@@ -179,6 +191,7 @@ export function NoteTreeList({
     // No scroller of its own: the tree sits inside the notebook list now, and
     // the sidebar is what scrolls.
     <div>
+      <ContextMenu state={menu.menu} onClose={menu.close} />
       <ul>{rows(tree)}</ul>
       {/* Dropping below the tree is how a nested note gets back to the top level.
           Rendered only while dragging, or it reserves a band of empty space. */}

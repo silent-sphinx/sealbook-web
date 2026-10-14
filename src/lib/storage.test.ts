@@ -20,6 +20,8 @@ describe("normalizeSnapshot", () => {
       ...original,
       notes: [],
       notebooks: [],
+      bookmarks: [],
+      bookmarkCollections: [],
       accountSettings: DEFAULT_ACCOUNT_SETTINGS,
     });
   });
@@ -46,6 +48,7 @@ describe("normalizeSnapshot", () => {
       contacts: true,
       calendar: true,
       notes: false,
+      bookmarks: true,
     });
   });
 

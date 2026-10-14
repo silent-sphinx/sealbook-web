@@ -75,6 +75,18 @@ import {
   sortNotebooks,
   sortNotes,
 } from "./note";
+import {
+  BOOKMARK_COLLECTION_CONTENT_TYPE,
+  BOOKMARK_CONTENT_TYPE,
+  DEFAULT_BOOKMARK_COLLECTION_ID,
+  DEFAULT_BOOKMARK_COLLECTION_NAME,
+  parseBookmark,
+  parseBookmarkCollection,
+  serializeBookmark,
+  serializeBookmarkCollection,
+  sortBookmarks,
+  sortCollections,
+} from "./bookmark";
 import { describeError, elapsed, log, logPath, serverHost } from "./log";
 import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
 import { PROTOCOL_VERSION, speaksProtocol } from "./protocol";
@@ -95,6 +107,9 @@ import type {
   Note,
   NoteDraft,
   Notebook,
+  Bookmark,
+  BookmarkCollection,
+  BookmarkDraft,
   Roster,
   RosterVerified,
   RotatedObject,
@@ -1697,6 +1712,8 @@ export type VaultListing = {
   calendarEvents: CalendarEvent[];
   notes: Note[];
   notebooks: Notebook[];
+  bookmarks: Bookmark[];
+  bookmarkCollections: BookmarkCollection[];
   accountSettings: AccountSettings;
   /**
    * The settings payload as stored, so a save merges onto it rather than
@@ -1969,6 +1986,8 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
   const calendars: Calendar[] = [];
   const notes: Note[] = [];
   const notebooks: Notebook[] = [];
+  const bookmarks: Bookmark[] = [];
+  const bookmarkCollections: BookmarkCollection[] = [];
   // Default until the settings object turns up: an account that has never saved
   // one has every feature enabled.
   let accountSettings = DEFAULT_ACCOUNT_SETTINGS;
@@ -1988,6 +2007,13 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
         notes.push(parseNote(obj.id, raw));
       } else if (contentType === NOTEBOOK_CONTENT_TYPE || isPayloadOfType(raw, "Notebook")) {
         notebooks.push(parseNotebook(obj.id, raw));
+      } else if (contentType === BOOKMARK_CONTENT_TYPE || isPayloadOfType(raw, "Bookmark")) {
+        bookmarks.push(parseBookmark(obj.id, raw));
+      } else if (
+        contentType === BOOKMARK_COLLECTION_CONTENT_TYPE ||
+        isPayloadOfType(raw, "BookmarkCollection")
+      ) {
+        bookmarkCollections.push(parseBookmarkCollection(obj.id, raw));
       } else if (
         contentType === ACCOUNT_SETTINGS_CONTENT_TYPE ||
         isPayloadOfType(raw, "AccountSettings")
@@ -2019,6 +2045,8 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
     calendars: calendars.length,
     notes: notes.length,
     notebooks: notebooks.length,
+    bookmarks: bookmarks.length,
+    bookmark_collections: bookmarkCollections.length,
     unopened,
   });
   return {
@@ -2029,6 +2057,8 @@ async function listVaultInner(session: Session): Promise<VaultListing> {
     calendarEvents,
     notes: sortNotes(notes),
     notebooks: sortNotebooks(notebooks),
+    bookmarks: sortBookmarks(bookmarks),
+    bookmarkCollections: sortCollections(bookmarkCollections),
     accountSettings,
     accountSettingsRaw,
     accountSettingsId,
@@ -2261,6 +2291,85 @@ export async function ensureDefaultNotebook(
   ]);
 }
 
+
+/**
+ * The id a new bookmark will be stored under, issued before its first write so
+ * that a repeated save is an update rather than a race to create.
+ */
+export function newBookmarkId(): string {
+  return newUuid();
+}
+
+export async function putBookmark(
+  session: Session,
+  draft: BookmarkDraft,
+  existingId?: string,
+): Promise<string> {
+  const id = existingId ?? newUuid();
+  await putSealed(session, id, BOOKMARK_CONTENT_TYPE, false, serializeBookmark(draft));
+  return id;
+}
+
+export async function deleteBookmark(session: Session, id: string): Promise<void> {
+  await putSealed(session, id, BOOKMARK_CONTENT_TYPE, true, "");
+}
+
+export async function putBookmarkCollection(
+  session: Session,
+  name: string,
+  parentId?: string,
+  existingId?: string,
+  previousRaw?: string,
+): Promise<string> {
+  const id = existingId ?? newUuid();
+  await putSealed(
+    session,
+    id,
+    BOOKMARK_COLLECTION_CONTENT_TYPE,
+    false,
+    serializeBookmarkCollection(name, parentId, previousRaw),
+  );
+  return id;
+}
+
+export async function deleteBookmarkCollection(session: Session, id: string): Promise<void> {
+  await putSealed(session, id, BOOKMARK_COLLECTION_CONTENT_TYPE, true, "");
+}
+
+/**
+ * Returns the collection list with the default one present, creating it if
+ * needed.
+ *
+ * Called when the Bookmarks tab is first opened rather than on every vault
+ * refresh, for the reason `ensureDefaultNotebook` gives: a write here can fail,
+ * and on the refresh path that failure would stop the whole vault loading.
+ *
+ * This is also the entire migration path for an account that predates bookmarks.
+ * The id is reserved, so a second device adopts the collection already there
+ * instead of creating a rival.
+ */
+export async function ensureDefaultBookmarkCollection(
+  session: Session,
+  collections: BookmarkCollection[],
+): Promise<BookmarkCollection[]> {
+  if (collections.some((collection) => collection.id === DEFAULT_BOOKMARK_COLLECTION_ID)) {
+    return sortCollections(collections);
+  }
+  await putBookmarkCollection(
+    session,
+    DEFAULT_BOOKMARK_COLLECTION_NAME,
+    undefined,
+    DEFAULT_BOOKMARK_COLLECTION_ID,
+  );
+  return sortCollections([
+    {
+      id: DEFAULT_BOOKMARK_COLLECTION_ID,
+      name: DEFAULT_BOOKMARK_COLLECTION_NAME,
+      raw: serializeBookmarkCollection(DEFAULT_BOOKMARK_COLLECTION_NAME),
+    },
+    ...collections,
+  ]);
+}
 
 function isAddressBookPayload(raw: string): boolean {
   return isPayloadOfType(raw, "AddressBook");

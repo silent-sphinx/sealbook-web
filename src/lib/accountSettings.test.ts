@@ -25,15 +25,16 @@ import {
 } from "./accountSettings";
 
 const settings = (over: Partial<Record<string, boolean>> = {}) =>
-  normalizeFeatures({ contacts: true, calendar: true, notes: true, ...over });
+  normalizeFeatures({ contacts: true, calendar: true, notes: true, bookmarks: true, ...over });
 
 describe("account settings payload", () => {
-  it("round trips the three flags", () => {
+  it("round trips the feature flags", () => {
     const stored = serializeAccountSettings(settings({ calendar: false }));
     expect(parseAccountSettings(stored).features).toEqual({
       contacts: true,
       calendar: false,
       notes: true,
+      bookmarks: true,
     });
   });
 
@@ -57,7 +58,9 @@ describe("account settings payload", () => {
 
   it("repairs an all-off payload written by a client that ignored the rule", () => {
     const repaired = parseAccountSettings(
-      JSON.stringify({ features: { contacts: false, calendar: false, notes: false } }),
+      JSON.stringify({
+        features: { contacts: false, calendar: false, notes: false, bookmarks: false },
+      }),
     );
     expect(enabledFeatures(repaired)).toEqual(["contacts"]);
   });
@@ -70,7 +73,7 @@ describe("the at-least-one rule", () => {
   });
 
   it("refuses to disable the last enabled feature", () => {
-    const last = settings({ calendar: false, notes: false });
+    const last = settings({ calendar: false, notes: false, bookmarks: false });
     expect(canDisableFeature(last, "contacts")).toBe(false);
     // Returned unchanged rather than thrown, so a caller that skipped the check
     // cannot write an account with nothing in it.
@@ -78,7 +81,7 @@ describe("the at-least-one rule", () => {
   });
 
   it("re-enabling is never blocked", () => {
-    const only = settings({ calendar: false, notes: false });
+    const only = settings({ calendar: false, notes: false, bookmarks: false });
     expect(enabledFeatures(withFeature(only, "notes", true))).toEqual(["contacts", "notes"]);
   });
 });
@@ -192,5 +195,52 @@ describe("the well-known object ids", () => {
 
   it("keeps the legacy settings id pointing at the collision, for the migration", () => {
     expect(LEGACY_ACCOUNT_SETTINGS_ID).toBe(DEFAULT_CALENDAR_ID);
+  });
+});
+
+/**
+ * `features` is a single key as far as `mergePayload` is concerned, so a flag
+ * belonging to a feature this build has never heard of is only safe if it is
+ * carried explicitly. Without this, an older client writing settings silently
+ * turned a newer client's disabled feature back on.
+ */
+describe("a feature flag this build does not know", () => {
+  const stored = JSON.stringify({
+    "@type": "AccountSettings",
+    version: "1.0",
+    features: { contacts: true, calendar: true, notes: true, timeTravel: false },
+    contactMode: "basic",
+    accent: "blue",
+  });
+
+  it("survives a save made by a build without it", () => {
+    const settings = parseAccountSettings(stored);
+    const raw = serializeAccountSettings(settings, stored);
+    const features = (JSON.parse(raw) as { features: Record<string, boolean> }).features;
+    expect(features.timeTravel).toBe(false);
+    expect(features.contacts).toBe(true);
+  });
+
+  it("survives flipping a flag this build does know", () => {
+    const settings = withFeature(parseAccountSettings(stored), "calendar", false);
+    const raw = serializeAccountSettings(settings, stored);
+    const features = (JSON.parse(raw) as { features: Record<string, boolean> }).features;
+    expect(features.timeTravel).toBe(false);
+    expect(features.calendar).toBe(false);
+  });
+
+  it("survives a change to the contact mode or the accent", () => {
+    const settings = withAccent(
+      withContactMode(parseAccountSettings(stored), "detailed"),
+      "purple",
+    );
+    const raw = serializeAccountSettings(settings, stored);
+    const features = (JSON.parse(raw) as { features: Record<string, boolean> }).features;
+    expect(features.timeTravel).toBe(false);
+  });
+
+  it("is not mistaken for one of this build's own", () => {
+    const settings = parseAccountSettings(stored);
+    expect(enabledFeatures(settings)).not.toContain("timeTravel");
   });
 });

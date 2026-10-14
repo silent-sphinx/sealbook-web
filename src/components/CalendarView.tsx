@@ -16,6 +16,7 @@ import { SidebarDrawer, type Sidebar } from "./SidebarDrawer";
 import { Modal } from "./Modal";
 import { localInputToUtc, utcToLocalInput } from "../lib/timezone";
 import { btnDanger, btnPrimary, field, focusRing } from "../lib/styles";
+import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 import { expandCalendarEvents } from "../lib/recurrence";
 
 type ViewMode = "day" | "week" | "month" | "year";
@@ -1299,6 +1300,32 @@ function CalendarSwatch({ color, hidden }: { color: string; hidden: boolean }) {
  * without being restored.
  */
 function CalendarList({ calendars, archived, isVisible, readOnly, canArchive, onToggle, onShowAll, onToggleFavorite, onToggleArchived, onEdit, onCreate }: { calendars: Calendar[]; archived: Calendar[]; isVisible: (calendar: Calendar) => boolean; readOnly: boolean; canArchive: boolean; onToggle: (calendarId: string) => void; onShowAll: () => void; onToggleFavorite: (calendar: Calendar) => void; onToggleArchived: (calendar: Calendar) => void; onEdit: (calendar: Calendar) => void; onCreate: () => void }) {
+  const menu = useContextMenu();
+
+  /** The same actions a row's own buttons carry, for the context menu. */
+  function itemsFor(calendar: Calendar, isArchived: boolean): MenuItem[] {
+    if (readOnly) return [];
+    if (isArchived) {
+      return [
+        { label: "Restore calendar", onSelect: () => onToggleArchived(calendar) },
+        { label: "Edit calendar", onSelect: () => onEdit(calendar) },
+      ];
+    }
+    return [
+      {
+        label: calendar.favorite ? "Remove from favourites" : "Add to favourites",
+        onSelect: () => onToggleFavorite(calendar),
+      },
+      {
+        label: "Archive calendar",
+        disabled: !canArchive,
+        disabledReason: "Your only calendar in use cannot be archived",
+        onSelect: () => onToggleArchived(calendar),
+      },
+      { label: "Edit calendar", onSelect: () => onEdit(calendar) },
+    ];
+  }
+
   const [archivedOpen, setArchivedOpen] = useState(false);
   const ordered = useMemo(
     () => [...calendars].sort((a, b) => Number(b.favorite === true) - Number(a.favorite === true)),
@@ -1323,7 +1350,7 @@ function CalendarList({ calendars, archived, isVisible, readOnly, canArchive, on
           {archived.map((calendar) => {
             const shown = isVisible(calendar);
             return (
-              <div key={calendar.id} className="group -mx-2 flex items-center rounded-lg pr-2 transition-colors hover:bg-surface/40">
+              <div key={calendar.id} className="group -mx-2 flex items-center rounded-lg pr-2 transition-colors hover:bg-surface/40" onContextMenu={(event) => menu.open(event, itemsFor(calendar, true))}>
                 <button
                   type="button"
                   onClick={() => onToggle(calendar.id)}
@@ -1383,11 +1410,12 @@ function CalendarList({ calendars, archived, isVisible, readOnly, canArchive, on
 
   return (
     <>
+      <ContextMenu state={menu.menu} onClose={menu.close} />
       <div className="mt-2.5 space-y-0.5">
         {ordered.map((calendar) => {
           const hidden = !isVisible(calendar);
           return (
-            <div key={calendar.id} className="list-row group -mx-2 flex items-center rounded-lg pr-2 transition-colors hover:bg-surface/40">
+            <div key={calendar.id} className="list-row group -mx-2 flex items-center rounded-lg pr-2 transition-colors hover:bg-surface/40" onContextMenu={(event) => menu.open(event, itemsFor(calendar, false))}>
               <button
                 type="button"
                 onClick={() => onToggle(calendar.id)}

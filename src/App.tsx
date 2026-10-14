@@ -16,6 +16,7 @@ import { DeleteContactModal } from "./components/DeleteContactModal";
 import { DeleteAddressBookModal } from "./components/DeleteAddressBookModal";
 import { Modal } from "./components/Modal";
 import { NotesView } from "./components/NotesView";
+import { BookmarksView } from "./components/BookmarksView";
 import { SettingsView, type SettingsSection } from "./components/SettingsView";
 import { PasswordField } from "./components/PasswordField";
 import { WelcomeModal } from "./components/WelcomeModal";
@@ -35,6 +36,7 @@ import {
   putAddressBook,
   putCalendar,
   putNotebook,
+  putBookmarkCollection,
   putContact,
   recoverAccount,
   registerAccount,
@@ -108,11 +110,13 @@ import type {
   FeatureKey,
   Note,
   Notebook,
+  Bookmark,
+  BookmarkCollection,
 } from "./lib/types";
 
 type Mode = "register" | "signin";
 type Screen = "auth" | "phrase" | "pair" | "recover";
-type MainTab = "contacts" | "calendar" | "notes" | "settings";
+type MainTab = "contacts" | "calendar" | "notes" | "bookmarks" | "settings";
 
 const LAST_TAB_KEY = "sealbook.last-tab";
 const TIMEZONE_KEY = "sealbook.timezone";
@@ -461,6 +465,14 @@ function NotesIcon() {
   );
 }
 
+function BookmarksIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+      <path d="M5 3a2 2 0 0 0-2 2v12.07a.75.75 0 0 0 1.17.624L10 14.01l5.83 3.684A.75.75 0 0 0 17 17.07V5a2 2 0 0 0-2-2H5Z" />
+    </svg>
+  );
+}
+
 function SettingsIcon() {
   return (
     <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -563,6 +575,7 @@ const TABS: { id: MainTab; label: string; icon: React.ReactNode }[] = [
   { id: "contacts", label: "Contacts", icon: <ContactsIcon /> },
   { id: "calendar", label: "Calendar", icon: <CalendarIcon /> },
   { id: "notes", label: "Notes", icon: <NotesIcon /> },
+  { id: "bookmarks", label: "Bookmarks", icon: <BookmarksIcon /> },
   { id: "settings", label: "Settings", icon: <SettingsIcon /> },
 ];
 
@@ -587,6 +600,8 @@ export default function App() {
   const [addressBooks, setAddressBooks] = useState<AddressBook[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [bookmarkCollections, setBookmarkCollections] = useState<BookmarkCollection[]>([]);
   const [accountSettings, setAccountSettings] = useState<AccountSettings>(DEFAULT_ACCOUNT_SETTINGS);
   /** The settings payload last read, so a save merges onto it. */
   const accountSettingsRaw = useRef<string | undefined>(undefined);
@@ -1031,6 +1046,8 @@ export default function App() {
     setCalendars(listed.calendars);
     setNotes(listed.notes);
     setNotebooks(listed.notebooks);
+    setBookmarks(listed.bookmarks);
+    setBookmarkCollections(listed.bookmarkCollections);
     setAccountSettings(listed.accountSettings);
     accountSettingsRaw.current = listed.accountSettingsRaw;
     setUnopened(listed.unopened);
@@ -1045,6 +1062,8 @@ export default function App() {
           calendarEvents: listed.calendarEvents,
           notes: listed.notes,
           notebooks: listed.notebooks,
+          bookmarks: listed.bookmarks,
+          bookmarkCollections: listed.bookmarkCollections,
           accountSettings: listed.accountSettings,
           accountSettingsRaw: listed.accountSettingsRaw,
         },
@@ -1103,9 +1122,14 @@ export default function App() {
       for (const name of plan.notebooks) {
         await putNotebook(session, name);
       }
+      for (const name of plan.collections) {
+        await putBookmarkCollection(session, name);
+      }
       await refreshAfterSave(session);
       setOnboarding(false);
-      if (jumpTo) {
+      // Only the features with a settings section of their own can be jumped
+      // to; bookmarks has nothing to import, so the welcome just closes.
+      if (jumpTo && jumpTo !== "bookmarks") {
         setSettingsSection(jumpTo);
         setActiveTab("settings");
       }
@@ -1146,6 +1170,8 @@ export default function App() {
     setAddressBooks([]);
     setNotes([]);
     setNotebooks([]);
+    setBookmarks([]);
+    setBookmarkCollections([]);
     setAccountSettings(DEFAULT_ACCOUNT_SETTINGS);
     setHiddenBooks(new Set());
     setViewingArchive(false);
@@ -1246,12 +1272,15 @@ export default function App() {
         setCalendarEvents(snapshot.calendarEvents);
         setNotes(snapshot.notes);
         setNotebooks(snapshot.notebooks);
+        setBookmarks(snapshot.bookmarks);
+        setBookmarkCollections(snapshot.bookmarkCollections);
         setAccountSettings(snapshot.accountSettings);
         accountSettingsRaw.current = snapshot.accountSettingsRaw;
         log.info("opened the offline snapshot", {
           contacts: snapshot.contacts.length,
           events: snapshot.calendarEvents.length,
           notes: snapshot.notes.length,
+          bookmarks: snapshot.bookmarks.length,
         });
         setSession({ state: unlocked, collectionKey: "", token: "", latestRevision: 0, keyEpoch: 0, manifestSeq: 0, offline: true });
       } else {
@@ -1565,6 +1594,27 @@ export default function App() {
     setError(null);
     try {
       const id = await putNotebook(session, name.trim());
+      await refreshAfterSave(session);
+      return id;
+    } catch (err) {
+      setError(friendlyError(err));
+      return undefined;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onCreateBookmarkCollection(
+    name: string,
+    parentId?: string,
+  ): Promise<string | undefined> {
+    if (!session || !name.trim()) {
+      return undefined;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const id = await putBookmarkCollection(session, name.trim(), parentId);
       await refreshAfterSave(session);
       return id;
     } catch (err) {
@@ -2468,14 +2518,21 @@ export default function App() {
                   key={tab.id}
                   type="button"
                   aria-current={activeTab === tab.id ? "page" : undefined}
-                  className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 cursor-pointer sm:flex-none ${focusRing} ${activeTab === tab.id
+                  aria-label={tab.label}
+                  title={tab.label}
+                  className={`inline-flex min-w-0 flex-none items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition-all duration-150 cursor-pointer sm:px-3 ${focusRing} ${activeTab === tab.id
                       ? "bg-accent text-bg shadow-sm"
                       : "text-mute hover:text-text hover:bg-surface/50"
                     }`}
                   onClick={() => guardEditing(() => setActiveTab(tab.id))}
                 >
                   {tab.icon}
-                  {tab.label}
+                  {/* Five tabs of icon-and-label do not fit a phone, so below
+                      `sm` only the current one is named. The rest keep their
+                      icon, with the label on the button for a screen reader. */}
+                  <span className={activeTab === tab.id ? "truncate" : "hidden sm:inline"}>
+                    {tab.label}
+                  </span>
                 </button>
               ))}
             </nav>
@@ -2555,6 +2612,19 @@ export default function App() {
             busy={busy}
             onRefresh={() => refresh(session)}
             onSaved={applySavedNote}
+            readOnly={isOffline}
+            sidebar={sidebar}
+          />
+        </div>
+      ) : activeTab === "bookmarks" ? (
+        <div>
+          <BookmarksView
+            session={session}
+            bookmarks={bookmarks}
+            collections={bookmarkCollections}
+            busy={busy}
+            onRefresh={() => refresh(session)}
+            onCreateCollection={onCreateBookmarkCollection}
             readOnly={isOffline}
             sidebar={sidebar}
           />

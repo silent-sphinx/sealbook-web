@@ -62,8 +62,8 @@ export type SealedObject = {
   content_type: string;
 };
 
-/** The three vault features an account can turn off; settings is always on. */
-export type FeatureKey = "contacts" | "calendar" | "notes";
+/** The vault features an account can turn off; settings is always on. */
+export type FeatureKey = "contacts" | "calendar" | "notes" | "bookmarks";
 
 /**
  * How much of a contact the UI offers. `detailed` adds the relationship
@@ -85,6 +85,14 @@ export type AccentKey = "blue" | "cyan" | "green" | "amber" | "rose" | "purple";
  */
 export type AccountSettings = {
   features: Record<FeatureKey, boolean>;
+  /**
+   * Flags for features this build has never heard of, carried through a save
+   * unread. `features` is one key, so `mergePayload` cannot protect what is
+   * inside it: without this, a client that predates a feature would drop its
+   * flag the next time it wrote settings, and the user's choice would silently
+   * read back as enabled. See `normalizeFeatures`.
+   */
+  unknownFeatures?: Record<string, boolean>;
   contactMode: ContactMode;
   accent: AccentKey;
 };
@@ -331,6 +339,42 @@ export type Note = NoteDraft & { id: string; raw: string };
 export type Notebook = {
   id: string;
   name: string;
+  raw: string;
+};
+
+export type BookmarkDraft = {
+  /**
+   * As the user typed it, after `normalizeUrl` has added a scheme. Nothing ever
+   * fetches it: which URLs an account holds must not leak to the sites in them.
+   */
+  url: string;
+  title: string;
+  /** The user's own note about why the URL was saved, not the page's text. */
+  notes?: string;
+  tags?: string[];
+  collectionId: string;
+  /** Client-generated, as a note's, and carried forward by an edit. */
+  createdAt?: string;
+  updatedAt?: string;
+  /**
+   * The payload this draft was parsed from, when it came from one. A save merges
+   * onto it, so a field written by a newer build survives an edit here.
+   */
+  raw?: string;
+};
+
+export type Bookmark = BookmarkDraft & { id: string; raw: string };
+
+/**
+ * Collections nest: `parentId` points at the collection this one sits inside,
+ * and is absent at the top level. A pointer that is missing, is the collection
+ * itself, or sits on a cycle is read as absent rather than allowed to hide a
+ * collection or spin a walk forever. See `lib/tree`.
+ */
+export type BookmarkCollection = {
+  id: string;
+  name: string;
+  parentId?: string;
   raw: string;
 };
 

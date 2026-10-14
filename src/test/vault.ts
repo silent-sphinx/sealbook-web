@@ -65,6 +65,8 @@ export function aSnapshot(contacts: Contact[] = []): VaultSnapshot {
     calendarEvents: [],
     notes: [],
     notebooks: [],
+    bookmarks: [],
+    bookmarkCollections: [],
     accountSettings: DEFAULT_ACCOUNT_SETTINGS,
   };
 }

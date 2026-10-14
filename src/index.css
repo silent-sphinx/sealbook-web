@@ -216,11 +216,13 @@ body.sb-dragging * {
 }
 
 /*
- * Sidebar list rows, shared by the calendar and address book lists. A row is
- * quiet at rest; its actions take the trailing slot on hover or keyboard focus,
- * so a handful of rows do not present a dozen competing icons. Without hover —
- * touch — the actions are simply always there, since there is no pointer to
- * reveal them.
+ * Sidebar list rows, shared by the calendar, address book, notebook, note and
+ * bookmark collection lists.
+ *
+ * A row is quiet: with a pointer its actions live in the context menu, opened by
+ * right-clicking the row, so a column of rows does not present a dozen competing
+ * icons. Without hover — touch — there is no right-click, so the row's own
+ * buttons are simply always there and the at-rest content gives way to them.
  */
 .list-row-rest {
   opacity: 0;
@@ -237,20 +239,10 @@ body.sb-dragging * {
     opacity: 1;
   }
 
+  /* Replaced by the context menu, which the Menu key and Shift+F10 open as
+     well as the right mouse button. */
   .list-row-actions {
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .list-row:hover .list-row-rest,
-  .list-row:focus-within .list-row-rest {
-    opacity: 0;
-  }
-
-  .list-row:hover .list-row-actions,
-  .list-row:focus-within .list-row-actions {
-    opacity: 1;
-    pointer-events: auto;
+    display: none;
   }
 }
 

@@ -1,5 +1,6 @@
 import { DEFAULT_ACCOUNT_SETTINGS, isFeatureEnabled } from "./accountSettings";
 import { DEFAULT_ADDRESS_BOOK_NAME } from "./addressBook";
+import { DEFAULT_BOOKMARK_COLLECTION_NAME } from "./bookmark";
 import { DEFAULT_CALENDAR_NAME } from "./calendar";
 import { DEFAULT_NOTEBOOK_NAME } from "./note";
 import type { AccountSettings, FeatureKey } from "./types";
@@ -21,13 +22,14 @@ export type OnboardingStep =
   | "clients";
 
 /** The per-feature container lists, keyed as they are on the draft. */
-export type ContainerKey = "addressBooks" | "calendars" | "notebooks";
+export type ContainerKey = "addressBooks" | "calendars" | "notebooks" | "collections";
 
 export type OnboardingDraft = {
   settings: AccountSettings;
   addressBooks: string[];
   calendars: string[];
   notebooks: string[];
+  collections: string[];
 };
 
 export type OnboardingPlan = {
@@ -35,12 +37,14 @@ export type OnboardingPlan = {
   addressBooks: string[];
   calendars: string[];
   notebooks: string[];
+  collections: string[];
 };
 
 export const CONTAINER_KEYS: Record<FeatureKey, ContainerKey> = {
   contacts: "addressBooks",
   calendar: "calendars",
   notes: "notebooks",
+  bookmarks: "collections",
 };
 
 /**
@@ -53,6 +57,7 @@ export function initialOnboardingDraft(): OnboardingDraft {
     addressBooks: [],
     calendars: [],
     notebooks: [],
+    collections: [],
   };
 }
 
@@ -118,9 +123,17 @@ export function onboardingPlan(draft: OnboardingDraft): OnboardingPlan {
     notebooks: isFeatureEnabled(settings, "notes")
       ? normalizeNames(draft.notebooks, DEFAULT_NOTEBOOK_NAME)
       : [],
+    collections: isFeatureEnabled(settings, "bookmarks")
+      ? normalizeNames(draft.collections, DEFAULT_BOOKMARK_COLLECTION_NAME)
+      : [],
   };
 }
 
 export function plannedContainerCount(plan: OnboardingPlan): number {
-  return plan.addressBooks.length + plan.calendars.length + plan.notebooks.length;
+  return (
+    plan.addressBooks.length +
+    plan.calendars.length +
+    plan.notebooks.length +
+    plan.collections.length
+  );
 }

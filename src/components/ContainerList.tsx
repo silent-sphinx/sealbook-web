@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { focusRing } from "../lib/styles";
+import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 
 /** Anything with a name that groups other objects: an address book, a notebook. */
 export type Container = { id: string; name: string };
@@ -169,6 +170,24 @@ export function ContainerList<T extends Container>({
     setDraft(book.name);
   }
 
+  const menu = useContextMenu();
+
+  /** The same actions the row's own buttons carry, for the context menu. */
+  function itemsFor(book: T): MenuItem[] {
+    if (readOnly) return [];
+    const actions: MenuItem[] = [
+      { label: `Rename ${kindLabel}`, onSelect: () => startRename(book) },
+    ];
+    if (book.id !== protectedId) {
+      actions.push({
+        label: `Delete ${kindLabel}`,
+        danger: true,
+        onSelect: () => onDelete(book),
+      });
+    }
+    return actions;
+  }
+
   const rowBase = `list-row group -mx-2 flex items-center rounded-lg pr-2 transition-colors`;
   // Both callbacks are needed for a row to work as a checkbox, so one without
   // the other leaves the list in selection mode rather than half in each.
@@ -177,6 +196,7 @@ export function ContainerList<T extends Container>({
 
   return (
     <div className="mt-2.5 space-y-0.5">
+      <ContextMenu state={menu.menu} onClose={menu.close} />
       {showAll && !toggling ? (
         <button
           type="button"
@@ -215,7 +235,10 @@ export function ContainerList<T extends Container>({
         const shown = toggling ? isVisible!(book) : true;
         return (
           <div key={book.id}>
-          <div className={`${rowBase} ${selected && !toggling ? "bg-surface" : "hover:bg-surface/40"}`}>
+          <div
+            className={`${rowBase} ${selected && !toggling ? "bg-surface" : "hover:bg-surface/40"}`}
+            onContextMenu={(event) => menu.open(event, itemsFor(book))}
+          >
             <button
               type="button"
               onClick={() => (toggling ? onToggleVisible!(book.id) : onSelect(book.id))}

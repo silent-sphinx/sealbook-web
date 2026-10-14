@@ -14,6 +14,7 @@ import {
 import { DEFAULT_ADDRESS_BOOK_NAME } from "../lib/addressBook";
 import { DEFAULT_CALENDAR_NAME } from "../lib/calendar";
 import { DEFAULT_NOTEBOOK_NAME } from "../lib/note";
+import { DEFAULT_BOOKMARK_COLLECTION_NAME } from "../lib/bookmark";
 import {
   CONTAINER_KEYS,
   type ContainerKey,
@@ -50,6 +51,7 @@ const FEATURE_BLURBS: Record<FeatureKey, string> = {
   contacts: "Address books, with names, numbers, emails, addresses and dates.",
   calendar: "Calendars and events, including repeating ones.",
   notes: "Notebooks of Markdown notes, arranged in a tree.",
+  bookmarks: "Saved links, filed into collections that nest.",
 };
 
 const CONTAINER_COPY: Record<
@@ -77,6 +79,13 @@ const CONTAINER_COPY: Record<
     existing: `"${DEFAULT_NOTEBOOK_NAME}" is created the first time you open Notes.`,
     placeholder: "Journal",
   },
+  bookmarks: {
+    label: "Collections",
+    singular: "collection",
+    article: "a",
+    existing: `"${DEFAULT_BOOKMARK_COLLECTION_NAME}" is created the first time you open Bookmarks.`,
+    placeholder: "Reading list",
+  },
 };
 
 const IMPORT_COPY: Record<FeatureKey, { formats: string; sources: string }> = {
@@ -91,6 +100,10 @@ const IMPORT_COPY: Record<FeatureKey, { formats: string; sources: string }> = {
   notes: {
     formats: "Markdown (.md, .txt) or a Sealbook JSON backup",
     sources: "Obsidian, Bear and Logseq keep their notes as Markdown already.",
+  },
+  bookmarks: {
+    formats: "a Sealbook JSON backup",
+    sources: "Links can also be added one at a time from the Bookmarks tab.",
   },
 };
 
