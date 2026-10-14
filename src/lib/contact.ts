@@ -104,10 +104,10 @@ export function emptyDraft(addressBookId = DEFAULT_ADDRESS_BOOK_ID): ContactDraf
  * the card inside a padding bucket. `padded_size` is stored and served in the
  * clear and the buckets double (see `BUCKETS` in `sealbook-crypto`), so a card
  * whose text can grow without bound turns every revision into a size delta the
- * server can read. 4 KiB of notes on a full card still lands in the 8 KiB
+ * server can read. 8 KiB of notes on a full card still lands in the 16 KiB
  * bucket.
  */
-export const MAX_CONTACT_NOTES_CHARS = 4096;
+export const MAX_CONTACT_NOTES_CHARS = 8192;
 
 /**
  * Mirrors `MAX_PADDED_OBJECT_SIZE` in `sealbook/crates/sealbook-protocol`. The

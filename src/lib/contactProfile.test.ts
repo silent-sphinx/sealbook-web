@@ -211,14 +211,14 @@ describe("the contact size caps", () => {
     expect(contactValidationError({ ...emptyDraft(), name: "Jo", profile: filled() })).toBeNull();
   });
 
-  it("keeps a card with notes at the cap inside the 8 KiB padding bucket", () => {
+  it("keeps a card with notes at the cap inside the 16 KiB padding bucket", () => {
     const draft = {
       ...emptyDraft(),
       name: "Jo Bell",
       notes: "x".repeat(MAX_CONTACT_NOTES_CHARS),
       profile: filled(),
     };
-    expect(new TextEncoder().encode(serializeCard(draft)).length).toBeLessThanOrEqual(8192);
+    expect(new TextEncoder().encode(serializeCard(draft)).length).toBeLessThanOrEqual(16384);
   });
 });
 

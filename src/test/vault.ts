@@ -14,7 +14,7 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach } from "vitest";
-import { saveDevice, saveVaultSnapshot, type VaultSnapshot } from "../lib/storage";
+import { saveConnectionDomain, saveDevice, saveVaultSnapshot, type VaultSnapshot } from "../lib/storage";
 import { DEFAULT_ACCOUNT_SETTINGS } from "../lib/accountSettings";
 import { DEFAULT_ADDRESS_BOOK_ID } from "../lib/addressBook";
 import type { Contact, DeviceState } from "../lib/types";
@@ -90,6 +90,14 @@ export async function storeSnapshot(
 
 export function setOnline(online: boolean): void {
   Object.defineProperty(navigator, "onLine", { configurable: true, get: () => online });
+}
+
+/**
+ * Seeds the stored connection domain, so a render with no enrolled device shows
+ * the sign-in methods rather than the server-address step that gates them.
+ */
+export function setConnectionDomain(server: string = TEST_SERVER): void {
+  saveConnectionDomain(server);
 }
 
 /**
