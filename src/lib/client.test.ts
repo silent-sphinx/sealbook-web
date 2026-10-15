@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import init from "../pkg/sealbook_wasm.js";
 import {
+  AttachmentIntegrityError,
+  downloadAttachment,
   ensureDefaultCalendar,
   exportVault,
   genesisRoster,
@@ -18,7 +20,9 @@ import {
   RosterTooOldError,
   ServerUnreachableError,
   splitForRotation,
+  sweepOrphanedAttachments,
   syncRoster,
+  uploadAttachment,
   verifiedRoster,
   type Session,
 } from "./client";
@@ -40,7 +44,7 @@ import {
 } from "./wasm";
 import { DEFAULT_ADDRESS_BOOK_ID, JSCONTACT_CONTENT_TYPE } from "./addressBook";
 import { DEFAULT_CALENDAR_ID } from "./calendar";
-import { NOTE_CONTENT_TYPE } from "./note";
+import { NOTE_CONTENT_TYPE, parseNote, serializeNote } from "./note";
 import {
   ACCOUNT_SETTINGS_CONTENT_TYPE,
   ACCOUNT_SETTINGS_ID,
@@ -1804,3 +1808,193 @@ describe("every request", () => {
     );
   });
 });
+
+// --- Attachments -----------------------------------------------------------
+
+/**
+ * An in-memory attachment store mock: it handles the JSON create/commit/list
+ * calls and the binary chunk PUT/GET, keeping ciphertext and the nonce header
+ * exactly as the real server would, so the round-trip exercises the real wasm
+ * seal/open and content hash rather than a stub.
+ */
+function attachmentServer() {
+  const chunks = new Map<string, { nonce: string; body: Uint8Array }>();
+  const created = new Set<string>();
+  const committed = new Set<string>();
+  const createdAt = new Map<string, number>();
+  const extraRows: { attachment_id: string; created_at: number }[] = [];
+  let tamper: ((index: number, body: Uint8Array) => Uint8Array) | null = null;
+
+  const fetchMock = vi.fn(async (input: string, options?: RequestInit) => {
+    const url = new URL(input);
+    const method = options?.method ?? "GET";
+    const parts = url.pathname.split("/");
+    const attIndex = parts.indexOf("attachments");
+    const attachmentId = parts[attIndex + 1];
+
+    const json = (value: unknown, status = 200) =>
+      new Response(JSON.stringify(value), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+
+    // POST /attachments  (create)
+    if (method === "POST" && attIndex === parts.length - 1) {
+      const body = JSON.parse(options?.body as string) as { attachment_id: string };
+      created.add(body.attachment_id);
+      createdAt.set(body.attachment_id, Math.floor(Date.now() / 1000));
+      return json({ attachment_id: body.attachment_id, state: "pending" });
+    }
+    // GET /attachments  (list)
+    if (method === "GET" && attIndex === parts.length - 1) {
+      const rows = [
+        ...[...committed].map((id) => ({
+          attachment_id: id,
+          state: "committed",
+          created_at: createdAt.get(id) ?? 0,
+        })),
+        ...extraRows.map((row) => ({ ...row, state: "committed" })),
+      ];
+      return json({ attachments: rows, next_after: null });
+    }
+    // POST /attachments/{id}/commit
+    if (method === "POST" && parts[parts.length - 1] === "commit") {
+      committed.add(attachmentId);
+      return json({ attachment_id: attachmentId, state: "committed" });
+    }
+    // DELETE /attachments/{id}
+    if (method === "DELETE") {
+      committed.delete(attachmentId);
+      created.delete(attachmentId);
+      for (const key of [...chunks.keys()]) {
+        if (key.startsWith(`${attachmentId}/`)) chunks.delete(key);
+      }
+      const row = extraRows.findIndex((r) => r.attachment_id === attachmentId);
+      if (row !== -1) extraRows.splice(row, 1);
+      return new Response(null, { status: 204 });
+    }
+    // chunks/{index}
+    if (parts[parts.length - 2] === "chunks") {
+      const index = Number(parts[parts.length - 1]);
+      const key = `${attachmentId}/${index}`;
+      if (method === "PUT") {
+        const nonce = (options?.headers as Record<string, string>)["x-sealbook-nonce"];
+        const body = new Uint8Array(options?.body as ArrayBuffer | Uint8Array);
+        chunks.set(key, { nonce, body });
+        return new Response(null, { status: 204 });
+      }
+      if (method === "GET") {
+        const stored = chunks.get(key);
+        if (!stored) return new Response(JSON.stringify({ error: "chunk" }), { status: 404 });
+        const body = tamper ? tamper(index, stored.body) : stored.body;
+        return new Response(body as BlobPart, {
+          status: 200,
+          headers: {
+            "content-type": "application/octet-stream",
+            "x-sealbook-nonce": stored.nonce,
+          },
+        });
+      }
+    }
+    throw new Error(`no attachment mock for ${method} ${url.pathname}`);
+  });
+
+  vi.stubGlobal("fetch", fetchMock);
+  return {
+    chunkCount: () => chunks.size,
+    committed,
+    tamperWith: (fn: (index: number, body: Uint8Array) => Uint8Array) => {
+      tamper = fn;
+    },
+    addOrphan: (id: string, created: number) => extraRows.push({ attachment_id: id, created_at: created }),
+  };
+}
+
+describe("attachments", () => {
+  it("round-trips a multi-chunk photo through real seal and open", async () => {
+    const { session } = account();
+    attachmentServer();
+    // One full chunk plus a short second, to exercise the multi-chunk path and
+    // the final short chunk without spending seconds filling tens of megabytes.
+    const photo = new Uint8Array(4 * 1024 * 1024 + 4096).fill(0xa5);
+    photo[0] = 1;
+    photo[4 * 1024 * 1024] = 2; // first byte of the second chunk
+    photo[photo.length - 1] = 3;
+
+    const reference = await uploadAttachment(session, {
+      name: "sunset.jpg",
+      type: "image/jpeg",
+      bytes: photo,
+    });
+    expect(reference.chunkCount).toBe(2);
+    expect(reference.filename).toBe("sunset.jpg");
+
+    const blob = await downloadAttachment(session, reference);
+    const got = new Uint8Array(await blob.arrayBuffer());
+    expect(got).toEqual(photo);
+    expect(blob.type).toBe("image/jpeg");
+  }, 20000);
+
+  it("rejects a tampered chunk rather than returning bad bytes", async () => {
+    const { session } = account();
+    const store = attachmentServer();
+    const photo = new Uint8Array(2048).fill(9);
+    const reference = await uploadAttachment(session, {
+      name: "x.png",
+      type: "image/png",
+      bytes: photo,
+    });
+    // Flip a ciphertext byte on the way out.
+    store.tamperWith((_, body) => {
+      const copy = body.slice();
+      copy[0] ^= 0xff;
+      return copy;
+    });
+    await expect(downloadAttachment(session, reference)).rejects.toBeInstanceOf(
+      AttachmentIntegrityError,
+    );
+  });
+
+  it("sweeps only orphans that are both unreferenced and past the grace window", async () => {
+    const { session } = account();
+    const store = attachmentServer();
+    const nowSec = Math.floor(Date.now() / 1000);
+    const old = "11111111-1111-1111-1111-111111111111";
+    const recent = "22222222-2222-2222-2222-222222222222";
+    const referenced = "33333333-3333-3333-3333-333333333333";
+    store.addOrphan(old, nowSec - 72 * 60 * 60); // past the 48h window
+    store.addOrphan(recent, nowSec - 60 * 60); // inside the window, spared
+    store.addOrphan(referenced, nowSec - 72 * 60 * 60); // old but still referenced
+
+    const removed = await sweepOrphanedAttachments(session, new Set([referenced]));
+    expect(removed).toBe(1);
+    expect(store.committed.has(old)).toBe(false);
+  });
+
+  it("carries an attachments reference through note serialize and parse", () => {
+    const attachment = {
+      id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      filename: "a.jpg",
+      mimeType: "image/jpeg",
+      byteSize: 10,
+      adk: "Zm9v",
+      contentHash: "YmFy",
+      chunkSize: 4 * 1024 * 1024,
+      chunkCount: 1,
+    };
+    const raw = serializeNote({
+      title: "t",
+      body: "see ![a](attachment:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa)",
+      notebookId: DEFAULT_NOTEBOOK_ID_FOR_TEST,
+      attachments: [attachment],
+    });
+    const parsed = parseNote("note-1", raw);
+    expect(parsed.attachments).toHaveLength(1);
+    expect(parsed.attachments?.[0].id).toBe(attachment.id);
+    // A note with no attachments key still parses, with the field undefined.
+    const bare = parseNote("note-2", JSON.stringify({ "@type": "Note", title: "x", body: "" }));
+    expect(bare.attachments).toBeUndefined();
+  });
+});
+
+const DEFAULT_NOTEBOOK_ID_FOR_TEST = "00000000-0000-0000-0000-000000000002";

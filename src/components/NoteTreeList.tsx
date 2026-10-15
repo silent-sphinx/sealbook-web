@@ -143,11 +143,6 @@ export function NoteTreeList({
               } ${focusRing}`}
             >
               <span className="min-w-0 truncate">{note.title.trim() || "Untitled note"}</span>
-              {note.pinned ? (
-                <svg aria-hidden="true" viewBox="0 0 16 16" className="h-2.5 w-2.5 shrink-0 text-note" fill="currentColor">
-                  <path d="M8 2.5 9.6 6l3.9.4-2.9 2.6.8 3.8L8 11l-3.4 1.8.8-3.8L2.5 6.4 6.4 6 8 2.5Z" />
-                </svg>
-              ) : null}
             </button>
 
             {readOnly ? null : (

@@ -4,13 +4,17 @@ import {
   deleteNote,
   deleteNotebook,
   ensureDefaultNotebook,
+  loadAttachment,
+  MAX_ATTACHMENT_SIZE,
   newNoteId,
   putNote,
   putNotebook,
+  uploadAttachment,
 } from "../lib/client";
 import type { Session } from "../lib/client";
 import { createAutosaver } from "../lib/autosave";
 import { friendlyError } from "../lib/errors";
+import { optimizeAttachmentThumbnail } from "../lib/image";
 import { triggerDownload } from "../lib/importExport";
 import {
   DEFAULT_NOTEBOOK_ID,
@@ -25,7 +29,7 @@ import {
 } from "../lib/note";
 import { ancestorsOf, buildNoteTree, canReparent, noteSubtree } from "../lib/noteTree";
 import { focusRing } from "../lib/styles";
-import type { Note, NoteDraft, Notebook } from "../lib/types";
+import type { Note, NoteAttachment, NoteDraft, Notebook } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ContainerList } from "./ContainerList";
 import { NoteTreeList } from "./NoteTreeList";
@@ -69,12 +73,11 @@ const SAVE_LABEL: Record<SaveState, string> = {
   failed: "Not saved",
 };
 
-type IconName = "plus" | "pin" | "trash" | "download" | "back" | "search" | "notes";
+type IconName = "plus" | "trash" | "download" | "back" | "search" | "notes";
 
 function Icon({ name, className = "h-4 w-4" }: { name: IconName; className?: string }) {
   const content = {
     plus: <path d="M8 3.25v9.5M3.25 8h9.5" />,
-    pin: <path d="M8 2.5 9.6 6l3.9.4-2.9 2.6.8 3.8L8 11l-3.4 1.8.8-3.8L2.5 6.4 6.4 6 8 2.5Z" />,
     trash: <path d="M2.75 4.25h10.5M6.25 4.25V3a.75.75 0 0 1 .75-.75h2a.75.75 0 0 1 .75.75v1.25M4.25 4.25 4.75 13a.75.75 0 0 0 .75.7h5a.75.75 0 0 0 .75-.7l.5-8.75" />,
     download: <path d="M8 2.75v7.5M5 7.5 8 10.5l3-3M3 13h10" />,
     back: <path d="M9.5 3.5 5 8l4.5 4.5" />,
@@ -122,7 +125,6 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   const readOnlyMode = readOnly === true;
   const [scope, setScope] = useState<string>(DEFAULT_NOTEBOOK_ID);
   const [search, setSearch] = useState("");
-  const [pinnedOnly, setPinnedOnly] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [creatingNotebook, setCreatingNotebook] = useState(false);
@@ -186,12 +188,11 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
 
   const tree = useMemo(() => buildNoteTree(notes, scope), [notes, scope]);
 
-  /** Search and the pinned filter both flatten the tree, since a hit may be anywhere. */
+  /** Search flattens the tree, since a hit may be anywhere within it. */
   const flatMatches = useMemo(() => {
     const scoped = notes.filter((note) => resolveNotebookId(note.notebookId) === scope);
-    const filtered = pinnedOnly ? scoped.filter((note) => note.pinned === true) : scoped;
-    return sortNotes(filtered.filter((note) => noteMatches(note, deferredSearch)));
-  }, [notes, scope, pinnedOnly, deferredSearch]);
+    return sortNotes(scoped.filter((note) => noteMatches(note, deferredSearch)));
+  }, [notes, scope, deferredSearch]);
 
   const countedBody = useDeferredValue(draft?.body ?? "");
   const words = useMemo(() => noteWordCount(countedBody), [countedBody]);
@@ -283,9 +284,12 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
       body: note.body,
       notebookId: note.notebookId,
       parentId: note.parentId,
-      pinned: note.pinned,
+      attachments: note.attachments,
       createdAt: note.createdAt,
       updatedAt: note.updatedAt,
+      // The stored payload, so a save merges onto it: attachments (and any field
+      // a newer build added) survive an edit here rather than being rebuilt away.
+      raw: note.raw,
     });
     setSaveState("clean");
     setError(null);
@@ -297,7 +301,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     // The id is issued here so every write for this note is an update.
     editingId.current = newNoteId();
     setSelectedId(null);
-    setDraft({ ...emptyNoteDraft(scope), parentId, pinned: false });
+    setDraft({ ...emptyNoteDraft(scope), parentId });
     setSaveState("clean");
     setError(null);
     sidebar.close();
@@ -318,14 +322,97 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     }
   }
 
+  // A functional update so two patches raised in the same tick both survive: the
+  // photo flow sets `attachments` and the editor's node insertion sets `body`
+  // back to back, and a `{...draft}` merge from one stale closure would drop one.
   function edit(patch: Partial<NoteDraft>) {
     const id = editingId.current;
-    if (!draft || !id || readOnlyMode) return;
-    const next = { ...draft, ...patch };
-    setDraft(next);
+    if (!id || readOnlyMode) return;
     setSaveState("pending");
-    autosaver.schedule({ id, draft: next });
+    setDraft((current) => {
+      if (!current) return current;
+      const next = { ...current, ...patch };
+      autosaver.schedule({ id, draft: next });
+      return next;
+    });
   }
+
+  // The editor builds its extensions once per note, so its resolver and uploader
+  // read the live draft through a ref rather than closing over this render's.
+  const draftRef = useRef<NoteDraft | null>(draft);
+  draftRef.current = draft;
+
+  // Defined fresh each render rather than frozen in a ref: NoteEditor reads both
+  // through refs, so the churn is harmless, and a frozen closure would see the
+  // first render's null draft and no-op every edit.
+
+  // The saved display width for a photo, read from the draft's attachment entry.
+  const getAttachmentWidth = (attachmentId: string): number | undefined =>
+    draftRef.current?.attachments?.find((entry) => entry.id === attachmentId)?.displayWidth;
+
+  // Persists a photo's new display width after a corner drag. Presentational, so
+  // it updates the attachment metadata rather than the body markdown.
+  const onResizeAttachment = (attachmentId: string, width: number) => {
+    const current = draftRef.current?.attachments;
+    if (!current) return;
+    const attachments = current.map((entry) =>
+      entry.id === attachmentId ? { ...entry, displayWidth: width } : entry,
+    );
+    if (draftRef.current) draftRef.current = { ...draftRef.current, attachments };
+    edit({ attachments });
+  };
+
+  // Resolves a note photo to an object URL for display: the cache-first download
+  // path, keyed off the attachment reference the draft carries.
+  const resolveAttachment = async (attachmentId: string): Promise<string | null> => {
+    const attachment = draftRef.current?.attachments?.find((entry) => entry.id === attachmentId);
+    if (!attachment) return null;
+    try {
+      const blob = await loadAttachment(session, attachment);
+      return URL.createObjectURL(blob);
+    } catch {
+      return null;
+    }
+  };
+
+  // Uploads a picked image, records its reference on the draft, and returns how
+  // the body should refer to it. The full bytes go to the attachment store; only
+  // a small preview and the reference ride inside the note.
+  const uploadImage = async (
+    file: File,
+  ): Promise<{ attachmentId: string; alt: string } | null> => {
+    if (readOnlyMode) return null;
+    if (file.size > MAX_ATTACHMENT_SIZE) {
+      setError(`That photo is larger than the ${Math.round(MAX_ATTACHMENT_SIZE / (1024 * 1024))} MB limit.`);
+      return null;
+    }
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let preview: { thumbnail?: string; width?: number; height?: number } = {};
+      try {
+        preview = await optimizeAttachmentThumbnail(file);
+      } catch {
+        // A thumbnail is a convenience; upload the photo even if preview fails.
+      }
+      const attachment: NoteAttachment = {
+        ...(await uploadAttachment(session, { name: file.name, type: file.type, bytes })),
+        thumbnail: preview.thumbnail,
+        width: preview.width,
+        height: preview.height,
+      };
+      const attachments = [...(draftRef.current?.attachments ?? []), attachment];
+      // The image node's view resolves on mount, right after the caller inserts
+      // it, which is before React re-renders and refreshes this ref. Sync it now
+      // so that first resolve finds the attachment rather than showing alt text
+      // until the note is reopened.
+      if (draftRef.current) draftRef.current = { ...draftRef.current, attachments };
+      edit({ attachments });
+      return { attachmentId: attachment.id, alt: file.name };
+    } catch (err) {
+      setError(friendlyError(err));
+      return null;
+    }
+  };
 
   function toggleExpanded(id: string) {
     setExpanded((current) => {
@@ -334,22 +421,6 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
       else next.add(id);
       return next;
     });
-  }
-
-  async function togglePinned(note: Note) {
-    // The open note is pinned through the draft, so the toggle cannot write a
-    // stale body over what is being typed.
-    if (editingId.current === note.id && draft) {
-      edit({ pinned: draft.pinned !== true });
-      return;
-    }
-    setError(null);
-    try {
-      await putNote(session, { ...note, pinned: note.pinned !== true }, note.id);
-      await onRefresh();
-    } catch (err) {
-      setError(friendlyError(err));
-    }
   }
 
   /** Reparenting writes the note itself; its descendants follow it as they are. */
@@ -496,10 +567,10 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   }, [notes]);
 
   const notebookContents =
-    searching || pinnedOnly ? (
+    searching ? (
       flatMatches.length === 0 ? (
         <p className="px-1 py-2 text-xs leading-relaxed text-mute">
-          {searching ? `No note matches \u201c${deferredSearch.trim()}\u201d.` : "Nothing pinned yet."}
+          {`No note matches \u201c${deferredSearch.trim()}\u201d.`}
         </p>
       ) : (
         <ul>
@@ -517,10 +588,6 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                       ? []
                       : [
                           {
-                            label: note.pinned ? "Unpin note" : "Pin note",
-                            onSelect: () => void togglePinned(note),
-                          },
-                          {
                             label: "Delete note",
                             danger: true,
                             onSelect: () => setConfirmDelete(note),
@@ -534,28 +601,12 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                 } ${focusRing}`}
               >
                 <span className="flex w-full min-w-0 items-center gap-1.5">
-                  {note.pinned ? <Icon name="pin" className="h-3 w-3 shrink-0 text-note" /> : null}
                   <span className="min-w-0 flex-1 truncate text-xs">{note.title}</span>
                 </span>
                 <span className="w-full truncate text-[11px] text-mute">
                   {notePreview(note.body, 60) || "Empty note"}
                 </span>
               </button>
-              {readOnlyMode ? null : (
-                <span className="list-row-actions absolute right-1 top-1.5">
-                  <button
-                    type="button"
-                    onClick={() => void togglePinned(note)}
-                    title={note.pinned ? "Unpin note" : "Pin note"}
-                    aria-label={note.pinned ? `Unpin ${note.title}` : `Pin ${note.title}`}
-                    className={`flex h-6 w-6 items-center justify-center rounded-md bg-bg/80 transition-colors hover:bg-elevated ${
-                      note.pinned ? "text-note" : "text-mute hover:text-text"
-                    } ${focusRing}`}
-                  >
-                    <Icon name="pin" className="h-3 w-3" />
-                  </button>
-                </span>
-              )}
             </li>
           ))}
         </ul>
@@ -629,18 +680,6 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                 className="h-8 w-full min-w-0 rounded-lg border border-line bg-bg pl-8 pr-2.5 text-xs text-text outline-none transition-colors placeholder:text-mute/70 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
               />
             </div>
-            <button
-              type="button"
-              onClick={() => setPinnedOnly((current) => !current)}
-              aria-pressed={pinnedOnly}
-              title="Pinned only"
-              aria-label="Pinned only"
-              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line transition-colors ${
-                pinnedOnly ? "bg-surface text-note" : "text-mute hover:bg-surface/40 hover:text-text"
-              } ${focusRing}`}
-            >
-              <Icon name="pin" className="h-3.5 w-3.5" />
-            </button>
           </div>
 
           <SidebarSection
@@ -725,18 +764,6 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                     </option>
                   ))}
                 </select>
-                {!readOnlyMode ? (
-                  <button
-                    type="button"
-                    onClick={() => edit({ pinned: draft.pinned !== true })}
-                    aria-pressed={draft.pinned === true}
-                    title={draft.pinned ? "Unpin note" : "Pin note"}
-                    aria-label={draft.pinned ? "Unpin note" : "Pin note"}
-                    className={`${editorAction} ${draft.pinned ? "text-note hover:text-note" : ""}`}
-                  >
-                    <Icon name="pin" className="h-3.5 w-3.5" />
-                  </button>
-                ) : null}
                 <button
                   type="button"
                   onClick={() => triggerDownload(fileNameFor(draft.title), "text/markdown", draft.body)}
@@ -771,6 +798,10 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                   value={draft.body}
                   editable={!readOnlyMode}
                   onChange={(body) => edit({ body })}
+                  resolveAttachment={resolveAttachment}
+                  onUploadImage={readOnlyMode ? undefined : uploadImage}
+                  getAttachmentWidth={getAttachmentWidth}
+                  onResizeAttachment={readOnlyMode ? undefined : onResizeAttachment}
                   header={
                     <input
                       value={draft.title}

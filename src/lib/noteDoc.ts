@@ -212,6 +212,14 @@ function inlineToNodes(nodes: MdInline[], marks: DocMark[]): DocNode[] {
           ...inlineToNodes(node.children, withMark(marks, { type: "link", attrs: { href: node.href } })),
         );
         break;
+      case "image":
+        // An inline atom, not a text node with marks: the editor renders it
+        // through a node view that resolves the attachment id to a blob.
+        out.push({
+          type: "attachmentImage",
+          attrs: { attachmentId: node.attachmentId, alt: node.alt },
+        });
+        break;
     }
   }
   return out;
@@ -429,6 +437,12 @@ function serializeInline(nodes: DocNode[]): string {
   for (const node of mergeRuns(nodes)) {
     if (node.type === "hardBreak") {
       out += "\\\n";
+      continue;
+    }
+    if (node.type === "attachmentImage") {
+      const id = typeof node.attrs?.attachmentId === "string" ? node.attrs.attachmentId : "";
+      const alt = typeof node.attrs?.alt === "string" ? node.attrs.alt : "";
+      if (id) out += `![${alt}](attachment:${id})`;
       continue;
     }
     if (node.type !== "text" || !node.text) continue;

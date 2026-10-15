@@ -8,6 +8,7 @@
  */
 
 import { Extension, InputRule } from "@tiptap/react";
+import { AttachmentImage, type AttachmentResolver } from "./attachmentImageExtension";
 import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
@@ -149,7 +150,13 @@ const TaskFromBullet = Extension.create({
   },
 });
 
-export function noteExtensions(placeholder: string) {
+export type AttachmentHooks = {
+  resolve?: AttachmentResolver;
+  getWidth?: (attachmentId: string) => number | undefined;
+  onResize?: (attachmentId: string, width: number) => void;
+};
+
+export function noteExtensions(placeholder: string, attachments?: AttachmentHooks) {
   return [
     StarterKit.configure({
       // No markdown spelling, so the editor must not be able to make one.
@@ -173,6 +180,11 @@ export function noteExtensions(placeholder: string) {
     TableRow.extend(rowAttribute),
     TableHeader.extend(cellAttributes),
     TableCell.extend(cellAttributes),
+    AttachmentImage.configure({
+      resolve: attachments?.resolve ?? (async () => null),
+      getWidth: attachments?.getWidth ?? (() => undefined),
+      onResize: attachments?.onResize,
+    }),
     Placeholder.configure({ placeholder, includeChildren: false }),
   ];
 }

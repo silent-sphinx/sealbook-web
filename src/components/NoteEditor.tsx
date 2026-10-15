@@ -5,8 +5,14 @@ import Suggestion from "@tiptap/suggestion";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { docToMarkdown, markdownToDoc, type DocNode } from "../lib/noteDoc";
+import type { AttachmentResolver } from "../lib/attachmentImageExtension";
 import { CELL_FILLS, noteExtensions } from "../lib/noteEditorSchema";
 import { focusRing } from "../lib/styles";
+
+/** Uploads a chosen image and returns how to reference it, or null to cancel. */
+export type ImageUploader = (
+  file: File,
+) => Promise<{ attachmentId: string; alt: string } | null>;
 
 type Range = { from: number; to: number };
 
@@ -91,10 +97,11 @@ const COMMANDS: SlashCommand[] = [
   },
 ];
 
-function matchCommands(query: string): SlashCommand[] {
+function matchCommands(query: string, extra: SlashCommand[]): SlashCommand[] {
+  const all = [...COMMANDS, ...extra];
   const needle = query.trim().toLowerCase();
-  if (!needle) return COMMANDS;
-  return COMMANDS.filter(
+  if (!needle) return all;
+  return all.filter(
     (command) =>
       command.label.toLowerCase().includes(needle) ||
       command.keywords.some((word) => word.startsWith(needle)),
@@ -116,7 +123,7 @@ type SlashBridge = {
   close: () => void;
 };
 
-function slashExtension(bridge: { current: SlashBridge }) {
+function slashExtension(bridge: { current: SlashBridge }, extra: { current: SlashCommand[] }) {
   return Extension.create({
     name: "slashMenu",
     addProseMirrorPlugins() {
@@ -125,7 +132,7 @@ function slashExtension(bridge: { current: SlashBridge }) {
           editor: this.editor,
           char: "/",
           allowSpaces: false,
-          items: ({ query }) => matchCommands(query),
+          items: ({ query }) => matchCommands(query, extra.current),
           command: ({ editor, range, props }) => props.run(editor, range),
           render: () => ({
             onStart: (props) =>
@@ -179,13 +186,70 @@ type Props = {
    * of line with the body and scrolls with it.
    */
   header?: ReactNode;
+  /**
+   * Resolves a note photo's id to an object URL for display. Kept stable by the
+   * caller: the editor builds its extensions once per note.
+   */
+  resolveAttachment?: AttachmentResolver;
+  /** Uploads a picked image; absent disables the photo command. */
+  onUploadImage?: ImageUploader;
+  /** The saved display width in px for a photo, or undefined for natural size. */
+  getAttachmentWidth?: (attachmentId: string) => number | undefined;
+  /** Persists a photo's new display width after a corner drag. */
+  onResizeAttachment?: (attachmentId: string, width: number) => void;
 };
 
 const PLACEHOLDER = "Write something. Press / for blocks, or type markdown.";
 
-export function NoteEditor({ noteId, value, editable, onChange, header }: Props) {
+export function NoteEditor({
+  noteId,
+  value,
+  editable,
+  onChange,
+  header,
+  resolveAttachment,
+  onUploadImage,
+  getAttachmentWidth,
+  onResizeAttachment,
+}: Props) {
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+
+  // The attachment hooks are read through refs, so the editor's extensions can be
+  // built once per note while still calling the latest closures as the draft's
+  // attachments change.
+  const resolveRef = useRef(resolveAttachment);
+  resolveRef.current = resolveAttachment;
+  const uploadRef = useRef(onUploadImage);
+  uploadRef.current = onUploadImage;
+  const widthRef = useRef(getAttachmentWidth);
+  widthRef.current = getAttachmentWidth;
+  const resizeRef = useRef(onResizeAttachment);
+  resizeRef.current = onResizeAttachment;
+
+  // The file input the photo command opens, and the document position to insert
+  // the resulting image at once the upload finishes.
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const insertAtRef = useRef<number | null>(null);
+
+  // The photo command, appended to the slash menu only when an uploader is
+  // present. Held in a ref so the menu, built once per note, picks up the latest.
+  const extraCommands = useRef<SlashCommand[]>([]);
+  extraCommands.current = onUploadImage
+    ? [
+        {
+          id: "photo",
+          label: "Photo",
+          hint: "Attach an image",
+          keywords: ["photo", "image", "picture", "attachment", "upload"],
+          run: (instance, range) => {
+            instance.chain().focus().deleteRange(range).run();
+            insertAtRef.current = instance.state.selection.from;
+            fileInputRef.current?.click();
+          },
+        },
+      ]
+    : [];
 
   const [slash, setSlash] = useState<SlashState | null>(null);
   const slashRef = useRef<SlashState | null>(null);
@@ -227,7 +291,18 @@ export function NoteEditor({ noteId, value, editable, onChange, header }: Props)
 
   const editor = useEditor(
     {
-      extensions: [...noteExtensions(PLACEHOLDER), slashExtension(bridge)],
+      extensions: [
+        ...noteExtensions(PLACEHOLDER, {
+          resolve: (id) => resolveRef.current?.(id) ?? Promise.resolve(null),
+          getWidth: (id) => widthRef.current?.(id),
+          // Only offer the handle when the note is editable and a persister
+          // exists, so a read-only or offline view shows photos at a fixed size.
+          onResize: editable
+            ? (id, width) => resizeRef.current?.(id, width)
+            : undefined,
+        }),
+        slashExtension(bridge, extraCommands),
+      ],
       content: markdownToDoc(initial.current),
       editable,
       onUpdate: ({ editor: instance }) =>
@@ -273,6 +348,31 @@ export function NoteEditor({ noteId, value, editable, onChange, header }: Props)
       onClick={focusFromMargin}
       className="note-editor note-scroll relative min-h-0 flex-1 overflow-y-auto px-5 lg:px-10"
     >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          const at = insertAtRef.current;
+          insertAtRef.current = null;
+          const upload = uploadRef.current;
+          if (!file || at === null || !upload) return;
+          void upload(file).then((ref) => {
+            if (!ref) return;
+            editor
+              .chain()
+              .focus()
+              .insertContentAt(at, {
+                type: "attachmentImage",
+                attrs: { attachmentId: ref.attachmentId, alt: ref.alt },
+              })
+              .run();
+          });
+        }}
+      />
       <div className="note-column flex min-h-full flex-col pb-24 pt-7">
         {header ? (
           // Enter or Down from the title carries on into the body, the way one

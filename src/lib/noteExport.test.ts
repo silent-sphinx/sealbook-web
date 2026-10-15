@@ -31,7 +31,6 @@ const notes: Note[] = [
     title: "Weekly plan",
     body: "# Monday\n\n- ship notes\n\n---\n\nnot a separator\n",
     notebookId: "work",
-    pinned: true,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-02-01T00:00:00.000Z",
   }),
@@ -49,7 +48,6 @@ describe("markdown bundle", () => {
     expect(plan).toBeDefined();
     // The `---` inside the body must not have been read as a note boundary.
     expect(plan?.body).toBe("# Monday\n\n- ship notes\n\n---\n\nnot a separator");
-    expect(plan?.pinned).toBe(true);
     expect(plan?.createdAt).toBe("2026-01-01T00:00:00.000Z");
     expect(plan?.updatedAt).toBe("2026-02-01T00:00:00.000Z");
   });

@@ -26,6 +26,16 @@ describe("markdownToDoc", () => {
     });
   });
 
+  it("round-trips an attachment image through the editor unchanged", () => {
+    stable("Here is a ![photo](attachment:abc-123) inline.");
+    const doc = markdownToDoc("![photo](attachment:abc-123)");
+    const paragraph = doc.content[0] as { content?: { type: string; attrs?: Record<string, unknown> }[] };
+    expect(paragraph.content?.[0]).toEqual({
+      type: "attachmentImage",
+      attrs: { attachmentId: "abc-123", alt: "photo" },
+    });
+  });
+
   it("carries marks as a set on the text node", () => {
     const doc = markdownToDoc("**bold _both_**");
     const text = doc.content[0].content ?? [];

@@ -34,14 +34,12 @@ describe("note serialization", () => {
       title: "  Weekly plan  ",
       body: "# Monday\n\n- ship notes\n",
       notebookId: "11111111-1111-1111-1111-111111111111",
-      pinned: true,
       createdAt: "2026-01-02T03:04:05.000Z",
     };
     const parsed = parseNote("id-1", serializeNote(draft));
     expect(parsed.title).toBe("Weekly plan");
     expect(parsed.body).toBe(draft.body);
     expect(parsed.notebookId).toBe(draft.notebookId);
-    expect(parsed.pinned).toBe(true);
     expect(parsed.createdAt).toBe(draft.createdAt);
     expect(parsed.updatedAt).toBeDefined();
   });
@@ -61,7 +59,6 @@ describe("note serialization", () => {
     expect(parsed.createdAt).toBeUndefined();
     expect(parsed.updatedAt).toBeUndefined();
     expect(parsed.notebookId).toBe(DEFAULT_NOTEBOOK_ID);
-    expect(parsed.pinned).toBe(false);
   });
 
   it("falls back rather than throwing on a payload that will not parse", () => {
@@ -112,13 +109,12 @@ describe("notebooks", () => {
 });
 
 describe("sortNotes", () => {
-  it("puts pinned notes first, then most recently edited, then title", () => {
+  it("puts the most recently edited first, then title", () => {
     const sorted = sortNotes([
       note({ id: "old", title: "old", updatedAt: "2026-01-01T00:00:00Z" }),
-      note({ id: "pin", title: "pinned", pinned: true, updatedAt: "2020-01-01T00:00:00Z" }),
       note({ id: "new", title: "new", updatedAt: "2026-06-01T00:00:00Z" }),
     ]);
-    expect(sorted.map((entry) => entry.id)).toEqual(["pin", "new", "old"]);
+    expect(sorted.map((entry) => entry.id)).toEqual(["new", "old"]);
   });
 
   it("tolerates a missing or unparseable timestamp", () => {

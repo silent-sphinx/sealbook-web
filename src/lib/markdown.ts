@@ -9,7 +9,17 @@ export type MdInline =
   | { kind: "strike"; children: MdInline[] }
   | { kind: "code"; text: string }
   | { kind: "break" }
-  | { kind: "link"; href: string; children: MdInline[] };
+  | { kind: "link"; href: string; children: MdInline[] }
+  /**
+   * A note photo: `![alt](attachment:<id>)`. Only this internal scheme is
+   * accepted as an image; the body renderer resolves the id to a locally-cached
+   * blob. In any other markdown renderer it degrades to a broken image showing
+   * the alt text, which is better than a silently dropped or garbage artifact.
+   */
+  | { kind: "image"; attachmentId: string; alt: string };
+
+/** The scheme that marks a note-photo reference in the body. */
+const ATTACHMENT_SCHEME = "attachment:";
 
 export type MdListItem = {
   children: MdInline[];
@@ -796,9 +806,17 @@ function parseInline(source: string, base: string, inLink: boolean): MdInline[] 
       }
     }
 
-    // `![alt](url)` degrades to the link form: a remote image would be blocked by
-    // the CSP anyway, and allowing a `data:` one invites the size ceiling.
+    // `![alt](attachment:<id>)` is a note photo. Any other `![alt](url)` degrades
+    // to the link form: a remote image would be blocked by the CSP anyway, and a
+    // `data:` one invites the size ceiling.
     if (char === "!" && source[i + 1] === "[" && !inLink) {
+      const image = readAttachmentImage(source, i);
+      if (image) {
+        flush();
+        out.push(image.node);
+        i = image.end;
+        continue;
+      }
       i += 1;
       continue;
     }
@@ -936,6 +954,31 @@ function readLink(
   };
 }
 
+/**
+ * Reads `![alt](attachment:<id>)` starting at the `!`. Returns null for anything
+ * whose target is not the attachment scheme, so an ordinary image falls through
+ * to the existing degrade path. The id is taken literally and validated by the
+ * renderer against the note's attachment list, so an unknown id simply shows the
+ * alt text rather than fetching anything.
+ */
+function readAttachmentImage(
+  source: string,
+  start: number,
+): { node: MdInline; end: number } | null {
+  // start is the `!`; the label begins at start + 1 with `[`.
+  const labelStart = start + 1;
+  const labelEnd = source.indexOf("]", labelStart + 1);
+  if (labelEnd === -1 || source[labelEnd + 1] !== "(") return null;
+  const close = source.indexOf(")", labelEnd + 2);
+  if (close === -1) return null;
+  const target = source.slice(labelEnd + 2, close).trim();
+  if (!target.startsWith(ATTACHMENT_SCHEME)) return null;
+  const attachmentId = target.slice(ATTACHMENT_SCHEME.length).trim();
+  if (!attachmentId || /[\s()]/u.test(attachmentId)) return null;
+  const alt = source.slice(labelStart + 1, labelEnd);
+  return { node: { kind: "image", attachmentId, alt }, end: close + 1 };
+}
+
 function isAutolinkStart(source: string, i: number): boolean {
   const before = i === 0 ? "" : source[i - 1];
   if (before && /[\p{L}\p{N}]/u.test(before)) return false;
@@ -978,6 +1021,7 @@ export function inlineText(nodes: MdInline[]): string {
   for (const node of nodes) {
     if (node.kind === "text" || node.kind === "code") out += node.text;
     else if (node.kind === "break") out += " ";
+    else if (node.kind === "image") out += node.alt;
     else out += inlineText(node.children);
   }
   return out;

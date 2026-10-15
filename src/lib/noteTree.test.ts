@@ -15,7 +15,6 @@ function note(id: string, parentId?: string, notebookId: string = BOOK): Note {
     body: "",
     notebookId,
     parentId,
-    pinned: false,
     updatedAt: "2026-01-01T00:00:00.000Z",
   };
 }
@@ -72,8 +71,11 @@ describe("buildNoteTree", () => {
     expect(shape(notes)).toEqual(["0:b", "0:a", "1:a2", "1:a1"]);
   });
 
-  it("puts a pinned note first at its own level", () => {
-    const notes = [note("a"), { ...note("b"), pinned: true }];
+  it("puts the most recently edited note first at its own level", () => {
+    const notes = [
+      note("a"),
+      { ...note("b"), updatedAt: "2026-06-01T00:00:00.000Z" },
+    ];
     expect(shape(notes)).toEqual(["0:b", "0:a"]);
   });
 

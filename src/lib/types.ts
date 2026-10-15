@@ -306,6 +306,41 @@ export type Calendar = {
   raw?: string;
 };
 
+/**
+ * A photo (or other binary) attached to a note. The bytes live outside the
+ * sealed-object store, chunked and encrypted under `adk`, so this reference is
+ * all the note payload carries. A reader that predates the field ignores it; the
+ * body refers to it as `![filename](attachment:<id>)`.
+ */
+export type NoteAttachment = {
+  /** Matches the server-side attachment id and the `attachment:<id>` body ref. */
+  id: string;
+  filename: string;
+  mimeType: string;
+  /** Original plaintext size, for display. */
+  byteSize: number;
+  width?: number;
+  height?: number;
+  /** Base64url attachment data key, sealed with the rest of the note. */
+  adk: string;
+  /** Base64url rolled-up content hash, checked on download. */
+  contentHash: string;
+  chunkSize: number;
+  chunkCount: number;
+  /**
+   * Displayed width in CSS pixels, as the user dragged it. Presentational, so it
+   * lives here rather than in the body markdown, which has no width syntax and
+   * must round-trip unchanged. Absent means show at natural size.
+   */
+  displayWidth?: number;
+  /**
+   * Small inline preview (data URI) that rides inside the sealed note, so a list
+   * or an offline view shows something without fetching the full photo. Absent
+   * for a non-image attachment.
+   */
+  thumbnail?: string;
+};
+
 export type NoteDraft = {
   title: string;
   /** Markdown source, as typed. Rendered by `parseMarkdown`, never as HTML. */
@@ -318,7 +353,11 @@ export type NoteDraft = {
    * is missing, is read as absent rather than followed.
    */
   parentId?: string;
-  pinned?: boolean;
+  /**
+   * Photos and other binary attachments. Omitted when empty, so a note with no
+   * attachments looks the same to a reader that predates the field.
+   */
+  attachments?: NoteAttachment[];
   /**
    * Client-generated, like a contact's. The server keeps no user timestamps, so
    * an edit that does not carry `createdAt` forward loses it. Both are optional:

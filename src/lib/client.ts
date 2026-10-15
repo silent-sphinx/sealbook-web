@@ -1,17 +1,23 @@
 import type { AccountImportObject } from "./accountExport";
-import { b64ToByteArray, bytesFromJson } from "./bytes";
+import { b64encode, b64ToByteArray, bytesFromJson } from "./bytes";
+import { idbDeleteAttachment, idbGetAttachment, idbPutAttachment } from "./idb";
 import {
   accountOpSign,
+  ATTACHMENT_NONCE_LEN,
+  AttachmentHasher,
   createDevice,
   createEnrollment,
   generateNewPhrase,
   loginStartProof,
   manifestSign,
   manifestVerify,
+  newAttachmentKey,
   newCollectionKey,
   newUuid,
   objectContentDigest,
+  openAttachmentChunk,
   openObject,
+  sealAttachmentChunk,
   opaqueLoginFinish,
   opaqueLoginStart,
   opaqueRegisterFinish,
@@ -106,6 +112,7 @@ import type {
   ManifestBody,
   ManifestEntry,
   Note,
+  NoteAttachment,
   NoteDraft,
   Notebook,
   Bookmark,
@@ -296,6 +303,59 @@ async function getJson<T>(url: string, token?: string): Promise<T> {
     headers.authorization = `Bearer ${token}`;
   }
   return request<T>("GET", url, { headers });
+}
+
+/** Header an attachment chunk's base64url nonce travels in, matching the server. */
+const ATTACHMENT_NONCE_HEADER = "x-sealbook-nonce";
+
+/**
+ * Attachment chunks are raw binary and multi-megabyte, so they bypass the JSON
+ * transport: the body is the ciphertext and the nonce rides in a header. A long
+ * upload is given the object timeout rather than the 30s JSON one.
+ */
+const ATTACHMENT_TIMEOUT_MS = 120_000;
+
+async function putAttachmentChunk(
+  url: string,
+  nonceB64: string,
+  body: Uint8Array,
+  token: string,
+): Promise<void> {
+  const timeout = AbortSignal.timeout(ATTACHMENT_TIMEOUT_MS);
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: {
+      "content-type": "application/octet-stream",
+      [ATTACHMENT_NONCE_HEADER]: nonceB64,
+      authorization: `Bearer ${token}`,
+    },
+    // A fresh ArrayBuffer-backed view, so the body is exactly these bytes.
+    body: body.slice(),
+    signal: timeout,
+  });
+  if (!res.ok) {
+    throw new ApiError(errorMessage(await res.text(), res.statusText));
+  }
+}
+
+async function getAttachmentChunk(
+  url: string,
+  token: string,
+): Promise<{ nonce: string; bytes: Uint8Array }> {
+  const timeout = AbortSignal.timeout(ATTACHMENT_TIMEOUT_MS);
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { authorization: `Bearer ${token}` },
+    signal: timeout,
+  });
+  if (!res.ok) {
+    throw new ApiError(errorMessage(await res.text(), res.statusText));
+  }
+  const nonce = res.headers.get(ATTACHMENT_NONCE_HEADER);
+  if (!nonce) {
+    throw new ApiError("attachment chunk response is missing its nonce");
+  }
+  return { nonce, bytes: new Uint8Array(await res.arrayBuffer()) };
 }
 
 /**
@@ -897,6 +957,214 @@ export async function putCalendarEvents(
     });
   }
   return ids;
+}
+
+// --- Attachments -----------------------------------------------------------
+
+/**
+ * Plaintext bytes per attachment chunk. Mirrors `ATTACHMENT_CHUNK_SIZE` in
+ * `sealbook/crates/sealbook-protocol`; covered by a test rather than codegen.
+ */
+export const ATTACHMENT_CHUNK_SIZE = 4 * 1024 * 1024;
+
+/** Mirrors `MAX_ATTACHMENT_SIZE`: the per-photo ceiling, checked before upload. */
+export const MAX_ATTACHMENT_SIZE = 200 * 1024 * 1024;
+
+function attachmentBase(session: Session): string {
+  return `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/attachments`;
+}
+
+/**
+ * Chunks and uploads a photo, returning the reference the note must store. The
+ * caller adds a `thumbnail` and pixel dimensions, which come from decoding the
+ * image rather than from the transport.
+ *
+ * The bytes live outside the sealed-object set, so this never touches the
+ * manifest, the vault write queue, or the key epoch: the only thing the note
+ * carries is the small reference below.
+ */
+export async function uploadAttachment(
+  session: Session,
+  file: { name: string; type: string; bytes: Uint8Array },
+): Promise<NoteAttachment> {
+  const attachmentId = newUuid();
+  const adk = newAttachmentKey();
+  const collectionId = session.state.collection_id;
+  const total = file.bytes.length;
+  const chunkCount = Math.max(1, Math.ceil(total / ATTACHMENT_CHUNK_SIZE));
+  const base = attachmentBase(session);
+
+  await postJson(
+    base,
+    {
+      attachment_id: attachmentId,
+      total_plaintext_size: total,
+      chunk_size: ATTACHMENT_CHUNK_SIZE,
+      chunk_count: chunkCount,
+    },
+    session.token,
+  );
+
+  const hasher = new AttachmentHasher();
+  try {
+    for (let index = 0; index < chunkCount; index += 1) {
+      const start = index * ATTACHMENT_CHUNK_SIZE;
+      const plaintext = file.bytes.subarray(start, Math.min(start + ATTACHMENT_CHUNK_SIZE, total));
+      hasher.update(plaintext);
+      const sealed = sealAttachmentChunk(adk, attachmentId, collectionId, index, chunkCount, plaintext);
+      const nonce = b64encode(sealed.subarray(0, ATTACHMENT_NONCE_LEN));
+      const ciphertext = sealed.subarray(ATTACHMENT_NONCE_LEN);
+      await putAttachmentChunk(
+        `${base}/${attachmentId}/chunks/${index}`,
+        nonce,
+        ciphertext,
+        session.token,
+      );
+    }
+    const contentHash = hasher.finalize();
+    await postJson(`${base}/${attachmentId}/commit`, {}, session.token);
+    return {
+      id: attachmentId,
+      filename: file.name,
+      mimeType: file.type || "application/octet-stream",
+      byteSize: total,
+      adk,
+      contentHash,
+      chunkSize: ATTACHMENT_CHUNK_SIZE,
+      chunkCount,
+    };
+  } catch (error) {
+    // A failed upload leaves a pending attachment the server sweeps on its own,
+    // but deleting now frees the quota immediately. Best effort: the sweep is the
+    // backstop if this also fails.
+    try {
+      await deleteAttachment(session, attachmentId);
+    } catch {
+      // ignore; the pending-attachment sweep will reclaim it.
+    }
+    throw error;
+  }
+}
+
+/**
+ * Fetches and decrypts every chunk of an attachment, verifying the result
+ * against the note's committed content hash before returning it. Called only
+ * from the viewer, never from a sync, so photo bytes are fetched lazily.
+ */
+export async function downloadAttachment(
+  session: Session,
+  attachment: NoteAttachment,
+): Promise<Blob> {
+  const collectionId = session.state.collection_id;
+  const base = attachmentBase(session);
+  const hasher = new AttachmentHasher();
+  const parts: Uint8Array[] = [];
+  for (let index = 0; index < attachment.chunkCount; index += 1) {
+    const { nonce, bytes } = await getAttachmentChunk(
+      `${base}/${attachment.id}/chunks/${index}`,
+      session.token,
+    );
+    let plaintext: Uint8Array;
+    try {
+      plaintext = openAttachmentChunk(
+        attachment.adk,
+        attachment.id,
+        collectionId,
+        index,
+        attachment.chunkCount,
+        nonce,
+        bytes,
+      );
+    } catch {
+      throw new AttachmentIntegrityError(attachment.id);
+    }
+    hasher.update(plaintext);
+    parts.push(plaintext);
+  }
+  if (hasher.finalize() !== attachment.contentHash) {
+    throw new AttachmentIntegrityError(attachment.id);
+  }
+  return new Blob(parts as BlobPart[], { type: attachment.mimeType });
+}
+
+/**
+ * Cache-first attachment load for the viewer: returns a cached decrypted blob
+ * when present, otherwise downloads, verifies, caches and returns it. The cache
+ * is per-device and best-effort, so a miss or an unavailable store just falls
+ * back to the network.
+ */
+export async function loadAttachment(
+  session: Session,
+  attachment: NoteAttachment,
+): Promise<Blob> {
+  const cached = await idbGetAttachment(attachment.id);
+  if (cached) return cached;
+  const blob = await downloadAttachment(session, attachment);
+  await idbPutAttachment(attachment.id, blob);
+  return blob;
+}
+
+export async function deleteAttachment(session: Session, attachmentId: string): Promise<void> {
+  await idbDeleteAttachment(attachmentId);
+  // The server answers 204 with no body, so this bypasses the JSON transport.
+  const res = await fetch(`${attachmentBase(session)}/${attachmentId}`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${session.token}` },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    throw new ApiError(errorMessage(await res.text(), res.statusText));
+  }
+}
+
+/**
+ * Removes attachments the server still holds that no live note references and
+ * that are old enough not to be racing an in-flight note write. The server is
+ * content-blind, so this cross-reference is the only place orphans can be found.
+ */
+export async function sweepOrphanedAttachments(
+  session: Session,
+  referencedIds: Set<string>,
+  now = Date.now(),
+): Promise<number> {
+  const base = attachmentBase(session);
+  const listed: { attachments: AttachmentListRow[]; next_after?: string | null } =
+    await getJson(base, session.token);
+  let page = listed;
+  const all: AttachmentListRow[] = [...page.attachments];
+  while (page.next_after) {
+    page = await getJson(`${base}?after=${encodeURIComponent(page.next_after)}`, session.token);
+    all.push(...page.attachments);
+  }
+  let removed = 0;
+  for (const row of all) {
+    const ageMs = now - row.created_at * 1000;
+    if (!referencedIds.has(row.attachment_id) && ageMs > ORPHAN_GRACE_MS) {
+      try {
+        await deleteAttachment(session, row.attachment_id);
+        removed += 1;
+      } catch {
+        // Leave it for the next sweep rather than failing the whole pass.
+      }
+    }
+  }
+  return removed;
+}
+
+type AttachmentListRow = { attachment_id: string; state: string; created_at: number };
+
+/**
+ * How long an unreferenced attachment is spared before the sweep removes it, so
+ * a just-uploaded photo whose note write has not yet landed is never collected.
+ */
+const ORPHAN_GRACE_MS = 48 * 60 * 60 * 1000;
+
+/** A downloaded attachment did not reproduce its committed content hash. */
+export class AttachmentIntegrityError extends Error {
+  constructor(attachmentId: string) {
+    super(`attachment ${attachmentId} failed its integrity check`);
+    this.name = "AttachmentIntegrityError";
+  }
 }
 
 export async function revokeSession(session: Session): Promise<void> {

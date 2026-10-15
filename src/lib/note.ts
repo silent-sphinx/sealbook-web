@@ -1,6 +1,6 @@
 import { stripMarkdown } from "./markdown";
 import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
-import type { Note, NoteDraft, Notebook } from "./types";
+import type { Note, NoteAttachment, NoteDraft, Notebook } from "./types";
 
 // Mirrors of the Rust constants in
 // `sealbook/crates/sealbook-protocol/src/lib.rs`. There is no codegen between the
@@ -21,7 +21,7 @@ const NOTE_KEYS = [
   "parentId",
   "createdAt",
   "updatedAt",
-  "pinned",
+  "attachments",
 ] as const;
 
 export function serializeNote(draft: NoteDraft): string {
@@ -37,12 +37,55 @@ export function serializeNote(draft: NoteDraft): string {
       // Omitted rather than written null, so a note at the top level looks the
       // same to a reader that predates the field.
       ...(draft.parentId ? { parentId: draft.parentId } : {}),
+      // Same rule for attachments: a note with none carries no key at all.
+      ...(draft.attachments?.length ? { attachments: draft.attachments } : {}),
       createdAt: draft.createdAt ?? now,
       updatedAt: now,
-      pinned: draft.pinned === true,
     },
     NOTE_KEYS,
   );
+}
+
+/**
+ * Validates one entry of a note's `attachments` array, dropping a malformed or
+ * partially-future-shaped one rather than letting it break the whole note. Only
+ * the fields this build needs to fetch and verify a photo are required.
+ */
+function parseAttachment(value: unknown): NoteAttachment | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const entry = value as Record<string, unknown>;
+  const str = (key: string) => (typeof entry[key] === "string" ? (entry[key] as string) : undefined);
+  const num = (key: string) => (typeof entry[key] === "number" ? (entry[key] as number) : undefined);
+  const id = str("id");
+  const adk = str("adk");
+  const contentHash = str("contentHash");
+  const chunkSize = num("chunkSize");
+  const chunkCount = num("chunkCount");
+  if (!id || !adk || !contentHash || chunkSize === undefined || chunkCount === undefined) {
+    return undefined;
+  }
+  return {
+    id,
+    filename: str("filename") ?? "attachment",
+    mimeType: str("mimeType") ?? "application/octet-stream",
+    byteSize: num("byteSize") ?? 0,
+    width: num("width"),
+    height: num("height"),
+    adk,
+    contentHash,
+    chunkSize,
+    chunkCount,
+    displayWidth: num("displayWidth"),
+    thumbnail: str("thumbnail"),
+  };
+}
+
+function parseAttachments(value: unknown): NoteAttachment[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const parsed = value
+    .map(parseAttachment)
+    .filter((entry): entry is NoteAttachment => entry !== undefined);
+  return parsed.length ? parsed : undefined;
 }
 
 export function parseNote(id: string, raw: string): Note {
@@ -54,7 +97,7 @@ export function parseNote(id: string, raw: string): Note {
       parentId?: string;
       createdAt?: string;
       updatedAt?: string;
-      pinned?: boolean;
+      attachments?: unknown;
     };
     return {
       id,
@@ -63,7 +106,7 @@ export function parseNote(id: string, raw: string): Note {
       body: typeof body.body === "string" ? body.body : "",
       notebookId: resolveNotebookId(body.notebookId),
       parentId: typeof body.parentId === "string" && body.parentId ? body.parentId : undefined,
-      pinned: body.pinned === true,
+      attachments: parseAttachments(body.attachments),
       createdAt: typeof body.createdAt === "string" ? body.createdAt : undefined,
       updatedAt: typeof body.updatedAt === "string" ? body.updatedAt : undefined,
     };
@@ -76,7 +119,6 @@ export function parseNote(id: string, raw: string): Note {
       title: "Unreadable note",
       body: raw,
       notebookId: DEFAULT_NOTEBOOK_ID,
-      pinned: false,
     };
   }
 }
@@ -121,10 +163,9 @@ export function notebookNameById(notebooks: Notebook[], notebookId?: string): st
   return notebooks.find((notebook) => notebook.id === id)?.name ?? DEFAULT_NOTEBOOK_NAME;
 }
 
-/** Pinned first, then most recently edited, then by title so the order is total. */
+/** Most recently edited first, then by title so the order is total. */
 export function sortNotes(notes: Note[]): Note[] {
   return [...notes].sort((a, b) => {
-    if ((a.pinned === true) !== (b.pinned === true)) return a.pinned === true ? -1 : 1;
     const edited = editedAt(b) - editedAt(a);
     if (edited !== 0) return edited;
     return a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
@@ -177,7 +218,7 @@ export function noteFitsObjectLimit(draft: NoteDraft): boolean {
 }
 
 export function emptyNoteDraft(notebookId: string): NoteDraft {
-  return { title: "", body: "", notebookId: resolveNotebookId(notebookId), pinned: false };
+  return { title: "", body: "", notebookId: resolveNotebookId(notebookId) };
 }
 
 export function noteMatches(note: Note, query: string): boolean {

@@ -57,7 +57,6 @@ export function serializeNoteBundle(notes: Note[], notebooks: Notebook[]): strin
         MARKER,
         `title: ${quote(note.title)}`,
         `notebook: ${quote(notebookNameById(notebooks, note.notebookId))}`,
-        `pinned: ${note.pinned === true}`,
       ];
       if (note.createdAt) front.push(`created: ${quote(note.createdAt)}`);
       if (note.updatedAt) front.push(`updated: ${quote(note.updatedAt)}`);
@@ -78,7 +77,6 @@ export function serializeNoteJson(notes: Note[], notebooks: Notebook[]): string 
         body: note.body,
         notebookId: note.notebookId,
         notebook: notebookNameById(notebooks, note.notebookId),
-        pinned: note.pinned === true,
         createdAt: note.createdAt,
         updatedAt: note.updatedAt,
       })),
@@ -125,7 +123,7 @@ function draftFrom(
   title: string,
   body: string,
   notebookId: string,
-  extra: { pinned?: boolean; createdAt?: string; updatedAt?: string } = {},
+  extra: { createdAt?: string; updatedAt?: string } = {},
 ): NoteDraft {
   return {
     title: title.trim() || "Untitled note",
@@ -133,7 +131,6 @@ function draftFrom(
     // editor would otherwise flatten what it cannot read into one paragraph.
     body: repairPipeTables(body),
     notebookId: resolveNotebookId(notebookId),
-    pinned: extra.pinned === true,
     createdAt: extra.createdAt,
     updatedAt: extra.updatedAt,
   };
@@ -178,7 +175,6 @@ function parseMarkdownBundle(
     const resolved = title ? { title, body } : titleFromBody(body, "Untitled note");
     drafts.push(
       draftFrom(resolved.title, resolved.body, targetNotebookId, {
-        pinned: fields.pinned?.trim() === "true",
         createdAt: fields.created ? unquote(fields.created) : undefined,
         updatedAt: fields.updated ? unquote(fields.updated) : undefined,
       }),
@@ -204,7 +200,6 @@ function parseJsonNotes(parsed: unknown, targetNotebookId: string): NoteDraft[] 
     if (!title.trim() && !body.trim()) continue;
     drafts.push(
       draftFrom(title, body, targetNotebookId, {
-        pinned: entry.pinned === true,
         createdAt: typeof entry.createdAt === "string" ? entry.createdAt : undefined,
         updatedAt: typeof entry.updatedAt === "string" ? entry.updatedAt : undefined,
       }),

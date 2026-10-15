@@ -65,7 +65,7 @@ describe("payloadSchemaReadable", () => {
 });
 
 describe("every payload a save writes", () => {
-  const draft: NoteDraft = { title: "T", body: "B", notebookId: "", pinned: false };
+  const draft: NoteDraft = { title: "T", body: "B", notebookId: "" };
 
   it("keeps an unknown field on a note", () => {
     const previous = JSON.stringify({ "@type": "Note", title: "old", tableOfContents: true });

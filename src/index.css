@@ -293,6 +293,55 @@ body.sb-dragging * {
   margin-top: 0.75rem;
 }
 
+/* Note photo attachments. The wrapper is positioned so the resize handle can sit
+   at the bottom-right corner; the image never overflows the column. */
+.note-attachment {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+}
+
+.note-attachment-img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  display: block;
+}
+
+/* A photo whose bytes could not be fetched: show the alt text as an inert chip
+   rather than a broken-image icon. */
+.note-attachment-missing .note-attachment-img {
+  display: inline-block;
+  min-width: 2rem;
+  padding: 0.35rem 0.6rem;
+  line-height: 1.4;
+  font-size: 0.8125rem;
+  color: var(--color-mute);
+  background: var(--color-surface);
+  border: 1px dashed var(--color-line);
+  border-radius: 6px;
+}
+
+.note-attachment-handle {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: var(--color-accent, #a3e635);
+  border: 2px solid var(--color-bg, #000);
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  touch-action: none;
+}
+
+.note-attachment:hover .note-attachment-handle {
+  opacity: 1;
+}
+
 .md-body h1,
 .md-body h2,
 .md-body h3,

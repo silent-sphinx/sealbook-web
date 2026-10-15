@@ -1,12 +1,16 @@
 import init, {
   account_op_sign,
+  AttachmentHash,
   create_device,
   create_enrollment,
   decrypt_contact,
   encrypt_contact,
   generate_new_phrase,
+  new_attachment_key,
   new_collection_key,
   new_uuid,
+  open_attachment_chunk,
+  seal_attachment_chunk,
   opaque_login_finish,
   opaque_login_start,
   opaque_register_finish,
@@ -497,6 +501,76 @@ export function newUuid(): string {
 /** A fresh collection key, base64. Used when rotating after a device revocation. */
 export function newCollectionKey(): string {
   return new_collection_key();
+}
+
+/** A fresh attachment data key, base64url, to store in the owning note. */
+export function newAttachmentKey(): string {
+  return new_attachment_key();
+}
+
+/**
+ * Seals one attachment chunk. Returns the 24-byte nonce prepended to the
+ * ciphertext; callers split the nonce off with `ATTACHMENT_NONCE_LEN`.
+ */
+export function sealAttachmentChunk(
+  adk: string,
+  attachmentId: string,
+  collectionId: string,
+  chunkIndex: number,
+  chunkCount: number,
+  plaintext: Uint8Array,
+): Uint8Array {
+  return seal_attachment_chunk(
+    adk,
+    attachmentId,
+    collectionId,
+    chunkIndex,
+    chunkCount,
+    plaintext,
+  );
+}
+
+/** The nonce length `sealAttachmentChunk` prepends to its ciphertext. */
+export const ATTACHMENT_NONCE_LEN = 24;
+
+/** Opens one attachment chunk, returning its plaintext bytes. */
+export function openAttachmentChunk(
+  adk: string,
+  attachmentId: string,
+  collectionId: string,
+  chunkIndex: number,
+  chunkCount: number,
+  nonce: string,
+  ciphertext: Uint8Array,
+): Uint8Array {
+  return open_attachment_chunk(
+    adk,
+    attachmentId,
+    collectionId,
+    chunkIndex,
+    chunkCount,
+    nonce,
+    ciphertext,
+  );
+}
+
+/**
+ * Rolls per-chunk plaintext hashes into one attachment content hash. Fed chunk
+ * by chunk on both upload and download, so the two paths produce the identical
+ * hash the Rust server-side client also computes.
+ */
+export class AttachmentHasher {
+  private inner: AttachmentHash;
+  constructor() {
+    this.inner = new AttachmentHash();
+  }
+  update(chunkPlaintext: Uint8Array): void {
+    this.inner.update(chunkPlaintext);
+  }
+  /** Consumes the hasher; it must not be used again afterward. */
+  finalize(): string {
+    return this.inner.finalize();
+  }
 }
 
 /**

@@ -65,6 +65,50 @@ export async function optimizeAvatar(
   return dataUrl;
 }
 
+/** Longest edge of a note-photo preview thumbnail, and its WebP quality. */
+const THUMBNAIL_EDGE = 512;
+const THUMBNAIL_QUALITY = 0.7;
+
+export type AttachmentPreview = {
+  thumbnail: string;
+  width: number;
+  height: number;
+};
+
+/**
+ * A small preview of a note photo, scaled to fit `THUMBNAIL_EDGE` on its longer
+ * side with aspect preserved. Unlike `optimizeAvatar` this does not square-crop:
+ * a photo is shown whole. The result rides inside the sealed note payload, so it
+ * is kept small; the full-resolution bytes live in the attachment store.
+ */
+export async function optimizeAttachmentThumbnail(
+  source: File | Blob | string,
+): Promise<AttachmentPreview> {
+  const image = await loadImage(source);
+  const srcWidth = image.naturalWidth || image.width;
+  const srcHeight = image.naturalHeight || image.height;
+  const scale = Math.min(1, THUMBNAIL_EDGE / Math.max(srcWidth, srcHeight));
+  const width = Math.max(1, Math.round(srcWidth * scale));
+  const height = Math.max(1, Math.round(srcHeight * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("Unable to create canvas context for image processing.");
+  }
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(image, 0, 0, width, height);
+
+  let thumbnail = canvas.toDataURL("image/webp", THUMBNAIL_QUALITY);
+  if (!thumbnail.startsWith("data:image/webp")) {
+    thumbnail = canvas.toDataURL("image/jpeg", THUMBNAIL_QUALITY);
+  }
+  return { thumbnail, width: srcWidth, height: srcHeight };
+}
+
 function loadImage(source: File | Blob | string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();

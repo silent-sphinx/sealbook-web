@@ -14,8 +14,14 @@
 import { describeError, log } from "./log";
 
 const DB_NAME = "sealbook";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = "vault";
+/**
+ * Decrypted attachment blobs, keyed by attachment id, kept apart from the vault
+ * snapshot so opening the vault never has to read a single photo, and viewing a
+ * photo never has to decrypt the whole snapshot.
+ */
+const ATTACHMENT_STORE = "attachments";
 
 function open(): Promise<IDBDatabase | null> {
   return new Promise((resolve) => {
@@ -33,6 +39,9 @@ function open(): Promise<IDBDatabase | null> {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE)) {
         db.createObjectStore(STORE);
+      }
+      if (!db.objectStoreNames.contains(ATTACHMENT_STORE)) {
+        db.createObjectStore(ATTACHMENT_STORE);
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -93,6 +102,59 @@ export async function idbDelete(key: string): Promise<void> {
     await new Promise<void>((resolve) => {
       const tx = db.transaction(STORE, "readwrite");
       tx.objectStore(STORE).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    });
+  } catch {
+    // nothing to clean up
+  } finally {
+    db.close();
+  }
+}
+
+/** A cached, already-decrypted attachment blob, or null if not cached. */
+export async function idbGetAttachment(id: string): Promise<Blob | null> {
+  const db = await open();
+  if (!db) return null;
+  try {
+    return await new Promise<Blob | null>((resolve) => {
+      const request = db.transaction(ATTACHMENT_STORE, "readonly").objectStore(ATTACHMENT_STORE).get(id);
+      request.onsuccess = () => resolve((request.result as Blob | undefined) ?? null);
+      request.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  } finally {
+    db.close();
+  }
+}
+
+export async function idbPutAttachment(id: string, blob: Blob): Promise<boolean> {
+  const db = await open();
+  if (!db) return false;
+  try {
+    return await new Promise<boolean>((resolve) => {
+      const tx = db.transaction(ATTACHMENT_STORE, "readwrite");
+      tx.objectStore(ATTACHMENT_STORE).put(blob, id);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+      tx.onabort = () => resolve(false);
+    });
+  } catch {
+    return false;
+  } finally {
+    db.close();
+  }
+}
+
+export async function idbDeleteAttachment(id: string): Promise<void> {
+  const db = await open();
+  if (!db) return;
+  try {
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(ATTACHMENT_STORE, "readwrite");
+      tx.objectStore(ATTACHMENT_STORE).delete(id);
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();
       tx.onabort = () => resolve();

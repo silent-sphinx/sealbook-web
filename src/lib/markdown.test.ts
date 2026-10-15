@@ -15,6 +15,8 @@ function flatten(nodes: MdInline[]): string {
           return node.text;
         case "break":
           return " ";
+        case "image":
+          return node.alt;
         default:
           return flatten(node.children);
       }
@@ -229,6 +231,19 @@ describe("link safety", () => {
     const nodes = inline("[see https://example.com](https://other.example)");
     expect(nodes).toHaveLength(1);
     expect(JSON.stringify((nodes[0] as { children: MdInline[] }).children)).not.toContain('"link"');
+  });
+
+  it("reads an attachment image but refuses the scheme as a plain link", () => {
+    // The internal photo reference becomes an image node.
+    expect(inline("![Sunset](attachment:abc-123)")).toEqual([
+      { kind: "image", attachmentId: "abc-123", alt: "Sunset" },
+    ]);
+    // The same scheme as a plain link is not allowed: only images carry it, and
+    // the general link allow-list stays http/https/mailto.
+    expect(JSON.stringify(inline("[x](attachment:abc-123)"))).not.toContain('"link"');
+    expect(safeHref("attachment:abc-123")).toBeNull();
+    // A non-attachment image still degrades to no image node.
+    expect(JSON.stringify(inline("![a](https://example.com/x.png)"))).not.toContain('"image"');
   });
 
   it("rejects a target with whitespace or angle brackets", () => {
