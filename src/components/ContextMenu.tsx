@@ -84,7 +84,7 @@ export function ContextMenu({ state, onClose }: { state: MenuState; onClose: () 
     // `stopPropagation` on the menu's own `onPointerDown` is already too late
     // to stop this listener. Checking containment instead lets outside clicks
     // close immediately while clicks on the menu's own buttons still land.
-    const close = (event: PointerEvent) => {
+    const close = (event: Event) => {
       if (ref.current?.contains(event.target as Node)) return;
       onClose();
     };
