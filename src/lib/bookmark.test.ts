@@ -5,6 +5,7 @@ import {
   buildCollectionTree,
   canMoveCollection,
   collectionSubtree,
+  collectionTone,
   DEFAULT_BOOKMARK_COLLECTION_ID,
   isValidUrl,
   normalizeTags,
@@ -242,6 +243,46 @@ describe("collections", () => {
     expect(resolveCollectionId(undefined)).toBe(DEFAULT_BOOKMARK_COLLECTION_ID);
     expect(resolveCollectionId("  ")).toBe(DEFAULT_BOOKMARK_COLLECTION_ID);
     expect(resolveCollectionId("work")).toBe("work");
+  });
+});
+
+describe("collection colour", () => {
+  it("round trips through parseBookmarkCollection", () => {
+    const raw = serializeBookmarkCollection("Work", undefined, undefined, "#123456");
+    expect(parseBookmarkCollection("id", raw).color).toBe("#123456");
+  });
+
+  it("omits colour rather than writing it when none is given", () => {
+    const value = JSON.parse(serializeBookmarkCollection("Work")) as Record<string, unknown>;
+    expect("color" in value).toBe(false);
+  });
+
+  it("is an owned field: a rename that does not repeat the colour drops it, like name and parentId", () => {
+    const stored = serializeBookmarkCollection("Work", undefined, undefined, "#123456");
+    const renamed = serializeBookmarkCollection("Work renamed", undefined, stored);
+    expect(parseBookmarkCollection("id", renamed).color).toBeUndefined();
+  });
+
+  it("a top-level collection's tone is its own colour, or else one hashed from its id", () => {
+    const uncoloured = [aCollection("work", "Work")];
+    const coloured = [{ ...aCollection("work", "Work"), color: "#123456" }];
+    expect(collectionTone(coloured, "work")).toBe("#123456");
+    expect(collectionTone(uncoloured, "work")).toBe(collectionTone(uncoloured, "work"));
+  });
+
+  it("a nested collection adopts its root's colour rather than one of its own", () => {
+    const collections = [
+      { ...aCollection("work", "Work"), color: "#123456" },
+      { ...aCollection("rust", "Rust", "work"), color: "#abcdef" },
+      aCollection("async", "Async", "rust"),
+    ];
+    expect(collectionTone(collections, "rust")).toBe("#123456");
+    expect(collectionTone(collections, "async")).toBe("#123456");
+  });
+
+  it("a nested collection under an uncoloured root shares that root's hashed tone", () => {
+    const collections = [aCollection("work", "Work"), aCollection("rust", "Rust", "work")];
+    expect(collectionTone(collections, "rust")).toBe(collectionTone(collections, "work"));
   });
 });
 

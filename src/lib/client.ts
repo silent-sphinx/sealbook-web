@@ -2468,6 +2468,7 @@ export async function putBookmarkCollection(
   parentId?: string,
   existingId?: string,
   previousRaw?: string,
+  color?: string,
 ): Promise<string> {
   const id = existingId ?? newUuid();
   await putSealed(
@@ -2475,7 +2476,7 @@ export async function putBookmarkCollection(
     id,
     BOOKMARK_COLLECTION_CONTENT_TYPE,
     false,
-    serializeBookmarkCollection(name, parentId, previousRaw),
+    serializeBookmarkCollection(name, parentId, previousRaw, color),
   );
   return id;
 }

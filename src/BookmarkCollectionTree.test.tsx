@@ -111,7 +111,7 @@ async function unlock() {
   fireEvent.click(screen.getByRole("button", { name: "Unlock" }));
   await screen.findByText("Ada Lovelace");
   fireEvent.click(screen.getByRole("button", { name: "Bookmarks" }));
-  await screen.findByText(DEFAULT_BOOKMARK_COLLECTION_NAME);
+  await screen.findByRole("button", { name: DEFAULT_BOOKMARK_COLLECTION_NAME });
 }
 
 beforeEach(() => {

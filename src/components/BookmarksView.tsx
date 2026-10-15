@@ -8,7 +8,7 @@ import {
   bookmarkMatches,
   buildCollectionTree,
   canMoveCollection,
-  collectionSubtree,
+  collectionRootId,
   collectionTone,
   DEFAULT_BOOKMARK_COLLECTION_ID,
   emptyBookmarkDraft,
@@ -75,6 +75,7 @@ function Icon({
     link: "M6.5 9.5a2.5 2.5 0 0 0 3.54 0l2-2a2.5 2.5 0 0 0-3.54-3.54l-.5.5M9.5 6.5a2.5 2.5 0 0 0-3.54 0l-2 2a2.5 2.5 0 0 0 3.54 3.54l.5-.5",
     trash: "M3.5 4.5h9M6.5 4.5V3h3v1.5M5 4.5l.5 8h5l.5-8",
     pencil: "M11.5 2.5 13.5 4.5 5.5 12.5 3 13l.5-2.5 8-8Z",
+    close: "M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5",
   };
   return (
     <svg
@@ -168,26 +169,21 @@ export function BookmarksView({
   const rows = useMemo(() => flattenTree(collectionTree), [collectionTree]);
 
   /**
-   * A collection's bookmarks include those of every collection nested under it,
-   * so selecting a parent does not read as empty when the links are one level
-   * down.
+   * Bookmarks directly in the selected collection, not those of a collection
+   * nested under it: a subcollection's own links are reached by drilling into
+   * its grid card instead, so the two views never show the same bookmark twice.
    */
-  const scopeIds = useMemo(
-    () =>
-      scope === ALL ? null : new Set(collectionSubtree(collections, scope)),
-    [collections, scope],
-  );
-
   const visible = useMemo(() => {
-    const scoped = scopeIds
-      ? bookmarks.filter((bookmark) =>
-          scopeIds.has(resolveCollectionId(bookmark.collectionId)),
-        )
-      : bookmarks;
+    const scoped =
+      scope === ALL
+        ? bookmarks
+        : bookmarks.filter(
+            (bookmark) => resolveCollectionId(bookmark.collectionId) === scope,
+          );
     return sortBookmarks(
       scoped.filter((bookmark) => bookmarkMatches(bookmark, deferredSearch)),
     );
-  }, [bookmarks, scopeIds, deferredSearch]);
+  }, [bookmarks, scope, deferredSearch]);
 
   const countByCollection = useMemo(() => {
     const counts = new Map<string, number>();
@@ -197,6 +193,21 @@ export function BookmarksView({
     }
     return counts;
   }, [bookmarks]);
+
+  /**
+   * The direct subcollections of the selected scope, drawn as a grid above the
+   * bookmark list so a collection with children reads as a folder to open
+   * rather than a dead end with a long list underneath it.
+   *
+   * Read off `collectionTree`/`rows` rather than filtering `collections` by
+   * `parentId` directly, so a broken or cyclical pointer resolves the same way
+   * here as it does for the sidebar tree, instead of hiding a collection one
+   * place and surfacing it as a false top-level entry in the other.
+   */
+  const subcollections = useMemo(() => {
+    if (scope === ALL) return collectionTree.map((node) => node.item);
+    return rows.find((entry) => entry.item.id === scope)?.children.map((child) => child.item) ?? [];
+  }, [collectionTree, rows, scope]);
 
   function startAdd() {
     const target = scope === ALL ? DEFAULT_BOOKMARK_COLLECTION_ID : scope;
@@ -287,6 +298,7 @@ export function BookmarksView({
           parentId,
           child.id,
           child.raw,
+          child.color,
         );
       }
       for (const bookmark of bookmarks) {
@@ -419,9 +431,35 @@ export function BookmarksView({
         collection.parentId,
         collection.id,
         collection.raw,
+        collection.color,
       );
       await onRefresh();
       setRenamingId(null);
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /**
+   * Sets a top-level collection's colour. Only called for a root collection:
+   * every collection nested under it reads this one's colour through
+   * `collectionTone` rather than storing a colour of its own.
+   */
+  async function changeCollectionColor(collection: BookmarkCollection, color: string) {
+    setSaving(true);
+    setError(null);
+    try {
+      await putBookmarkCollection(
+        session,
+        collection.name,
+        collection.parentId,
+        collection.id,
+        collection.raw,
+        color,
+      );
+      await onRefresh();
     } catch (err) {
       setError(friendlyError(err));
     } finally {
@@ -464,6 +502,7 @@ export function BookmarksView({
         parentId ?? undefined,
         collection.id,
         collection.raw,
+        collection.color,
       );
       if (parentId) reveal(parentId);
       await onRefresh();
@@ -558,9 +597,9 @@ export function BookmarksView({
                 if (id) void moveCollection(id, item.id);
               }}
               onContextMenu={(event) => menu.open(event, itemsFor(item))}
-              className={`list-row flex items-center gap-0.5 rounded-lg transition-colors ${
-                dropTarget === item.id ? "ring-1 ring-accent-ring" : ""
-              }`}
+              className={`list-row flex items-center rounded-lg transition-colors ${
+                scope === item.id ? "bg-surface" : "hover:bg-surface/40"
+              } ${dropTarget === item.id ? "ring-1 ring-accent-ring" : ""}`}
             >
               {hasChildren ? (
                 <button
@@ -568,7 +607,7 @@ export function BookmarksView({
                   onClick={() => toggleCollapsed(item.id)}
                   aria-label={open ? `Collapse ${item.name}` : `Expand ${item.name}`}
                   aria-expanded={open}
-                  className={`flex h-7 w-5 shrink-0 items-center justify-center text-mute transition-colors hover:text-text ${focusRing}`}
+                  className={`flex h-7 w-4 shrink-0 items-center justify-center text-mute transition-colors hover:text-text ${focusRing}`}
                 >
                   <Icon
                     name="chevron"
@@ -576,7 +615,26 @@ export function BookmarksView({
                   />
                 </button>
               ) : (
-                <span aria-hidden="true" className="h-7 w-5 shrink-0" />
+                <span aria-hidden="true" className="h-7 w-4 shrink-0" />
+              )}
+              {!readOnlyMode && collectionRootId(collections, item.id) === item.id ? (
+                <input
+                  type="color"
+                  value={collectionTone(collections, item.id)}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(event) =>
+                    void changeCollectionColor(item, event.target.value)
+                  }
+                  title={`Change colour for ${item.name}`}
+                  aria-label={`Change colour for ${item.name}`}
+                  className="color-dot mr-1.5 h-3.5 w-3.5 shrink-0 cursor-pointer"
+                />
+              ) : (
+                <span
+                  aria-hidden="true"
+                  className="mr-1.5 h-3.5 w-3.5 shrink-0 rounded-full"
+                  style={{ background: collectionTone(collections, item.id) }}
+                />
               )}
               <button
                 type="button"
@@ -586,16 +644,9 @@ export function BookmarksView({
                 }}
                 aria-current={scope === item.id ? "true" : undefined}
                 className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-2 pr-2 text-left text-xs transition-colors ${
-                  scope === item.id
-                    ? "bg-surface text-text"
-                    : "text-mute hover:bg-surface/40 hover:text-text"
+                  scope === item.id ? "text-text" : "text-mute hover:text-text"
                 } ${focusRing}`}
               >
-                <span
-                  aria-hidden="true"
-                  className="h-3.5 w-3.5 shrink-0 rounded-full"
-                  style={{ background: collectionTone(item.id) }}
-                />
                 <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
                 <span className="text-[10px] tabular-nums text-mute/70">
                   {countByCollection.get(item.id) || ""}
@@ -666,7 +717,7 @@ export function BookmarksView({
           ) : null}
 
           {hasChildren && open ? (
-            <ul className="ml-5 mt-0.5 space-y-0.5 border-l border-line pl-2.5">
+            <ul className="ml-4 mt-0.5 space-y-0.5 border-l border-line pl-2">
               {renderCollectionRows(node.children)}
             </ul>
           ) : null}
@@ -699,22 +750,6 @@ export function BookmarksView({
               My links
             </p>
             <h2 className="mt-1 text-lg font-semibold">Bookmarks</h2>
-          </div>
-
-          <div className="mt-5">
-            <div className="relative min-w-0 flex-1">
-              <Icon
-                name="search"
-                className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-mute"
-              />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search bookmarks"
-                aria-label="Search bookmarks"
-                className="h-8 w-full min-w-0 rounded-lg border border-line bg-bg pl-8 pr-2.5 text-xs text-text outline-none transition-colors placeholder:text-mute/70 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
-              />
-            </div>
           </div>
 
           <div className="mt-5">
@@ -812,31 +847,60 @@ export function BookmarksView({
         </SidebarDrawer>
 
         <section className="flex min-h-0 flex-col overflow-hidden">
-          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-line px-4 py-3 lg:px-6">
-            <div className="min-w-0">
-              <h3 className="truncate text-sm font-semibold">
+          <header className="flex flex-col gap-2.5 border-b border-line px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4 sm:px-5 sm:py-3.5 lg:px-6">
+            <div className="flex min-w-0 items-center gap-2">
+              <h1 className="truncate text-base font-semibold tracking-tight">
                 {scope === ALL
                   ? "All bookmarks"
                   : (collections.find((item) => item.id === scope)?.name ??
                     "Bookmarks")}
-              </h3>
-              <p className="text-xs text-mute">
-                {visible.length}{" "}
-                {visible.length === 1 ? "bookmark" : "bookmarks"}
-              </p>
-            </div>
-            {!readOnlyMode ? (
-              <button
-                type="button"
-                onClick={startAdd}
-                disabled={disabled}
-                className={btnPrimary}
+              </h1>
+              <span
+                className="ml-1 shrink-0 rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium text-mute"
+                title={`${visible.length} bookmark${visible.length === 1 ? "" : "s"}`}
               >
-                <Icon name="plus" />
-                Add<span className="hidden sm:inline">&nbsp;bookmark</span>
-              </button>
-            ) : null}
-          </div>
+                {visible.length}
+              </span>
+            </div>
+            <div className="flex items-center gap-2.5">
+              {!readOnlyMode ? (
+                <button
+                  type="button"
+                  onClick={startAdd}
+                  disabled={disabled}
+                  className={`flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-xs font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 ${focusRing}`}
+                >
+                  <Icon name="plus" className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">New bookmark</span>
+                  <span className="sm:hidden">New</span>
+                </button>
+              ) : null}
+              <div className="relative min-w-0 flex-1 sm:flex-none">
+                <Icon
+                  name="search"
+                  className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-mute"
+                />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search bookmarks"
+                  aria-label="Search bookmarks"
+                  className="h-8 w-full rounded-xl border border-line bg-panel pl-8 pr-7 text-xs text-text outline-none transition-colors duration-150 placeholder:text-mute/60 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring sm:w-52"
+                />
+                {search ? (
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    className={`absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
+                    aria-label="Clear search"
+                    title="Clear search"
+                  >
+                    <Icon name="close" className="h-3 w-3" />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 lg:px-6">
             {draft ? (
@@ -929,6 +993,46 @@ export function BookmarksView({
               </form>
             ) : null}
 
+            {/* Hidden during a search: the cards below are not filtered by
+                it, and showing an unrelated grid above a text search's
+                results reads as broken rather than as a shortcut. */}
+            {!search.trim() && subcollections.length > 0 ? (
+              <div className="mb-5">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">
+                  Subcollections
+                </p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                  {subcollections.map((collection) => (
+                    <button
+                      key={collection.id}
+                      type="button"
+                      onClick={() => setScope(collection.id)}
+                      aria-label={`Open ${collection.name}`}
+                      className={`flex items-center gap-2.5 rounded-xl border border-line bg-panel/60 px-3 py-2.5 text-left transition-colors hover:border-line-light hover:bg-panel ${focusRing}`}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="h-3 w-3 shrink-0 rounded-full"
+                        style={{ background: collectionTone(collections, collection.id) }}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">
+                        {collection.name}
+                      </span>
+                      <span className="shrink-0 text-[10px] tabular-nums text-mute">
+                        {countByCollection.get(collection.id) || ""}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {!search.trim() && subcollections.length > 0 ? (
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">
+                Bookmarks
+              </p>
+            ) : null}
+
             {visible.length === 0 ? (
               <p className="py-12 text-center text-sm text-mute">
                 {search.trim()
@@ -950,6 +1054,7 @@ export function BookmarksView({
                         className="h-2 w-2 shrink-0 rounded-full"
                         style={{
                           background: collectionTone(
+                            collections,
                             resolveCollectionId(bookmark.collectionId),
                           ),
                         }}

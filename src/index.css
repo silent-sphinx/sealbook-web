@@ -187,6 +187,36 @@ body.sb-dragging * {
   }
 }
 
+/*
+ * A collection's colour dot, when it is also the `<input type="color">` that
+ * changes it. Both engines draw their own swatch chrome by default (a border,
+ * square corners, inset padding), which is stripped here so it reads as the
+ * same plain circle as the non-editable dot it replaces.
+ */
+.color-dot {
+  -webkit-appearance: none;
+  appearance: none;
+  border: none;
+  padding: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  background: none;
+}
+
+.color-dot::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-dot::-webkit-color-swatch {
+  border: none;
+  border-radius: 999px;
+}
+
+.color-dot::-moz-color-swatch {
+  border: none;
+  border-radius: 999px;
+}
+
 /* Calendar grid cells */
 .cal-cell {
   position: relative;

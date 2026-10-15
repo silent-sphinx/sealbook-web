@@ -375,6 +375,12 @@ export type BookmarkCollection = {
   id: string;
   name: string;
   parentId?: string;
+  /**
+   * Explicit colour. Only meaningful on a top-level collection: every
+   * collection nested under it adopts its root's colour rather than carrying
+   * one of its own. See `collectionTone` in `lib/bookmark`.
+   */
+  color?: string;
   raw: string;
 };
 

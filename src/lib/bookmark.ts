@@ -1,5 +1,5 @@
 import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
-import { buildTree, canReparent, subtree } from "./tree";
+import { ancestorsOf, buildTree, canReparent, subtree } from "./tree";
 import type { TreeNode } from "./tree";
 import type { Bookmark, BookmarkCollection, BookmarkDraft } from "./types";
 
@@ -87,12 +87,13 @@ export function parseBookmark(id: string, raw: string): Bookmark {
   }
 }
 
-const BOOKMARK_COLLECTION_KEYS = ["@type", "version", "name", "parentId"] as const;
+const BOOKMARK_COLLECTION_KEYS = ["@type", "version", "name", "parentId", "color"] as const;
 
 export function serializeBookmarkCollection(
   name: string,
   parentId?: string,
   previousRaw?: string,
+  color?: string,
 ): string {
   return mergePayload(
     previousRaw,
@@ -101,6 +102,7 @@ export function serializeBookmarkCollection(
       version: PAYLOAD_SCHEMA_VERSION,
       name: name.trim(),
       ...(parentId ? { parentId } : {}),
+      ...(color ? { color } : {}),
     },
     BOOKMARK_COLLECTION_KEYS,
   );
@@ -108,11 +110,12 @@ export function serializeBookmarkCollection(
 
 export function parseBookmarkCollection(id: string, raw: string): BookmarkCollection {
   try {
-    const body = JSON.parse(raw) as { name?: string; parentId?: string };
+    const body = JSON.parse(raw) as { name?: string; parentId?: string; color?: string };
     return {
       id,
       name: body.name?.trim() || "Untitled",
       parentId: typeof body.parentId === "string" && body.parentId ? body.parentId : undefined,
+      color: typeof body.color === "string" && body.color ? body.color : undefined,
       raw,
     };
   } catch {
@@ -279,9 +282,16 @@ export function emptyBookmarkDraft(collectionId: string): BookmarkDraft {
   return { url: "", title: "", collectionId: resolveCollectionId(collectionId), tags: [] };
 }
 
+/** The top-level collection `id` sits under: itself, if it is already one. */
+export function collectionRootId(collections: BookmarkCollection[], id: string): string {
+  const ancestors = ancestorsOf(collections, id);
+  return ancestors.length > 0 ? ancestors[ancestors.length - 1] : id;
+}
+
 /**
- * A collection stores no colour, so its dot derives one from the id: stable
- * across devices without adding a field the other clients would have to write.
+ * Stable, distinct colours for a collection that has never been given one.
+ * Hashed from the id rather than assigned in storage order, so the same
+ * uncoloured collection lands on the same tone on every device.
  */
 const COLLECTION_TONES = [
   "#7aa2f7",
@@ -294,10 +304,22 @@ const COLLECTION_TONES = [
   "#73daca",
 ];
 
-export function collectionTone(id: string): string {
+function hashedTone(id: string): string {
   let hash = 0;
   for (let i = 0; i < id.length; i += 1) {
     hash = (Math.imul(hash, 31) + id.charCodeAt(i)) >>> 0;
   }
   return COLLECTION_TONES[hash % COLLECTION_TONES.length];
+}
+
+/**
+ * A collection's colour: its root's explicit colour, or one hashed from the
+ * root's id when none is set. Only a top-level collection carries an explicit
+ * colour, so every collection nested under it resolves to the same value —
+ * that is what "adopts the parent's colour" means here.
+ */
+export function collectionTone(collections: BookmarkCollection[], id: string): string {
+  const rootId = collectionRootId(collections, id);
+  const explicit = collections.find((item) => item.id === rootId)?.color?.trim();
+  return explicit || hashedTone(rootId);
 }
