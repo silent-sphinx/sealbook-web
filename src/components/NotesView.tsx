@@ -30,7 +30,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { ContainerList } from "./ContainerList";
 import { NoteTreeList } from "./NoteTreeList";
 import { ContextMenu, useContextMenu } from "./ContextMenu";
-import { SidebarDrawer, type Sidebar } from "./SidebarDrawer";
+import { SidebarDrawer, SidebarHeader, SidebarSection, type Sidebar } from "./SidebarDrawer";
 
 /**
  * The editor carries the whole ProseMirror stack and the highlighting grammars,
@@ -616,10 +616,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
 
       <div className="sb-shell grid min-h-0 flex-1" style={sidebar.cols}>
         <SidebarDrawer title="Notes" sidebar={sidebar}>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">My notes</p>
-            <h2 className="mt-1 text-lg font-semibold">Notes</h2>
-          </div>
+          <SidebarHeader eyebrow="My notes" title="Notes" />
 
           <div className="mt-5 flex items-center gap-1.5">
             <div className="relative min-w-0 flex-1">
@@ -646,10 +643,10 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
             </button>
           </div>
 
-          <div className="mt-5">
-            <div className="flex items-center justify-between">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">Notebooks</p>
-              {!readOnlyMode ? (
+          <SidebarSection
+            label="Notebooks"
+            action={
+              !readOnlyMode ? (
                 <button
                   type="button"
                   onClick={() => setCreatingNotebook(true)}
@@ -658,8 +655,9 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                 >
                   <Icon name="plus" className="h-3.5 w-3.5" />
                 </button>
-              ) : null}
-            </div>
+              ) : null
+            }
+          >
             <ContainerList
               items={notebooks}
               selectedId={scope}
@@ -688,7 +686,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
               readOnly={readOnlyMode}
               busy={busy}
             />
-          </div>
+          </SidebarSection>
         </SidebarDrawer>
 
         <section className={`min-w-0 flex-col overflow-hidden lg:flex ${editorOpen ? "flex" : "hidden"}`}>

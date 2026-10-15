@@ -202,6 +202,54 @@ export function SidebarDrawer({ title, sidebar, children }: Props) {
   );
 }
 
+type SidebarHeaderProps = {
+  eyebrow: string;
+  title: string;
+  /** The view's primary action, e.g. the calendar and contacts "add" buttons. */
+  action?: ReactNode;
+};
+
+/** The eyebrow and title every sidebar opens with, shared so the two stay the same size everywhere. */
+export function SidebarHeader({ eyebrow, title, action }: SidebarHeaderProps) {
+  const heading = (
+    <div>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">{eyebrow}</p>
+      <h2 className="mt-1 text-lg font-semibold">{title}</h2>
+    </div>
+  );
+  if (!action) return heading;
+  return (
+    <div className="flex items-center justify-between">
+      {heading}
+      {action}
+    </div>
+  );
+}
+
+type SidebarSectionProps = {
+  label: string;
+  /** The section's own "+" button, e.g. "Add notebook". */
+  action?: ReactNode;
+  children: ReactNode;
+};
+
+/**
+ * A labelled sidebar section: the uppercase label row with an optional add
+ * button, set off from whatever precedes it (the header, a search box, a
+ * mini month) by the same divider in every view.
+ */
+export function SidebarSection({ label, action, children }: SidebarSectionProps) {
+  return (
+    <div className="mt-6 border-t border-line pt-4">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">{label}</p>
+        {action ?? null}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 function Chevron({ back }: { back: boolean }) {
   return (
     <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">

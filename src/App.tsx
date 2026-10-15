@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent }
 // regenerate from and is not bundled.
 import logo from "./assets/sealbook-white-192.png";
 import { AddressBookList } from "./components/AddressBookList";
-import { SidebarDrawer, useSidebar } from "./components/SidebarDrawer";
+import { SidebarDrawer, SidebarHeader, SidebarSection, useSidebar } from "./components/SidebarDrawer";
 import { SplitHandle, useSplitPane } from "./components/SplitPane";
 import { AddDeviceModal } from "./components/AddDeviceModal";
 import { ConfirmDialog } from "./components/ConfirmDialog";
@@ -2699,27 +2699,27 @@ export default function App() {
         <main className="flex flex-col bg-bg pb-[env(safe-area-inset-bottom)] text-text lg:h-[calc(100dvh-var(--sb-header-h,74px))] lg:overflow-hidden lg:pb-0">
           <div className="sb-shell grid min-h-0 flex-1 lg:h-full" style={sidebar.cols}>
             <SidebarDrawer title="Contacts and address books" sidebar={sidebar}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">My contacts</p>
-                  <h2 className="mt-1 text-lg font-semibold">Contacts</h2>
-                </div>
-                {!isOffline ? (
-                  <button
-                    type="button"
-                    onClick={openComposer}
-                    aria-label="Add contact"
-                    className={`flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface text-text transition-colors hover:border-line-light hover:bg-elevated ${focusRing}`}
-                  >
-                    <PlusIcon />
-                  </button>
-                ) : null}
-              </div>
+              <SidebarHeader
+                eyebrow="My contacts"
+                title="Contacts"
+                action={
+                  !isOffline ? (
+                    <button
+                      type="button"
+                      onClick={openComposer}
+                      aria-label="Add contact"
+                      className={`flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface text-text transition-colors hover:border-line-light hover:bg-elevated ${focusRing}`}
+                    >
+                      <PlusIcon />
+                    </button>
+                  ) : null
+                }
+              />
 
-              <div className="mt-8 border-t border-line pt-5">
-                <div className="flex items-center justify-between">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">Address books</p>
-                  {!isOffline ? (
+              <SidebarSection
+                label="Address books"
+                action={
+                  !isOffline ? (
                     <button
                       type="button"
                       onClick={() => setCreatingBook(true)}
@@ -2728,8 +2728,9 @@ export default function App() {
                     >
                       <PlusIcon />
                     </button>
-                  ) : null}
-                </div>
+                  ) : null
+                }
+              >
                 <AddressBookList
                   books={addressBooks}
                   creating={creatingBook}
@@ -2760,7 +2761,7 @@ export default function App() {
                     {archivedContacts.length}
                   </span>
                 </button>
-              </div>
+              </SidebarSection>
             </SidebarDrawer>
 
             <section className="order-1 flex min-w-0 flex-col overflow-hidden lg:order-none lg:min-h-0">

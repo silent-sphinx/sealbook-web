@@ -12,7 +12,7 @@ import { DEFAULT_CALENDAR_COLOR } from "../lib/types";
 import { DEFAULT_CALENDAR_ID, activeCalendars, archivedCalendars, isCalendarVisible, visibleCalendarIds } from "../lib/calendar";
 import { friendlyError } from "../lib/errors";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { SidebarDrawer, type Sidebar } from "./SidebarDrawer";
+import { SidebarDrawer, SidebarHeader, SidebarSection, type Sidebar } from "./SidebarDrawer";
 import { Modal } from "./Modal";
 import { localInputToUtc, utcToLocalInput } from "../lib/timezone";
 import { btnDanger, btnPrimary, field, focusRing } from "../lib/styles";
@@ -912,15 +912,18 @@ export function CalendarView({
     <main className="flex flex-col bg-bg pb-[env(safe-area-inset-bottom)] text-text lg:h-[calc(100dvh-var(--sb-header-h,74px))] lg:overflow-hidden lg:pb-0">
       <div className="sb-shell grid min-h-0 flex-1 lg:h-full" style={sidebar.cols}>
         <SidebarDrawer title="Calendars" sidebar={sidebar}>
-          <div className="flex items-center justify-between">
-            <div><p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">My calendar</p><h2 className="mt-1 text-lg font-semibold">Calendar</h2></div>
-            {!readOnlyMode ? <button type="button" onClick={() => openNewTask()} className={`flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface text-text transition-colors hover:border-line-light hover:bg-elevated ${focusRing}`} aria-label="Create event"><Icon name="plus" /></button> : null}
-          </div>
+          <SidebarHeader
+            eyebrow="My calendar"
+            title="Calendar"
+            action={!readOnlyMode ? <button type="button" onClick={() => openNewTask()} className={`flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface text-text transition-colors hover:border-line-light hover:bg-elevated ${focusRing}`} aria-label="Create event"><Icon name="plus" /></button> : null}
+          />
           <MiniMonth month={month} selected={selected} events={miniEvents} spans={miniSpans} onSelect={(day) => { selectDay(day); sidebar.close(); }} />
-          <div className="mt-8 border-t border-line pt-5">
-            <div className="flex items-center justify-between"><p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">Calendars</p>{!readOnlyMode ? <button type="button" onClick={openNewCalendar} className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`} aria-label="Add calendar"><Icon name="plus" /></button> : null}</div>
+          <SidebarSection
+            label="Calendars"
+            action={!readOnlyMode ? <button type="button" onClick={openNewCalendar} className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`} aria-label="Add calendar"><Icon name="plus" /></button> : null}
+          >
             <CalendarList calendars={activeCals} archived={archivedCals} isVisible={(calendar) => isCalendarVisible(calendar, hiddenCalendarIds, shownArchivedIds)} readOnly={readOnlyMode} canArchive={activeCals.length > 1} onToggle={toggleCalendar} onShowAll={showAllCalendars} onToggleFavorite={(calendar) => void toggleFavorite(calendar)} onToggleArchived={(calendar) => void toggleArchived(calendar)} onEdit={openEditCalendar} onCreate={openNewCalendar} />
-          </div>
+          </SidebarSection>
         </SidebarDrawer>
 
         <section className="order-1 flex min-w-0 flex-col overflow-hidden lg:order-none lg:min-h-0">

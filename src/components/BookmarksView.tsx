@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
-import { SidebarDrawer, type Sidebar } from "./SidebarDrawer";
+import { SidebarDrawer, SidebarHeader, SidebarSection, type Sidebar } from "./SidebarDrawer";
 import {
   bookmarkFitsObjectLimit,
   bookmarkHost,
@@ -745,19 +745,12 @@ export function BookmarksView({
 
       <div className="sb-shell grid min-h-0 flex-1" style={sidebar.cols}>
         <SidebarDrawer title="Bookmarks" sidebar={sidebar}>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">
-              My links
-            </p>
-            <h2 className="mt-1 text-lg font-semibold">Bookmarks</h2>
-          </div>
+          <SidebarHeader eyebrow="My links" title="Bookmarks" />
 
-          <div className="mt-5">
-            <div className="flex items-center justify-between">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">
-                Collections
-              </p>
-              {!readOnlyMode ? (
+          <SidebarSection
+            label="Collections"
+            action={
+              !readOnlyMode ? (
                 <button
                   type="button"
                   onClick={() => startCreateUnder(undefined)}
@@ -767,9 +760,9 @@ export function BookmarksView({
                 >
                   <Icon name="plus" />
                 </button>
-              ) : null}
-            </div>
-
+              ) : null
+            }
+          >
             <ul className="mt-2 space-y-0.5">
               <li>
                 <button
@@ -843,7 +836,7 @@ export function BookmarksView({
                 </button>
               </div>
             ) : null}
-          </div>
+          </SidebarSection>
         </SidebarDrawer>
 
         <section className="flex min-h-0 flex-col overflow-hidden">
@@ -1040,11 +1033,11 @@ export function BookmarksView({
                   : "No bookmarks here yet. Saved links are encrypted on this device before they leave it."}
               </p>
             ) : (
-              <ul className="space-y-1">
+              <ul className="divide-y divide-line/60 border-y border-line/60">
                 {visible.map((bookmark) => (
                   <li key={bookmark.id}>
                     <div
-                      className="list-row flex items-center gap-2 rounded-xl border border-transparent px-3 py-2.5 transition-colors hover:border-line hover:bg-panel/60 sm:gap-3"
+                      className="list-row flex items-center gap-2 px-3 py-2.5 transition-colors hover:bg-panel/60 sm:gap-3"
                       onContextMenu={(event) =>
                         menu.open(event, bookmarkItemsFor(bookmark))
                       }
@@ -1075,6 +1068,15 @@ export function BookmarksView({
                             : ""}
                         </p>
                       </div>
+                      <a
+                        href={bookmark.url || undefined}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        aria-label={`Open ${bookmark.title}`}
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
+                      >
+                        <Icon name="link" />
+                      </a>
                       {!readOnlyMode ? (
                         <>
                           <select
@@ -1086,7 +1088,7 @@ export function BookmarksView({
                             // `pr-8` rather than the shared token's `pr-6`: the
                             // native arrow is drawn wider in Firefox, and at this
                             // size the name runs under it.
-                            className={`hidden h-8 max-w-[9rem] cursor-pointer rounded-lg border border-line bg-bg pl-2 pr-8 text-xs text-mute sm:block ${focusRing}`}
+                            className={`h-8 max-w-[6.5rem] shrink-0 cursor-pointer rounded-lg border border-line bg-bg pl-2 pr-8 text-xs text-mute sm:max-w-[9rem] ${focusRing}`}
                           >
                             {rows.map(({ item, depth }) => (
                               <option key={item.id} value={item.id}>
@@ -1094,7 +1096,7 @@ export function BookmarksView({
                               </option>
                             ))}
                           </select>
-                          <div className="list-row-actions flex shrink-0 items-center gap-0.5">
+                          <div className="flex shrink-0 items-center gap-0.5">
                             <button
                               type="button"
                               onClick={() => startEdit(bookmark)}
