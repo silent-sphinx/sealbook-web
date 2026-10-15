@@ -36,6 +36,40 @@ Object.defineProperty(HTMLElement.prototype, "offsetParent", {
   },
 });
 
+/**
+ * jsdom has no `matchMedia` at all, so `useMediaQuery` throws before the first
+ * render — which otherwise only bites a suite that happens to mount Notes,
+ * Calendar or Bookmarks, the views with a breakpoint-dependent sidebar. This
+ * evaluates the `min-width`/`max-width` queries the app actually writes
+ * against `window.innerWidth` (1024 in jsdom, so `DESKTOP` matches and a test
+ * sees the static column rather than a closed drawer) rather than hardcoding
+ * one verdict, so a suite that resizes the window still gets a real answer.
+ */
+function evaluatesMediaQuery(query: string): boolean {
+  const min = query.match(/min-width:\s*([\d.]+)px/);
+  const max = query.match(/max-width:\s*([\d.]+)px/);
+  const width = window.innerWidth;
+  if (min && width < Number(min[1])) return false;
+  if (max && width > Number(max[1])) return false;
+  return true;
+}
+
+if (typeof window.matchMedia !== "function") {
+  window.matchMedia = ((query: string) =>
+    ({
+      get matches() {
+        return evaluatesMediaQuery(query);
+      },
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => true,
+    }) as unknown as MediaQueryList) as typeof window.matchMedia;
+}
+
 // Vitest is not configured with globals, so React Testing Library cannot
 // register its own teardown and each render would otherwise be left in the
 // document for the next test.

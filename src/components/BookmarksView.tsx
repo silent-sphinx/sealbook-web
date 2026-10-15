@@ -7,6 +7,7 @@ import {
   bookmarkHost,
   bookmarkMatches,
   buildCollectionTree,
+  canMoveCollection,
   collectionSubtree,
   collectionTone,
   DEFAULT_BOOKMARK_COLLECTION_ID,
@@ -33,7 +34,7 @@ import {
   focusRing,
   selectField,
 } from "../lib/styles";
-import { flattenTree } from "../lib/tree";
+import { flattenTree, type TreeNode } from "../lib/tree";
 import type { Bookmark, BookmarkCollection, BookmarkDraft } from "../lib/types";
 
 type Props = {
@@ -52,6 +53,12 @@ type Props = {
 
 /** Stands for "every collection" in the sidebar, as `ALL_NOTEBOOKS` does for notes. */
 const ALL = "all";
+
+/** Marks the dragged id across the native drag events, mirroring `NoteTreeList`. */
+const COLLECTION_DRAG_TYPE = "application/x-sealbook-bookmark-collection";
+
+/** Stands for the top level as a drop target, distinct from any real collection id. */
+const ROOT_DROP = "__root__";
 
 function Icon({
   name,
@@ -101,13 +108,21 @@ export function BookmarksView({
   const [draft, setDraft] = useState<BookmarkDraft | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [tagText, setTagText] = useState("");
-  const [creatingCollection, setCreatingCollection] = useState(false);
+  // `undefined` is top level; a collection's own id nests the new one under it.
+  // Kept apart from a plain boolean so the header's "+" and a row's "add
+  // subcollection" can share one input without either guessing the other's intent.
+  const [creatingUnder, setCreatingUnder] = useState<{ parentId?: string } | null>(null);
   const [newCollectionName, setNewCollectionName] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
   // Escape closes the input, which also blurs it. Without this the blur would
   // then save the very text the escape was there to discard.
   const renameCancelled = useRef(false);
+  // Collapsed, rather than expanded: a collection added anywhere must show up
+  // without first requiring every ancestor to be opened by hand.
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  const [draggingCollection, setDraggingCollection] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
   const menu = useContextMenu();
   const [confirmDelete, setConfirmDelete] = useState<Bookmark | null>(null);
   const [deletingCollection, setDeletingCollection] =
@@ -145,10 +160,12 @@ export function BookmarksView({
   // stays responsive on a vault the filter takes time over.
   const deferredSearch = useDeferredValue(search);
 
-  const rows = useMemo(
-    () => flattenTree(buildCollectionTree(collections)),
+  const collectionTree = useMemo(
+    () => buildCollectionTree(collections),
     [collections],
   );
+
+  const rows = useMemo(() => flattenTree(collectionTree), [collectionTree]);
 
   /**
    * A collection's bookmarks include those of every collection nested under it,
@@ -301,10 +318,50 @@ export function BookmarksView({
     setRenameText(collection.name);
   }
 
+  function toggleCollapsed(id: string) {
+    setCollapsedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** Reveals a collection that a rename, a move or a new child just put a row into. */
+  function reveal(id: string) {
+    setCollapsedIds((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+  }
+
+  /**
+   * Starts the new-collection input. `parentId` is the whole difference between
+   * the header's "+", which always starts a top-level collection, and a row's
+   * own "Add subcollection", which nests under that row: neither has to guess
+   * the other's intent from what happens to be selected.
+   */
+  function startCreateUnder(parentId?: string) {
+    setCreatingUnder({ parentId });
+    setNewCollectionName("");
+    if (parentId) reveal(parentId);
+  }
+
+  function cancelCreateUnder() {
+    setCreatingUnder(null);
+    setNewCollectionName("");
+  }
+
   /** The same actions the row's own buttons carry, for the context menu. */
   function itemsFor(collection: BookmarkCollection): MenuItem[] {
     if (readOnlyMode) return [];
     const actions: MenuItem[] = [
+      {
+        label: "Add subcollection",
+        onSelect: () => startCreateUnder(collection.id),
+      },
       { label: "Rename collection", onSelect: () => startRename(collection) },
     ];
     // The default collection is renamable but not deletable: every bookmark
@@ -374,14 +431,47 @@ export function BookmarksView({
 
   async function createCollection() {
     const name = newCollectionName.trim();
-    if (!name) return;
-    // A collection added while one is selected nests inside it, which is the
-    // only way to build a tree without a separate move step.
-    const parent = scope === ALL ? undefined : scope;
-    const id = await onCreateCollection(name, parent);
+    if (!name || !creatingUnder) return;
+    const id = await onCreateCollection(name, creatingUnder.parentId);
     setNewCollectionName("");
-    setCreatingCollection(false);
+    setCreatingUnder(null);
     if (id) setScope(id);
+  }
+
+  /**
+   * Drags a collection under another, or to the top level with `parentId` null.
+   *
+   * Checked again here even though a row only lets a valid drop land: the tree
+   * can change out from under a drag in flight on another device, so the last
+   * word on whether this would eat itself belongs to `canMoveCollection`, not
+   * to whatever `droppable` happened to render.
+   */
+  async function moveCollection(id: string, parentId: string | null) {
+    if (readOnlyMode) return;
+    const collection = collections.find((item) => item.id === id);
+    if (!collection) return;
+    if (!canMoveCollection(collections, id, parentId)) {
+      setError("A collection cannot be moved inside itself.");
+      return;
+    }
+    if ((collection.parentId ?? null) === parentId) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await putBookmarkCollection(
+        session,
+        collection.name,
+        parentId ?? undefined,
+        collection.id,
+        collection.raw,
+      );
+      if (parentId) reveal(parentId);
+      await onRefresh();
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function moveBookmark(bookmark: Bookmark, collectionId: string) {
@@ -396,6 +486,197 @@ export function BookmarksView({
       setSaving(false);
     }
   }
+
+  /**
+   * The collections tree, drawn recursively so each level of nesting is its own
+   * indented, left-bordered `<ul>` rather than a flat list padded by a depth
+   * number: a guide line under every parent is what actually answers "who is
+   * under who," where padding alone reads as the same list redrawn wider.
+   *
+   * Drag and drop reparents by the same rule the context menu's "Add
+   * subcollection" and the header's "Add collection" use to tell a new
+   * top-level collection from a nested one: `moveCollection`'s `parentId` is
+   * `null` for the top level and a collection's id for everywhere else, and
+   * `canMoveCollection` is asked fresh on every row a drag passes over rather
+   * than trusted from when the drag started.
+   */
+  function renderCollectionRows(nodes: TreeNode<BookmarkCollection>[]) {
+    return nodes.map((node) => {
+      const item = node.item;
+      const hasChildren = node.children.length > 0;
+      const open = !collapsedIds.has(item.id);
+      const isDefault = item.id === DEFAULT_BOOKMARK_COLLECTION_ID;
+      const droppable =
+        draggingCollection !== null &&
+        draggingCollection !== item.id &&
+        canMoveCollection(collections, draggingCollection, item.id);
+
+      return (
+        <li key={item.id}>
+          {renamingId === item.id ? (
+            <div className="flex items-center gap-1.5 py-0.5 pl-1">
+              <input
+                autoFocus
+                value={renameText}
+                onChange={(event) => setRenameText(event.target.value)}
+                onBlur={() => void renameCollection(item)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void renameCollection(item);
+                  if (event.key === "Escape") cancelRename();
+                }}
+                aria-label={`Rename ${item.name}`}
+                className="h-8 w-full min-w-0 rounded-lg border border-line bg-bg px-2.5 text-xs text-text outline-none focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
+              />
+            </div>
+          ) : (
+            <div
+              draggable={!readOnlyMode}
+              onDragStart={(event) => {
+                event.dataTransfer.setData(COLLECTION_DRAG_TYPE, item.id);
+                event.dataTransfer.effectAllowed = "move";
+                setDraggingCollection(item.id);
+              }}
+              onDragEnd={() => {
+                setDraggingCollection(null);
+                setDropTarget(null);
+              }}
+              onDragOver={(event) => {
+                if (!droppable) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                setDropTarget(item.id);
+              }}
+              onDragLeave={() =>
+                setDropTarget((current) => (current === item.id ? null : current))
+              }
+              onDrop={(event) => {
+                if (!droppable) return;
+                event.preventDefault();
+                const id = event.dataTransfer.getData(COLLECTION_DRAG_TYPE);
+                setDropTarget(null);
+                setDraggingCollection(null);
+                if (id) void moveCollection(id, item.id);
+              }}
+              onContextMenu={(event) => menu.open(event, itemsFor(item))}
+              className={`list-row flex items-center gap-0.5 rounded-lg transition-colors ${
+                dropTarget === item.id ? "ring-1 ring-accent-ring" : ""
+              }`}
+            >
+              {hasChildren ? (
+                <button
+                  type="button"
+                  onClick={() => toggleCollapsed(item.id)}
+                  aria-label={open ? `Collapse ${item.name}` : `Expand ${item.name}`}
+                  aria-expanded={open}
+                  className={`flex h-7 w-5 shrink-0 items-center justify-center text-mute transition-colors hover:text-text ${focusRing}`}
+                >
+                  <Icon
+                    name="chevron"
+                    className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`}
+                  />
+                </button>
+              ) : (
+                <span aria-hidden="true" className="h-7 w-5 shrink-0" />
+              )}
+              <button
+                type="button"
+                onClick={() => setScope(item.id)}
+                onDoubleClick={() => {
+                  if (!readOnlyMode) startRename(item);
+                }}
+                aria-current={scope === item.id ? "true" : undefined}
+                className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-2 pr-2 text-left text-xs transition-colors ${
+                  scope === item.id
+                    ? "bg-surface text-text"
+                    : "text-mute hover:bg-surface/40 hover:text-text"
+                } ${focusRing}`}
+              >
+                <span
+                  aria-hidden="true"
+                  className="h-3.5 w-3.5 shrink-0 rounded-full"
+                  style={{ background: collectionTone(item.id) }}
+                />
+                <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
+                <span className="text-[10px] tabular-nums text-mute/70">
+                  {countByCollection.get(item.id) || ""}
+                </span>
+              </button>
+              {!readOnlyMode ? (
+                <div className="list-row-actions flex shrink-0 items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => startCreateUnder(item.id)}
+                    title="Add subcollection"
+                    aria-label={`Add subcollection under ${item.name}`}
+                    className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
+                  >
+                    <Icon name="plus" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => startRename(item)}
+                    aria-label={`Rename ${item.name}`}
+                    className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
+                  >
+                    <Icon name="pencil" />
+                  </button>
+                  {/* The default collection can be renamed but not deleted: it
+                      is the id that is reserved, not the name, and every
+                      bookmark without a collection resolves to it. */}
+                  {!isDefault ? (
+                    <button
+                      type="button"
+                      onClick={() => setDeletingCollection(item)}
+                      aria-label={`Delete ${item.name}`}
+                      className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-danger ${focusRing}`}
+                    >
+                      <Icon name="trash" />
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          )}
+
+          {creatingUnder && creatingUnder.parentId === item.id ? (
+            <div className="ml-5 flex items-center gap-1.5 border-l border-line py-0.5 pl-2.5">
+              <input
+                autoFocus
+                value={newCollectionName}
+                onChange={(event) => setNewCollectionName(event.target.value)}
+                onBlur={() => {
+                  if (!newCollectionName.trim()) cancelCreateUnder();
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void createCollection();
+                  if (event.key === "Escape") cancelCreateUnder();
+                }}
+                placeholder="Subcollection name"
+                aria-label={`New subcollection under ${item.name}`}
+                className="h-8 w-full min-w-0 rounded-lg border border-line bg-bg px-2.5 text-xs text-text outline-none focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
+              />
+              <button
+                type="button"
+                onClick={() => void createCollection()}
+                className={`flex h-8 shrink-0 items-center rounded-lg bg-accent px-2.5 text-xs font-semibold text-bg ${focusRing}`}
+              >
+                Add
+              </button>
+            </div>
+          ) : null}
+
+          {hasChildren && open ? (
+            <ul className="ml-5 mt-0.5 space-y-0.5 border-l border-line pl-2.5">
+              {renderCollectionRows(node.children)}
+            </ul>
+          ) : null}
+        </li>
+      );
+    });
+  }
+
+  const rootDroppable =
+    draggingCollection !== null && canMoveCollection(collections, draggingCollection, null);
 
   const disabled = busy || saving || readOnlyMode;
 
@@ -444,7 +725,8 @@ export function BookmarksView({
               {!readOnlyMode ? (
                 <button
                   type="button"
-                  onClick={() => setCreatingCollection(true)}
+                  onClick={() => startCreateUnder(undefined)}
+                  title="Add a top-level collection"
                   className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
                   aria-label="Add collection"
                 >
@@ -471,106 +753,49 @@ export function BookmarksView({
                   </span>
                 </button>
               </li>
-              {rows.map(({ item, depth }) => (
-                <li key={item.id}>
-                  {renamingId === item.id ? (
-                    <div
-                      className="flex items-center gap-1.5 py-0.5"
-                      style={{ paddingLeft: `${depth * 0.75}rem` }}
-                    >
-                      <input
-                        autoFocus
-                        value={renameText}
-                        onChange={(event) => setRenameText(event.target.value)}
-                        onBlur={() => void renameCollection(item)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter")
-                            void renameCollection(item);
-                          if (event.key === "Escape") cancelRename();
-                        }}
-                        aria-label={`Rename ${item.name}`}
-                        className="h-8 w-full min-w-0 rounded-lg border border-line bg-bg px-2.5 text-xs text-text outline-none focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
-                      />
-                    </div>
-                  ) : (
-                    <div
-                      className="list-row flex items-center gap-1"
-                      onContextMenu={(event) =>
-                        menu.open(event, itemsFor(item))
-                      }
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setScope(item.id)}
-                        onDoubleClick={() => {
-                          if (!readOnlyMode) startRename(item);
-                        }}
-                        aria-current={scope === item.id ? "true" : undefined}
-                        style={{ paddingLeft: `${0.5 + depth * 0.75}rem` }}
-                        className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-2 pr-2 text-left text-xs transition-colors ${
-                          scope === item.id
-                            ? "bg-surface text-text"
-                            : "text-mute hover:bg-surface/40 hover:text-text"
-                        } ${focusRing}`}
-                      >
-                        <span
-                          aria-hidden="true"
-                          className="h-3.5 w-3.5 shrink-0 rounded-full"
-                          style={{ background: collectionTone(item.id) }}
-                        />
-                        <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
-                        <span className="text-[10px] tabular-nums text-mute/70">
-                          {countByCollection.get(item.id) || ""}
-                        </span>
-                      </button>
-                      {!readOnlyMode ? (
-                        <div className="list-row-actions flex shrink-0 items-center gap-0.5">
-                          {/* The default collection can be renamed but not
-                              deleted: it is the id that is reserved, not the
-                              name, and every bookmark without a collection
-                              resolves to it. */}
-                          <button
-                            type="button"
-                            onClick={() => startRename(item)}
-                            aria-label={`Rename ${item.name}`}
-                            className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
-                          >
-                            <Icon name="pencil" />
-                          </button>
-                          {item.id !== DEFAULT_BOOKMARK_COLLECTION_ID ? (
-                            <button
-                              type="button"
-                              onClick={() => setDeletingCollection(item)}
-                              aria-label={`Delete ${item.name}`}
-                              className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-danger ${focusRing}`}
-                            >
-                              <Icon name="trash" />
-                            </button>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </div>
-                  )}
-                </li>
-              ))}
+              {renderCollectionRows(collectionTree)}
             </ul>
 
-            {creatingCollection ? (
+            {/* Shown only while dragging, or it would sit as a permanent band
+                of empty space under a tree that is usually fully nested. */}
+            {rootDroppable ? (
+              <div
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDropTarget(ROOT_DROP);
+                }}
+                onDragLeave={() =>
+                  setDropTarget((current) => (current === ROOT_DROP ? null : current))
+                }
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const id = event.dataTransfer.getData(COLLECTION_DRAG_TYPE);
+                  setDropTarget(null);
+                  setDraggingCollection(null);
+                  if (id) void moveCollection(id, null);
+                }}
+                className={`mt-1 rounded-lg border border-dashed px-3 py-1.5 text-center text-[10px] transition-colors ${
+                  dropTarget === ROOT_DROP ? "border-accent-dim text-text" : "border-line text-mute"
+                }`}
+              >
+                Move to top level
+              </div>
+            ) : null}
+
+            {creatingUnder && creatingUnder.parentId === undefined ? (
               <div className="mt-2 flex items-center gap-1.5">
                 <input
                   autoFocus
                   value={newCollectionName}
                   onChange={(event) => setNewCollectionName(event.target.value)}
+                  onBlur={() => {
+                    if (!newCollectionName.trim()) cancelCreateUnder();
+                  }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") void createCollection();
-                    if (event.key === "Escape") {
-                      setCreatingCollection(false);
-                      setNewCollectionName("");
-                    }
+                    if (event.key === "Escape") cancelCreateUnder();
                   }}
-                  placeholder={
-                    scope === ALL ? "Collection name" : "Nested collection"
-                  }
+                  placeholder="Collection name"
                   aria-label="New collection name"
                   className="h-8 w-full min-w-0 rounded-lg border border-line bg-bg px-2.5 text-xs text-text outline-none focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
                 />
