@@ -46,7 +46,12 @@ describe("the row context menu", () => {
     expect(screen.queryByRole("menu")).toBeNull();
 
     openAt();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
+    const item = screen.getByRole("menuitem", { name: "Rename" });
+    // A real click fires `pointerdown` before `click`; the outside-click
+    // closer must not treat this as an outside click and unmount the item
+    // before the `click` it is still waiting for arrives.
+    fireEvent.pointerDown(item);
+    fireEvent.click(item);
 
     expect(rename).toHaveBeenCalledTimes(1);
     // Closed by the choice, rather than left over the row it acted on.

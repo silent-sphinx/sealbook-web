@@ -80,7 +80,14 @@ export function ContextMenu({ state, onClose }: { state: MenuState; onClose: () 
 
   useEffect(() => {
     if (!state) return;
-    const close = () => onClose();
+    // Capture phase fires at `window` before the event reaches the menu, so
+    // `stopPropagation` on the menu's own `onPointerDown` is already too late
+    // to stop this listener. Checking containment instead lets outside clicks
+    // close immediately while clicks on the menu's own buttons still land.
+    const close = (event: PointerEvent) => {
+      if (ref.current?.contains(event.target as Node)) return;
+      onClose();
+    };
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.stopPropagation();
@@ -126,7 +133,6 @@ export function ContextMenu({ state, onClose }: { state: MenuState; onClose: () 
       }}
       className="fixed z-50 min-w-[10rem] overflow-hidden rounded-xl border border-line bg-panel py-1 shadow-lg shadow-black/40"
       onContextMenu={(event) => event.preventDefault()}
-      onPointerDown={(event) => event.stopPropagation()}
     >
       {state.items.map((item, at) => (
         <button
