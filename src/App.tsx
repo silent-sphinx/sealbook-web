@@ -1621,6 +1621,8 @@ export default function App() {
             calendarEvents={calendarEvents}
             notes={notes}
             notebooks={notebooks}
+            bookmarks={bookmarks}
+            bookmarkCollections={bookmarkCollections}
             onSessionUpdate={(updated) => setSession(updated)}
             onPersistSession={persistSession}
             onAccountDeleted={() => {
@@ -1632,6 +1634,11 @@ export default function App() {
             onRefresh={() => refresh(session)}
             onCreateBook={isOffline ? undefined : onCreateBook}
             onCreateNotebook={isOffline ? undefined : onCreateNotebook}
+            onCreateBookmarkCollection={
+              isOffline
+                ? undefined
+                : (name) => onCreateBookmarkCollection(name)
+            }
             timezone={timezone}
             onTimezoneChange={setTimezone}
             accountSettings={accountSettings}

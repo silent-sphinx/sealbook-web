@@ -55,6 +55,8 @@ import type {
   AccentKey,
   AccountSettings,
   AddressBook,
+  Bookmark,
+  BookmarkCollection,
   Calendar,
   CalendarEvent,
   Contact,
@@ -70,6 +72,7 @@ import { AccountExportSection } from "./AccountExportSection";
 import { AccountImportSection } from "./AccountImportSection";
 import { ImportExportSection } from "./ImportExportSection";
 import { NotesImportExportSection } from "./NotesImportExportSection";
+import { BookmarksImportExportSection } from "./BookmarksImportExportSection";
 import { PasswordField } from "./PasswordField";
 import { SECTIONS, type SettingsSection } from "../lib/settingsModel";
 
@@ -86,6 +89,8 @@ type Props = {
   calendarEvents: CalendarEvent[];
   notes: Note[];
   notebooks: Notebook[];
+  bookmarks: Bookmark[];
+  bookmarkCollections: BookmarkCollection[];
   onSessionUpdate: (updated: Session) => void;
   onPersistSession: (updated: Session, password: string) => Promise<void>;
   onAccountDeleted: () => void;
@@ -93,6 +98,7 @@ type Props = {
   onRefresh: () => Promise<void>;
   onCreateBook?: (name: string) => Promise<string | undefined>;
   onCreateNotebook?: (name: string) => Promise<string | undefined>;
+  onCreateBookmarkCollection?: (name: string) => Promise<string | undefined>;
   timezone: string;
   onTimezoneChange: (timezone: string) => void;
   accountSettings: AccountSettings;
@@ -110,6 +116,8 @@ export function SettingsView({
   calendarEvents,
   notes,
   notebooks,
+  bookmarks,
+  bookmarkCollections,
   onSessionUpdate,
   onPersistSession,
   onAccountDeleted,
@@ -117,6 +125,7 @@ export function SettingsView({
   onRefresh,
   onCreateBook,
   onCreateNotebook,
+  onCreateBookmarkCollection,
   timezone,
   onTimezoneChange,
   accountSettings,
@@ -1649,6 +1658,16 @@ export function SettingsView({
           notebooks={notebooks}
           onRefresh={onRefresh}
           onCreateNotebook={onCreateNotebook}
+        />
+      )}
+
+      {activeSection === "bookmarks" && (
+        <BookmarksImportExportSection
+          session={session}
+          bookmarks={bookmarks}
+          bookmarkCollections={bookmarkCollections}
+          onRefresh={onRefresh}
+          onCreateCollection={onCreateBookmarkCollection}
         />
       )}
 

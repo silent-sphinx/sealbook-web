@@ -4,7 +4,8 @@ export type SettingsSection =
   | "appearance"
   | "contacts"
   | "calendar"
-  | "notes";
+  | "notes"
+  | "bookmarks";
 
 export const SECTIONS: { id: SettingsSection; label: string; nav: string; blurb: string }[] = [
   {
@@ -46,5 +47,11 @@ export const SECTIONS: { id: SettingsSection; label: string; nav: string; blurb:
     label: "Notes settings",
     nav: "Import and export notes",
     blurb: "Move notes in and out of Sealbook as Markdown or as a full JSON backup.",
+  },
+  {
+    id: "bookmarks",
+    label: "Bookmarks settings",
+    nav: "Import and export bookmarks",
+    blurb: "Move bookmarks in and out of Sealbook as a JSON backup that preserves collections, tags and notes.",
   },
 ];
