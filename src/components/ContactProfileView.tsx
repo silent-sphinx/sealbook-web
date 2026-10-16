@@ -10,38 +10,183 @@ import {
   profileOf,
   type ProfileSection,
 } from "../lib/contactProfile";
-import type { ContactProfile } from "../lib/types";
+import type { Contact, ContactPerson, ContactProfile } from "../lib/types";
+import { Avatar } from "./ContactCard";
+import { focusRing } from "../lib/styles";
 
 const row = "border-b border-line/60 px-5 py-3 text-sm";
 const chip = "rounded-md border border-line bg-bg/50 px-2.5 py-1 text-xs text-text";
 const badge =
   "ml-2 rounded-md border border-accent-dim/40 bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-accent";
 
+export type LinkProfileProps = {
+  contacts?: Contact[];
+  readOnly?: boolean;
+  onNavigateToContact?: (contact: Contact) => void;
+  onLinkInSection?: (section: "family" | "friends") => void;
+  onUnlinkFromSection?: (section: "family" | "friends", contactId: string) => void;
+};
+
 /**
  * The relationship sections, read-only. Empty sections are not rendered at all,
  * so a contact with nothing extra looks exactly as it did before detailed mode
  * existed.
  */
-export function ContactProfileView({ profile }: { profile?: ContactProfile }) {
+export function ContactProfileView({
+  profile,
+  linkProps,
+}: {
+  profile?: ContactProfile;
+  linkProps?: LinkProfileProps;
+}) {
   const full = profileOf(profile);
   const sections = filledSections(full);
   const custom = full.custom.filter((section) => !customSectionIsEmpty(section));
-  if (sections.length === 0 && custom.length === 0) {
+
+  const hasFamily =
+    full.family.length > 0 || (!linkProps?.readOnly && !!linkProps?.onLinkInSection);
+  const hasFriends =
+    full.friends.length > 0 || (!linkProps?.readOnly && !!linkProps?.onLinkInSection);
+
+  const shownSections = sections.filter((s) => s !== "family" && s !== "friends");
+
+  if (shownSections.length === 0 && custom.length === 0 && !hasFamily && !hasFriends) {
     return null;
   }
+
   return (
     <>
-      {sections.map((section) => (
+      {shownSections.map((section) => (
         <Section key={section} title={PROFILE_SECTION_LABELS[section]}>
           <SectionBody section={section} profile={full} />
         </Section>
       ))}
+
+      {hasFamily ? (
+        <Section title={PROFILE_SECTION_LABELS.family}>
+          <PersonList
+            items={full.family}
+            section="family"
+            showRelation
+            linkProps={linkProps}
+          />
+        </Section>
+      ) : null}
+
+      {hasFriends ? (
+        <Section title={PROFILE_SECTION_LABELS.friends}>
+          <PersonList
+            items={full.friends}
+            section="friends"
+            showRelation={false}
+            linkProps={linkProps}
+          />
+        </Section>
+      ) : null}
+
       {custom.map((section) => (
         <Section key={section.id} title={section.title || "Custom section"}>
           <div className={`${row} leading-relaxed whitespace-pre-wrap`}>{section.text}</div>
         </Section>
       ))}
     </>
+  );
+}
+
+function PersonList({
+  items,
+  section,
+  showRelation,
+  linkProps,
+}: {
+  items: ContactPerson[];
+  section: "family" | "friends";
+  showRelation: boolean;
+  linkProps?: LinkProfileProps;
+}) {
+  return (
+    <div>
+      {items.map((item) => (
+        <PersonRow
+          key={item.id}
+          item={item}
+          showRelation={showRelation}
+          contacts={linkProps?.contacts}
+          onNavigate={linkProps?.onNavigateToContact}
+          onUnlink={
+            !linkProps?.readOnly && item.contactId && linkProps?.onUnlinkFromSection
+              ? (cid) => linkProps.onUnlinkFromSection!(section, cid)
+              : undefined
+          }
+        />
+      ))}
+      {!linkProps?.readOnly && linkProps?.onLinkInSection ? (
+        <button
+          type="button"
+          className={`flex w-full items-center gap-2 border-b border-line/60 px-5 py-2.5 text-xs text-mute transition-colors hover:bg-surface/40 hover:text-accent ${focusRing}`}
+          onClick={() => linkProps.onLinkInSection!(section)}
+        >
+          <LinkIcon />
+          Link a contact
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function PersonRow({
+  item,
+  showRelation,
+  contacts,
+  onNavigate,
+  onUnlink,
+}: {
+  item: ContactPerson;
+  showRelation: boolean;
+  contacts?: Contact[];
+  onNavigate?: (contact: Contact) => void;
+  onUnlink?: (contactId: string) => void;
+}) {
+  const linked = item.contactId ? contacts?.find((c) => c.id === item.contactId) : undefined;
+  const displayName = linked?.name ?? item.name;
+
+  return (
+    <div className={`${row} flex items-center gap-3`}>
+      {item.contactId ? (
+        <Avatar name={displayName} avatar={linked?.avatar} size="sm" />
+      ) : null}
+      <div className="min-w-0 flex-1">
+        {linked && onNavigate ? (
+          <button
+            type="button"
+            className={`min-w-0 truncate text-left font-medium text-text transition-colors hover:text-accent ${focusRing}`}
+            onClick={() => onNavigate(linked)}
+          >
+            {displayName}
+          </button>
+        ) : (
+          <p className="font-medium text-text">
+            {displayName}
+          </p>
+        )}
+        {showRelation && item.relation ? (
+          <p className="mt-0.5 text-xs text-mute">{item.relation}</p>
+        ) : null}
+        {item.note ? (
+          <p className="mt-1 text-xs leading-relaxed text-mute whitespace-pre-wrap">{item.note}</p>
+        ) : null}
+      </div>
+      {onUnlink && item.contactId ? (
+        <button
+          type="button"
+          className={`shrink-0 rounded-md px-2 py-1 text-[11px] font-medium text-mute transition-colors hover:bg-danger/10 hover:text-danger ${focusRing}`}
+          title="Remove link"
+          onClick={() => onUnlink(item.contactId!)}
+        >
+          Unlink
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -135,32 +280,8 @@ function SectionBody({
     case "timeline":
       return <Timeline profile={profile} />;
     case "family":
-      return (
-        <Rows>
-          {profile.family.map((item) => (
-            <div key={item.id} className={row}>
-              <p className="font-medium text-text">
-                {item.name}
-                {item.relation ? (
-                  <span className="ml-2 text-xs font-normal text-mute">{item.relation}</span>
-                ) : null}
-              </p>
-              <Note text={item.note} />
-            </div>
-          ))}
-        </Rows>
-      );
     case "friends":
-      return (
-        <Rows>
-          {profile.friends.map((item) => (
-            <div key={item.id} className={row}>
-              <p className="font-medium text-text">{item.name}</p>
-              <Note text={item.note} />
-            </div>
-          ))}
-        </Rows>
-      );
+      return null;
   }
 }
 
@@ -238,5 +359,14 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       </h4>
       {children}
     </section>
+  );
+}
+
+function LinkIcon() {
+  return (
+    <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
   );
 }

@@ -26,6 +26,7 @@ import {
 } from "../lib/styles";
 import type {
   AddressBook,
+  Contact,
   ContactAddress,
   ContactChannel,
   ContactChannelKind,
@@ -49,6 +50,8 @@ type Props = {
   hideFooter?: boolean;
   /** Detailed contact mode: adds the relationship sections. */
   detailed?: boolean;
+  contacts?: Contact[];
+  currentContactId?: string;
   onSubmit: (draft: ContactDraft) => void;
   onCancel: () => void;
   onDelete?: () => void;
@@ -79,6 +82,8 @@ export function ContactForm({
   formId,
   hideFooter = false,
   detailed = false,
+  contacts,
+  currentContactId,
   onSubmit,
   onCancel,
   onDelete,
@@ -359,7 +364,12 @@ export function ContactForm({
         </Section>
 
         {detailed ? (
-          <ContactProfileFields profile={draft.profile ?? emptyProfile()} onChange={patchProfile} />
+          <ContactProfileFields
+            profile={draft.profile ?? emptyProfile()}
+            onChange={patchProfile}
+            contacts={contacts}
+            currentContactId={currentContactId}
+          />
         ) : null}
         </div>
       </div>

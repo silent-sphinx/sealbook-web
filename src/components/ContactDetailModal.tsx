@@ -8,6 +8,8 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { ContactForm } from "./ContactForm";
 import { ContactAttachmentsSection } from "./ContactAttachmentsSection";
 import { ContactProfileView } from "./ContactProfileView";
+import { ContactLinkPicker } from "./ContactLinkPicker";
+import { focusRing } from "../lib/styles";
 
 type Props = {
   session: Session;
@@ -26,6 +28,11 @@ type Props = {
   onEditingChange: (editing: boolean) => void;
   /** Detailed contact mode: adds the relationship sections. */
   detailed?: boolean;
+  /** All contacts, used to resolve and pick linked contacts in family/friends sections. */
+  contacts?: Contact[];
+  onLinkInSection?: (section: "family" | "friends", targetId: string) => Promise<void>;
+  onUnlinkFromSection?: (section: "family" | "friends", contactId: string) => Promise<void>;
+  onNavigateToContact?: (contact: Contact) => void;
 };
 
 function formatTimestamp(iso?: string): string | null {
@@ -84,6 +91,10 @@ export function ContactDetailModal({
   editing,
   onEditingChange,
   detailed = false,
+  contacts,
+  onLinkInSection,
+  onUnlinkFromSection,
+  onNavigateToContact,
 }: Props) {
   const archived = contact.archived === true;
   const addresses = addressLines(contact.address);
@@ -91,6 +102,8 @@ export function ContactDetailModal({
   const [confirmRemovePhoto, setConfirmRemovePhoto] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<NoteAttachment[]>(contact.attachments ?? []);
+  const [linkingSection, setLinkingSection] = useState<"family" | "friends" | null>(null);
+  const [linkPickerSearch, setLinkPickerSearch] = useState("");
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const avatarMenuRef = useRef<HTMLDivElement>(null);
 
@@ -299,6 +312,8 @@ export function ContactDetailModal({
           initialDraft={contact}
           submitLabel="Save changes"
           detailed={detailed}
+          contacts={contacts}
+          currentContactId={contact.id}
           onSubmit={async (draft) => {
             if (await onSave(draft)) {
               onEditingChange(false);
@@ -511,7 +526,22 @@ export function ContactDetailModal({
             </Section>
           ) : null}
 
-          {detailed ? <ContactProfileView profile={contact.profile} /> : null}
+          {detailed ? (
+            <ContactProfileView
+              profile={contact.profile}
+              linkProps={{
+                contacts,
+                readOnly,
+                onNavigateToContact,
+                onLinkInSection: onLinkInSection
+                  ? (section) => { setLinkPickerSearch(""); setLinkingSection(section); }
+                  : undefined,
+                onUnlinkFromSection: onUnlinkFromSection
+                  ? (section, contactId) => { void onUnlinkFromSection(section, contactId); }
+                  : undefined,
+              }}
+            />
+          ) : null}
 
           <ContactAttachmentsSection
             session={session}
@@ -554,6 +584,22 @@ export function ContactDetailModal({
             setConfirmRemovePhoto(false);
           }}
           onClose={() => setConfirmRemovePhoto(false)}
+        />
+      ) : null}
+
+      {linkingSection ? (
+        <ContactLinkPicker
+          currentContactId={contact.id}
+          currentProfile={contact.profile}
+          contacts={contacts ?? []}
+          section={linkingSection}
+          onLink={async (targetId) => {
+            await onLinkInSection?.(linkingSection, targetId);
+            setLinkingSection(null);
+          }}
+          onClose={() => setLinkingSection(null)}
+          search={linkPickerSearch}
+          onSearchChange={setLinkPickerSearch}
         />
       ) : null}
     </aside>
@@ -629,3 +675,4 @@ function TrashIcon() {
     </svg>
   );
 }
+

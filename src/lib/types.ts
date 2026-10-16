@@ -200,6 +200,8 @@ export type ContactPerson = {
   name: string;
   relation?: string;
   note?: string;
+  /** When set, this entry is linked to another contact in the vault. */
+  contactId?: string;
 };
 
 /**

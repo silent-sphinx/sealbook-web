@@ -20,6 +20,7 @@ import {
 import { addLink, fieldBase, focusRing, selectField } from "../lib/styles";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import type {
+  Contact,
   ContactCareer,
   ContactCustomSection,
   ContactFood,
@@ -33,6 +34,7 @@ import type {
 } from "../lib/types";
 import { AddIcon, FormSection, RemoveButton } from "./FieldControls";
 import { PartialDateInput } from "./PartialDateInput";
+import { ContactLinkPicker } from "./ContactLinkPicker";
 
 /** What each section's add button says, singular. */
 const ADD_LABELS: Record<Exclude<ProfileSection, "howWeMet">, string> = {
@@ -97,6 +99,8 @@ function SectionActions({
 type Props = {
   profile: ContactProfile;
   onChange: (profile: ContactProfile) => void;
+  contacts?: Contact[];
+  currentContactId?: string;
 };
 
 /**
@@ -106,11 +110,13 @@ type Props = {
  * then shows what this contact actually has, and a further section later is a
  * row in `PROFILE_SECTIONS` rather than more height for everybody.
  */
-export function ContactProfileFields({ profile, onChange }: Props) {
+export function ContactProfileFields({ profile, onChange, contacts, currentContactId }: Props) {
   const [shown, setShown] = useState<ProfileSection[]>(() =>
     PROFILE_SECTIONS.filter((section) => !sectionIsEmpty(profile, section)),
   );
   const [picking, setPicking] = useState(false);
+  const [linkingSection, setLinkingSection] = useState<"family" | "friends" | null>(null);
+  const [linkSearch, setLinkSearch] = useState("");
   const pickerRef = useRef<HTMLDivElement>(null);
   // An object rather than the key: removing a section and adding it again has to
   // flash a second time, which an equal value would not re-trigger. The key is a
@@ -290,7 +296,16 @@ export function ContactProfileFields({ profile, onChange }: Props) {
             />
           }
         >
-          <SectionBody section={section} profile={profile} patch={patch} />
+          <SectionBody
+            section={section}
+            profile={profile}
+            patch={patch}
+            onLinkRequest={
+              contacts && (section === "family" || section === "friends")
+                ? () => setLinkingSection(section as "family" | "friends")
+                : undefined
+            }
+          />
         </FormSection>
       ))}
 
@@ -310,6 +325,27 @@ export function ContactProfileFields({ profile, onChange }: Props) {
           />
         </FormSection>
       ))}
+
+      {linkingSection ? (
+        <ContactLinkPicker
+          positionFixed
+          currentContactId={currentContactId ?? ""}
+          currentProfile={profile}
+          contacts={contacts ?? []}
+          section={linkingSection}
+          onLink={(targetId) => {
+            const linked = contacts?.find((c) => c.id === targetId);
+            if (!linked) return;
+            const newPerson: ContactPerson = { id: crypto.randomUUID(), name: linked.name, contactId: linked.id };
+            onChange({ ...profile, [linkingSection]: [...profile[linkingSection], newPerson] });
+            setLinkingSection(null);
+            setLinkSearch("");
+          }}
+          onClose={() => { setLinkingSection(null); setLinkSearch(""); }}
+          search={linkSearch}
+          onSearchChange={setLinkSearch}
+        />
+      ) : null}
 
       <div ref={pickerRef} className="relative mt-6 border-t border-line pt-5">
         <button
@@ -353,10 +389,12 @@ function SectionBody({
   section,
   profile,
   patch,
+  onLinkRequest,
 }: {
   section: ProfileSection;
   profile: ContactProfile;
   patch: (partial: Partial<ContactProfile>) => void;
+  onLinkRequest?: () => void;
 }) {
   switch (section) {
     case "howWeMet":
@@ -407,6 +445,7 @@ function SectionBody({
           showRelation
           addLabel={ADD_LABELS.family}
           onChange={(family) => patch({ family })}
+          onLinkRequest={onLinkRequest}
         />
       );
     case "friends":
@@ -415,6 +454,7 @@ function SectionBody({
           rows={profile.friends}
           addLabel={ADD_LABELS.friends}
           onChange={(friends) => patch({ friends })}
+          onLinkRequest={onLinkRequest}
         />
       );
   }
@@ -848,11 +888,13 @@ function PersonRows({
   showRelation = false,
   addLabel,
   onChange,
+  onLinkRequest,
 }: {
   rows: ContactPerson[];
   showRelation?: boolean;
   addLabel: string;
   onChange: (rows: ContactPerson[]) => void;
+  onLinkRequest?: () => void;
 }) {
   const list = rowOps(rows, onChange);
   return (
@@ -888,6 +930,26 @@ function PersonRows({
           </div>
           <RemoveButton label={`Remove ${addLabel.toLowerCase()}`} onClick={() => list.remove(row.id)} />
         </div>
-      ))}    </div>
+      ))}
+      {onLinkRequest ? (
+        <button
+          type="button"
+          className={`${addLink} inline-flex items-center gap-1.5`}
+          onClick={onLinkRequest}
+        >
+          <PersonLinkIcon />
+          Link a contact
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function PersonLinkIcon() {
+  return (
+    <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
   );
 }

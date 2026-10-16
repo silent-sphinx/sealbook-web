@@ -296,6 +296,7 @@ export function serializeProfile(profile?: ContactProfile): Record<string, unkno
       if (relation) entry.relation = relation;
       const note = optional(row.note);
       if (note) entry.note = note;
+      if (row.contactId) entry.contactId = row.contactId;
       return entry;
     });
     if (people) body[section] = people;
@@ -421,11 +422,13 @@ export function parseProfile(value: unknown): ContactProfile | undefined {
       const row = (entry ?? {}) as Record<string, unknown>;
       const name = str(row.name);
       if (!name) continue;
+      const contactId = optionalStr(row.contactId);
       profile[section].push({
         id: newId(),
         name,
         relation: optionalStr(row.relation),
         note: optionalStr(row.note),
+        ...(contactId ? { contactId } : {}),
       });
     }
   }

@@ -50,6 +50,9 @@ interface ContactsTabProps {
   onPromptDelete: (contact: Contact) => void;
   onToggleArchive: (contact: Contact) => Promise<void>;
   onSaveViewedContact: (draft: ContactDraft) => Promise<boolean>;
+  onLinkInSection?: (section: "family" | "friends", targetId: string) => Promise<void>;
+  onUnlinkFromSection?: (section: "family" | "friends", contactId: string) => Promise<void>;
+  onNavigateToContact?: (contact: Contact) => void;
 }
 
 export function ContactsTab({
@@ -93,6 +96,9 @@ export function ContactsTab({
   onPromptDelete,
   onToggleArchive,
   onSaveViewedContact,
+  onLinkInSection,
+  onUnlinkFromSection,
+  onNavigateToContact,
 }: ContactsTabProps) {
   return (
     <main className="flex flex-col bg-bg pb-[env(safe-area-inset-bottom)] text-text lg:h-[calc(100dvh-var(--sb-header-h,74px))] lg:overflow-hidden lg:pb-0">
@@ -308,6 +314,10 @@ export function ContactsTab({
                   onSave={onSaveViewedContact}
                   readOnly={isOffline}
                   detailed={detailedContacts}
+                  contacts={contacts}
+                  onLinkInSection={onLinkInSection}
+                  onUnlinkFromSection={onUnlinkFromSection}
+                  onNavigateToContact={onNavigateToContact}
                 />
               ) : (
                 <div className="hidden min-h-56 flex-1 items-center justify-center px-6 text-center lg:flex">

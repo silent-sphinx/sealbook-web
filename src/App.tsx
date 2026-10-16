@@ -58,7 +58,7 @@ import {
   isFeatureEnabled,
 } from "./lib/accountSettings";
 import { type OnboardingPlan } from "./lib/onboarding";
-import { profileSearchText } from "./lib/contactProfile";
+import { profileOf, profileSearchText } from "./lib/contactProfile";
 import {
   ARCHIVE_VIEW_NAME,
   DEFAULT_ADDRESS_BOOK_ID,
@@ -1085,6 +1085,33 @@ export default function App() {
     setError(null);
     try {
       await putContact(session, draft, viewingContact.id);
+
+      // Sync bidirectional links: compare old vs new contactId sets in family/friends.
+      const oldProfile = profileOf(viewingContact.profile);
+      const newProfile = profileOf(draft.profile);
+      for (const section of ["family", "friends"] as const) {
+        const oldIds = new Set(oldProfile[section].map((p) => p.contactId).filter(Boolean) as string[]);
+        const newIds = new Set(newProfile[section].map((p) => p.contactId).filter(Boolean) as string[]);
+        for (const addedId of newIds) {
+          if (oldIds.has(addedId)) continue;
+          const target = contacts.find((c) => c.id === addedId);
+          if (!target) continue;
+          const targetProfile = profileOf(target.profile);
+          if (targetProfile[section].some((p) => p.contactId === viewingContact.id)) continue;
+          const reverse = { id: crypto.randomUUID(), name: draft.name || viewingContact.name, contactId: viewingContact.id };
+          await putContact(session, { ...target, profile: { ...targetProfile, [section]: [...targetProfile[section], reverse] } }, target.id);
+        }
+        for (const removedId of oldIds) {
+          if (newIds.has(removedId)) continue;
+          const target = contacts.find((c) => c.id === removedId);
+          if (!target) continue;
+          const targetProfile = profileOf(target.profile);
+          const filtered = targetProfile[section].filter((p) => p.contactId !== viewingContact.id);
+          if (filtered.length === targetProfile[section].length) continue;
+          await putContact(session, { ...target, profile: { ...targetProfile, [section]: filtered } }, target.id);
+        }
+      }
+
       setViewingContact((current) =>
         current?.id === viewingContact.id ? { ...current, ...draft } : current,
       );
@@ -1093,6 +1120,65 @@ export default function App() {
     } catch (err) {
       setError(friendlyError(err));
       return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onLinkInSection(section: "family" | "friends", targetId: string): Promise<void> {
+    if (!session || !viewingContact) return;
+    const target = contacts.find((c) => c.id === targetId);
+    if (!target) return;
+    const currentProfile = profileOf(viewingContact.profile);
+    if (currentProfile[section].some((p) => p.contactId === targetId)) return;
+    const targetProfile = profileOf(target.profile);
+    const newForCurrent = { id: crypto.randomUUID(), name: target.name, contactId: targetId };
+    const newForTarget = { id: crypto.randomUUID(), name: viewingContact.name, contactId: viewingContact.id };
+    const updatedCurrentProfile = { ...currentProfile, [section]: [...currentProfile[section], newForCurrent] };
+    const updatedTargetProfile = { ...targetProfile, [section]: [...targetProfile[section], newForTarget] };
+    setBusy(true);
+    setError(null);
+    try {
+      await putContact(session, { ...viewingContact, profile: updatedCurrentProfile }, viewingContact.id);
+      await putContact(session, { ...target, profile: updatedTargetProfile }, target.id);
+      setViewingContact((current) =>
+        current?.id === viewingContact.id ? { ...current, profile: updatedCurrentProfile } : current,
+      );
+      await refreshAfterSave(session);
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onUnlinkFromSection(section: "family" | "friends", contactId: string): Promise<void> {
+    if (!session || !viewingContact) return;
+    const target = contacts.find((c) => c.id === contactId);
+    const currentProfile = profileOf(viewingContact.profile);
+    const updatedCurrentProfile = {
+      ...currentProfile,
+      [section]: currentProfile[section].filter((p) => p.contactId !== contactId),
+    };
+    setBusy(true);
+    setError(null);
+    try {
+      await putContact(session, { ...viewingContact, profile: updatedCurrentProfile }, viewingContact.id);
+      if (target) {
+        const targetProfile = profileOf(target.profile);
+        const updatedTargetProfile = {
+          ...targetProfile,
+          family: targetProfile.family.filter((p) => p.contactId !== viewingContact.id),
+          friends: targetProfile.friends.filter((p) => p.contactId !== viewingContact.id),
+        };
+        await putContact(session, { ...target, profile: updatedTargetProfile }, target.id);
+      }
+      setViewingContact((current) =>
+        current?.id === viewingContact.id ? { ...current, profile: updatedCurrentProfile } : current,
+      );
+      await refreshAfterSave(session);
+    } catch (err) {
+      setError(friendlyError(err));
     } finally {
       setBusy(false);
     }
@@ -1718,6 +1804,9 @@ export default function App() {
           onPromptDelete={promptDelete}
           onToggleArchive={onToggleArchive}
           onSaveViewedContact={onSaveViewedContact}
+          onLinkInSection={onLinkInSection}
+          onUnlinkFromSection={onUnlinkFromSection}
+          onNavigateToContact={(c) => { guardEditing(() => { setError(null); setViewingContact(c); }); }}
         />
       ) : null}
 
