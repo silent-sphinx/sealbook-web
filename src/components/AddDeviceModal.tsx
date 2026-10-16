@@ -1,6 +1,8 @@
-import { useState, type FormEvent } from "react";
+import { useRef, type FormEvent, type KeyboardEvent, type ClipboardEvent } from "react";
 import { Modal } from "./Modal";
 import { confirmationGroups } from "../lib/pairing";
+
+const WORD_COUNT = 8;
 
 type Props = {
   busy: boolean;
@@ -23,19 +25,79 @@ export function AddDeviceModal({
   onBackToCode,
   onClose,
 }: Props) {
-  const [pasteError, setPasteError] = useState<string | null>(null);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  async function handlePaste() {
-    try {
-      setPasteError(null);
-      const text = await navigator.clipboard.readText();
-      if (text.trim()) {
-        onCodeChange(text.trim());
+  const rawWords = addCode.split(" ");
+  const words = Array.from({ length: WORD_COUNT }, (_, i) => rawWords[i] ?? "");
+
+  function commitWords(next: string[]) {
+    onCodeChange(next.join(" ").trimEnd());
+  }
+
+  function focusBox(index: number) {
+    requestAnimationFrame(() => {
+      const el = inputRefs.current[index];
+      if (el) { el.focus(); el.select(); }
+    });
+  }
+
+  function handleChange(index: number, value: string) {
+    const parts = value.trim().split(/\s+/).filter(Boolean);
+    if (parts.length > 1) {
+      const next = [...words];
+      for (let i = 0; i < parts.length && index + i < WORD_COUNT; i++) {
+        next[index + i] = parts[i];
       }
-    } catch {
-      setPasteError("Couldn't read from clipboard. Please paste manually.");
+      commitWords(next);
+      focusBox(Math.min(index + parts.length - 1, WORD_COUNT - 1));
+    } else {
+      const next = [...words];
+      next[index] = value;
+      commitWords(next);
     }
   }
+
+  function handleKeyDown(index: number, e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === " " || e.key === "Enter") {
+      e.preventDefault();
+      if (index < WORD_COUNT - 1) focusBox(index + 1);
+    } else if (e.key === "Backspace" && words[index] === "" && index > 0) {
+      e.preventDefault();
+      focusBox(index - 1);
+    } else if (e.key === "ArrowRight" && (e.currentTarget.selectionStart ?? 0) === words[index].length) {
+      e.preventDefault();
+      if (index < WORD_COUNT - 1) focusBox(index + 1);
+    } else if (e.key === "ArrowLeft" && (e.currentTarget.selectionStart ?? 0) === 0) {
+      e.preventDefault();
+      if (index > 0) focusBox(index - 1);
+    }
+  }
+
+  function handleBoxPaste(index: number, e: ClipboardEvent<HTMLInputElement>) {
+    e.preventDefault();
+    const parts = e.clipboardData.getData("text").trim().split(/\s+/).filter(Boolean);
+    const next = [...words];
+    for (let i = 0; i < parts.length && index + i < WORD_COUNT; i++) {
+      next[index + i] = parts[i];
+    }
+    commitWords(next);
+    focusBox(Math.min(index + parts.length - 1, WORD_COUNT - 1));
+  }
+
+  async function handleClipboardPaste() {
+    try {
+      const text = await navigator.clipboard.readText();
+      const parts = text.trim().split(/\s+/).filter(Boolean);
+      if (!parts.length) return;
+      const next = Array.from({ length: WORD_COUNT }, (_, i) => parts[i] ?? "");
+      commitWords(next);
+      focusBox(Math.min(parts.length - 1, WORD_COUNT - 1));
+    } catch {
+      // clipboard not available; user can paste directly into a box
+    }
+  }
+
+  const allFilled = words.every((w) => w.trim().length > 0);
 
   return (
     <Modal
@@ -69,13 +131,11 @@ export function AddDeviceModal({
             </div>
 
             <div className="mt-6">
-              <div className="flex items-center justify-between mb-2">
-                <label htmlFor="pairing-code-input" className="text-sm font-medium text-text">
-                  Pairing code
-                </label>
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-sm font-medium text-text">Pairing code</label>
                 <button
                   type="button"
-                  onClick={handlePaste}
+                  onClick={handleClipboardPaste}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1 text-xs font-medium text-accent hover:border-line-light hover:text-accent-dim transition-colors cursor-pointer"
                 >
                   <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
@@ -85,19 +145,27 @@ export function AddDeviceModal({
                   Paste from clipboard
                 </button>
               </div>
-              <input
-                id="pairing-code-input"
-                type="text"
-                value={addCode}
-                onChange={(e) => onCodeChange(e.target.value)}
-                placeholder="e.g. river velvet ..."
-                className="box-border w-full rounded-xl border border-line bg-bg px-3.5 py-2.5 font-mono text-sm text-text outline-none transition-all duration-150 placeholder:text-mute/50 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
-                autoFocus
-                required
-              />
-              {pasteError ? (
-                <p className="mt-1.5 text-xs text-danger">{pasteError}</p>
-              ) : null}
+              <div className="grid grid-cols-4 gap-2">
+                {words.map((word, i) => (
+                  <div key={i} className="flex flex-col gap-1">
+                    <span className="text-[10px] font-medium text-mute/60 text-center select-none">{i + 1}</span>
+                    <input
+                      ref={(el) => { inputRefs.current[i] = el; }}
+                      type="text"
+                      value={word}
+                      onChange={(e) => handleChange(i, e.target.value)}
+                      onKeyDown={(e) => handleKeyDown(i, e)}
+                      onPaste={(e) => handleBoxPaste(i, e)}
+                      autoFocus={i === 0}
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      className="box-border w-full rounded-xl border border-line bg-bg px-2.5 py-2 font-mono text-sm text-text text-center outline-none transition-all duration-150 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
 
             {error ? <p role="alert" className="mt-4 text-sm text-danger">{error}</p> : null}
@@ -113,7 +181,7 @@ export function AddDeviceModal({
               </button>
               <button
                 type="submit"
-                disabled={busy || !addCode.trim()}
+                disabled={busy || !allFilled}
                 className="rounded-xl bg-accent px-6 py-2.5 text-sm font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
                 {busy ? "Checking…" : "Next: Verify code →"}
