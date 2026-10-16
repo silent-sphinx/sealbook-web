@@ -9,7 +9,6 @@ import { ContactForm } from "./ContactForm";
 import { ContactAttachmentsSection } from "./ContactAttachmentsSection";
 import { ContactProfileView } from "./ContactProfileView";
 import { ContactLinkPicker } from "./ContactLinkPicker";
-import { focusRing } from "../lib/styles";
 
 type Props = {
   session: Session;
