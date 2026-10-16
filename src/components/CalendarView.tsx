@@ -19,7 +19,6 @@ import { btnDanger, btnPrimary, field, focusRing } from "../lib/styles";
 import { CalendarList } from "./CalendarSidebar";
 import { DayView as ExtractedDayView, MonthGrid as ExtractedMonthGrid, WeekView as ExtractedWeekView, YearView as ExtractedYearView } from "./CalendarViews";
 import {
-  buildDaySlots,
   dateFromKey,
   EventSpan,
   formatWeekRange,
@@ -31,7 +30,7 @@ import {
   spanCoversDay,
   weekDays,
 } from "../lib/calendarModel";
-import { SEARCH_RESULT_LIMIT, searchEvents, type SearchResult } from "../lib/calendarSearch";
+import { searchEvents, type SearchResult } from "../lib/calendarSearch";
 import {
   HIDDEN_CALENDARS,
   SHOWN_ARCHIVED_CALENDARS,

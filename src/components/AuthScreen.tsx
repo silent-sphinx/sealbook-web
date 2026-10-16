@@ -21,7 +21,7 @@ interface AuthScreenProps {
   confirmPassword: string;
   busy: boolean;
   signingOut: boolean;
-  unlockPasswordRef: RefObject<HTMLInputElement>;
+  unlockPasswordRef: RefObject<HTMLInputElement | null>;
   onModeChange: (mode: Mode) => void;
   onUsernameChange: (value: string) => void;
   onPasswordChange: (value: string) => void;

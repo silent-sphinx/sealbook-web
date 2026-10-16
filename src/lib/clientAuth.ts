@@ -22,7 +22,7 @@ import {
   newUuid,
 } from "./wasm";
 import { elapsed, log } from "./log";
-import { ManifestError, pinSealedRoster, syncRoster, verifiedRoster } from "./roster";
+import { ManifestError, syncRoster } from "./roster";
 import { apiRoot, deleteJson, postJson } from "./transport";
 import {
   checkProtocol,
@@ -30,9 +30,7 @@ import {
   deviceFromEnrollment,
   deviceFromKeys,
   enrollSig,
-  manifestState,
   rememberManifestSeq,
-  serializeVault,
   type Session,
 } from "./clientCore";
 import { rotateAuthenticated } from "./clientRotation";

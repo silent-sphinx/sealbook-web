@@ -1,6 +1,5 @@
 import { bytesFromJson } from "./bytes";
 import { createDevice, pairConfirmationCode, pairGrantSign, rosterSealDevice, wrapCkForDevice } from "./wasm";
-import { log } from "./log";
 import { pinSealedRoster, syncRoster, verifiedRosterChain } from "./roster";
 import { apiRoot, getJson, postJson } from "./transport";
 import { normalizeConfirmation } from "./pairing";
