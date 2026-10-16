@@ -165,6 +165,7 @@ export function ContactForm({
     <form
       id={formId}
       onSubmit={handleSubmit}
+      autoComplete="off"
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">
@@ -193,7 +194,6 @@ export function ContactForm({
                 value={draft.name}
                 onChange={(e) => patch({ name: e.target.value })}
                 className={field}
-                autoComplete="name"
                 autoFocus
                 required
               />
@@ -204,10 +204,6 @@ export function ContactForm({
                 value={draft.nickname ?? ""}
                 onChange={(e) => patch({ nickname: e.target.value })}
                 className={field}
-                // `nickname` is in the HTML autofill field names; oxlint's
-                // list of them is short of it.
-                // eslint-disable-next-line jsx-a11y/autocomplete-valid
-                autoComplete="nickname"
               />
             </label>
             <label className={labelClass}>
@@ -278,7 +274,6 @@ export function ContactForm({
                     patchAddress({ street1: e.target.value })
                   }
                   className={field}
-                  autoComplete="address-line1"
                 />
               </label>
               <label className={labelClass}>
@@ -289,7 +284,6 @@ export function ContactForm({
                     patchAddress({ street2: e.target.value })
                   }
                   className={field}
-                  autoComplete="address-line2"
                 />
               </label>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -301,7 +295,6 @@ export function ContactForm({
                       patchAddress({ locality: e.target.value })
                     }
                     className={field}
-                    autoComplete="address-level2"
                   />
                 </label>
                 <label className={labelClass}>
@@ -312,7 +305,6 @@ export function ContactForm({
                       patchAddress({ region: e.target.value })
                     }
                     className={field}
-                    autoComplete="address-level1"
                   />
                 </label>
                 <label className={labelClass}>
@@ -323,7 +315,6 @@ export function ContactForm({
                       patchAddress({ postcode: e.target.value })
                     }
                     className={field}
-                    autoComplete="postal-code"
                   />
                 </label>
                 <label className={labelClass}>
@@ -334,7 +325,6 @@ export function ContactForm({
                       patchAddress({ country: e.target.value })
                     }
                     className={field}
-                    autoComplete="country-name"
                   />
                 </label>
               </div>
@@ -591,7 +581,6 @@ function WorkList({
               placeholder="Workplace"
               aria-label="Workplace"
               className={fieldBase}
-              autoComplete="organization"
             />
             <input
               value={row.title ?? ""}
@@ -601,7 +590,6 @@ function WorkList({
               placeholder="Occupation"
               aria-label="Occupation"
               className={fieldBase}
-              autoComplete="organization-title"
             />
           </div>
           <RemoveButton

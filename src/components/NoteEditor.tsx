@@ -509,6 +509,7 @@ function BubbleToolbar({ editor }: { editor: Editor }) {
     return (
       <form
         className="note-bubble-link"
+        autoComplete="off"
         onSubmit={(event) => {
           event.preventDefault();
           commit();

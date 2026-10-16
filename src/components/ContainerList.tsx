@@ -216,6 +216,7 @@ export function ContainerList<T extends Container>({
             <form
               key={book.id}
               onSubmit={(event) => { event.preventDefault(); void commit(); }}
+              autoComplete="off"
               className="-mx-2 px-2 py-1"
             >
               <input
@@ -291,7 +292,7 @@ export function ContainerList<T extends Container>({
       })}
 
       {creating && !readOnly ? (
-        <form onSubmit={(event) => { event.preventDefault(); void commit(); }} className="-mx-2 px-2 py-1">
+        <form onSubmit={(event) => { event.preventDefault(); void commit(); }} autoComplete="off" className="-mx-2 px-2 py-1">
           <input
             ref={inputRef}
             value={draft}

@@ -899,6 +899,7 @@ export function BookmarksView({
             {draft ? (
               <form
                 className="mb-4 rounded-2xl border border-line bg-panel/80 p-4"
+                autoComplete="off"
                 onSubmit={(event) => {
                   event.preventDefault();
                   void saveDraft();
