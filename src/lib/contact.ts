@@ -153,6 +153,14 @@ export function contactValidationError(draft: ContactDraft): string | null {
         return `A section holds ${MAX_PROFILE_ENTRIES} entries.`;
       }
     }
+    if (profile.custom.length > MAX_PROFILE_ENTRIES) {
+      return `A section holds ${MAX_PROFILE_ENTRIES} entries.`;
+    }
+    for (const section of profile.custom) {
+      if (section.text.length > MAX_PROFILE_TEXT_CHARS) {
+        return `A custom section holds ${MAX_PROFILE_TEXT_CHARS.toLocaleString()} characters.`;
+      }
+    }
   }
   if (!contactFitsObjectLimit(draft)) {
     return "This contact is too large to store. Removing the photo is usually enough.";

@@ -12,6 +12,12 @@ const PRECISION_LABELS: Record<DatePrecision, string> = {
 const YEAR_MIN = 1900;
 const YEAR_MAX = new Date().getFullYear() + 10;
 
+/** Month values are the ISO `01`..`12`; labels follow the viewer's locale. */
+const MONTHS = Array.from({ length: 12 }, (_, index) => ({
+  value: String(index + 1).padStart(2, "0"),
+  label: new Date(2000, index, 1).toLocaleDateString(undefined, { month: "long" }),
+}));
+
 type Props = {
   label: string;
   value: string;
@@ -48,10 +54,26 @@ export function PartialDateInput({
   // cannot render it.
   const freeform = value.length > 0 && detected === null;
 
+  // The month picker drives one stored `YYYY-MM`, but the year is typed a digit
+  // at a time and a month cannot be stored without a full year. So the two
+  // controls keep their own drafts and only commit a value once the year is
+  // complete: a partial year (`2`, `20`) leaves the stored value empty without
+  // losing what has been typed. The stored value is read back when it holds a
+  // year or month, and the draft fills in only while it does not, so an edit
+  // from elsewhere still wins without a resync.
+  const [yearDraft, setYearDraft] = useState(() => /^(\d{4})/.exec(value)?.[1] ?? "");
+  const [monthDraft, setMonthDraft] = useState(() => /^\d{4}-(\d{2})/.exec(value)?.[1] ?? "01");
+  const currentYear = /^(\d{4})/.exec(value)?.[1] ?? yearDraft;
+  const currentMonth = /^\d{4}-(\d{2})/.exec(value)?.[1] ?? monthDraft;
+
   function changePrecision(next: DatePrecision) {
     setPending(next);
     const recut = atPrecision(value, next);
     if (recut !== value) onChange(recut);
+  }
+
+  function commitMonth(year: string, month: string) {
+    onChange(year.length === 4 ? `${year}-${month}` : "");
   }
 
   return (
@@ -93,9 +115,46 @@ export function PartialDateInput({
             onChange={(e) => onChange(e.target.value.slice(0, 4))}
             className={fieldBase}
           />
+        ) : precision === "month" ? (
+          // A month select plus a year, rather than `<input type="month">`:
+          // browsers without native month support render that as a free-text box,
+          // where a typed value sorts and round-trips as prose.
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_5rem] gap-2">
+            <select
+              value={currentMonth}
+              aria-label={`${label} month`}
+              onChange={(e) => {
+                setMonthDraft(e.target.value);
+                commitMonth(currentYear, e.target.value);
+              }}
+              className={selectField}
+            >
+              {MONTHS.map((month) => (
+                <option key={month.value} value={month.value}>
+                  {month.label}
+                </option>
+              ))}
+            </select>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={YEAR_MIN}
+              max={YEAR_MAX}
+              step={1}
+              placeholder="YYYY"
+              value={currentYear}
+              aria-label={`${label} year`}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, "").slice(0, 4);
+                setYearDraft(digits);
+                commitMonth(digits, currentMonth);
+              }}
+              className={fieldBase}
+            />
+          </div>
         ) : (
           <input
-            type={precision === "month" ? "month" : "date"}
+            type="date"
             value={value}
             aria-label={label}
             onChange={(e) => onChange(e.target.value)}

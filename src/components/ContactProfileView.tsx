@@ -2,9 +2,11 @@ import type { ReactNode } from "react";
 
 import {
   PROFILE_SECTION_LABELS,
+  customSectionIsEmpty,
   filledSections,
   formatDateRange,
   formatPartialDate,
+  lifeEventOrder,
   profileOf,
   type ProfileSection,
 } from "../lib/contactProfile";
@@ -12,6 +14,8 @@ import type { ContactProfile } from "../lib/types";
 
 const row = "border-b border-line/60 px-5 py-3 text-sm";
 const chip = "rounded-md border border-line bg-bg/50 px-2.5 py-1 text-xs text-text";
+const badge =
+  "ml-2 rounded-md border border-accent-dim/40 bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-accent";
 
 /**
  * The relationship sections, read-only. Empty sections are not rendered at all,
@@ -21,7 +25,8 @@ const chip = "rounded-md border border-line bg-bg/50 px-2.5 py-1 text-xs text-te
 export function ContactProfileView({ profile }: { profile?: ContactProfile }) {
   const full = profileOf(profile);
   const sections = filledSections(full);
-  if (sections.length === 0) {
+  const custom = full.custom.filter((section) => !customSectionIsEmpty(section));
+  if (sections.length === 0 && custom.length === 0) {
     return null;
   }
   return (
@@ -29,6 +34,11 @@ export function ContactProfileView({ profile }: { profile?: ContactProfile }) {
       {sections.map((section) => (
         <Section key={section} title={PROFILE_SECTION_LABELS[section]}>
           <SectionBody section={section} profile={full} />
+        </Section>
+      ))}
+      {custom.map((section) => (
+        <Section key={section.id} title={section.title || "Custom section"}>
+          <div className={`${row} leading-relaxed whitespace-pre-wrap`}>{section.text}</div>
         </Section>
       ))}
     </>
@@ -103,13 +113,20 @@ function SectionBody({
         <Rows>
           {profile.relationships.map((item) => (
             <div key={item.id} className={row}>
-              <p className="font-medium text-text">
-                {item.name}
-                {item.kind ? (
-                  <span className="ml-2 text-xs font-normal text-mute">{item.kind}</span>
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="min-w-0 font-medium text-text">
+                  {item.name}
+                  {item.kind ? (
+                    <span className="ml-2 text-xs font-normal text-mute">{item.kind}</span>
+                  ) : null}
+                  {item.current ? <span className={badge}>Current</span> : null}
+                </p>
+                {formatDateRange(item.start, item.end) ? (
+                  <p className="shrink-0 text-[11px] uppercase tracking-wider text-mute/80">
+                    {formatDateRange(item.start, item.end)}
+                  </p>
                 ) : null}
-              </p>
-              <Period label={formatDateRange(item.start, item.end)} />
+              </div>
               <Note text={item.note} />
             </div>
           ))}
@@ -148,16 +165,20 @@ function SectionBody({
 }
 
 /**
- * Dated events first, newest last so the column reads downwards in time; undated
- * ones keep their entry order at the end rather than being dropped.
+ * Oldest first so the column reads downwards in time. Ordering is by a parsed
+ * chronological key rather than the raw string, so a month/year lands in its
+ * month instead of below the full dates. Entries with no readable date keep
+ * their entry order at the end; the sort is stable, so equal keys do too.
  */
 function Timeline({ profile }: { profile: ContactProfile }) {
-  const dated = profile.timeline.filter((item) => item.date);
-  const undated = profile.timeline.filter((item) => !item.date);
-  const ordered = [
-    ...[...dated].sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "")),
-    ...undated,
-  ];
+  const ordered = [...profile.timeline]
+    .map((item) => ({ item, key: lifeEventOrder(item.date) }))
+    .sort((a, b) => {
+      if (a.key === null) return b.key === null ? 0 : 1;
+      if (b.key === null) return -1;
+      return a.key - b.key;
+    })
+    .map((entry) => entry.item);
   return (
     <ol className="relative mx-5 space-y-3 border-l border-line/70 py-3 pl-4">
       {ordered.map((item) => (

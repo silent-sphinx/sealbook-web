@@ -182,6 +182,8 @@ export type ContactRelationship = {
   kind: string;
   start?: string;
   end?: string;
+  /** Marks an ongoing relationship. Shown as a badge, independent of an open end. */
+  current?: boolean;
   note?: string;
 };
 
@@ -201,6 +203,16 @@ export type ContactPerson = {
 };
 
 /**
+ * A user-titled free-text section. Several may exist, so these live in a list
+ * of their own rather than in `PROFILE_SECTIONS`, which is a fixed set.
+ */
+export type ContactCustomSection = {
+  id: string;
+  title: string;
+  text: string;
+};
+
+/**
  * The relationship-manager half of a contact, carried in the card under
  * `sealbook:profile`. Stored whatever the account's contact mode is, so turning
  * `basic` back on hides it rather than dropping it. See `lib/contactProfile`.
@@ -216,6 +228,7 @@ export type ContactProfile = {
   timeline: ContactLifeEvent[];
   family: ContactPerson[];
   friends: ContactPerson[];
+  custom: ContactCustomSection[];
 };
 
 export type ContactDraft = {

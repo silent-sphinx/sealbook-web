@@ -3,12 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_PROFILE_ENTRIES,
   atPrecision,
+  customSectionIsEmpty,
   precisionOf,
   MAX_PROFILE_TEXT_CHARS,
   emptyProfile,
   filledSections,
   formatDateRange,
   formatPartialDate,
+  lifeEventOrder,
   parseProfile,
   profileIsEmpty,
   profileSearchText,
@@ -38,10 +40,13 @@ const filled = (): ContactProfile =>
     career: [
       { id: "e", organization: "Ordnance Survey", title: "Cartographer", start: "2019-04", end: "2023-01" },
     ],
-    relationships: [{ id: "f", name: "Sam", kind: "Ex-partner", start: "2015", end: "2018" }],
+    relationships: [
+      { id: "f", name: "Sam", kind: "Partner", start: "2015", current: true },
+    ],
     timeline: [{ id: "g", title: "Moved to Bristol", date: "2021-09", description: "For the job." }],
     family: [{ id: "h", name: "Rosa", relation: "Mother" }],
     friends: [{ id: "i", name: "Tomas", note: "Also climbs" }],
+    custom: [{ id: "j", title: "Coffee order", text: "Flat white, oat milk." }],
   });
 
 describe("the profile payload", () => {
@@ -65,6 +70,51 @@ describe("the profile payload", () => {
     expect(back?.timeline[0]).toMatchObject({ title: "Moved to Bristol", date: "2021-09" });
     expect(back?.family[0]).toMatchObject({ name: "Rosa", relation: "Mother" });
     expect(back?.friends[0]).toMatchObject({ name: "Tomas", note: "Also climbs" });
+    expect(back?.relationships[0]).toMatchObject({ name: "Sam", current: true });
+    expect(back?.custom[0]).toMatchObject({ title: "Coffee order", text: "Flat white, oat milk." });
+  });
+
+  it("omits a relationship's current flag when it is not set", () => {
+    const body = serializeProfile(
+      profile({ relationships: [{ id: "a", name: "Alex", kind: "Partner" }] }),
+    );
+    expect(JSON.stringify(body)).not.toContain("current");
+  });
+
+  it("never stores an end date for a current relationship", () => {
+    const body = serializeProfile(
+      profile({
+        relationships: [
+          { id: "a", name: "Sam", kind: "Partner", start: "2015", end: "2020", current: true },
+        ],
+      }),
+    );
+    expect(body?.relationships).toEqual([
+      { name: "Sam", kind: "Partner", start: "2015", current: true },
+    ]);
+  });
+
+  it("drops an end date carried alongside a current flag on parse", () => {
+    const back = parseProfile({ relationships: [{ name: "Sam", current: true, end: "2020" }] });
+    expect(back?.relationships[0].current).toBe(true);
+    expect(back?.relationships[0].end).toBeUndefined();
+  });
+
+  it("drops a custom section with neither a title nor a body", () => {
+    const body = serializeProfile(
+      profile({
+        custom: [
+          { id: "a", title: "  ", text: "" },
+          { id: "b", title: "Nicknames", text: "Bubs" },
+        ],
+      }),
+    );
+    expect(body?.custom).toEqual([{ title: "Nicknames", text: "Bubs" }]);
+  });
+
+  it("keeps a custom section that has only a body", () => {
+    const body = serializeProfile(profile({ custom: [{ id: "a", title: "", text: "Loose note" }] }));
+    expect(body?.custom).toEqual([{ text: "Loose note" }]);
   });
 
   it("adds no key to a card when nothing is filled in", () => {
@@ -192,10 +242,70 @@ describe("search text", () => {
   it("reaches a note on a friend, which is what the sections are searched for", () => {
     expect(profileSearchText(filled())).toContain("Also climbs");
     expect(profileSearchText(filled())).toContain("Reading");
+    expect(profileSearchText(filled())).toContain("Flat white");
   });
 
   it("is empty for an absent profile", () => {
     expect(profileSearchText(undefined)).toBe("");
+  });
+});
+
+describe("life event order", () => {
+  function sortDates(dates: string[]): string[] {
+    return [...dates]
+      .map((date) => ({ date, key: lifeEventOrder(date) }))
+      .sort((a, b) => {
+        if (a.key === null) return b.key === null ? 0 : 1;
+        if (b.key === null) return -1;
+        return a.key - b.key;
+      })
+      .map((entry) => entry.date);
+  }
+
+  it("places a month/year event in its month, not below the full dates", () => {
+    expect(sortDates(["2015-06-20", "2021-03", "2022-01-01"])).toEqual([
+      "2015-06-20",
+      "2021-03",
+      "2022-01-01",
+    ]);
+  });
+
+  it("orders a value missing its leading zero as the same month", () => {
+    expect(lifeEventOrder("2021-3")).toBe(lifeEventOrder("2021-03"));
+    expect(sortDates(["2021-12-25", "2021-3"])).toEqual(["2021-3", "2021-12-25"]);
+  });
+
+  it("reads a month and year typed as words, where a browser has no month picker", () => {
+    expect(sortDates(["2022-01-01", "March 2021", "2015-06-20"])).toEqual([
+      "2015-06-20",
+      "March 2021",
+      "2022-01-01",
+    ]);
+  });
+
+  it("sorts a month/year above the first full day of the same month", () => {
+    expect(lifeEventOrder("2021-03")).toBeLessThan(lifeEventOrder("2021-03-01") as number);
+  });
+
+  it("is null for an absent or unreadable date, which sends the entry to the end", () => {
+    expect(lifeEventOrder(undefined)).toBeNull();
+    expect(lifeEventOrder("")).toBeNull();
+    expect(lifeEventOrder("one summer")).toBeNull();
+    expect(sortDates(["2020", "one summer", "2019"])).toEqual(["2019", "2020", "one summer"]);
+  });
+});
+
+describe("custom sections", () => {
+  it("counts a section with only whitespace as empty", () => {
+    expect(customSectionIsEmpty({ id: "a", title: "  ", text: "\n" })).toBe(true);
+    expect(customSectionIsEmpty({ id: "b", title: "Order", text: "" })).toBe(false);
+  });
+
+  it("holds a profile that has nothing but a custom section", () => {
+    expect(profileIsEmpty(profile({ custom: [{ id: "a", title: "Order", text: "Oat flat white" }] }))).toBe(
+      false,
+    );
+    expect(profileIsEmpty(profile({ custom: [{ id: "a", title: "", text: "" }] }))).toBe(true);
   });
 });
 

@@ -7,6 +7,7 @@ import {
   PROFILE_SECTION_LABELS,
   RELATIONSHIP_KINDS,
   emptyCareer,
+  emptyCustomSection,
   emptyFood,
   emptyLifeEvent,
   emptyPerson,
@@ -16,10 +17,11 @@ import {
   sectionIsEmpty,
   type ProfileSection,
 } from "../lib/contactProfile";
-import { addLink, fieldBase, focusRing, ghost, selectField } from "../lib/styles";
+import { addLink, fieldBase, focusRing, selectField } from "../lib/styles";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import type {
   ContactCareer,
+  ContactCustomSection,
   ContactFood,
   ContactFoodPolarity,
   ContactLifeEvent,
@@ -48,6 +50,50 @@ const ADD_LABELS: Record<Exclude<ProfileSection, "howWeMet">, string> = {
 /** Long enough to notice, short enough not to linger over the next edit. */
 const FLASH_MS = 1000;
 
+// Career and relationship entries span several rows, so a hairline rule marks
+// where one ends and the next begins. The same divider the form uses between
+// sections, not a card, which reads as foreign here.
+const entrySeparator = "border-t border-line/60 pt-4";
+
+/**
+ * The add-item and remove-section controls for a section header, as discreet
+ * pills on transparent fills: green to add, red to remove. `onAdd` is omitted
+ * for a section with no list to add to.
+ */
+function SectionActions({
+  onAdd,
+  addDisabled,
+  onRemove,
+}: {
+  onAdd?: () => void;
+  addDisabled?: boolean;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-1.5">
+      {onAdd ? (
+        <button
+          type="button"
+          onClick={onAdd}
+          disabled={addDisabled}
+          title={addDisabled ? `Up to ${MAX_PROFILE_ENTRIES} entries` : undefined}
+          className={`inline-flex items-center gap-1 rounded-full border border-note-new/30 bg-note-new/10 px-2.5 py-1 text-[11px] font-medium text-note-new transition-colors hover:bg-note-new/20 disabled:opacity-40 disabled:hover:bg-note-new/10 ${focusRing}`}
+        >
+          <AddIcon />
+          Add
+        </button>
+      ) : null}
+      <button
+        type="button"
+        onClick={onRemove}
+        className={`inline-flex items-center rounded-full border border-danger/30 bg-danger/10 px-2.5 py-1 text-[11px] font-medium text-danger transition-colors hover:bg-danger/20 ${focusRing}`}
+      >
+        Remove
+      </button>
+    </div>
+  );
+}
+
 type Props = {
   profile: ContactProfile;
   onChange: (profile: ContactProfile) => void;
@@ -66,23 +112,43 @@ export function ContactProfileFields({ profile, onChange }: Props) {
   );
   const [picking, setPicking] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
-  // An object rather than the section name: removing a section and adding it
-  // again has to flash a second time, which an equal value would not re-trigger.
-  const [flash, setFlash] = useState<{ section: ProfileSection } | null>(null);
-  const sectionNodes = useRef(new Map<ProfileSection, HTMLElement | null>());
+  // An object rather than the key: removing a section and adding it again has to
+  // flash a second time, which an equal value would not re-trigger. The key is a
+  // ProfileSection name or a custom section's id.
+  const [flash, setFlash] = useState<{ key: string } | null>(null);
+  const sectionNodes = useRef(new Map<string, HTMLElement | null>());
   const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 
   // The section is in the DOM by the time this runs, which is why the scroll
   // lives here rather than in the click handler.
   useEffect(() => {
     if (!flash) return;
-    sectionNodes.current.get(flash.section)?.scrollIntoView({
+    sectionNodes.current.get(flash.key)?.scrollIntoView({
       behavior: reducedMotion ? "auto" : "smooth",
       block: "center",
     });
     const timer = window.setTimeout(() => setFlash(null), FLASH_MS);
     return () => window.clearTimeout(timer);
   }, [flash, reducedMotion]);
+
+  function addCustomSection() {
+    const section = emptyCustomSection();
+    setPicking(false);
+    setFlash({ key: section.id });
+    onChange({ ...profile, custom: [...profile.custom, section] });
+  }
+
+  function updateCustomSection(id: string, partial: Partial<ContactCustomSection>) {
+    patch({
+      custom: profile.custom.map((section) =>
+        section.id === id ? { ...section, ...partial } : section,
+      ),
+    });
+  }
+
+  function removeCustomSection(id: string) {
+    patch({ custom: profile.custom.filter((section) => section.id !== id) });
+  }
 
   useEffect(() => {
     if (!picking) return;
@@ -114,7 +180,7 @@ export function ContactProfileFields({ profile, onChange }: Props) {
   function addSection(section: ProfileSection) {
     setShown((current) => [...current, section]);
     setPicking(false);
-    setFlash({ section });
+    setFlash({ key: section });
     switch (section) {
       case "howWeMet":
         return;
@@ -165,6 +231,38 @@ export function ContactProfileFields({ profile, onChange }: Props) {
     }
   }
 
+  // Appends one empty entry to a list section, which the header's add pill
+  // drives now that the per-list add button is gone. `howWeMet` is a single
+  // field, so it has nothing to add to.
+  function addEntry(section: ProfileSection) {
+    switch (section) {
+      case "howWeMet":
+        return;
+      case "interests":
+        return patch({ interests: [...profile.interests, emptyTag()] });
+      case "music":
+        return patch({ music: [...profile.music, emptyTag()] });
+      case "food":
+        return patch({ food: [...profile.food, emptyFood()] });
+      case "pets":
+        return patch({ pets: [...profile.pets, emptyPet()] });
+      case "career":
+        return patch({ career: [...profile.career, emptyCareer()] });
+      case "relationships":
+        return patch({ relationships: [...profile.relationships, emptyRelationship()] });
+      case "timeline":
+        return patch({ timeline: [...profile.timeline, emptyLifeEvent()] });
+      case "family":
+        return patch({ family: [...profile.family, emptyPerson()] });
+      case "friends":
+        return patch({ friends: [...profile.friends, emptyPerson()] });
+    }
+  }
+
+  function sectionCount(section: ProfileSection): number {
+    return section === "howWeMet" ? 0 : profile[section].length;
+  }
+
   // Rendered in PROFILE_SECTIONS order rather than the order they were added, so
   // the form reads the same as the detail pane.
   const ordered = PROFILE_SECTIONS.filter((section) => shown.includes(section));
@@ -182,15 +280,34 @@ export function ContactProfileFields({ profile, onChange }: Props) {
           // Tinted to its own box rather than inset: the section is delimited by
           // a full-width rule, and padding the flash would carry that rule out
           // past its neighbours for the second the class is on.
-          className={flash?.section === section ? "animate-flash-block" : undefined}
+          className={flash?.key === section ? "animate-flash-block" : undefined}
           title={PROFILE_SECTION_LABELS[section]}
           action={
-            <button type="button" className={ghost} onClick={() => removeSection(section)}>
-              Remove
-            </button>
+            <SectionActions
+              onAdd={section === "howWeMet" ? undefined : () => addEntry(section)}
+              addDisabled={sectionCount(section) >= MAX_PROFILE_ENTRIES}
+              onRemove={() => removeSection(section)}
+            />
           }
         >
           <SectionBody section={section} profile={profile} patch={patch} />
+        </FormSection>
+      ))}
+
+      {profile.custom.map((section) => (
+        <FormSection
+          key={section.id}
+          ref={(node) => {
+            sectionNodes.current.set(section.id, node);
+          }}
+          className={flash?.key === section.id ? "animate-flash-block" : undefined}
+          title="Custom Section"
+          action={<SectionActions onRemove={() => removeCustomSection(section.id)} />}
+        >
+          <CustomSectionBody
+            section={section}
+            onChange={(partial) => updateCustomSection(section.id, partial)}
+          />
         </FormSection>
       ))}
 
@@ -198,14 +315,13 @@ export function ContactProfileFields({ profile, onChange }: Props) {
         <button
           type="button"
           className={`${addLink} inline-flex items-center gap-1.5`}
-          disabled={available.length === 0}
           aria-expanded={picking}
           onClick={() => setPicking((open) => !open)}
         >
           <AddIcon />
-          {available.length === 0 ? "All sections added" : "Add section"}
+          Add section
         </button>
-        {picking && available.length > 0 ? (
+        {picking ? (
           <div className="absolute bottom-full left-0 z-20 mb-2 w-60 overflow-hidden rounded-lg border border-line bg-elevated p-1 shadow-xl">
             {available.map((section) => (
               <button
@@ -217,6 +333,15 @@ export function ContactProfileFields({ profile, onChange }: Props) {
                 {PROFILE_SECTION_LABELS[section]}
               </button>
             ))}
+            {/* Custom stays on offer however many already exist, unlike the
+                fixed sections, which leave the list once added. */}
+            <button
+              type="button"
+              className={`w-full rounded-md px-3 py-2 text-left text-xs text-text transition-colors hover:bg-surface ${focusRing} ${available.length > 0 ? "mt-1 border-t border-line pt-2.5" : ""}`}
+              onClick={addCustomSection}
+            >
+              Custom section…
+            </button>
           </div>
         ) : null}
       </div>
@@ -323,34 +448,37 @@ function TextAreaField({
   );
 }
 
+/** A user-titled section: a free-text heading over a free-text body. */
+function CustomSectionBody({
+  section,
+  onChange,
+}: {
+  section: ContactCustomSection;
+  onChange: (partial: Partial<ContactCustomSection>) => void;
+}) {
+  return (
+    <div className="grid min-w-0 gap-2">
+      <input
+        value={section.title}
+        onChange={(e) => onChange({ title: e.target.value })}
+        placeholder="Section title"
+        aria-label="Section title"
+        maxLength={MAX_PROFILE_TEXT_CHARS}
+        className={fieldBase}
+      />
+      <TextAreaField
+        value={section.text}
+        placeholder="Anything you want to keep under this heading…"
+        onChange={(text) => onChange({ text })}
+      />
+    </div>
+  );
+}
+
 /**
  * The add button every row list ends with. Hidden at the entry cap rather than
  * left to fail on save.
  */
-function AddRowButton({
-  label,
-  count,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  onClick: () => void;
-}) {
-  if (count >= MAX_PROFILE_ENTRIES) {
-    return <p className="text-[11px] text-mute">Up to {MAX_PROFILE_ENTRIES} entries.</p>;
-  }
-  return (
-    <button
-      type="button"
-      className={`${addLink} inline-flex items-center gap-1.5`}
-      onClick={onClick}
-    >
-      <AddIcon />
-      {label}
-    </button>
-  );
-}
-
 function rowOps<T extends { id: string }>(rows: T[], onChange: (rows: T[]) => void) {
   return {
     update: (id: string, partial: Partial<T>) =>
@@ -385,9 +513,7 @@ function TagRows({
           />
           <RemoveButton label={`Remove ${addLabel.toLowerCase()}`} onClick={() => list.remove(row.id)} />
         </div>
-      ))}
-      <AddRowButton label={addLabel} count={rows.length} onClick={() => list.add(emptyTag())} />
-    </div>
+      ))}    </div>
   );
 }
 
@@ -443,9 +569,7 @@ function FoodRows({
           </div>
           <RemoveButton label="Remove food" onClick={() => list.remove(row.id)} />
         </div>
-      ))}
-      <AddRowButton label={ADD_LABELS.food} count={rows.length} onClick={() => list.add(emptyFood())} />
-    </div>
+      ))}    </div>
   );
 }
 
@@ -488,9 +612,7 @@ function PetRows({
           </div>
           <RemoveButton label="Remove pet" onClick={() => list.remove(row.id)} />
         </div>
-      ))}
-      <AddRowButton label={ADD_LABELS.pets} count={rows.length} onClick={() => list.add(emptyPet())} />
-    </div>
+      ))}    </div>
   );
 }
 
@@ -504,8 +626,11 @@ function CareerRows({
   const list = rowOps(rows, onChange);
   return (
     <div className="grid min-w-0 gap-2">
-      {rows.map((row) => (
-        <div key={row.id} className="flex min-w-0 items-start gap-2">
+      {rows.map((row, index) => (
+        <div
+          key={row.id}
+          className={`flex min-w-0 items-start gap-2 ${index > 0 ? entrySeparator : ""}`}
+        >
           <div className="grid min-w-0 flex-1 gap-2">
             <div className="grid min-w-0 gap-2 sm:grid-cols-2">
               <input
@@ -546,8 +671,42 @@ function CareerRows({
           </div>
           <RemoveButton label="Remove role" onClick={() => list.remove(row.id)} />
         </div>
-      ))}
-      <AddRowButton label={ADD_LABELS.career} count={rows.length} onClick={() => list.add(emptyCareer())} />
+      ))}    </div>
+  );
+}
+
+/**
+ * A text field with its label as a pill inside the field on the left, on a
+ * different background, so the field reads without a separate caption above it.
+ */
+function PillInput({
+  label,
+  value,
+  placeholder,
+  ariaLabel,
+  listId,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  placeholder?: string;
+  ariaLabel?: string;
+  listId?: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="flex h-10 min-w-0 items-center rounded-lg border border-line bg-bg transition-colors focus-within:border-accent-dim focus-within:ring-1 focus-within:ring-accent-ring">
+      <span className="ml-1.5 shrink-0 rounded-md bg-surface px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-mute/80">
+        {label}
+      </span>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        aria-label={ariaLabel ?? label}
+        list={listId}
+        className="min-w-0 flex-1 bg-transparent px-2.5 text-sm text-text outline-none placeholder:text-mute/70"
+      />
     </div>
   );
 }
@@ -561,25 +720,28 @@ function RelationshipRows({
 }) {
   const list = rowOps(rows, onChange);
   return (
-    <div className="grid min-w-0 gap-2">
+    <div className="grid min-w-0 gap-3">
       {rows.map((row) => (
-        <div key={row.id} className="flex min-w-0 items-start gap-2">
+        <div
+          key={row.id}
+          className="flex min-w-0 items-start gap-2 rounded-xl border border-line/60 bg-surface/40 p-3"
+        >
           <div className="grid min-w-0 flex-1 gap-2">
             <div className="grid min-w-0 gap-2 sm:grid-cols-2">
-              <input
+              <PillInput
+                label="Name"
                 value={row.name}
-                onChange={(e) => list.update(row.id, { name: e.target.value })}
-                placeholder="Name"
-                aria-label="Partner name"
-                className={fieldBase}
+                placeholder="Full name"
+                ariaLabel="Partner name"
+                onChange={(name) => list.update(row.id, { name })}
               />
-              <input
+              <PillInput
+                label="Status"
                 value={row.kind}
-                onChange={(e) => list.update(row.id, { kind: e.target.value })}
                 placeholder="Partner, spouse, ex…"
-                aria-label="Relationship kind"
-                list={`relationship-kinds-${row.id}`}
-                className={fieldBase}
+                ariaLabel="Relationship kind"
+                listId={`relationship-kinds-${row.id}`}
+                onChange={(kind) => list.update(row.id, { kind })}
               />
               <datalist id={`relationship-kinds-${row.id}`}>
                 {RELATIONSHIP_KINDS.map((kind) => (
@@ -587,36 +749,56 @@ function RelationshipRows({
                 ))}
               </datalist>
             </div>
-            <div className="grid min-w-0 gap-2 sm:grid-cols-2">
+            <label className="flex h-10 w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border border-line bg-bg px-3 text-sm text-mute transition-colors hover:border-line-light">
+              <input
+                type="checkbox"
+                checked={row.current ?? false}
+                // Checking clears any end date and drops the field below: a
+                // current relationship stores no end. See serializeProfile.
+                onChange={(e) =>
+                  list.update(row.id, {
+                    current: e.target.checked || undefined,
+                    end: e.target.checked ? undefined : row.end,
+                  })
+                }
+                className="h-4 w-4 accent-[var(--color-accent)]"
+              />
+              Current partner
+            </label>
+            <div className={`grid min-w-0 gap-2 ${row.current ? "" : "sm:grid-cols-2"}`}>
               <PartialDateInput
                 label="Started"
                 value={row.start ?? ""}
                 onChange={(start) => list.update(row.id, { start })}
               />
-              <PartialDateInput
-                label="Ended"
-                value={row.end ?? ""}
-                hint="blank if current"
-                onChange={(end) => list.update(row.id, { end })}
-              />
+              {!row.current ? (
+                <PartialDateInput
+                  label="Ended"
+                  value={row.end ?? ""}
+                  onChange={(end) => list.update(row.id, { end })}
+                />
+              ) : null}
             </div>
-            <input
+            <PillInput
+              label="Note"
               value={row.note ?? ""}
-              onChange={(e) => list.update(row.id, { note: e.target.value })}
-              placeholder="Note (optional)"
-              aria-label="Relationship note"
-              className={fieldBase}
+              placeholder="Optional"
+              ariaLabel="Relationship note"
+              onChange={(note) => list.update(row.id, { note })}
             />
           </div>
-          <RemoveButton label="Remove relationship" onClick={() => list.remove(row.id)} />
+          <button
+            type="button"
+            aria-label="Remove relationship"
+            onClick={() => list.remove(row.id)}
+            className="-my-3 -mr-3 flex w-12 shrink-0 cursor-pointer items-center justify-center self-stretch rounded-r-xl bg-danger/10 text-danger transition-colors duration-150 hover:bg-danger/20"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+            </svg>
+          </button>
         </div>
-      ))}
-      <AddRowButton
-        label={ADD_LABELS.relationships}
-        count={rows.length}
-        onClick={() => list.add(emptyRelationship())}
-      />
-    </div>
+      ))}    </div>
   );
 }
 
@@ -657,13 +839,7 @@ function TimelineRows({
           </div>
           <RemoveButton label="Remove life event" onClick={() => list.remove(row.id)} />
         </div>
-      ))}
-      <AddRowButton
-        label={ADD_LABELS.timeline}
-        count={rows.length}
-        onClick={() => list.add(emptyLifeEvent())}
-      />
-    </div>
+      ))}    </div>
   );
 }
 
@@ -712,8 +888,6 @@ function PersonRows({
           </div>
           <RemoveButton label={`Remove ${addLabel.toLowerCase()}`} onClick={() => list.remove(row.id)} />
         </div>
-      ))}
-      <AddRowButton label={addLabel} count={rows.length} onClick={() => list.add(emptyPerson())} />
-    </div>
+      ))}    </div>
   );
 }

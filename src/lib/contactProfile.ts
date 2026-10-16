@@ -1,5 +1,6 @@
 import type {
   ContactCareer,
+  ContactCustomSection,
   ContactFood,
   ContactFoodPolarity,
   ContactLifeEvent,
@@ -79,6 +80,7 @@ export function emptyProfile(): ContactProfile {
     timeline: [],
     family: [],
     friends: [],
+    custom: [],
   };
 }
 
@@ -115,6 +117,10 @@ export function emptyPerson(): ContactPerson {
   return { id: newId(), name: "" };
 }
 
+export function emptyCustomSection(): ContactCustomSection {
+  return { id: newId(), title: "", text: "" };
+}
+
 function trim(value?: string): string {
   return value?.trim() ?? "";
 }
@@ -149,10 +155,18 @@ export function sectionIsEmpty(profile: ContactProfile, section: ProfileSection)
   }
 }
 
+/** A custom section with neither a title nor body survives no serialization. */
+export function customSectionIsEmpty(section: ContactCustomSection): boolean {
+  return !trim(section.title) && !trim(section.text);
+}
+
 export function profileIsEmpty(profile?: ContactProfile): boolean {
   if (!profile) return true;
   const full = profileOf(profile);
-  return PROFILE_SECTIONS.every((section) => sectionIsEmpty(full, section));
+  return (
+    PROFILE_SECTIONS.every((section) => sectionIsEmpty(full, section)) &&
+    full.custom.every(customSectionIsEmpty)
+  );
 }
 
 /** The sections with something in them, in display order. */
@@ -247,8 +261,14 @@ export function serializeProfile(profile?: ContactProfile): Record<string, unkno
     if (kind) entry.kind = kind;
     const start = optional(row.start);
     if (start) entry.start = start;
-    const end = optional(row.end);
-    if (end) entry.end = end;
+    // A current relationship is ongoing by definition, so its end is never
+    // written even if one lingers in the draft from before the flag was set.
+    if (row.current) {
+      entry.current = true;
+    } else {
+      const end = optional(row.end);
+      if (end) entry.end = end;
+    }
     const note = optional(row.note);
     if (note) entry.note = note;
     return entry;
@@ -280,6 +300,17 @@ export function serializeProfile(profile?: ContactProfile): Record<string, unkno
     });
     if (people) body[section] = people;
   }
+
+  const custom = list(full.custom, (row) => {
+    const title = trim(row.title).slice(0, MAX_PROFILE_TEXT_CHARS);
+    const text = trim(row.text).slice(0, MAX_PROFILE_TEXT_CHARS);
+    if (!title && !text) return null;
+    const entry: Record<string, unknown> = {};
+    if (title) entry.title = title;
+    if (text) entry.text = text;
+    return entry;
+  });
+  if (custom) body.custom = custom;
 
   return body;
 }
@@ -361,12 +392,14 @@ export function parseProfile(value: unknown): ContactProfile | undefined {
     const row = (entry ?? {}) as Record<string, unknown>;
     const name = str(row.name);
     if (!name) continue;
+    const current = row.current === true ? true : undefined;
     profile.relationships.push({
       id: newId(),
       name,
       kind: str(row.kind) || RELATIONSHIP_KINDS[0],
       start: optionalStr(row.start),
-      end: optionalStr(row.end),
+      end: current ? undefined : optionalStr(row.end),
+      current,
       note: optionalStr(row.note),
     });
   }
@@ -395,6 +428,14 @@ export function parseProfile(value: unknown): ContactProfile | undefined {
         note: optionalStr(row.note),
       });
     }
+  }
+
+  for (const entry of asArray(raw.custom)) {
+    const row = (entry ?? {}) as Record<string, unknown>;
+    const title = str(row.title);
+    const text = str(row.text);
+    if (!title && !text) continue;
+    profile.custom.push({ id: newId(), title, text });
   }
 
   return profileIsEmpty(profile) ? undefined : profile;
@@ -447,6 +488,33 @@ export function formatPartialDate(value?: string): string {
   });
 }
 
+/**
+ * A chronological key for ordering a life event, tolerant of every form the
+ * date field can leave behind: ISO at any precision, a month or day missing its
+ * leading zero, and a month/year typed as words where a browser renders the
+ * month picker as a plain text box. A month- or year-only value sorts at the
+ * start of its period rather than below every full date, which is the bug a
+ * plain string compare produces (letters and unpadded digits outrank `0`).
+ *
+ * Null when nothing datelike can be read, which keeps a free-text entry at the
+ * end of the column rather than wherever its first character would land.
+ */
+export function lifeEventOrder(value?: string): number | null {
+  const text = trim(value);
+  if (!text) return null;
+  const iso = /^(\d{4})(?:-(\d{1,2}))?(?:-(\d{1,2}))?$/.exec(text);
+  if (iso) {
+    const [, year, month, day] = iso;
+    return Number(year) * 1e4 + Number(month ?? 0) * 100 + Number(day ?? 0);
+  }
+  const parsed = Date.parse(text);
+  if (!isNaN(parsed)) {
+    const date = new Date(parsed);
+    return date.getFullYear() * 1e4 + (date.getMonth() + 1) * 100 + date.getDate();
+  }
+  return null;
+}
+
 /** `start` to `end` as one label, with an open end reading as "Present". */
 export function formatDateRange(start?: string, end?: string): string {
   const from = formatPartialDate(start);
@@ -473,5 +541,6 @@ export function profileSearchText(profile?: ContactProfile): string {
   for (const row of [...full.family, ...full.friends]) {
     parts.push(row.name, row.relation ?? "", row.note ?? "");
   }
+  for (const row of full.custom) parts.push(row.title, row.text);
   return parts.filter(Boolean).join(" ");
 }
