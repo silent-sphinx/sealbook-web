@@ -23,12 +23,15 @@ import type {
   ContactDraft,
   ContactSocial,
   ContactWork,
+  NoteAttachment,
 } from "./types";
 
 export const CHANNEL_KINDS: ContactChannelKind[] = ["work", "home", "mobile", "custom"];
 
 /** Written only when true, so a reader predating it sees the card it expects. */
 export const CONTACT_ARCHIVED_PROP = "sealbook:archived";
+/** Absent on contacts with no attachments, so old readers ignore it. */
+export const CONTACT_ATTACHMENTS_PROP = "sealbook:attachments";
 
 export function channelKindLabel(kind: ContactChannelKind, label?: string): string {
   if (kind === "custom") {
@@ -307,6 +310,7 @@ const CARD_KEYS = [
   "name",
   ADDRESS_BOOK_ID_PROP,
   CONTACT_ARCHIVED_PROP,
+  CONTACT_ATTACHMENTS_PROP,
   "nickNames",
   "emails",
   "phones",
@@ -425,6 +429,10 @@ export function serializeCard(draft: ContactDraft): string {
     body[CONTACT_PROFILE_PROP] = profile;
   }
 
+  if (draft.attachments && draft.attachments.length > 0) {
+    body[CONTACT_ATTACHMENTS_PROP] = draft.attachments;
+  }
+
   if (draft.avatar) {
     body.media = {
       avatar: {
@@ -499,6 +507,7 @@ type RawCard = {
   updatedAt?: string;
   [ADDRESS_BOOK_ID_PROP]?: string;
   [CONTACT_ARCHIVED_PROP]?: boolean;
+  [CONTACT_ATTACHMENTS_PROP]?: unknown;
   [CONTACT_PROFILE_PROP]?: unknown;
 };
 
@@ -672,6 +681,22 @@ function parseAvatar(card: RawCard): string | undefined {
   return undefined;
 }
 
+function parseAttachments(raw: unknown): NoteAttachment[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const result: NoteAttachment[] = [];
+  for (const item of raw) {
+    if (
+      item &&
+      typeof item === "object" &&
+      typeof item.id === "string" &&
+      typeof item.adk === "string"
+    ) {
+      result.push(item as NoteAttachment);
+    }
+  }
+  return result.length > 0 ? result : undefined;
+}
+
 export function parseDraft(raw: string): ContactDraft {
   const card = JSON.parse(raw) as RawCard;
   const emails = parseChannels(card.emails, (entry) => entry.address, "home");
@@ -694,6 +719,7 @@ export function parseDraft(raw: string): ContactDraft {
     notes: parseNotes(card),
     avatar: parseAvatar(card),
     profile: parseProfile(card[CONTACT_PROFILE_PROP]),
+    attachments: parseAttachments(card[CONTACT_ATTACHMENTS_PROP]),
     addressBookId: resolveAddressBookId(card[ADDRESS_BOOK_ID_PROP]),
     archived: card[CONTACT_ARCHIVED_PROP] === true ? true : undefined,
     createdAt: card.created ?? card.createdAt,

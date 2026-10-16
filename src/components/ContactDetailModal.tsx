@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { addressLines, channelKindLabel, dateKindLabel } from "../lib/contact";
 import { optimizeAvatar } from "../lib/image";
-import type { AddressBook, Contact, ContactDraft } from "../lib/types";
+import type { Session } from "../lib/client";
+import type { AddressBook, Contact, ContactDraft, NoteAttachment } from "../lib/types";
 import { Avatar } from "./ContactCard";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ContactForm } from "./ContactForm";
+import { ContactAttachmentsSection } from "./ContactAttachmentsSection";
 import { ContactProfileView } from "./ContactProfileView";
 
 type Props = {
+  session: Session;
   contact: Contact;
   bookName?: string;
   onDelete?: () => void;
@@ -67,6 +70,7 @@ function socialUrl(platform: string, handle: string): string | null {
 }
 
 export function ContactDetailModal({
+  session,
   contact,
   bookName,
   onDelete,
@@ -86,6 +90,7 @@ export function ContactDetailModal({
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
   const [confirmRemovePhoto, setConfirmRemovePhoto] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<NoteAttachment[]>(contact.attachments ?? []);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const avatarMenuRef = useRef<HTMLDivElement>(null);
 
@@ -127,6 +132,11 @@ export function ContactDetailModal({
     } finally {
       event.target.value = "";
     }
+  }
+
+  async function handleAttachmentsChange(next: NoteAttachment[]) {
+    setAttachments(next);
+    await onSave({ ...contact, attachments: next.length > 0 ? next : undefined });
   }
 
   return (
@@ -502,6 +512,13 @@ export function ContactDetailModal({
           ) : null}
 
           {detailed ? <ContactProfileView profile={contact.profile} /> : null}
+
+          <ContactAttachmentsSection
+            session={session}
+            attachments={attachments}
+            readOnly={readOnly}
+            onAttachmentsChange={(next) => { void handleAttachmentsChange(next); }}
+          />
 
           </div>
         </div>

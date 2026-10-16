@@ -1678,6 +1678,7 @@ export default function App() {
         </div>
       ) : activeTab === "contacts" ? (
         <ContactsTab
+          session={session!}
           isOffline={isOffline}
           sidebar={sidebar}
           contactsSplit={contactsSplit}

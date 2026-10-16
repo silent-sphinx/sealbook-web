@@ -6,9 +6,11 @@ import { ContactDetailModal } from "./ContactDetailModal";
 import { ArchiveIcon, PlusIcon, SearchIcon, ClearIcon } from "./AppIcons";
 import { ARCHIVE_VIEW_NAME, bookNameById, isAddressBookVisible } from "../lib/addressBook";
 import { btnPrimary, focusRing, ghost } from "../lib/styles";
+import type { Session } from "../lib/client";
 import type { AddressBook, Contact, ContactDraft } from "../lib/types";
 
 interface ContactsTabProps {
+  session: Session;
   isOffline: boolean;
   sidebar: ReturnType<typeof useSidebar>;
   contactsSplit: ReturnType<typeof useSplitPane>;
@@ -51,6 +53,7 @@ interface ContactsTabProps {
 }
 
 export function ContactsTab({
+  session,
   isOffline,
   sidebar,
   contactsSplit,
@@ -291,6 +294,7 @@ export function ContactsTab({
               {viewingContact ? (
                 <ContactDetailModal
                   key={viewingContact.id}
+                  session={session}
                   contact={viewingContact}
                   bookName={bookNameById(addressBooks, viewingContact.addressBookId)}
                   onDelete={() => onPromptDelete(viewingContact)}

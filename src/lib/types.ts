@@ -244,6 +244,8 @@ export type ContactDraft = {
   notes?: string;
   avatar?: string;
   profile?: ContactProfile;
+  /** Photos and file attachments stored in the collection attachment store. */
+  attachments?: NoteAttachment[];
   addressBookId: string;
   /**
    * Out of its address book and the contact list, into the archive the
