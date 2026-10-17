@@ -7,7 +7,7 @@ import {
   putCalendarEvent,
   type Session,
 } from "../lib/client";
-import type { Calendar, CalendarEvent, RecurrenceRule } from "../lib/types";
+import type { Calendar, CalendarEvent, Contact, RecurrenceRule } from "../lib/types";
 import { DEFAULT_CALENDAR_COLOR } from "../lib/types";
 import { DEFAULT_CALENDAR_ID, activeCalendars, archivedCalendars, isCalendarVisible, visibleCalendarIds } from "../lib/calendar";
 import { friendlyError } from "../lib/errors";
@@ -156,6 +156,7 @@ export function CalendarView({
   session,
   calendars,
   events,
+  contacts,
   busy,
   timezone,
   onRefresh,
@@ -165,6 +166,7 @@ export function CalendarView({
   session: Session;
   calendars: Calendar[];
   events: CalendarEvent[];
+  contacts: Contact[];
   busy: boolean;
   timezone: string;
   onRefresh: () => Promise<void>;
@@ -193,7 +195,7 @@ export function CalendarView({
   const [allDay, setAllDay] = useState(false);
   const [notes, setNotes] = useState("");
   const [location, setLocation] = useState("");
-  const [participants, setParticipants] = useState("");
+  const [participants, setParticipants] = useState<string[]>([]);
   const [repeatChoice, setRepeatChoice] = useState<RepeatChoice>("none");
   const [customFrequency, setCustomFrequency] = useState<"daily" | "weekly" | "monthly" | "yearly">("weekly");
   const [customInterval, setCustomInterval] = useState(1);
@@ -434,7 +436,7 @@ export function CalendarView({
     setTitle("");
     setNotes("");
     setLocation("");
-    setParticipants("");
+    setParticipants([]);
     setAllDay(false);
     setEventCalendarId(activeCals[0]?.id ?? "");
     const startHour = hour === undefined ? 9 : Math.min(23, Math.max(0, hour));
@@ -459,7 +461,7 @@ export function CalendarView({
     setAllDay(!event.start.includes("T"));
     setNotes(event.notes ?? "");
     setLocation(event.location ?? "");
-    setParticipants(event.participants?.join(", ") ?? "");
+    setParticipants(event.participants ?? []);
     setEventCalendarId(event.calendarId ?? activeCals[0]?.id ?? "");
     const rule = event.recurrence;
     if (!rule) {
@@ -550,7 +552,7 @@ export function CalendarView({
           end: allDay ? end.slice(0, 10) || day : end ? localInputToUtc(end, timezone) : undefined,
           notes: notes.trim() || undefined,
           location: location.trim() || undefined,
-          participants: participants.split(",").map((participant) => participant.trim()).filter(Boolean),
+          participants: participants.filter(Boolean),
           timezone: allDay ? timezone : timezone,
           calendarId: eventCalendarId || undefined,
           recurrence,
@@ -739,7 +741,7 @@ export function CalendarView({
         </section>
       </div>
 
-      {composer ? <TaskDialog editing={editingEvent !== null} title={title} start={start} end={end} notes={notes} location={location} participants={participants} allDay={allDay} calendarId={eventCalendarId} calendars={composerCalendars} repeatChoice={repeatChoice} customFrequency={customFrequency} customInterval={customInterval} repeatEnd={repeatEnd} repeatCount={repeatCount} repeatUntil={repeatUntil} minRepeatUntil={start.slice(0, 10)} busy={busy} error={error} onClose={closeTaskDialog} onSave={() => void saveEvent()} onDelete={editingEvent ? () => void removeEvent() : undefined} onTitleChange={setTitle} onStartChange={updateStart} onEndChange={setEnd} onNotesChange={setNotes} onLocationChange={setLocation} onParticipantsChange={setParticipants} onAllDayChange={setAllDay} onCalendarChange={setEventCalendarId} onRepeatChange={setRepeatChoice} onCustomFrequencyChange={setCustomFrequency} onCustomIntervalChange={setCustomInterval} onRepeatEndChange={setRepeatEnd} onRepeatCountChange={setRepeatCount} onRepeatUntilChange={setRepeatUntil} /> : null}
+      {composer ? <TaskDialog editing={editingEvent !== null} title={title} start={start} end={end} notes={notes} location={location} participants={participants} contacts={contacts} allDay={allDay} calendarId={eventCalendarId} calendars={composerCalendars} repeatChoice={repeatChoice} customFrequency={customFrequency} customInterval={customInterval} repeatEnd={repeatEnd} repeatCount={repeatCount} repeatUntil={repeatUntil} minRepeatUntil={start.slice(0, 10)} busy={busy} error={error} onClose={closeTaskDialog} onSave={() => void saveEvent()} onDelete={editingEvent ? () => void removeEvent() : undefined} onTitleChange={setTitle} onStartChange={updateStart} onEndChange={setEnd} onNotesChange={setNotes} onLocationChange={setLocation} onParticipantsChange={setParticipants} onAllDayChange={setAllDay} onCalendarChange={setEventCalendarId} onRepeatChange={setRepeatChoice} onCustomFrequencyChange={setCustomFrequency} onCustomIntervalChange={setCustomInterval} onRepeatEndChange={setRepeatEnd} onRepeatCountChange={setRepeatCount} onRepeatUntilChange={setRepeatUntil} /> : null}
       {calendarComposer ? <CalendarDialog editing={editingCalendar !== null} name={calendarName} color={calendarColor} busy={busy || purgingEvents} error={error} eventCount={editingCalendar ? events.filter((event) => event.calendarId === editingCalendar.id).length : 0} onClose={() => { setCalendarComposer(false); setEditingCalendar(null); }} onSave={() => void saveCalendar()} onDelete={editingCalendar && editingCalendar.id !== DEFAULT_CALENDAR_ID ? () => setConfirmDeleteCalendar(true) : undefined} onPurge={editingCalendar ? () => setConfirmPurgeEvents(true) : undefined} onNameChange={setCalendarName} onColorChange={setCalendarColor} /> : null}
       {confirmDeleteCalendar && editingCalendar ? (
         <ConfirmDialog
@@ -772,7 +774,151 @@ export function CalendarView({
   );
 }
 
-function TaskDialog({ editing, title, start, end, notes, location, participants, allDay, calendarId, calendars, repeatChoice, customFrequency, customInterval, repeatEnd, repeatCount, repeatUntil, minRepeatUntil, busy, error, onClose, onSave, onDelete, onTitleChange, onStartChange, onEndChange, onNotesChange, onLocationChange, onParticipantsChange, onAllDayChange, onCalendarChange, onRepeatChange, onCustomFrequencyChange, onCustomIntervalChange, onRepeatEndChange, onRepeatCountChange, onRepeatUntilChange }: { editing: boolean; title: string; start: string; end: string; notes: string; location: string; participants: string; allDay: boolean; calendarId: string; calendars: Calendar[]; repeatChoice: RepeatChoice; customFrequency: "daily" | "weekly" | "monthly" | "yearly"; customInterval: number; repeatEnd: RepeatEnd; repeatCount: number; repeatUntil: string; minRepeatUntil: string; busy: boolean; error: string | null; onClose: () => void; onSave: () => void; onDelete?: () => void; onTitleChange: (value: string) => void; onStartChange: (value: string) => void; onEndChange: (value: string) => void; onNotesChange: (value: string) => void; onLocationChange: (value: string) => void; onParticipantsChange: (value: string) => void; onAllDayChange: (value: boolean) => void; onCalendarChange: (value: string) => void; onRepeatChange: (value: RepeatChoice) => void; onCustomFrequencyChange: (value: "daily" | "weekly" | "monthly" | "yearly") => void; onCustomIntervalChange: (value: number) => void; onRepeatEndChange: (value: "never" | "count" | "date") => void; onRepeatCountChange: (value: number) => void; onRepeatUntilChange: (value: string) => void }) {
+function ParticipantPicker({
+  participants,
+  contacts,
+  onChange,
+}: {
+  participants: string[];
+  contacts: Contact[];
+  onChange: (value: string[]) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [cursor, setCursor] = useState(-1);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const activeContacts = useMemo(
+    () => contacts.filter((c) => c.archived !== true),
+    [contacts],
+  );
+
+  const suggestions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return activeContacts
+      .filter((c) => {
+        const name = c.name.toLowerCase();
+        const email = (c.email ?? "").toLowerCase();
+        return (name.includes(q) || email.includes(q)) && !participants.includes(c.name);
+      })
+      .slice(0, 6);
+  }, [query, activeContacts, participants]);
+
+  useEffect(() => {
+    if (suggestions.length > 0 && query.trim()) setOpen(true);
+    else setOpen(false);
+    setCursor(-1);
+  }, [suggestions, query]);
+
+  useEffect(() => {
+    function onPointerDown(e: PointerEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, []);
+
+  function addParticipant(name: string) {
+    const trimmed = name.trim();
+    if (trimmed && !participants.includes(trimmed)) {
+      onChange([...participants, trimmed]);
+    }
+    setQuery("");
+    setOpen(false);
+    setCursor(-1);
+    inputRef.current?.focus();
+  }
+
+  function removeParticipant(index: number) {
+    onChange(participants.filter((_, i) => i !== index));
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown" && open) {
+      e.preventDefault();
+      setCursor((c) => Math.min(c + 1, suggestions.length - 1));
+    } else if (e.key === "ArrowUp" && open) {
+      e.preventDefault();
+      setCursor((c) => Math.max(c - 1, -1));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (open && cursor >= 0 && suggestions[cursor]) {
+        addParticipant(suggestions[cursor].name);
+      } else if (query.trim()) {
+        addParticipant(query);
+      }
+    } else if (e.key === "," || e.key === "Tab") {
+      if (query.trim()) {
+        e.preventDefault();
+        addParticipant(query);
+      }
+    } else if (e.key === "Backspace" && !query && participants.length > 0) {
+      onChange(participants.slice(0, -1));
+    } else if (e.key === "Escape") {
+      setOpen(false);
+      setCursor(-1);
+    }
+  }
+
+  return (
+    <div className="block text-[11px] font-medium text-mute">
+      Participants
+      <div ref={containerRef} className="relative mt-1">
+        <div
+          className="flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-lg border border-line bg-bg px-2 py-1.5 focus-within:border-accent"
+          onPointerDown={(e) => {
+            if (e.target === e.currentTarget) inputRef.current?.focus();
+          }}
+        >
+          {participants.map((name, i) => (
+            <span key={i} className="flex items-center gap-1 rounded-md bg-surface px-2 py-0.5 text-[11px] text-text">
+              {name}
+              <button
+                type="button"
+                onClick={() => removeParticipant(i)}
+                className="text-mute hover:text-text"
+                aria-label={`Remove ${name}`}
+              >
+                <Icon name="x" className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          ))}
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={participants.length === 0 ? "Search contacts or type a name" : ""}
+            className="min-w-24 flex-1 bg-transparent text-xs text-text outline-none placeholder:text-mute"
+          />
+        </div>
+        {open && suggestions.length > 0 ? (
+          <ul role="listbox" className="absolute left-0 top-full z-50 mt-1 w-full overflow-hidden rounded-xl border border-line bg-bg shadow-lg">
+            {suggestions.map((contact, i) => (
+              <li
+                key={contact.id}
+                role="option"
+                aria-selected={i === cursor}
+                onPointerDown={(e) => { e.preventDefault(); addParticipant(contact.name); }}
+                className={`flex cursor-pointer items-center gap-2.5 px-3 py-2 text-xs transition-colors ${i === cursor ? "bg-surface" : "hover:bg-surface/60"}`}
+              >
+                <span className="min-w-0 flex-1 truncate font-medium text-text">{contact.name}</span>
+                {contact.email ? <span className="shrink-0 text-mute">{contact.email}</span> : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function TaskDialog({ editing, title, start, end, notes, location, participants, contacts, allDay, calendarId, calendars, repeatChoice, customFrequency, customInterval, repeatEnd, repeatCount, repeatUntil, minRepeatUntil, busy, error, onClose, onSave, onDelete, onTitleChange, onStartChange, onEndChange, onNotesChange, onLocationChange, onParticipantsChange, onAllDayChange, onCalendarChange, onRepeatChange, onCustomFrequencyChange, onCustomIntervalChange, onRepeatEndChange, onRepeatCountChange, onRepeatUntilChange }: { editing: boolean; title: string; start: string; end: string; notes: string; location: string; participants: string[]; contacts: Contact[]; allDay: boolean; calendarId: string; calendars: Calendar[]; repeatChoice: RepeatChoice; customFrequency: "daily" | "weekly" | "monthly" | "yearly"; customInterval: number; repeatEnd: RepeatEnd; repeatCount: number; repeatUntil: string; minRepeatUntil: string; busy: boolean; error: string | null; onClose: () => void; onSave: () => void; onDelete?: () => void; onTitleChange: (value: string) => void; onStartChange: (value: string) => void; onEndChange: (value: string) => void; onNotesChange: (value: string) => void; onLocationChange: (value: string) => void; onParticipantsChange: (value: string[]) => void; onAllDayChange: (value: boolean) => void; onCalendarChange: (value: string) => void; onRepeatChange: (value: RepeatChoice) => void; onCustomFrequencyChange: (value: "daily" | "weekly" | "monthly" | "yearly") => void; onCustomIntervalChange: (value: number) => void; onRepeatEndChange: (value: "never" | "count" | "date") => void; onRepeatCountChange: (value: number) => void; onRepeatUntilChange: (value: string) => void }) {
   return (
     <Modal title={editing ? "Edit event" : "New event"} onClose={onClose}>
         <div className="event-dialog flex-1 space-y-3 overflow-y-auto px-5 py-4">
@@ -792,10 +938,7 @@ function TaskDialog({ editing, title, start, end, notes, location, participants,
           </div>
 
           {/* Participants */}
-          <label className="block text-[11px] font-medium text-mute">
-            Participants
-            <input value={participants} onChange={(e) => onParticipantsChange(e.target.value)} placeholder="Names or emails, comma separated" className="mt-1 h-9 w-full rounded-lg border border-line bg-bg px-2.5 text-xs outline-none placeholder:text-mute focus:border-accent" />
-          </label>
+          <ParticipantPicker participants={participants} contacts={contacts} onChange={onParticipantsChange} />
 
           {/* Date/Time section */}
           <div className="rounded-lg border border-line bg-bg">

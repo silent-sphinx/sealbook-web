@@ -1734,7 +1734,7 @@ export default function App() {
         </main>
       ) : activeTab === "calendar" ? (
         <div>
-          <CalendarView session={session} calendars={calendars} events={calendarEvents} busy={busy} timezone={timezone} onRefresh={() => refresh(session)} readOnly={isOffline} sidebar={sidebar} />
+          <CalendarView session={session} calendars={calendars} events={calendarEvents} contacts={contacts} busy={busy} timezone={timezone} onRefresh={() => refresh(session)} readOnly={isOffline} sidebar={sidebar} />
         </div>
       ) : activeTab === "notes" ? (
         <div>
