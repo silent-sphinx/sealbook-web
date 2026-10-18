@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { SidebarDrawer, SidebarHeader, SidebarSection, useSidebar } from "./SidebarDrawer";
 import { SplitHandle, useSplitPane } from "./SplitPane";
 import { AddressBookList } from "./AddressBookList";
@@ -5,7 +6,12 @@ import { ContactCard, ContactListSkeleton } from "./ContactCard";
 import { ContactDetailModal } from "./ContactDetailModal";
 import { ContactNetworkMap } from "./ContactNetworkMap";
 import { ArchiveIcon, PlusIcon, SearchIcon, ClearIcon } from "./AppIcons";
-import { ARCHIVE_VIEW_NAME, bookNameById, isAddressBookVisible } from "../lib/addressBook";
+import {
+  ARCHIVE_VIEW_NAME,
+  bookNameById,
+  isAddressBookVisible,
+  resolveAddressBookId,
+} from "../lib/addressBook";
 import { btnPrimary, focusRing, ghost } from "../lib/styles";
 import type { Session } from "../lib/client";
 import type { AddressBook, Contact, ContactDraft } from "../lib/types";
@@ -101,6 +107,16 @@ export function ContactsTab({
   onUnlinkFromSection,
   onNavigateToContact,
 }: ContactsTabProps) {
+  // The map mirrors the list's book filter, so hiding a book also drops its
+  // contacts and their links from the network.
+  const networkContacts = useMemo(
+    () =>
+      contacts.filter(
+        (contact) => !hiddenBooks.has(resolveAddressBookId(contact.addressBookId)),
+      ),
+    [contacts, hiddenBooks],
+  );
+
   return (
     <main className="flex flex-col bg-bg pb-[env(safe-area-inset-bottom)] text-text lg:h-[calc(100dvh-var(--sb-header-h,74px))] lg:overflow-hidden lg:pb-0">
       <div className="sb-shell grid min-h-0 flex-1 lg:h-full" style={sidebar.cols}>
@@ -322,7 +338,7 @@ export function ContactsTab({
                 />
               ) : detailedContacts ? (
                 <ContactNetworkMap
-                  contacts={contacts}
+                  contacts={networkContacts}
                   onSelectContact={(contact) =>
                     onGuardEditing(() => {
                       onSetError(null);
