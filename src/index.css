@@ -28,6 +28,10 @@
   --color-note: #e0af68;
   --color-note-new: #9ece6a;
 
+  /* Contact network map edges only. */
+  --color-link-family: #5a7fcf;
+  --color-link-friend: #ba7f2e;
+
   --animate-fade-in: fadeIn 0.2s ease-out both;
   --animate-fade-in-up: fadeInUp 0.4s ease-out both;
   --animate-scale-in: scaleIn 0.25s ease-out both;

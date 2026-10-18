@@ -58,10 +58,13 @@ export function Avatar({
   name,
   avatar,
   size = "md",
+  pixelSize,
 }: {
   name: string;
   avatar?: string;
   size?: "sm" | "md" | "lg" | "xl";
+  /** Continuous size in px, overriding `size`'s fixed steps. */
+  pixelSize?: number;
 }) {
   const [imgError, setImgError] = useState(false);
 
@@ -74,26 +77,35 @@ export function Avatar({
           ? "h-7 w-7 text-xs font-semibold"
           : "h-9 w-9 text-xs font-semibold";
 
+  const pixelStyle = pixelSize
+    ? { width: pixelSize, height: pixelSize, fontSize: pixelSize * 0.4 }
+    : undefined;
+
   if (avatar && !imgError) {
     return (
       <img
         src={avatar}
         alt={name}
+        draggable={false}
         onError={() => setImgError(true)}
-        className={`shrink-0 rounded-full object-cover border border-line/60 bg-surface/50 ${sizeClasses}`}
+        style={pixelStyle}
+        className={`shrink-0 rounded-full object-cover border border-line/60 bg-surface/50 ${pixelSize ? "" : sizeClasses}`}
       />
     );
   }
 
-  return <Initials name={name} size={size === "xl" ? "lg" : size} />;
+  return <Initials name={name} size={size === "xl" ? "lg" : size} pixelSize={pixelSize} />;
 }
 
 export function Initials({
   name,
   size = "md",
+  pixelSize,
 }: {
   name: string;
   size?: "sm" | "md" | "lg";
+  /** Continuous size in px, overriding `size`'s fixed steps. */
+  pixelSize?: number;
 }) {
   const parts = name.trim().split(/\s+/u);
   const text =
@@ -114,12 +126,17 @@ export function Initials({
         ? "h-7 w-7 text-xs font-semibold"
         : "h-9 w-9 text-xs font-semibold";
 
+  const pixelStyle = pixelSize
+    ? { width: pixelSize, height: pixelSize, fontSize: pixelSize * 0.4 }
+    : undefined;
+
   return (
     <span
-      className={`flex shrink-0 items-center justify-center rounded-full ${sizeClasses}`}
+      className={`flex shrink-0 items-center justify-center rounded-full ${pixelSize ? "" : sizeClasses}`}
       style={{
         background: `hsl(${hue} 30% 25%)`,
         color: `hsl(${hue} 40% 75%)`,
+        ...pixelStyle,
       }}
     >
       {text}

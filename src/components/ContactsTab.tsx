@@ -3,6 +3,7 @@ import { SplitHandle, useSplitPane } from "./SplitPane";
 import { AddressBookList } from "./AddressBookList";
 import { ContactCard, ContactListSkeleton } from "./ContactCard";
 import { ContactDetailModal } from "./ContactDetailModal";
+import { ContactNetworkMap } from "./ContactNetworkMap";
 import { ArchiveIcon, PlusIcon, SearchIcon, ClearIcon } from "./AppIcons";
 import { ARCHIVE_VIEW_NAME, bookNameById, isAddressBookVisible } from "../lib/addressBook";
 import { btnPrimary, focusRing, ghost } from "../lib/styles";
@@ -318,6 +319,16 @@ export function ContactsTab({
                   onLinkInSection={onLinkInSection}
                   onUnlinkFromSection={onUnlinkFromSection}
                   onNavigateToContact={onNavigateToContact}
+                />
+              ) : detailedContacts ? (
+                <ContactNetworkMap
+                  contacts={contacts}
+                  onSelectContact={(contact) =>
+                    onGuardEditing(() => {
+                      onSetError(null);
+                      onSetViewingContact(contact);
+                    })
+                  }
                 />
               ) : (
                 <div className="hidden min-h-56 flex-1 items-center justify-center px-6 text-center lg:flex">
