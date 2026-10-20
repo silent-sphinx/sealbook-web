@@ -33,6 +33,13 @@ const EDGE_DASH: Record<ContactNetworkEdge["kind"], string | undefined> = {
   colleagues: "1.5 4",
 };
 
+/** Perpendicular spacing between parallel lines when a pair shares more than one relationship. */
+const EDGE_OFFSET_GAP = 4;
+
+function pairKey(edge: ContactNetworkEdge): string {
+  return [edge.source, edge.target].sort().join("|");
+}
+
 function clampZoom(scale: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, scale));
 }
@@ -83,6 +90,20 @@ export function ContactNetworkMap({
     () => buildContactNetwork(contacts, { includeUnlinked: showAllContacts }),
     [contacts, showAllContacts],
   );
+
+  // Groups edges by the pair they connect, so a pair sharing more than one
+  // relationship (e.g. friends and colleagues) can be drawn as parallel
+  // lines rather than one overdrawing the other.
+  const edgeGroups = useMemo(() => {
+    const groups = new Map<string, ContactNetworkEdge[]>();
+    for (const edge of graph.edges) {
+      const key = pairKey(edge);
+      const group = groups.get(key);
+      if (group) group.push(edge);
+      else groups.set(key, [edge]);
+    }
+    return groups;
+  }, [graph.edges]);
 
   // Runs the loop that steps the physics simulation and re-renders while
   // anything is moving (including the duration of a node drag), then goes
@@ -302,13 +323,23 @@ export function ContactNetworkMap({
                   const from = position(edge.source);
                   const to = position(edge.target);
                   const highlighted = isHighlighted(edge);
+
+                  const group = edgeGroups.get(pairKey(edge)) ?? [edge];
+                  const index = group.indexOf(edge);
+                  const offset = (index - (group.length - 1) / 2) * EDGE_OFFSET_GAP;
+                  const dx = to.x - from.x;
+                  const dy = to.y - from.y;
+                  const length = Math.max(Math.hypot(dx, dy), 1);
+                  const nx = (-dy / length) * offset;
+                  const ny = (dx / length) * offset;
+
                   return (
                     <line
                       key={edge.id}
-                      x1={from.x}
-                      y1={from.y}
-                      x2={to.x}
-                      y2={to.y}
+                      x1={from.x + nx}
+                      y1={from.y + ny}
+                      x2={to.x + nx}
+                      y2={to.y + ny}
                       pointerEvents="none"
                       className={EDGE_CLASS[edge.kind]}
                       strokeWidth={highlighted ? 2.5 : 1.5}

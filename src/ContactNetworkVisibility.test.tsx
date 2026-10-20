@@ -80,13 +80,26 @@ function colleague(name: string, id: string, peer: { id: string; name: string })
   };
 }
 
+/** A contact linked reciprocally to `peer` as both a friend and a colleague. */
+function friendAndColleague(name: string, id: string, peer: { id: string; name: string }): Contact {
+  return {
+    ...aContact(name, id),
+    profile: {
+      ...profileOf(),
+      friends: [{ id: `pf-${id}`, name: peer.name, contactId: peer.id }],
+      colleagues: [{ id: `pc-${id}`, name: peer.name, contactId: peer.id }],
+    },
+  };
+}
+
 async function unlock() {
   setConnectionDomain();
   await enrolDevice(PASSWORD);
-  render(<App />);
+  const result = render(<App />);
   fireEvent.change(await screen.findByLabelText("Password"), { target: { value: PASSWORD } });
   fireEvent.click(screen.getByRole("button", { name: "Unlock" }));
   await screen.findByText("Ada Lovelace");
+  return result;
 }
 
 beforeEach(() => {
@@ -96,6 +109,8 @@ beforeEach(() => {
     colleague("Lin Wei", "c3", { id: "c4", name: "Noor Khan" }),
     colleague("Noor Khan", "c4", { id: "c3", name: "Lin Wei" }),
     aContact("Marie Curie", "c5"),
+    friendAndColleague("Rosa Parks", "c6", { id: "c7", name: "Malcolm X" }),
+    friendAndColleague("Malcolm X", "c7", { id: "c6", name: "Rosa Parks" }),
   ];
 });
 
@@ -134,5 +149,19 @@ describe("the contact network map", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Clusters only" }));
     expect(screen.queryByRole("button", { name: "Marie Curie" })).toBeNull();
+  });
+
+  it("draws one line per relationship when a pair shares more than one", async () => {
+    const { container } = await unlock();
+
+    const friendLines = container.querySelectorAll("line.stroke-link-friend");
+    const colleagueLines = container.querySelectorAll("line.stroke-link-colleague");
+
+    // Rosa and Malcolm are linked as both friends and colleagues, so their
+    // pair contributes a line to each kind alongside the other fixtures'
+    // single-kind pairs (Ada/Grace as friends, Lin/Noor as colleagues),
+    // rather than collapsing to one line per pair.
+    expect(friendLines.length).toBe(2);
+    expect(colleagueLines.length).toBe(2);
   });
 });

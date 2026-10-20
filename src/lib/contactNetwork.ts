@@ -32,13 +32,13 @@ export type NetworkPoint = { x: number; y: number };
 /** Nodes beyond this many are dropped, keeping the least-connected out first. */
 export const MAX_NETWORK_NODES = 150;
 
-/** When a pair disagrees on its edge kind, the lowest rank here wins. */
-const KIND_RANK: Record<LinkableSection, number> = { family: 0, friends: 1, colleagues: 2 };
-
 /**
  * Builds the link graph from each contact's `family`/`friends`/`colleagues`
  * entries. Links are written reciprocally (both contacts get a `contactId`
- * entry), so a pair is collapsed to one edge rather than drawn twice.
+ * entry), so a pair is only read once per kind rather than drawn twice. A
+ * pair sharing more than one kind (e.g. both friends and colleagues) gets one
+ * edge per kind, so the map draws a line for each relationship rather than
+ * picking a single one to represent the pair.
  *
  * With `includeUnlinked`, every contact becomes a node even without an edge,
  * for the "every contact" view of the map rather than just its clusters.
@@ -52,7 +52,7 @@ export function buildContactNetwork(
     if (!contact.archived) byId.set(contact.id, contact);
   }
 
-  const edgeKinds = new Map<string, LinkableSection>();
+  const pairKinds = new Map<string, Set<LinkableSection>>();
   const degree = new Map<string, number>();
 
   for (const contact of byId.values()) {
@@ -63,22 +63,21 @@ export function buildContactNetwork(
         if (!byId.has(person.contactId)) continue;
 
         const key = [contact.id, person.contactId].sort().join("|");
-        const existing = edgeKinds.get(key);
-        if (!existing) {
-          edgeKinds.set(key, kind);
-        } else if (existing !== kind && KIND_RANK[kind] < KIND_RANK[existing]) {
-          edgeKinds.set(key, kind);
-        }
+        const kinds = pairKinds.get(key) ?? new Set<LinkableSection>();
+        kinds.add(kind);
+        pairKinds.set(key, kinds);
       }
     }
   }
 
   const edges: ContactNetworkEdge[] = [];
-  for (const [key, kind] of edgeKinds) {
+  for (const [key, kinds] of pairKinds) {
     const [source, target] = key.split("|") as [string, string];
-    edges.push({ id: key, source, target, kind });
     degree.set(source, (degree.get(source) ?? 0) + 1);
     degree.set(target, (degree.get(target) ?? 0) + 1);
+    for (const kind of LINKABLE_SECTIONS) {
+      if (kinds.has(kind)) edges.push({ id: `${key}:${kind}`, source, target, kind });
+    }
   }
 
   const nodeIds = options.includeUnlinked ? [...byId.keys()] : [...degree.keys()];
