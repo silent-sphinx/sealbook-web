@@ -422,26 +422,22 @@ async function openVault(session: Session): Promise<OpenedVault> {
     );
   }
   for (const obj of walk.objects) {
-    let raw: string;
-    let contentType: string;
-    let tombstone = obj.tombstone;
+    // A rotation never re-encrypts a tombstone (clientRotation.ts), so one that
+    // has outlived a rotation is still sealed under a key this device no longer
+    // holds. The row-level flag already says it is a delete with nothing to
+    // read, and the manifest above is what vouches for that flag, so there is
+    // nothing to decrypt and a failure here is not this device losing access.
+    if (obj.tombstone) continue;
     try {
       const result = openObject(collectionKey, obj.id, state.collection_id, obj.nonce, obj.ciphertext, obj.padded_size);
-      raw = result.payload;
-      contentType = result.contentType;
-      // Either flag is enough. The row's is what the signed manifest commits
-      // to, and the envelope carries its own, so a delete is never read back as
-      // live whichever of the two it was recorded in.
-      tombstone = tombstone || result.tombstone;
+      if (result.tombstone) continue;
+      opened.push({ object: obj, contentType: result.contentType, payload: result.payload });
     } catch {
       // The manifest already verified, so this row is one a device signed for
       // and the server served faithfully: the failure is local, and dropping it
       // silently is what made an unreadable vault look like an emptied one.
       unopened += 1;
-      continue;
     }
-    if (tombstone) continue;
-    opened.push({ object: obj, contentType, payload: raw });
   }
   if (unopened > 0) {
     // The manifest verified, so these rows are genuine and the failure is local:

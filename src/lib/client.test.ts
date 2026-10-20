@@ -517,6 +517,74 @@ describe("listVault", () => {
     expect(listed.contacts.map((contact) => contact.name)).toEqual(["Ada Lovelace"]);
   });
 
+  it("does not count a tombstone a rotation left under a retired key as unopened", async () => {
+    const owner = account();
+    // A delete sealed under epoch 1's key, as sealbook-web's own delete path
+    // produces: a real sealed envelope, not an empty ciphertext.
+    const oldKey = owner.session.collectionKey;
+    const tombId = newUuid();
+    const sealedTombstone = sealObject(oldKey, tombId, owner.collectionId, JSCONTACT_CONTENT_TYPE, "");
+    const tombstone: SealedObject = {
+      id: tombId,
+      revision: 1,
+      tombstone: true,
+      nonce: sealedTombstone.nonce,
+      ciphertext: sealedTombstone.ciphertext,
+      padded_size: sealedTombstone.padded_size,
+      content_type: sealedContentType(),
+    };
+    // Rotation does not re-encrypt tombstones (clientRotation.ts), so after a
+    // rotation this exact row is what the server still serves, now under epoch 2.
+    const entries: ManifestEntry[] = [
+      {
+        id: tombId,
+        revision: 1,
+        tombstone: true,
+        content_digest: objectContentDigest(tombstone.nonce, tombstone.ciphertext),
+      },
+    ];
+    const manifest = manifestSign(
+      owner.enrollment.mldsa_seed,
+      owner.enrollment.ed25519_sk,
+      owner.collectionId,
+      owner.enrollment.device_id,
+      2,
+      2,
+      1,
+      entries,
+    );
+    const newCk = newCollectionKey();
+    const wrap = wrapCkForDevice(newCk, owner.enrollment.hpke_pk);
+    owner.session.collectionKey = newCk;
+    owner.session.keyEpoch = 2;
+    server({
+      "/changes": () => ({
+        latest_revision: 1,
+        key_epoch: 2,
+        objects: [tombstone],
+        has_more: false,
+        manifest,
+        resync: false,
+        tombstone_floor: 0,
+      }),
+      "/roster": () => ({ rosters: [owner.roster] }),
+      "/keys": () => ({
+        key_epoch: 2,
+        key_wraps: [
+          {
+            recipient_kind: "device",
+            recipient_id: owner.enrollment.device_id,
+            hpke_enc: wrap.enc,
+            wrapped_ck: wrap.wrapped_ck,
+            ciphersuite: wrap.ciphersuite,
+          },
+        ],
+      }),
+    });
+    const listed = await listVault(owner.session);
+    expect(listed.unopened).toBe(0);
+  });
+
   it("counts the rows it could not open instead of returning a shorter vault", async () => {
     const owner = account();
     const objects: SealedObject[] = [];
