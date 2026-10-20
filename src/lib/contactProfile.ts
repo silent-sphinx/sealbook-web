@@ -39,9 +39,13 @@ export const PROFILE_SECTIONS = [
   "timeline",
   "family",
   "friends",
+  "colleagues",
 ] as const;
 
 export type ProfileSection = (typeof PROFILE_SECTIONS)[number];
+
+/** The sections whose entries can link to another contact in the vault. */
+export type LinkableSection = "family" | "friends" | "colleagues";
 
 export const PROFILE_SECTION_LABELS: Record<ProfileSection, string> = {
   howWeMet: "How We Met",
@@ -54,7 +58,10 @@ export const PROFILE_SECTION_LABELS: Record<ProfileSection, string> = {
   timeline: "Life Events",
   family: "Family",
   friends: "Friends",
+  colleagues: "Colleagues",
 };
+
+export const LINKABLE_SECTIONS: LinkableSection[] = ["family", "friends", "colleagues"];
 
 export const RELATIONSHIP_KINDS = [
   "Partner",
@@ -80,6 +87,7 @@ export function emptyProfile(): ContactProfile {
     timeline: [],
     family: [],
     friends: [],
+    colleagues: [],
     custom: [],
   };
 }
@@ -152,6 +160,8 @@ export function sectionIsEmpty(profile: ContactProfile, section: ProfileSection)
       return profile.family.every((row) => !trim(row.name));
     case "friends":
       return profile.friends.every((row) => !trim(row.name));
+    case "colleagues":
+      return profile.colleagues.every((row) => !trim(row.name));
   }
 }
 
@@ -287,7 +297,7 @@ export function serializeProfile(profile?: ContactProfile): Record<string, unkno
   });
   if (timeline) body.timeline = timeline;
 
-  for (const section of ["family", "friends"] as const) {
+  for (const section of LINKABLE_SECTIONS) {
     const people = list(full[section], (row) => {
       const name = trim(row.name);
       if (!name) return null;
@@ -417,7 +427,7 @@ export function parseProfile(value: unknown): ContactProfile | undefined {
     });
   }
 
-  for (const section of ["family", "friends"] as const) {
+  for (const section of LINKABLE_SECTIONS) {
     for (const entry of asArray(raw[section])) {
       const row = (entry ?? {}) as Record<string, unknown>;
       const name = str(row.name);
@@ -541,7 +551,7 @@ export function profileSearchText(profile?: ContactProfile): string {
   }
   for (const row of full.relationships) parts.push(row.name, row.kind, row.note ?? "");
   for (const row of full.timeline) parts.push(row.title, row.description ?? "");
-  for (const row of [...full.family, ...full.friends]) {
+  for (const row of [...full.family, ...full.friends, ...full.colleagues]) {
     parts.push(row.name, row.relation ?? "", row.note ?? "");
   }
   for (const row of full.custom) parts.push(row.title, row.text);

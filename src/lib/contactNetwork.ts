@@ -1,4 +1,4 @@
-import { profileOf } from "./contactProfile";
+import { LINKABLE_SECTIONS, profileOf, type LinkableSection } from "./contactProfile";
 import type { Contact } from "./types";
 
 export type ContactNetworkNode = {
@@ -12,14 +12,19 @@ export type ContactNetworkEdge = {
   id: string;
   source: string;
   target: string;
-  kind: "family" | "friends";
+  kind: LinkableSection;
 };
 
 export type ContactNetworkGraph = {
   nodes: ContactNetworkNode[];
   edges: ContactNetworkEdge[];
-  /** Linked contacts before the `MAX_NETWORK_NODES` cutoff, for a "showing N of M" note. */
+  /** Nodes before the `MAX_NETWORK_NODES` cutoff, for a "showing N of M" note. */
   totalLinked: number;
+};
+
+export type ContactNetworkOptions = {
+  /** When true, a contact with no links still appears, as an isolated node. */
+  includeUnlinked?: boolean;
 };
 
 export type NetworkPoint = { x: number; y: number };
@@ -27,33 +32,42 @@ export type NetworkPoint = { x: number; y: number };
 /** Nodes beyond this many are dropped, keeping the least-connected out first. */
 export const MAX_NETWORK_NODES = 150;
 
+/** When a pair disagrees on its edge kind, the lowest rank here wins. */
+const KIND_RANK: Record<LinkableSection, number> = { family: 0, friends: 1, colleagues: 2 };
+
 /**
- * Builds the link graph from each contact's `family`/`friends` entries. Links
- * are written reciprocally (both contacts get a `contactId` entry), so a pair
- * is collapsed to one edge rather than drawn twice.
+ * Builds the link graph from each contact's `family`/`friends`/`colleagues`
+ * entries. Links are written reciprocally (both contacts get a `contactId`
+ * entry), so a pair is collapsed to one edge rather than drawn twice.
+ *
+ * With `includeUnlinked`, every contact becomes a node even without an edge,
+ * for the "every contact" view of the map rather than just its clusters.
  */
-export function buildContactNetwork(contacts: Contact[]): ContactNetworkGraph {
+export function buildContactNetwork(
+  contacts: Contact[],
+  options: ContactNetworkOptions = {},
+): ContactNetworkGraph {
   const byId = new Map<string, Contact>();
   for (const contact of contacts) {
     if (!contact.archived) byId.set(contact.id, contact);
   }
 
-  const edgeKinds = new Map<string, "family" | "friends">();
+  const edgeKinds = new Map<string, LinkableSection>();
   const degree = new Map<string, number>();
 
   for (const contact of byId.values()) {
     const profile = profileOf(contact.profile);
-    for (const kind of ["family", "friends"] as const) {
+    for (const kind of LINKABLE_SECTIONS) {
       for (const person of profile[kind]) {
         if (!person.contactId || person.contactId === contact.id) continue;
         if (!byId.has(person.contactId)) continue;
 
         const key = [contact.id, person.contactId].sort().join("|");
         const existing = edgeKinds.get(key);
-        if (!existing || existing === kind) {
+        if (!existing) {
           edgeKinds.set(key, kind);
-        } else {
-          edgeKinds.set(key, "family");
+        } else if (existing !== kind && KIND_RANK[kind] < KIND_RANK[existing]) {
+          edgeKinds.set(key, kind);
         }
       }
     }
@@ -67,11 +81,12 @@ export function buildContactNetwork(contacts: Contact[]): ContactNetworkGraph {
     degree.set(target, (degree.get(target) ?? 0) + 1);
   }
 
-  const nodes: ContactNetworkNode[] = [...degree.keys()]
+  const nodeIds = options.includeUnlinked ? [...byId.keys()] : [...degree.keys()];
+  const nodes: ContactNetworkNode[] = nodeIds
     .sort()
     .map((id) => {
       const contact = byId.get(id)!;
-      return { id, name: contact.name, avatar: contact.avatar, degree: degree.get(id)! };
+      return { id, name: contact.name, avatar: contact.avatar, degree: degree.get(id) ?? 0 };
     });
 
   if (nodes.length <= MAX_NETWORK_NODES) return { nodes, edges, totalLinked: nodes.length };

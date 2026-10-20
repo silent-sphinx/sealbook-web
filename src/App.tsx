@@ -58,7 +58,7 @@ import {
   isFeatureEnabled,
 } from "./lib/accountSettings";
 import { type OnboardingPlan } from "./lib/onboarding";
-import { profileOf, profileSearchText } from "./lib/contactProfile";
+import { LINKABLE_SECTIONS, profileOf, profileSearchText, type LinkableSection } from "./lib/contactProfile";
 import {
   ARCHIVE_VIEW_NAME,
   DEFAULT_ADDRESS_BOOK_ID,
@@ -1086,10 +1086,10 @@ export default function App() {
     try {
       await putContact(session, draft, viewingContact.id);
 
-      // Sync bidirectional links: compare old vs new contactId sets in family/friends.
+      // Sync bidirectional links: compare old vs new contactId sets in family/friends/colleagues.
       const oldProfile = profileOf(viewingContact.profile);
       const newProfile = profileOf(draft.profile);
-      for (const section of ["family", "friends"] as const) {
+      for (const section of LINKABLE_SECTIONS) {
         const oldIds = new Set(oldProfile[section].map((p) => p.contactId).filter(Boolean) as string[]);
         const newIds = new Set(newProfile[section].map((p) => p.contactId).filter(Boolean) as string[]);
         for (const addedId of newIds) {
@@ -1125,7 +1125,7 @@ export default function App() {
     }
   }
 
-  async function onLinkInSection(section: "family" | "friends", targetId: string): Promise<void> {
+  async function onLinkInSection(section: LinkableSection, targetId: string): Promise<void> {
     if (!session || !viewingContact) return;
     const target = contacts.find((c) => c.id === targetId);
     if (!target) return;
@@ -1152,7 +1152,7 @@ export default function App() {
     }
   }
 
-  async function onUnlinkFromSection(section: "family" | "friends", contactId: string): Promise<void> {
+  async function onUnlinkFromSection(section: LinkableSection, contactId: string): Promise<void> {
     if (!session || !viewingContact) return;
     const target = contacts.find((c) => c.id === contactId);
     const currentProfile = profileOf(viewingContact.profile);
@@ -1166,11 +1166,12 @@ export default function App() {
       await putContact(session, { ...viewingContact, profile: updatedCurrentProfile }, viewingContact.id);
       if (target) {
         const targetProfile = profileOf(target.profile);
-        const updatedTargetProfile = {
-          ...targetProfile,
-          family: targetProfile.family.filter((p) => p.contactId !== viewingContact.id),
-          friends: targetProfile.friends.filter((p) => p.contactId !== viewingContact.id),
-        };
+        const updatedTargetProfile = { ...targetProfile };
+        for (const linkable of LINKABLE_SECTIONS) {
+          updatedTargetProfile[linkable] = targetProfile[linkable].filter(
+            (p) => p.contactId !== viewingContact.id,
+          );
+        }
         await putContact(session, { ...target, profile: updatedTargetProfile }, target.id);
       }
       setViewingContact((current) =>

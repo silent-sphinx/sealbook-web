@@ -1,3 +1,4 @@
+import type { LinkableSection } from "../lib/contactProfile";
 import type { Contact, ContactProfile } from "../lib/types";
 import { Avatar } from "./ContactCard";
 import { focusRing } from "../lib/styles";
@@ -22,7 +23,7 @@ export function ContactLinkPicker({
   currentContactId: string;
   currentProfile?: ContactProfile;
   contacts: Contact[];
-  section: "family" | "friends";
+  section: LinkableSection;
   onLink: (contactId: string) => void;
   onClose: () => void;
   search: string;

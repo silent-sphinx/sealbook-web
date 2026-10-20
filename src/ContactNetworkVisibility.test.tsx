@@ -69,6 +69,17 @@ function linked(name: string, id: string, addressBookId: string, friend: {
   };
 }
 
+/** A contact linked reciprocally to `colleagueId` as a colleague. */
+function colleague(name: string, id: string, peer: { id: string; name: string }): Contact {
+  return {
+    ...aContact(name, id),
+    profile: {
+      ...profileOf(),
+      colleagues: [{ id: `p-${id}`, name: peer.name, contactId: peer.id }],
+    },
+  };
+}
+
 async function unlock() {
   setConnectionDomain();
   await enrolDevice(PASSWORD);
@@ -82,6 +93,9 @@ beforeEach(() => {
   store = [
     linked("Ada Lovelace", "c1", DEFAULT_ADDRESS_BOOK_ID, { id: "c2", name: "Grace Hopper" }),
     linked("Grace Hopper", "c2", WORK_BOOK, { id: "c1", name: "Ada Lovelace" }),
+    colleague("Lin Wei", "c3", { id: "c4", name: "Noor Khan" }),
+    colleague("Noor Khan", "c4", { id: "c3", name: "Lin Wei" }),
+    aContact("Marie Curie", "c5"),
   ];
 });
 
@@ -103,5 +117,22 @@ describe("the contact network map", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Show all address books" }));
     expect(screen.getByRole("button", { name: "Grace Hopper" })).toBeDefined();
+  });
+
+  it("shows a node per colleague-linked contact, same as family or friends", async () => {
+    await unlock();
+    expect(screen.getByRole("button", { name: "Lin Wei" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Noor Khan" })).toBeDefined();
+  });
+
+  it("hides contacts with no links until 'Every contact' is picked", async () => {
+    await unlock();
+    expect(screen.queryByRole("button", { name: "Marie Curie" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Every contact" }));
+    expect(screen.getByRole("button", { name: "Marie Curie" })).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clusters only" }));
+    expect(screen.queryByRole("button", { name: "Marie Curie" })).toBeNull();
   });
 });

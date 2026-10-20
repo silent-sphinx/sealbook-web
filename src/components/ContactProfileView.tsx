@@ -8,6 +8,7 @@ import {
   formatPartialDate,
   lifeEventOrder,
   profileOf,
+  type LinkableSection,
   type ProfileSection,
 } from "../lib/contactProfile";
 import type { Contact, ContactPerson, ContactProfile } from "../lib/types";
@@ -23,8 +24,8 @@ export type LinkProfileProps = {
   contacts?: Contact[];
   readOnly?: boolean;
   onNavigateToContact?: (contact: Contact) => void;
-  onLinkInSection?: (section: "family" | "friends") => void;
-  onUnlinkFromSection?: (section: "family" | "friends", contactId: string) => void;
+  onLinkInSection?: (section: LinkableSection) => void;
+  onUnlinkFromSection?: (section: LinkableSection, contactId: string) => void;
 };
 
 /**
@@ -47,10 +48,20 @@ export function ContactProfileView({
     full.family.length > 0 || (!linkProps?.readOnly && !!linkProps?.onLinkInSection);
   const hasFriends =
     full.friends.length > 0 || (!linkProps?.readOnly && !!linkProps?.onLinkInSection);
+  const hasColleagues =
+    full.colleagues.length > 0 || (!linkProps?.readOnly && !!linkProps?.onLinkInSection);
 
-  const shownSections = sections.filter((s) => s !== "family" && s !== "friends");
+  const shownSections = sections.filter(
+    (s) => s !== "family" && s !== "friends" && s !== "colleagues",
+  );
 
-  if (shownSections.length === 0 && custom.length === 0 && !hasFamily && !hasFriends) {
+  if (
+    shownSections.length === 0 &&
+    custom.length === 0 &&
+    !hasFamily &&
+    !hasFriends &&
+    !hasColleagues
+  ) {
     return null;
   }
 
@@ -84,6 +95,17 @@ export function ContactProfileView({
         </Section>
       ) : null}
 
+      {hasColleagues ? (
+        <Section title={PROFILE_SECTION_LABELS.colleagues}>
+          <PersonList
+            items={full.colleagues}
+            section="colleagues"
+            showRelation={false}
+            linkProps={linkProps}
+          />
+        </Section>
+      ) : null}
+
       {custom.map((section) => (
         <Section key={section.id} title={section.title || "Custom section"}>
           <div className={`${row} leading-relaxed whitespace-pre-wrap`}>{section.text}</div>
@@ -100,7 +122,7 @@ function PersonList({
   linkProps,
 }: {
   items: ContactPerson[];
-  section: "family" | "friends";
+  section: LinkableSection;
   showRelation: boolean;
   linkProps?: LinkProfileProps;
 }) {
@@ -281,6 +303,7 @@ function SectionBody({
       return <Timeline profile={profile} />;
     case "family":
     case "friends":
+    case "colleagues":
       return null;
   }
 }

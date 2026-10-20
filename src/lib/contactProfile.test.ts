@@ -46,6 +46,7 @@ const filled = (): ContactProfile =>
     timeline: [{ id: "g", title: "Moved to Bristol", date: "2021-09", description: "For the job." }],
     family: [{ id: "h", name: "Rosa", relation: "Mother" }],
     friends: [{ id: "i", name: "Tomas", note: "Also climbs" }],
+    colleagues: [{ id: "k", name: "Priya", note: "Leads the data team" }],
     custom: [{ id: "j", title: "Coffee order", text: "Flat white, oat milk." }],
   });
 
@@ -70,6 +71,7 @@ describe("the profile payload", () => {
     expect(back?.timeline[0]).toMatchObject({ title: "Moved to Bristol", date: "2021-09" });
     expect(back?.family[0]).toMatchObject({ name: "Rosa", relation: "Mother" });
     expect(back?.friends[0]).toMatchObject({ name: "Tomas", note: "Also climbs" });
+    expect(back?.colleagues[0]).toMatchObject({ name: "Priya", note: "Leads the data team" });
     expect(back?.relationships[0]).toMatchObject({ name: "Sam", current: true });
     expect(back?.custom[0]).toMatchObject({ title: "Coffee order", text: "Flat white, oat milk." });
   });
@@ -211,6 +213,7 @@ describe("section emptiness", () => {
       "timeline",
       "family",
       "friends",
+      "colleagues",
     ]);
   });
 });

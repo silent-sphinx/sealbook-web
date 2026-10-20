@@ -14,6 +14,7 @@ import {
 } from "../lib/addressBook";
 import { btnPrimary, focusRing, ghost } from "../lib/styles";
 import type { Session } from "../lib/client";
+import type { LinkableSection } from "../lib/contactProfile";
 import type { AddressBook, Contact, ContactDraft } from "../lib/types";
 
 interface ContactsTabProps {
@@ -57,8 +58,8 @@ interface ContactsTabProps {
   onPromptDelete: (contact: Contact) => void;
   onToggleArchive: (contact: Contact) => Promise<void>;
   onSaveViewedContact: (draft: ContactDraft) => Promise<boolean>;
-  onLinkInSection?: (section: "family" | "friends", targetId: string) => Promise<void>;
-  onUnlinkFromSection?: (section: "family" | "friends", contactId: string) => Promise<void>;
+  onLinkInSection?: (section: LinkableSection, targetId: string) => Promise<void>;
+  onUnlinkFromSection?: (section: LinkableSection, contactId: string) => Promise<void>;
   onNavigateToContact?: (contact: Contact) => void;
 }
 

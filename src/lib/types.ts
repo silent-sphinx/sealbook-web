@@ -194,7 +194,7 @@ export type ContactLifeEvent = {
   description?: string;
 };
 
-/** Family and friends share a shape; only family shows the relation field. */
+/** Family, friends and colleagues share a shape; only family shows the relation field. */
 export type ContactPerson = {
   id: string;
   name: string;
@@ -230,6 +230,7 @@ export type ContactProfile = {
   timeline: ContactLifeEvent[];
   family: ContactPerson[];
   friends: ContactPerson[];
+  colleagues: ContactPerson[];
   custom: ContactCustomSection[];
 };
 

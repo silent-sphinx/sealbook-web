@@ -15,6 +15,7 @@ import {
   emptyRelationship,
   emptyTag,
   sectionIsEmpty,
+  type LinkableSection,
   type ProfileSection,
 } from "../lib/contactProfile";
 import { addLink, fieldBase, focusRing, selectField } from "../lib/styles";
@@ -47,6 +48,7 @@ const ADD_LABELS: Record<Exclude<ProfileSection, "howWeMet">, string> = {
   timeline: "Life event",
   family: "Family member",
   friends: "Friend",
+  colleagues: "Colleague",
 };
 
 /** Long enough to notice, short enough not to linger over the next edit. */
@@ -115,7 +117,7 @@ export function ContactProfileFields({ profile, onChange, contacts, currentConta
     PROFILE_SECTIONS.filter((section) => !sectionIsEmpty(profile, section)),
   );
   const [picking, setPicking] = useState(false);
-  const [linkingSection, setLinkingSection] = useState<"family" | "friends" | null>(null);
+  const [linkingSection, setLinkingSection] = useState<LinkableSection | null>(null);
   const [linkSearch, setLinkSearch] = useState("");
   const pickerRef = useRef<HTMLDivElement>(null);
   // An object rather than the key: removing a section and adding it again has to
@@ -208,6 +210,8 @@ export function ContactProfileFields({ profile, onChange, contacts, currentConta
         return patch({ family: [...profile.family, emptyPerson()] });
       case "friends":
         return patch({ friends: [...profile.friends, emptyPerson()] });
+      case "colleagues":
+        return patch({ colleagues: [...profile.colleagues, emptyPerson()] });
     }
   }
 
@@ -234,6 +238,8 @@ export function ContactProfileFields({ profile, onChange, contacts, currentConta
         return patch({ family: [] });
       case "friends":
         return patch({ friends: [] });
+      case "colleagues":
+        return patch({ colleagues: [] });
     }
   }
 
@@ -262,6 +268,8 @@ export function ContactProfileFields({ profile, onChange, contacts, currentConta
         return patch({ family: [...profile.family, emptyPerson()] });
       case "friends":
         return patch({ friends: [...profile.friends, emptyPerson()] });
+      case "colleagues":
+        return patch({ colleagues: [...profile.colleagues, emptyPerson()] });
     }
   }
 
@@ -301,8 +309,9 @@ export function ContactProfileFields({ profile, onChange, contacts, currentConta
             profile={profile}
             patch={patch}
             onLinkRequest={
-              contacts && (section === "family" || section === "friends")
-                ? () => setLinkingSection(section as "family" | "friends")
+              contacts &&
+              (section === "family" || section === "friends" || section === "colleagues")
+                ? () => setLinkingSection(section as LinkableSection)
                 : undefined
             }
           />
@@ -454,6 +463,15 @@ function SectionBody({
           rows={profile.friends}
           addLabel={ADD_LABELS.friends}
           onChange={(friends) => patch({ friends })}
+          onLinkRequest={onLinkRequest}
+        />
+      );
+    case "colleagues":
+      return (
+        <PersonRows
+          rows={profile.colleagues}
+          addLabel={ADD_LABELS.colleagues}
+          onChange={(colleagues) => patch({ colleagues })}
           onLinkRequest={onLinkRequest}
         />
       );

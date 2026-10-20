@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { addressLines, channelKindLabel, dateKindLabel } from "../lib/contact";
+import type { LinkableSection } from "../lib/contactProfile";
 import { optimizeAvatar } from "../lib/image";
 import type { Session } from "../lib/client";
 import type { AddressBook, Contact, ContactDraft, NoteAttachment } from "../lib/types";
@@ -27,10 +28,10 @@ type Props = {
   onEditingChange: (editing: boolean) => void;
   /** Detailed contact mode: adds the relationship sections. */
   detailed?: boolean;
-  /** All contacts, used to resolve and pick linked contacts in family/friends sections. */
+  /** All contacts, used to resolve and pick linked contacts in family/friends/colleagues sections. */
   contacts?: Contact[];
-  onLinkInSection?: (section: "family" | "friends", targetId: string) => Promise<void>;
-  onUnlinkFromSection?: (section: "family" | "friends", contactId: string) => Promise<void>;
+  onLinkInSection?: (section: LinkableSection, targetId: string) => Promise<void>;
+  onUnlinkFromSection?: (section: LinkableSection, contactId: string) => Promise<void>;
   onNavigateToContact?: (contact: Contact) => void;
 };
 
@@ -101,7 +102,7 @@ export function ContactDetailModal({
   const [confirmRemovePhoto, setConfirmRemovePhoto] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<NoteAttachment[]>(contact.attachments ?? []);
-  const [linkingSection, setLinkingSection] = useState<"family" | "friends" | null>(null);
+  const [linkingSection, setLinkingSection] = useState<LinkableSection | null>(null);
   const [linkPickerSearch, setLinkPickerSearch] = useState("");
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const avatarMenuRef = useRef<HTMLDivElement>(null);
