@@ -81,6 +81,76 @@ export type { SettingsSection } from "../lib/settingsModel";
 const MAX_CALENDAR_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_CALENDAR_EVENTS = 1_000;
 
+type AccountPage =
+  | "username"
+  | "password"
+  | "devices"
+  | "recovery"
+  | "data"
+  | "signout"
+  | "delete";
+
+const ACCOUNT_PAGES: { id: AccountPage; label: string; description: string; danger?: boolean }[] = [
+  {
+    id: "username",
+    label: "Update Your Username",
+    description: "Change the name you sign in with.",
+  },
+  {
+    id: "password",
+    label: "Change Your Password",
+    description: "Update your password and re-wrap your encryption keys.",
+  },
+  {
+    id: "devices",
+    label: "Manage Paired Devices",
+    description: "See every device signed in to this account, and revoke ones you no longer use.",
+  },
+  {
+    id: "recovery",
+    label: "Generate New Recovery Codes",
+    description: "Replace your 24-word recovery phrase and rotate your vault key.",
+  },
+  {
+    id: "data",
+    label: "Export & Import Account Data",
+    description: "Download a decrypted backup of your vault, or restore one from a backup file.",
+  },
+  {
+    id: "signout",
+    label: "Sign Out",
+    description: "Remove this device's keys from this browser.",
+  },
+  {
+    id: "delete",
+    label: "Delete Account",
+    description: "Permanently erase your account and everything in it.",
+    danger: true,
+  },
+];
+
+function ChevronIcon({
+  direction = "right",
+  className = "h-3.5 w-3.5",
+}: {
+  direction?: "left" | "right";
+  className?: string;
+}) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d={direction === "left" ? "M9.5 3.5 5 8l4.5 4.5" : "m6.5 3.5 5 5-5 5"} />
+    </svg>
+  );
+}
+
 type Props = {
   session: Session;
   contacts: Contact[];
@@ -135,6 +205,7 @@ export function SettingsView({
   const [activeSectionState, setActiveSection] = useState<SettingsSection>(
     initialSection ?? "account",
   );
+  const [accountPage, setAccountPage] = useState<AccountPage | null>(null);
   // Calendar import state
   const icsInputRef = useRef<HTMLInputElement | null>(null);
   // Prefix for the ids that tie this view's labels to their controls.
@@ -736,6 +807,10 @@ export function SettingsView({
   const onlyDevice =
     devices !== null &&
     !devices.some((device) => device.device_id !== session.state.device_id);
+  const accountPageMeta =
+    activeSection === "account"
+      ? ACCOUNT_PAGES.find((item) => item.id === accountPage) ?? null
+      : null;
 
   return (
     <div className="grid gap-8 animate-fade-in-up lg:grid-cols-[220px_minmax(0,1fr)]">
@@ -754,7 +829,7 @@ export function SettingsView({
               key={id}
               type="button"
               aria-current={activeSection === id ? "page" : undefined}
-              onClick={() => setActiveSection(id)}
+              onClick={() => { setActiveSection(id); setAccountPage(null); }}
               className={`min-w-[190px] rounded-xl border px-3 py-3 text-left transition-colors lg:min-w-0 ${activeSection === id
                 ? "border-accent/30 bg-accent/10 text-text"
                 : "border-transparent text-mute hover:border-line hover:bg-surface/60 hover:text-text"
@@ -771,14 +846,21 @@ export function SettingsView({
 
       <div className="min-w-0 space-y-8">
         <div className="border-b border-line pb-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">
-            Preferences
-          </p>
+          {accountPageMeta ? (
+            <button
+              type="button"
+              onClick={() => setAccountPage(null)}
+              className={`mt-2 inline-flex items-center gap-1 text-xs font-medium text-mute transition-colors hover:text-text ${focusRing}`}
+            >
+              <ChevronIcon direction="left" className="h-3 w-3" />
+              Back to Account
+            </button>
+          ) : null}
           <h2 className="mt-2 text-xl font-semibold tracking-tight text-text">
-            {sections.find((section) => section.id === activeSection)?.label}
+            {accountPageMeta?.label ?? sections.find((section) => section.id === activeSection)?.label}
           </h2>
           <p className="mt-1 text-sm text-mute">
-            {sections.find((section) => section.id === activeSection)?.blurb}
+            {accountPageMeta?.description ?? sections.find((section) => section.id === activeSection)?.blurb}
           </p>
         </div>
 
@@ -1245,7 +1327,36 @@ export function SettingsView({
         </section>
       </>)}
 
-      {activeSection === "account" && <>
+      {activeSection === "account" && accountPage === null && (
+        <div className="space-y-2">
+          {ACCOUNT_PAGES.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setAccountPage(item.id)}
+              className={`flex w-full items-center justify-between gap-4 rounded-xl border px-4 py-3.5 text-left transition-colors ${focusRing} ${
+                item.danger
+                  ? "border-danger/30 bg-danger/5 hover:border-danger/50 hover:bg-danger/10"
+                  : "border-line/80 bg-bg/50 hover:border-line-light hover:bg-surface/60"
+              }`}
+            >
+              <span className="min-w-0">
+                <span
+                  className={`block text-sm font-semibold ${item.danger ? "text-danger" : "text-text"}`}
+                >
+                  {item.label}
+                </span>
+                <span className="mt-0.5 block text-[11px] leading-relaxed text-mute">
+                  {item.description}
+                </span>
+              </span>
+              <ChevronIcon className="h-3.5 w-3.5 shrink-0 text-mute" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {activeSection === "account" && accountPage === "username" && (
       <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -1308,7 +1419,9 @@ export function SettingsView({
           </div>
         </form>
       </section>
+      )}
 
+      {activeSection === "account" && accountPage === "password" && (
       <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
         <div>
           <h3 className="text-base font-semibold text-text">Change Password</h3>
@@ -1378,7 +1491,9 @@ export function SettingsView({
           </div>
         </form>
       </section>
+      )}
 
+      {activeSection === "account" && accountPage === "devices" && (
       <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
         <div className="flex flex-col gap-1">
           <h3 className="text-base font-semibold text-text">Paired devices</h3>
@@ -1436,7 +1551,9 @@ export function SettingsView({
           </p>
         ) : null}
       </section>
+      )}
 
+      {activeSection === "account" && accountPage === "recovery" && (
       <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -1578,8 +1695,7 @@ export function SettingsView({
           </Modal>
         )}
       </section>
-
-      </>}
+      )}
 
       {activeSection === "contacts" && (<>
         <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
@@ -1671,7 +1787,7 @@ export function SettingsView({
         />
       )}
 
-      {activeSection === "account" && (
+      {activeSection === "account" && accountPage === "signout" && (
         <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
@@ -1698,13 +1814,14 @@ export function SettingsView({
         </section>
       )}
 
-      {activeSection === "account" && <AccountExportSection session={session} />}
-
-      {activeSection === "account" && (
-        <AccountImportSection session={session} onRefresh={onRefresh} />
+      {activeSection === "account" && accountPage === "data" && (
+        <div className="space-y-4">
+          <AccountExportSection session={session} />
+          <AccountImportSection session={session} onRefresh={onRefresh} />
+        </div>
       )}
 
-      {activeSection === "account" && <>
+      {activeSection === "account" && accountPage === "delete" && (
       <section className="rounded-2xl border border-danger/40 bg-danger/5 backdrop-blur-md p-6 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -1795,7 +1912,7 @@ export function SettingsView({
           </Modal>
         )}
       </section>
-      </>}
+      )}
       {signOutConfirm ? (
         <ConfirmDialog
           title="Sign out"
