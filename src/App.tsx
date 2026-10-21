@@ -19,6 +19,7 @@ import { PairScreen } from "./components/PairScreen";
 import { RecoverScreen } from "./components/RecoverScreen";
 import { AuthScreen, type Mode } from "./components/AuthScreen";
 import { ContactsTab } from "./components/ContactsTab";
+import { DecryptingScreen } from "./components/DecryptingScreen";
 import {
   ContactsIcon,
   CalendarIcon,
@@ -50,6 +51,7 @@ import {
   registerAccount,
   revokeSession,
   type Session,
+  type VaultProgress,
 } from "./lib/client";
 import {
   DEFAULT_ACCOUNT_SETTINGS,
@@ -204,6 +206,13 @@ export default function App() {
   const [timezone, setTimezoneState] = useState(loadTimezone);
   const [online, setOnline] = useState(() => navigator.onLine);
   const [loadingVault, setLoadingVault] = useState(false);
+  /**
+   * The stage the running vault read has reached, for the decrypting screen.
+   * `vaultOpened` is what keeps that screen to the first read of a session: a
+   * later refresh has data on screen already and uses the in-place indicators.
+   */
+  const [vaultProgress, setVaultProgress] = useState<VaultProgress | null>(null);
+  const [vaultOpened, setVaultOpened] = useState(false);
   const [idleCountdown, setIdleCountdown] = useState<number | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [onboarding, setOnboardingState] = useState(loadOnboarding);
@@ -610,10 +619,12 @@ export default function App() {
     let listed;
     let books;
     try {
-      listed = await listVault(next);
+      listed = await listVault(next, setVaultProgress);
       books = await ensureDefaultAddressBook(next, listed.addressBooks);
     } finally {
       setLoadingVault(false);
+      setVaultProgress(null);
+      setVaultOpened(true);
     }
     setAddressBooks(books);
     setContacts(listed.contacts);
@@ -738,6 +749,8 @@ export default function App() {
   }
 
   function resetVaultState() {
+    setVaultOpened(false);
+    setVaultProgress(null);
     setUnopened(0);
     setContacts([]);
     setCalendarEvents([]);
@@ -1455,6 +1468,14 @@ export default function App() {
         }}
       />
     );
+  }
+
+  // ---------- FIRST VAULT READ ----------
+  // Below the phrase screen, which has to win: registration shows the recovery
+  // words before awaiting its own read, and they must not be taken away. Above
+  // pair and recover, whose reads are the first on a device and so the longest.
+  if (loadingVault && !vaultOpened) {
+    return <DecryptingScreen progress={vaultProgress} />;
   }
 
   // ---------- PAIR SCREEN ----------

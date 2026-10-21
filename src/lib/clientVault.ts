@@ -241,8 +241,22 @@ export type VaultListing = {
   unopened: number;
 };
 
-export function listVault(session: Session): Promise<VaultListing> {
-  return serializeVault(session.state.collection_id, () => listVaultInner(session));
+/**
+ * The stage a vault read has reached. Reported so the first read of a session,
+ * which is long enough to look like an empty vault, can say which part of the
+ * work is taking the time. `count` is the number of objects on the
+ * `decrypting` stage.
+ */
+export type VaultProgress = {
+  stage: "downloading" | "verifying" | "decrypting";
+  count?: number;
+};
+
+export function listVault(
+  session: Session,
+  onProgress?: (progress: VaultProgress) => void,
+): Promise<VaultListing> {
+  return serializeVault(session.state.collection_id, () => listVaultInner(session, onProgress));
 }
 
 export type ChangesWalk = {
@@ -395,8 +409,12 @@ type OpenedVault = {
  * do with a content type this build does not know: the listing skips it, the
  * export carries it.
  */
-async function openVault(session: Session): Promise<OpenedVault> {
+async function openVault(
+  session: Session,
+  onProgress?: (progress: VaultProgress) => void,
+): Promise<OpenedVault> {
   const { state } = session;
+  onProgress?.({ stage: "downloading" });
   const walk = await walkChanges(session);
   session.latestRevision = walk.latestRevision;
   // If another device revoked someone, the key was rotated and everything was
@@ -412,6 +430,7 @@ async function openVault(session: Session): Promise<OpenedVault> {
   // of it. A failure here means an object was withheld, rolled back or
   // substituted, and must not be presented as an empty or partial vault.
   if (walk.manifest) {
+    onProgress?.({ stage: "verifying" });
     await verifyManifest(session, walk.manifest, walk.objects.map(entryFor));
   } else if (session.manifestSeq > 0) {
     log.error("the vault was served with no manifest after this device had seen one", {
@@ -420,6 +439,13 @@ async function openVault(session: Session): Promise<OpenedVault> {
     throw new ManifestError(
       "The server served this vault with no manifest, but this device has seen one. Refusing to continue.",
     );
+  }
+  if (onProgress && walk.objects.length > 0) {
+    onProgress({ stage: "decrypting", count: walk.objects.length });
+    // `openObject` is synchronous and holds the main thread for the whole loop
+    // below, so the stage above would otherwise never be painted. Yielding to
+    // the event loop rather than to a microtask is what lets that paint land.
+    await new Promise((resolve) => setTimeout(resolve, 0));
   }
   for (const obj of walk.objects) {
     // A rotation never re-encrypts a tombstone (clientRotation.ts), so one that
@@ -573,8 +599,11 @@ export async function importVault(
   return { imported: writes.length, skipped };
 }
 
-async function listVaultInner(session: Session): Promise<VaultListing> {
-  const { opened, unopened } = await openVault(session);
+async function listVaultInner(
+  session: Session,
+  onProgress?: (progress: VaultProgress) => void,
+): Promise<VaultListing> {
+  const { opened, unopened } = await openVault(session, onProgress);
   const sealed: SealedObject[] = [];
   const addressBooks: AddressBook[] = [];
   const contacts: Contact[] = [];

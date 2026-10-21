@@ -79,7 +79,7 @@ export {
   revokeDevice,
 } from "./clientPairing";
 
-export type { VaultExport, VaultImportResult, VaultListing } from "./clientVault";
+export type { VaultExport, VaultImportResult, VaultListing, VaultProgress } from "./clientVault";
 export {
   exportVault,
   importVault,
