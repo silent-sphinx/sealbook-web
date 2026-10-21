@@ -1,8 +1,6 @@
 import type {
   ContactCareer,
   ContactCustomSection,
-  ContactFood,
-  ContactFoodPolarity,
   ContactLifeEvent,
   ContactPerson,
   ContactPet,
@@ -99,10 +97,6 @@ export function profileOf(profile?: ContactProfile): ContactProfile {
 
 export function emptyTag(): ContactTag {
   return { id: newId(), value: "" };
-}
-
-export function emptyFood(polarity: ContactFoodPolarity = "like"): ContactFood {
-  return { id: newId(), polarity, value: "" };
 }
 
 export function emptyPet(): ContactPet {

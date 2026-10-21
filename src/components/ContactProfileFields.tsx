@@ -8,17 +8,15 @@ import {
   RELATIONSHIP_KINDS,
   emptyCareer,
   emptyCustomSection,
-  emptyFood,
   emptyLifeEvent,
   emptyPerson,
   emptyPet,
   emptyRelationship,
-  emptyTag,
   sectionIsEmpty,
   type LinkableSection,
   type ProfileSection,
 } from "../lib/contactProfile";
-import { addLink, fieldBase, focusRing, selectField } from "../lib/styles";
+import { addLink, fieldBase, focusRing } from "../lib/styles";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import type {
   Contact,
@@ -191,13 +189,12 @@ export function ContactProfileFields({ profile, onChange, contacts, currentConta
     setFlash({ key: section });
     switch (section) {
       case "howWeMet":
-        return;
+      // Interests, music and food add themselves via their tag input's own
+      // text field, so there's nothing to seed here.
       case "interests":
-        return patch({ interests: [...profile.interests, emptyTag()] });
       case "music":
-        return patch({ music: [...profile.music, emptyTag()] });
       case "food":
-        return patch({ food: [...profile.food, emptyFood()] });
+        return;
       case "pets":
         return patch({ pets: [...profile.pets, emptyPet()] });
       case "career":
@@ -245,17 +242,15 @@ export function ContactProfileFields({ profile, onChange, contacts, currentConta
 
   // Appends one empty entry to a list section, which the header's add pill
   // drives now that the per-list add button is gone. `howWeMet` is a single
-  // field, so it has nothing to add to.
+  // field, so it has nothing to add to; interests, music and food add
+  // themselves through their own tag input instead of this pill.
   function addEntry(section: ProfileSection) {
     switch (section) {
       case "howWeMet":
-        return;
       case "interests":
-        return patch({ interests: [...profile.interests, emptyTag()] });
       case "music":
-        return patch({ music: [...profile.music, emptyTag()] });
       case "food":
-        return patch({ food: [...profile.food, emptyFood()] });
+        return;
       case "pets":
         return patch({ pets: [...profile.pets, emptyPet()] });
       case "career":
@@ -298,7 +293,14 @@ export function ContactProfileFields({ profile, onChange, contacts, currentConta
           title={PROFILE_SECTION_LABELS[section]}
           action={
             <SectionActions
-              onAdd={section === "howWeMet" ? undefined : () => addEntry(section)}
+              onAdd={
+                section === "howWeMet" ||
+                section === "interests" ||
+                section === "music" ||
+                section === "food"
+                  ? undefined
+                  : () => addEntry(section)
+              }
               addDisabled={sectionCount(section) >= MAX_PROFILE_ENTRIES}
               onRemove={() => removeSection(section)}
             />
@@ -416,7 +418,7 @@ function SectionBody({
       );
     case "interests":
       return (
-        <TagRows
+        <TagsInput
           rows={profile.interests}
           placeholder="e.g. Rock climbing"
           addLabel={ADD_LABELS.interests}
@@ -425,7 +427,7 @@ function SectionBody({
       );
     case "music":
       return (
-        <TagRows
+        <TagsInput
           rows={profile.music}
           placeholder="e.g. Talking Heads"
           addLabel={ADD_LABELS.music}
@@ -433,7 +435,7 @@ function SectionBody({
         />
       );
     case "food":
-      return <FoodRows rows={profile.food} onChange={(food) => patch({ food })} />;
+      return <FoodPills rows={profile.food} onChange={(food) => patch({ food })} />;
     case "pets":
       return <PetRows rows={profile.pets} onChange={(pets) => patch({ pets })} />;
     case "career":
@@ -546,7 +548,13 @@ function rowOps<T extends { id: string }>(rows: T[], onChange: (rows: T[]) => vo
   };
 }
 
-function TagRows({
+/**
+ * A type-and-Enter tag field: existing entries sit as removable chips in
+ * front of a text input that commits on Enter, comma, or blur. Replaces a
+ * stacked list of single-value rows, since each entry here is just a word or
+ * two rather than something that needs its own line.
+ */
+function TagsInput({
   rows,
   placeholder,
   addLabel,
@@ -557,77 +565,186 @@ function TagRows({
   addLabel: string;
   onChange: (rows: ContactTag[]) => void;
 }) {
-  const list = rowOps(rows, onChange);
+  const [draft, setDraft] = useState("");
+  const atCap = rows.length >= MAX_PROFILE_ENTRIES;
+
+  function commit() {
+    const value = draft.trim();
+    setDraft("");
+    if (!value || atCap) return;
+    onChange([...rows, { id: crypto.randomUUID(), value }]);
+  }
+
+  function remove(id: string) {
+    onChange(rows.filter((row) => row.id !== id));
+  }
+
   return (
-    <div className="grid min-w-0 gap-2">
+    <div
+      className={`flex min-w-0 flex-wrap items-center gap-1.5 rounded-lg border border-line bg-bg px-2.5 py-1.5 transition-colors duration-150 focus-within:border-accent-dim focus-within:ring-1 focus-within:ring-accent-ring`}
+    >
       {rows.map((row) => (
-        <div key={row.id} className="flex min-w-0 items-start gap-2">
-          <input
-            value={row.value}
-            onChange={(e) => list.update(row.id, { value: e.target.value })}
-            placeholder={placeholder}
-            aria-label={addLabel}
-            className={fieldBase}
-          />
-          <RemoveButton label={`Remove ${addLabel.toLowerCase()}`} onClick={() => list.remove(row.id)} />
-        </div>
-      ))}    </div>
+        <span
+          key={row.id}
+          className="inline-flex items-center gap-1 rounded-md border border-line bg-bg/50 py-1 pl-2.5 pr-1 text-xs text-text"
+        >
+          {row.value}
+          <button
+            type="button"
+            aria-label={`Remove ${addLabel.toLowerCase()}: ${row.value}`}
+            onClick={() => remove(row.id)}
+            className={`flex h-4 w-4 items-center justify-center rounded-full text-mute transition-colors hover:bg-danger/20 hover:text-danger ${focusRing}`}
+          >
+            <svg className="h-2.5 w-2.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+            </svg>
+          </button>
+        </span>
+      ))}
+      <input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === ",") {
+            e.preventDefault();
+            commit();
+          } else if (e.key === "Backspace" && draft === "" && rows.length > 0) {
+            remove(rows[rows.length - 1].id);
+          }
+        }}
+        onBlur={commit}
+        placeholder={atCap ? `Up to ${MAX_PROFILE_ENTRIES} entries` : placeholder}
+        disabled={atCap}
+        aria-label={addLabel}
+        className="h-7 min-w-[8rem] flex-1 bg-transparent text-sm text-text outline-none placeholder:text-mute/70 disabled:placeholder:text-mute/50"
+      />
+    </div>
   );
 }
 
-const FOOD_POLARITIES: { value: ContactFoodPolarity; label: string }[] = [
-  { value: "like", label: "Likes" },
-  { value: "dislike", label: "Dislikes" },
-];
+/** Chip colors per polarity, reusing the same green/red tokens as the add/remove section pills. */
+const FOOD_POLARITY_TONE: Record<ContactFoodPolarity, string> = {
+  like: "border-note-new/30 bg-note-new/10 text-note-new",
+  dislike: "border-danger/30 bg-danger/10 text-danger",
+};
 
-function FoodRows({
+/**
+ * Food likes and dislikes as two type-and-Enter pill inputs, one green, one
+ * red, instead of a stacked list of polarity-dropdown rows. A per-entry note
+ * no longer has anywhere to live here, so an existing note rides along
+ * unedited until that entry is removed, and new entries carry none.
+ */
+function FoodPills({
   rows,
   onChange,
 }: {
   rows: ContactFood[];
   onChange: (rows: ContactFood[]) => void;
 }) {
-  const list = rowOps(rows, onChange);
+  const atCap = rows.length >= MAX_PROFILE_ENTRIES;
+
+  function commit(polarity: ContactFoodPolarity, value: string) {
+    const text = value.trim();
+    if (!text || atCap) return;
+    onChange([...rows, { id: crypto.randomUUID(), polarity, value: text }]);
+  }
+
+  function remove(id: string) {
+    onChange(rows.filter((row) => row.id !== id));
+  }
+
   return (
-    <div className="grid min-w-0 gap-2">
-      {rows.map((row) => (
-        <div
-          key={row.id}
-          className="grid min-w-0 grid-cols-[6rem_minmax(0,1fr)_2.5rem] items-start gap-2 sm:grid-cols-[6.5rem_minmax(0,1fr)_2.5rem]"
-        >
-          <select
-            value={row.polarity}
-            aria-label="Likes or dislikes"
-            onChange={(e) =>
-              list.update(row.id, { polarity: e.target.value as ContactFoodPolarity })
-            }
-            className={selectField}
+    <div className="grid min-w-0 gap-3">
+      <FoodPolarityGroup
+        label="Likes"
+        polarity="like"
+        rows={rows.filter((row) => row.polarity === "like")}
+        disabled={atCap}
+        placeholder="e.g. Coriander"
+        onCommit={(value) => commit("like", value)}
+        onRemove={remove}
+      />
+      <FoodPolarityGroup
+        label="Dislikes"
+        polarity="dislike"
+        rows={rows.filter((row) => row.polarity === "dislike")}
+        disabled={atCap}
+        placeholder="e.g. Oysters"
+        onCommit={(value) => commit("dislike", value)}
+        onRemove={remove}
+      />
+    </div>
+  );
+}
+
+function FoodPolarityGroup({
+  label,
+  polarity,
+  rows,
+  disabled,
+  placeholder,
+  onCommit,
+  onRemove,
+}: {
+  label: string;
+  polarity: ContactFoodPolarity;
+  rows: ContactFood[];
+  disabled: boolean;
+  placeholder: string;
+  onCommit: (value: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+
+  function commit() {
+    const value = draft;
+    setDraft("");
+    onCommit(value);
+  }
+
+  return (
+    <div className="grid min-w-0 gap-1">
+      <span className="text-[11px] font-semibold uppercase tracking-wider text-mute/80">
+        {label}
+      </span>
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5 rounded-lg border border-line bg-bg px-2.5 py-1.5 transition-colors duration-150 focus-within:border-accent-dim focus-within:ring-1 focus-within:ring-accent-ring">
+        {rows.map((row) => (
+          <span
+            key={row.id}
+            className={`inline-flex items-center gap-1 rounded-md border py-1 pl-2.5 pr-1 text-xs ${FOOD_POLARITY_TONE[polarity]}`}
           >
-            {FOOD_POLARITIES.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <div className="grid min-w-0 gap-2">
-            <input
-              value={row.value}
-              onChange={(e) => list.update(row.id, { value: e.target.value })}
-              placeholder="e.g. Coriander"
-              aria-label="Food"
-              className={fieldBase}
-            />
-            <input
-              value={row.note ?? ""}
-              onChange={(e) => list.update(row.id, { note: e.target.value })}
-              placeholder="Note (optional)"
-              aria-label="Food note"
-              className={fieldBase}
-            />
-          </div>
-          <RemoveButton label="Remove food" onClick={() => list.remove(row.id)} />
-        </div>
-      ))}    </div>
+            {row.value}
+            <button
+              type="button"
+              aria-label={`Remove ${label.toLowerCase()}: ${row.value}`}
+              onClick={() => onRemove(row.id)}
+              className={`flex h-4 w-4 items-center justify-center rounded-full text-mute transition-colors hover:bg-danger/20 hover:text-danger ${focusRing}`}
+            >
+              <svg className="h-2.5 w-2.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+              </svg>
+            </button>
+          </span>
+        ))}
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === ",") {
+              e.preventDefault();
+              commit();
+            } else if (e.key === "Backspace" && draft === "" && rows.length > 0) {
+              onRemove(rows[rows.length - 1].id);
+            }
+          }}
+          onBlur={commit}
+          placeholder={disabled ? `Up to ${MAX_PROFILE_ENTRIES} entries` : placeholder}
+          disabled={disabled}
+          aria-label={label}
+          className="h-7 min-w-[8rem] flex-1 bg-transparent text-sm text-text outline-none placeholder:text-mute/70 disabled:placeholder:text-mute/50"
+        />
+      </div>
+    </div>
   );
 }
 

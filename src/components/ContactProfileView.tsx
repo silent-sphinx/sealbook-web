@@ -17,6 +17,8 @@ import { focusRing } from "../lib/styles";
 
 const row = "border-b border-line/60 px-5 py-3 text-sm";
 const chip = "rounded-md border border-line bg-bg/50 px-2.5 py-1 text-xs text-text";
+const likeChip = "rounded-md border border-note-new/30 bg-note-new/10 px-2.5 py-1 text-xs text-note-new";
+const dislikeChip = "rounded-md border border-danger/30 bg-danger/10 px-2.5 py-1 text-xs text-danger";
 const badge =
   "ml-2 rounded-md border border-accent-dim/40 bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-accent";
 
@@ -230,19 +232,10 @@ function SectionBody({
       return <Chips values={profile.music.map((item) => item.value)} />;
     case "food":
       return (
-        <Rows>
-          {profile.food.map((item) => (
-            <div key={item.id} className={row}>
-              <div className="flex min-w-0 items-baseline gap-2">
-                <span className="shrink-0 text-xs uppercase tracking-wider text-mute/80 font-medium">
-                  {item.polarity === "dislike" ? "Dislikes" : "Likes"}
-                </span>
-                <span className="min-w-0 font-medium text-text">{item.value}</span>
-              </div>
-              <Note text={item.note} />
-            </div>
-          ))}
-        </Rows>
+        <FoodChips
+          likes={profile.food.filter((item) => item.polarity !== "dislike").map((item) => item.value)}
+          dislikes={profile.food.filter((item) => item.polarity === "dislike").map((item) => item.value)}
+        />
       );
     case "pets":
       return (
@@ -357,6 +350,24 @@ function Chips({ values }: { values: string[] }) {
     <div className="flex flex-wrap gap-1.5 border-b border-line/60 px-5 py-3">
       {values.map((value, index) => (
         <span key={`${value}-${index}`} className={chip}>
+          {value}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Likes and dislikes as green and red pills, in that order, polarity doing the labelling. */
+function FoodChips({ likes, dislikes }: { likes: string[]; dislikes: string[] }) {
+  return (
+    <div className="flex flex-wrap gap-1.5 border-b border-line/60 px-5 py-3">
+      {likes.map((value, index) => (
+        <span key={`like-${value}-${index}`} className={likeChip}>
+          {value}
+        </span>
+      ))}
+      {dislikes.map((value, index) => (
+        <span key={`dislike-${value}-${index}`} className={dislikeChip}>
           {value}
         </span>
       ))}
