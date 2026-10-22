@@ -45,6 +45,7 @@ export function ContactAttachmentsSection({
   const [deleting, setDeleting] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const objectUrlsRef = useRef<Map<string, string>>(new Map());
+  const currentAttachment = lightbox !== null ? attachments[lightbox.index] ?? null : null;
 
   useEffect(() => {
     return () => {
@@ -54,14 +55,15 @@ export function ContactAttachmentsSection({
     };
   }, []);
 
+  // Keyed on the attachment, not the index: a delete lands on the same index
+  // holding something else. A download the viewer moved past is discarded
+  // rather than aborted, since `loadAttachment` is cache-first.
   useEffect(() => {
-    if (lightbox === null) return;
+    if (currentAttachment === null) return;
+    const attachment = currentAttachment;
+    let cancelled = false;
 
     async function loadImage() {
-      if (lightbox === null) return;
-      const attachment = attachments[lightbox.index];
-      if (!attachment) return;
-
       const cached = objectUrlsRef.current.get(attachment.id);
       if (cached) {
         setLightbox((l) => l ? { ...l, objectUrl: cached, loading: false } : l);
@@ -71,16 +73,19 @@ export function ContactAttachmentsSection({
       setLightbox((l) => l ? { ...l, loading: true, objectUrl: null } : l);
       try {
         const blob = await loadAttachment(session, attachment);
+        if (cancelled) return;
         const url = URL.createObjectURL(blob);
         objectUrlsRef.current.set(attachment.id, url);
         setLightbox((l) => l ? { ...l, objectUrl: url, loading: false } : l);
       } catch {
+        if (cancelled) return;
         setLightbox((l) => l ? { ...l, loading: false } : l);
       }
     }
 
     void loadImage();
-  }, [lightbox?.index, session]);
+    return () => { cancelled = true; };
+  }, [currentAttachment?.id, session]);
 
   useEffect(() => {
     if (!lightbox) return;
@@ -198,7 +203,6 @@ export function ContactAttachmentsSection({
     }
   }
 
-  const currentAttachment = lightbox !== null ? attachments[lightbox.index] : null;
   const isImage = currentAttachment?.mimeType?.startsWith("image/") ?? false;
   const busy = uploading || deleting !== null;
 
