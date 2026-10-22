@@ -16,7 +16,7 @@
 
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "./test/dom";
 import { aDeviceState } from "./test/vault";
 import { DEFAULT_CALENDAR_ID } from "./lib/calendar";
@@ -146,6 +146,7 @@ function confirmIn(dialog: string, label: string) {
 
 beforeEach(() => {
   sessionStorage.clear();
+  localStorage.clear();
   writes.length = 0;
   calendars = [aCalendar(DEFAULT_CALENDAR_ID, "Calendar")];
   events = [];
@@ -281,7 +282,21 @@ describe("switching a calendar off", () => {
     expect(screen.getByText("Dentist")).toBeDefined();
     // Visibility is this device's own, so nothing is sealed for it.
     expect(writes).toEqual([]);
-    expect(sessionStorage.getItem(`sealbook.${HIDDEN_CALENDARS}.${COLLECTION}`)).toContain(WORK_ID);
+    expect(localStorage.getItem(`sealbook.${HIDDEN_CALENDARS}.${COLLECTION}`)).toContain(WORK_ID);
+  });
+
+  it("keeps it switched off across a fresh page load", async () => {
+    mount();
+    fireEvent.click(screen.getByTitle("Hide Work"));
+    await waitFor(() => expect(screen.queryByText("Standup")).toBeNull());
+
+    // A new tab starts with an empty sessionStorage, where this used to live.
+    cleanup();
+    sessionStorage.clear();
+    mount();
+
+    expect(await screen.findByText("Dentist")).toBeDefined();
+    expect(screen.queryByText("Standup")).toBeNull();
   });
 
   it("brings them all back from Show all calendars", async () => {
@@ -293,7 +308,7 @@ describe("switching a calendar off", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show all calendars" }));
 
     expect(await screen.findByText("Standup")).toBeDefined();
-    expect(sessionStorage.getItem(`sealbook.${HIDDEN_CALENDARS}.${COLLECTION}`)).not.toContain(WORK_ID);
+    expect(localStorage.getItem(`sealbook.${HIDDEN_CALENDARS}.${COLLECTION}`)).not.toContain(WORK_ID);
   });
 });
 
