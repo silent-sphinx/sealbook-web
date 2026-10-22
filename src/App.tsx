@@ -1278,6 +1278,24 @@ export default function App() {
     setError(null);
     try {
       await deleteContact(session, deletingContact.id);
+
+      // Every section, since the card the reverse link points at is now gone.
+      for (const other of contacts) {
+        if (other.id === deletingContact.id) continue;
+        const profile = profileOf(other.profile);
+        const cleaned = { ...profile };
+        let changed = false;
+        for (const section of LINKABLE_SECTIONS) {
+          const filtered = profile[section].filter((p) => p.contactId !== deletingContact.id);
+          if (filtered.length === profile[section].length) continue;
+          cleaned[section] = filtered;
+          changed = true;
+        }
+        if (changed) {
+          await putContact(session, { ...other, profile: cleaned }, other.id);
+        }
+      }
+
       if (editingContact?.id === deletingContact.id) {
         setEditingContact(null);
       }

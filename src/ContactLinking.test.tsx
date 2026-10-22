@@ -3,9 +3,11 @@
  * The reciprocal half of the relationship links, mounted end to end.
  *
  * A link is two writes: the viewed contact's section and the back-reference on
- * the other card. The regression covered here is the second write reaching
+ * the other card. The regressions covered here are the second write reaching
  * further than the click did, taking a pair's other sections with it, which
- * `buildContactNetwork` then kept drawing from whichever side still held it.
+ * `buildContactNetwork` then kept drawing from whichever side still held it,
+ * and a delete leaving the back-reference behind pointing at a card that is
+ * gone.
  *
  * `lib/client` is faked for the same reason as in the editing suite: an online
  * session needs an OPAQUE exchange only the server can answer. What is under
@@ -19,13 +21,14 @@ import "./test/dom";
 import { aContact, enrolDevice, setConnectionDomain } from "./test/vault";
 import { DEFAULT_ACCOUNT_SETTINGS } from "./lib/accountSettings";
 import { DEFAULT_ADDRESS_BOOK_ID } from "./lib/addressBook";
-import { profileOf } from "./lib/contactProfile";
+import { profileOf, type LinkableSection } from "./lib/contactProfile";
 import type { Contact, ContactDraft } from "./lib/types";
 
 const PASSWORD = "correct horse battery";
 
 let store: Contact[] = [];
 const writes: { id?: string; draft: ContactDraft }[] = [];
+const deletions: string[] = [];
 
 vi.mock("./lib/client", async () => {
   const actual = await vi.importActual<typeof import("./lib/client")>("./lib/client");
@@ -56,6 +59,10 @@ vi.mock("./lib/client", async () => {
       const at = store.findIndex((contact) => contact.id === id);
       if (at !== -1) store[at] = { ...store[at]!, ...draft } as Contact;
       return id ?? "new";
+    },
+    deleteContact: async (_session: unknown, id: string) => {
+      deletions.push(id);
+      store = store.filter((contact) => contact.id !== id);
     },
   };
 });
@@ -133,7 +140,7 @@ function linkedIn(section: string): string[] {
 }
 
 /** What a write left in one of the target's linkable sections. */
-function names(draft: ContactDraft, section: "friends" | "colleagues"): string[] {
+function names(draft: ContactDraft, section: LinkableSection): string[] {
   return profileOf(draft.profile)[section].map((person) => person.name);
 }
 
@@ -143,6 +150,7 @@ beforeEach(() => {
     friendAndColleague("Grace Hopper", "c2", { id: "c1", name: "Ada Lovelace" }),
   ];
   writes.length = 0;
+  deletions.length = 0;
 });
 
 describe("unlinking one section of a pair linked in several", () => {
@@ -246,5 +254,80 @@ describe("linking one contact into two sections in a single save", () => {
 
     expect(linkedIn("Friends")).toEqual(["Ada Lovelace"]);
     expect(linkedIn("Colleagues")).toEqual(["Ada Lovelace"]);
+  });
+});
+
+describe("deleting a contact other cards link to", () => {
+  beforeEach(() => {
+    store = [
+      {
+        ...aContact("Ada Lovelace", "c1"),
+        profile: {
+          ...profileOf(),
+          friends: [
+            { id: "f1", name: "Grace Hopper", contactId: "c2" },
+            { id: "f2", name: "Someone Else" },
+          ],
+          colleagues: [{ id: "k1", name: "Grace Hopper", contactId: "c2" }],
+        },
+      },
+      aContact("Grace Hopper", "c2"),
+      {
+        ...aContact("Charles Babbage", "c3"),
+        profile: {
+          ...profileOf(),
+          family: [{ id: "m1", name: "Grace Hopper", contactId: "c2" }],
+        },
+      },
+    ];
+    writes.length = 0;
+    deletions.length = 0;
+  });
+
+  /** Opens the named contact's pane and confirms the delete. */
+  async function deleteViaPane(name: string) {
+    fireEvent.click(screen.getByRole("button", { name: `View ${name}` }));
+    await paneIdle();
+    fireEvent.click(screen.getByRole("button", { name: "Delete contact" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete contact" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete contact" }));
+  }
+
+  it("clears the back-reference from every section of every linking card", async () => {
+    await unlock();
+    await deleteViaPane("Grace Hopper");
+
+    await waitFor(() => expect(writes.length).toBe(2));
+    expect(deletions).toEqual(["c2"]);
+
+    // Both of Ada's sections, and the unlinked row she also holds is left.
+    const ada = writes.find((write) => write.id === "c1");
+    expect(names(ada!.draft, "friends")).toEqual(["Someone Else"]);
+    expect(names(ada!.draft, "colleagues")).toEqual([]);
+
+    // And a third card linked in a section the deleted one never listed.
+    const charles = writes.find((write) => write.id === "c3");
+    expect(names(charles!.draft, "family")).toEqual([]);
+  });
+
+  it("leaves nothing on the linking card that looks linked", async () => {
+    await unlock();
+    await deleteViaPane("Grace Hopper");
+    await waitFor(() => expect(deletions.length).toBe(1));
+
+    fireEvent.click(await screen.findByRole("button", { name: "View Ada Lovelace" }));
+    await paneIdle();
+
+    expect(linkedIn("Friends")).toEqual([]);
+    expect(within(sectionOf("Friends")).queryAllByRole("button", { name: "Unlink" })).toEqual([]);
+    expect(screen.queryByRole("button", { name: "View Grace Hopper" })).toBeNull();
+  });
+
+  it("writes nothing extra when no card links to the deleted one", async () => {
+    await unlock();
+    await deleteViaPane("Charles Babbage");
+
+    await waitFor(() => expect(deletions).toEqual(["c3"]));
+    expect(writes).toEqual([]);
   });
 });
