@@ -40,7 +40,9 @@ async function putAttachmentChunk(
       [ATTACHMENT_NONCE_HEADER]: nonceB64,
       authorization: `Bearer ${token}`,
     },
-    body: body.slice(),
+    // `fetch` sends a view's own bytes, so the subarray of the sealed chunk
+    // goes out as it is rather than as a 4 MB copy per chunk.
+    body,
     signal: timeout,
   });
   if (!res.ok) {
@@ -69,7 +71,12 @@ async function getAttachmentChunk(
 }
 
 export const ATTACHMENT_CHUNK_SIZE = 4 * 1024 * 1024;
-export const MAX_ATTACHMENT_SIZE = 200 * 1024 * 1024;
+/**
+ * The largest attachment this client uploads, held below the protocol's 200 MB
+ * ceiling on purpose: a download is assembled in memory before the viewer sees
+ * it, and nothing a browser displays comes near this size.
+ */
+export const MAX_ATTACHMENT_SIZE = 64 * 1024 * 1024;
 
 function attachmentBase(session: Session): string {
   return `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/attachments`;
@@ -142,7 +149,10 @@ export async function downloadAttachment(
   const collectionId = session.state.collection_id;
   const base = attachmentBase(session);
   const hasher = new AttachmentHasher();
-  const parts: Uint8Array[] = [];
+  // One Blob per chunk, so each plaintext is collectable as the loop advances
+  // and the assembled Blob references the parts instead of copying them: the
+  // file is held once rather than twice.
+  const parts: Blob[] = [];
   for (let index = 0; index < attachment.chunkCount; index += 1) {
     const { nonce, bytes } = await getAttachmentChunk(
       `${base}/${attachment.id}/chunks/${index}`,
@@ -163,12 +173,12 @@ export async function downloadAttachment(
       throw new AttachmentIntegrityError(attachment.id);
     }
     hasher.update(plaintext);
-    parts.push(plaintext);
+    parts.push(new Blob([plaintext]));
   }
   if (hasher.finalize() !== attachment.contentHash) {
     throw new AttachmentIntegrityError(attachment.id);
   }
-  return new Blob(parts as BlobPart[], { type: attachment.mimeType });
+  return new Blob(parts, { type: attachment.mimeType });
 }
 
 export async function loadAttachment(

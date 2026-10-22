@@ -107,7 +107,7 @@ function lostNetwork(): Error {
 
 /**
  * A picked file. jsdom's own `File` reports the size of its parts, and these
- * stand in for files up to the 200 MB ceiling, so the size is declared rather
+ * stand in for files up to the whole size ceiling, so the size is declared rather
  * than allocated and `arrayBuffer` answers for the bytes the fake never reads.
  */
 function file(name: string, type: string, size: number): File {

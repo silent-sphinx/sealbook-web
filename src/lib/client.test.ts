@@ -35,6 +35,7 @@ import {
   newUuid,
   objectContentDigest,
   openObject,
+  ATTACHMENT_NONCE_LEN,
   pairConfirmationCode,
   rosterSealDevice,
   rosterVerify,
@@ -1891,6 +1892,7 @@ function attachmentServer() {
   const committed = new Set<string>();
   const createdAt = new Map<string, number>();
   const extraRows: { attachment_id: string; created_at: number }[] = [];
+  const putBodies: BodyInit[] = [];
   let tamper: ((index: number, body: Uint8Array) => Uint8Array) | null = null;
 
   const fetchMock = vi.fn(async (input: string, options?: RequestInit) => {
@@ -1947,6 +1949,7 @@ function attachmentServer() {
       const key = `${attachmentId}/${index}`;
       if (method === "PUT") {
         const nonce = (options?.headers as Record<string, string>)["x-sealbook-nonce"];
+        if (options?.body) putBodies.push(options.body);
         const body = new Uint8Array(options?.body as ArrayBuffer | Uint8Array);
         chunks.set(key, { nonce, body });
         return new Response(null, { status: 204 });
@@ -1975,6 +1978,7 @@ function attachmentServer() {
       tamper = fn;
     },
     addOrphan: (id: string, created: number) => extraRows.push({ attachment_id: id, created_at: created }),
+    putBodies,
   };
 }
 
@@ -2002,6 +2006,20 @@ describe("attachments", () => {
     expect(got).toEqual(photo);
     expect(blob.type).toBe("image/jpeg");
   }, 20000);
+
+  it("sends each chunk as a view of the sealed buffer rather than a copy of it", async () => {
+    const { session } = account();
+    const store = attachmentServer();
+    const photo = new Uint8Array(8192).fill(3);
+    await uploadAttachment(session, { name: "p.jpg", type: "image/jpeg", bytes: photo });
+
+    expect(store.putBodies).toHaveLength(1);
+    const body = store.putBodies[0] as Uint8Array;
+    // The nonce rides in its own header, so the body starts past it in the
+    // buffer `sealAttachmentChunk` returned and is not copied out of it.
+    expect(body.byteOffset).toBe(ATTACHMENT_NONCE_LEN);
+    expect(body.buffer.byteLength).toBe(ATTACHMENT_NONCE_LEN + body.byteLength);
+  });
 
   it("rejects a tampered chunk rather than returning bad bytes", async () => {
     const { session } = account();
