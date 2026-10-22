@@ -55,6 +55,13 @@ import {
   serializeAccountSettings,
 } from "./accountSettings";
 import { emptyDraft } from "./contact";
+import {
+  DEFAULT_TASK_LIST_ID,
+  serializeTask,
+  serializeTaskList,
+  TASK_CONTENT_TYPE,
+  TASK_LIST_CONTENT_TYPE,
+} from "./task";
 import type {
   DeviceOut,
   DevicePublic,
@@ -747,6 +754,44 @@ describe("listVault", () => {
     expect(listed.contacts).toEqual([]);
     expect(listed.notebooks).toEqual([]);
     expect(listed.bookmarkCollections).toEqual([]);
+  });
+
+  it("sorts tasks and task lists out by type, and skips a type it does not know", async () => {
+    const owner = account();
+    const { objects, manifest } = vaultOf(owner, [
+      {
+        id: newUuid(),
+        contentType: TASK_CONTENT_TYPE,
+        payload: serializeTask({ title: "Water plants", taskListId: DEFAULT_TASK_LIST_ID }),
+      },
+      {
+        id: DEFAULT_TASK_LIST_ID,
+        contentType: TASK_LIST_CONTENT_TYPE,
+        payload: serializeTaskList("Default Task List"),
+      },
+      {
+        id: newUuid(),
+        contentType: "application/sealbook.future+json",
+        payload: JSON.stringify({ "@type": "Future", name: { full: "not a contact" } }),
+      },
+    ]);
+    server({
+      "/changes": () => ({
+        latest_revision: 3,
+        key_epoch: 1,
+        objects,
+        has_more: false,
+        manifest,
+        resync: false,
+        tombstone_floor: 1,
+      }),
+      "/roster": () => ({ rosters: [owner.roster] }),
+    });
+    const listed = await listVault(owner.session);
+    expect(listed.tasks.map((task) => task.title)).toEqual(["Water plants"]);
+    expect(listed.taskLists.map((list) => list.id)).toEqual([DEFAULT_TASK_LIST_ID]);
+    expect(listed.contacts).toEqual([]);
+    expect(listed.sealed).toHaveLength(2);
   });
 
   it("defaults to every feature enabled when the account has no settings object", async () => {

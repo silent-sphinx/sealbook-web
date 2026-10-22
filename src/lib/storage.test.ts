@@ -31,8 +31,15 @@ describe("normalizeSnapshot", () => {
       notebooks: [],
       bookmarks: [],
       bookmarkCollections: [],
+      tasks: [],
+      taskLists: [],
       accountSettings: DEFAULT_ACCOUNT_SETTINGS,
     });
+  });
+
+  it("keeps the tasks it is given and reads a malformed list as empty", () => {
+    const snapshot = { ...original, tasks: [{ id: "t" }], taskLists: "nonsense" };
+    expect(normalizeSnapshot(snapshot)).toMatchObject({ tasks: [{ id: "t" }], taskLists: [] });
   });
 
   it("keeps the collections it is given", () => {

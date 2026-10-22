@@ -24,6 +24,14 @@ import {
   sortCollections,
 } from "./bookmark";
 import {
+  parseTask,
+  parseTaskList,
+  sortTaskLists,
+  sortTasks,
+  TASK_CONTENT_TYPE,
+  TASK_LIST_CONTENT_TYPE,
+} from "./task";
+import {
   NOTEBOOK_CONTENT_TYPE,
   NOTE_CONTENT_TYPE,
   parseNote,
@@ -67,6 +75,8 @@ import type {
   Note,
   Notebook,
   SealedObject,
+  Task,
+  TaskList,
 } from "./types";
 
 /** Most objects to ask for per `/changes` page; the server clamps above this. */
@@ -222,6 +232,8 @@ export type VaultListing = {
   notebooks: Notebook[];
   bookmarks: Bookmark[];
   bookmarkCollections: BookmarkCollection[];
+  tasks: Task[];
+  taskLists: TaskList[];
   accountSettings: AccountSettings;
   /**
    * The settings payload as stored, so a save merges onto it rather than
@@ -613,6 +625,8 @@ async function listVaultInner(
   const notebooks: Notebook[] = [];
   const bookmarks: Bookmark[] = [];
   const bookmarkCollections: BookmarkCollection[] = [];
+  const tasks: Task[] = [];
+  const taskLists: TaskList[] = [];
   // Default until the settings object turns up: an account that has never saved
   // one has every feature enabled.
   let accountSettings = DEFAULT_ACCOUNT_SETTINGS;
@@ -639,6 +653,10 @@ async function listVaultInner(
         isPayloadOfType(raw, "BookmarkCollection")
       ) {
         bookmarkCollections.push(parseBookmarkCollection(obj.id, raw));
+      } else if (contentType === TASK_CONTENT_TYPE || isPayloadOfType(raw, "Task")) {
+        tasks.push(parseTask(obj.id, raw));
+      } else if (contentType === TASK_LIST_CONTENT_TYPE || isPayloadOfType(raw, "TaskList")) {
+        taskLists.push(parseTaskList(obj.id, raw));
       } else if (
         contentType === ACCOUNT_SETTINGS_CONTENT_TYPE ||
         isPayloadOfType(raw, "AccountSettings")
@@ -672,6 +690,8 @@ async function listVaultInner(
     notebooks: notebooks.length,
     bookmarks: bookmarks.length,
     bookmark_collections: bookmarkCollections.length,
+    tasks: tasks.length,
+    task_lists: taskLists.length,
     unopened,
   });
   return {
@@ -684,6 +704,8 @@ async function listVaultInner(
     notebooks: sortNotebooks(notebooks),
     bookmarks: sortBookmarks(bookmarks),
     bookmarkCollections: sortCollections(bookmarkCollections),
+    tasks: sortTasks(tasks),
+    taskLists: sortTaskLists(taskLists),
     accountSettings,
     accountSettingsRaw,
     accountSettingsId,

@@ -122,6 +122,8 @@ import type {
   Notebook,
   Bookmark,
   BookmarkCollection,
+  Task,
+  TaskList,
 } from "./lib/types";
 
 type Screen = "auth" | "phrase" | "pair" | "recover";
@@ -162,6 +164,8 @@ export default function App() {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [bookmarkCollections, setBookmarkCollections] = useState<BookmarkCollection[]>([]);
+  const [, setTasks] = useState<Task[]>([]);
+  const [, setTaskLists] = useState<TaskList[]>([]);
   const [accountSettings, setAccountSettings] = useState<AccountSettings>(DEFAULT_ACCOUNT_SETTINGS);
   /** The settings payload last read, so a save merges onto it. */
   const accountSettingsRaw = useRef<string | undefined>(undefined);
@@ -647,6 +651,8 @@ export default function App() {
     setNotebooks(listed.notebooks);
     setBookmarks(listed.bookmarks);
     setBookmarkCollections(listed.bookmarkCollections);
+    setTasks(listed.tasks);
+    setTaskLists(listed.taskLists);
     setAccountSettings(listed.accountSettings);
     accountSettingsRaw.current = listed.accountSettingsRaw;
     setUnopened(listed.unopened);
@@ -663,6 +669,8 @@ export default function App() {
           notebooks: listed.notebooks,
           bookmarks: listed.bookmarks,
           bookmarkCollections: listed.bookmarkCollections,
+          tasks: listed.tasks,
+          taskLists: listed.taskLists,
           accountSettings: listed.accountSettings,
           accountSettingsRaw: listed.accountSettingsRaw,
         },
@@ -773,6 +781,8 @@ export default function App() {
     setNotebooks([]);
     setBookmarks([]);
     setBookmarkCollections([]);
+    setTasks([]);
+    setTaskLists([]);
     setAccountSettings(DEFAULT_ACCOUNT_SETTINGS);
     setHiddenBooks(new Set());
     setViewingArchive(false);
@@ -875,6 +885,8 @@ export default function App() {
         setNotebooks(snapshot.notebooks);
         setBookmarks(snapshot.bookmarks);
         setBookmarkCollections(snapshot.bookmarkCollections);
+        setTasks(snapshot.tasks);
+        setTaskLists(snapshot.taskLists);
         setAccountSettings(snapshot.accountSettings);
         accountSettingsRaw.current = snapshot.accountSettingsRaw;
         log.info("opened the offline snapshot", {
