@@ -15,13 +15,21 @@ interface Props {
   session: Session;
   attachments: NoteAttachment[];
   readOnly?: boolean;
-  onAttachmentsChange: (next: NoteAttachment[]) => void;
+  /** Resolves false when the list could not be persisted on the contact. */
+  onAttachmentsChange: (next: NoteAttachment[]) => boolean | Promise<boolean>;
 }
 
 interface LightboxState {
   index: number;
   objectUrl: string | null;
   loading: boolean;
+}
+
+function oversizedMessage(names: string[]): string | null {
+  if (names.length === 0) return null;
+  const limit = Math.round(MAX_ATTACHMENT_SIZE / (1024 * 1024));
+  const list = names.map((name) => `"${name}"`).join(", ");
+  return `${list} ${names.length === 1 ? "exceeds" : "exceed"} the ${limit} MB limit.`;
 }
 
 export function ContactAttachmentsSection({
@@ -109,13 +117,13 @@ export function ContactAttachmentsSection({
     if (files.length === 0) return;
     setUploadError(null);
     setUploading(true);
+    const added: NoteAttachment[] = [];
+    const oversized: string[] = [];
+    let failure: string | null = null;
     try {
-      const added: NoteAttachment[] = [];
       for (const file of files) {
         if (file.size > MAX_ATTACHMENT_SIZE) {
-          setUploadError(
-            `"${file.name}" exceeds the ${Math.round(MAX_ATTACHMENT_SIZE / (1024 * 1024))} MB limit.`,
-          );
+          oversized.push(file.name);
           continue;
         }
         const bytes = new Uint8Array(await file.arrayBuffer());
@@ -129,13 +137,20 @@ export function ContactAttachmentsSection({
         }
         const meta = await uploadAttachment(session, { name: file.name, type: file.type, bytes });
         added.push({ ...meta, thumbnail: preview.thumbnail, width: preview.width, height: preview.height });
-      }
-      if (added.length > 0) {
-        onAttachmentsChange([...attachments, ...added]);
+        // The parent write is what records an upload, so each file is committed
+        // as it lands rather than the batch once the loop finishes.
+        if (!(await onAttachmentsChange([...attachments, ...added]))) {
+          failure = "The upload could not be recorded on this contact.";
+          break;
+        }
       }
     } catch (err) {
-      setUploadError(friendlyError(err));
+      failure = friendlyError(err);
     } finally {
+      const parts = [oversizedMessage(oversized), failure].filter(
+        (part): part is string => part !== null,
+      );
+      setUploadError(parts.length > 0 ? parts.join(" ") : null);
       setUploading(false);
     }
   }
@@ -169,7 +184,7 @@ export function ContactAttachmentsSection({
       await deleteAttachment(session, attachment.id);
       objectUrlsRef.current.delete(attachment.id);
       const next = attachments.filter((a) => a.id !== attachment.id);
-      onAttachmentsChange(next);
+      await onAttachmentsChange(next);
       if (next.length === 0) {
         setLightbox(null);
       } else {

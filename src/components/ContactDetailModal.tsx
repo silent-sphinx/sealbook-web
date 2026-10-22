@@ -147,9 +147,9 @@ export function ContactDetailModal({
     }
   }
 
-  async function handleAttachmentsChange(next: NoteAttachment[]) {
+  async function handleAttachmentsChange(next: NoteAttachment[]): Promise<boolean> {
     setAttachments(next);
-    await onSave({ ...contact, attachments: next.length > 0 ? next : undefined });
+    return await onSave({ ...contact, attachments: next.length > 0 ? next : undefined });
   }
 
   return (
@@ -547,7 +547,7 @@ export function ContactDetailModal({
             session={session}
             attachments={attachments}
             readOnly={readOnly}
-            onAttachmentsChange={(next) => { void handleAttachmentsChange(next); }}
+            onAttachmentsChange={handleAttachmentsChange}
           />
 
           </div>
