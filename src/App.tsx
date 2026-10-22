@@ -1184,14 +1184,16 @@ export default function App() {
     try {
       await putContact(session, { ...viewingContact, profile: updatedCurrentProfile }, viewingContact.id);
       if (target) {
+        // Only the section being unlinked, so a pair linked in several keeps the rest.
         const targetProfile = profileOf(target.profile);
-        const updatedTargetProfile = { ...targetProfile };
-        for (const linkable of LINKABLE_SECTIONS) {
-          updatedTargetProfile[linkable] = targetProfile[linkable].filter(
-            (p) => p.contactId !== viewingContact.id,
+        const filtered = targetProfile[section].filter((p) => p.contactId !== viewingContact.id);
+        if (filtered.length !== targetProfile[section].length) {
+          await putContact(
+            session,
+            { ...target, profile: { ...targetProfile, [section]: filtered } },
+            target.id,
           );
         }
-        await putContact(session, { ...target, profile: updatedTargetProfile }, target.id);
       }
       setViewingContact((current) =>
         current?.id === viewingContact.id ? { ...current, profile: updatedCurrentProfile } : current,
