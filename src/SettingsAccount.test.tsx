@@ -213,6 +213,15 @@ describe("revoking another device", () => {
     listDevices.mockResolvedValue([aDeviceSummary(THIS_DEVICE), aDeviceSummary(OTHER_DEVICE)]);
   });
 
+  const aPhrase = () => Array.from({ length: 24 }, (_, index) => `word${index + 1}`).join(" ");
+
+  async function revoke(password: string) {
+    fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
+    const dialog = screen.getByRole("dialog", { name: "Revoke device" });
+    fireEvent.change(within(dialog).getByLabelText("Confirm your password"), { target: { value: password } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Revoke device" }));
+  }
+
   it("offers no revoke for the device being used", async () => {
     mount("Manage Paired Devices");
 
@@ -231,16 +240,10 @@ describe("revoking another device", () => {
   });
 
   it("rotates the vault key away from the revoked device", async () => {
-    const phrase = Array.from({ length: 24 }, (_, index) => `word${index + 1}`).join(" ");
-    revokeDevice.mockResolvedValue({ session: rotated, phrase });
+    revokeDevice.mockResolvedValue({ session: rotated, phrase: aPhrase() });
     mount("Manage Paired Devices");
 
-    fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
-    const dialog = screen.getByRole("dialog", { name: "Revoke device" });
-    fireEvent.change(within(dialog).getByLabelText("Confirm your password"), {
-      target: { value: "correct horse battery" },
-    });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Revoke device" }));
+    await revoke("correct horse battery");
 
     await waitFor(() =>
       expect(revokeDevice).toHaveBeenCalledWith(session, OTHER_DEVICE, "correct horse battery", expect.any(Function)),
@@ -250,6 +253,18 @@ describe("revoking another device", () => {
     expect(handlers.onSessionUpdate).toHaveBeenCalledWith(rotated);
     // The rotation re-encrypted every object, so the list in hand is stale.
     expect(handlers.onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the replacement phrase on the devices page the revoke happened on", async () => {
+    revokeDevice.mockResolvedValue({ session: rotated, phrase: aPhrase() });
+    mount("Manage Paired Devices");
+
+    await revoke("correct horse battery");
+
+    // The message points below itself, and the old phrase is already dead.
+    await waitFor(() => expect(message()).toContain("Save the new recovery phrase below"));
+    expect(screen.getByText("word1")).toBeDefined();
+    expect(screen.getByText("word24")).toBeDefined();
   });
 });
 

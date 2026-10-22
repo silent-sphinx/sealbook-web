@@ -479,8 +479,8 @@ export function SettingsView({
       );
       await onPersistSession(updated, revokePassword);
       onSessionUpdate(updated);
-      // Rotating the key invalidates the old phrase, so surface the new one in
-      // the same place a freshly generated phrase appears.
+      // Rotating the key invalidates the old phrase; the card below the devices
+      // message is the same one the recovery page renders.
       setNewWords(phrase.split(/\s+/u).filter(Boolean));
       setCopiedPhrase(false);
       setRevokeTarget(null);
@@ -811,6 +811,57 @@ export function SettingsView({
     activeSection === "account"
       ? ACCOUNT_PAGES.find((item) => item.id === accountPage) ?? null
       : null;
+
+  const recoveryPhraseCard = newWords ? (
+    <div className="mt-6 rounded-xl border border-accent/30 bg-bg/70 p-5 animate-fade-in">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase tracking-wider text-accent">
+          Active 24-Word Recovery Phrase
+        </span>
+        <span className="text-[11px] text-mute">
+          Save immediately; old codes are invalid
+        </span>
+      </div>
+
+      <ol className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-3">
+        {newWords.map((word, index) => (
+          <li
+            key={`${index}-${word}`}
+            className="flex items-center gap-2 font-mono bg-panel/50 px-2.5 py-1.5 rounded-md border border-line/60"
+          >
+            <span className="w-5 text-right text-mute/70 select-none text-[10px]">
+              {index + 1}
+            </span>
+            <span className="text-text font-medium">{word}</span>
+          </li>
+        ))}
+      </ol>
+
+      <div className="mt-5 flex flex-wrap gap-2.5">
+        <button
+          type="button"
+          className={btnSecondary}
+          onClick={copyWords}
+        >
+          {copiedPhrase ? "✓ Copied!" : "📋 Copy All"}
+        </button>
+        <button
+          type="button"
+          className={btnSecondary}
+          onClick={downloadWords}
+        >
+          ⬇ Download .txt
+        </button>
+        <button
+          type="button"
+          className={btnSecondary}
+          onClick={printWords}
+        >
+          🖨 Print / PDF
+        </button>
+      </div>
+    </div>
+  ) : null;
 
   return (
     <div className="grid gap-8 animate-fade-in-up lg:grid-cols-[220px_minmax(0,1fr)]">
@@ -1550,6 +1601,8 @@ export function SettingsView({
             {devicesMsg.text}
           </p>
         ) : null}
+
+        {recoveryPhraseCard}
       </section>
       )}
 
@@ -1589,57 +1642,7 @@ export function SettingsView({
           </div>
         )}
 
-        {/* Display newly generated 24 words */}
-        {newWords && (
-          <div className="mt-6 rounded-xl border border-accent/30 bg-bg/70 p-5 animate-fade-in">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-accent">
-                Active 24-Word Recovery Phrase
-              </span>
-              <span className="text-[11px] text-mute">
-                Save immediately; old codes are invalid
-              </span>
-            </div>
-
-            <ol className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-3">
-              {newWords.map((word, index) => (
-                <li
-                  key={`${index}-${word}`}
-                  className="flex items-center gap-2 font-mono bg-panel/50 px-2.5 py-1.5 rounded-md border border-line/60"
-                >
-                  <span className="w-5 text-right text-mute/70 select-none text-[10px]">
-                    {index + 1}
-                  </span>
-                  <span className="text-text font-medium">{word}</span>
-                </li>
-              ))}
-            </ol>
-
-            <div className="mt-5 flex flex-wrap gap-2.5">
-              <button
-                type="button"
-                className={btnSecondary}
-                onClick={copyWords}
-              >
-                {copiedPhrase ? "✓ Copied!" : "📋 Copy All"}
-              </button>
-              <button
-                type="button"
-                className={btnSecondary}
-                onClick={downloadWords}
-              >
-                ⬇ Download .txt
-              </button>
-              <button
-                type="button"
-                className={btnSecondary}
-                onClick={printWords}
-              >
-                🖨 Print / PDF
-              </button>
-            </div>
-          </div>
-        )}
+        {recoveryPhraseCard}
 
         {/* Confirm generation modal */}
         {showPhraseConfirm && (
