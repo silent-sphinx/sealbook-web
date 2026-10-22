@@ -319,7 +319,10 @@ export function NoteEditor({
   );
 
   useEffect(() => {
-    editor?.setEditable(editable);
+    // Without the second argument this emits `update`, which is how a change is
+    // reported: the effect runs once per editor, so opening a note reported an
+    // edit it had not had and autosaved the note back unchanged.
+    editor?.setEditable(editable, false);
   }, [editable, editor]);
 
   if (!editor) return <div className="min-h-0 flex-1" />;

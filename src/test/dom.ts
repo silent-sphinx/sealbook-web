@@ -64,6 +64,22 @@ class NoopResizeObserver implements ResizeObserver {
 globalThis.ResizeObserver ??= NoopResizeObserver;
 
 /**
+ * jsdom implements `getClientRects` on an element but not on a `Range`, which
+ * is how the note editor's ProseMirror view measures the caret: a transaction
+ * asking to scroll the selection into view throws out of the dispatch, past the
+ * test that caused it, and lands as an unhandled error rather than a failure.
+ *
+ * Both are given, because an empty rect list is what sends the measurement on
+ * to `getBoundingClientRect`. They report zeros, as everything else here does;
+ * a suite asserting on a real measurement stubs the box itself.
+ */
+if (typeof Range.prototype.getClientRects !== "function") {
+  Range.prototype.getClientRects = () =>
+    Object.assign([], { item: () => null }) as unknown as DOMRectList;
+  Range.prototype.getBoundingClientRect = () => new DOMRect();
+}
+
+/**
  * jsdom has no `matchMedia` at all, so `useMediaQuery` throws before the first
  * render — which otherwise only bites a suite that happens to mount Notes,
  * Calendar or Bookmarks, the views with a breakpoint-dependent sidebar. This
