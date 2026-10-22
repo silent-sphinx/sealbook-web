@@ -560,16 +560,32 @@ export function openAttachmentChunk(
  * hash the Rust server-side client also computes.
  */
 export class AttachmentHasher {
-  private inner: AttachmentHash;
+  // Null once the wasm handle has gone, so `free` after a `finalize` that
+  // already consumed the pointer cannot hand the same pointer back to Rust.
+  private inner: AttachmentHash | null;
   constructor() {
     this.inner = new AttachmentHash();
   }
   update(chunkPlaintext: Uint8Array): void {
+    if (!this.inner) {
+      throw new Error("attachment hasher used after it was finalized");
+    }
     this.inner.update(chunkPlaintext);
   }
   /** Consumes the hasher; it must not be used again afterward. */
   finalize(): string {
-    return this.inner.finalize();
+    if (!this.inner) {
+      throw new Error("attachment hasher used after it was finalized");
+    }
+    const inner = this.inner;
+    this.inner = null;
+    return inner.finalize();
+  }
+  /** Releases the handle unless `finalize` already took it. Idempotent. */
+  free(): void {
+    const inner = this.inner;
+    this.inner = null;
+    inner?.free();
   }
 }
 

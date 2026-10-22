@@ -1894,6 +1894,8 @@ function attachmentServer() {
   const extraRows: { attachment_id: string; created_at: number }[] = [];
   const putBodies: BodyInit[] = [];
   let tamper: ((index: number, body: Uint8Array) => Uint8Array) | null = null;
+  let stuckCursor: string | null = null;
+  let listCalls = 0;
 
   const fetchMock = vi.fn(async (input: string, options?: RequestInit) => {
     const url = new URL(input);
@@ -1917,6 +1919,12 @@ function attachmentServer() {
     }
     // GET /attachments  (list)
     if (method === "GET" && attIndex === parts.length - 1) {
+      listCalls += 1;
+      // A stuck cursor hands back the rest of the listing as empty, so the only
+      // thing it changes is whether the walk ends.
+      if (stuckCursor && listCalls > 1) {
+        return json({ attachments: [], next_after: stuckCursor });
+      }
       const rows = [
         ...[...committed].map((id) => ({
           attachment_id: id,
@@ -1925,7 +1933,7 @@ function attachmentServer() {
         })),
         ...extraRows.map((row) => ({ ...row, state: "committed" })),
       ];
-      return json({ attachments: rows, next_after: null });
+      return json({ attachments: rows, next_after: stuckCursor });
     }
     // POST /attachments/{id}/commit
     if (method === "POST" && parts[parts.length - 1] === "commit") {
@@ -1978,6 +1986,11 @@ function attachmentServer() {
       tamper = fn;
     },
     addOrphan: (id: string, created: number) => extraRows.push({ attachment_id: id, created_at: created }),
+    /** Answer every list page with the same cursor, as a broken server would. */
+    stickCursorAt: (cursor: string) => {
+      stuckCursor = cursor;
+    },
+    listCalls: () => listCalls,
     putBodies,
   };
 }
@@ -2055,6 +2068,21 @@ describe("attachments", () => {
     const removed = await sweepOrphanedAttachments(session, new Set([referenced]));
     expect(removed).toBe(1);
     expect(store.committed.has(old)).toBe(false);
+  });
+
+  it("stops paging when the server's cursor does not advance", async () => {
+    const { session } = account();
+    const store = attachmentServer();
+    const nowSec = Math.floor(Date.now() / 1000);
+    const old = "11111111-1111-1111-1111-111111111111";
+    store.addOrphan(old, nowSec - 72 * 60 * 60);
+    store.stickCursorAt("always-the-same");
+
+    // One page, then one that repeats the cursor and ends the walk, rather than
+    // a loop that never returns.
+    const removed = await sweepOrphanedAttachments(session, new Set());
+    expect(removed).toBe(1);
+    expect(store.listCalls()).toBe(2);
   });
 
   it("carries an attachments reference through note serialize and parse", () => {

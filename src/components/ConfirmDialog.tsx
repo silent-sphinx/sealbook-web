@@ -12,6 +12,8 @@ type Props = {
   tone?: "danger" | "default";
   busy?: boolean;
   error?: string | null;
+  /** Passed through to `Modal`, for a confirm raised from a full-screen view. */
+  elevated?: boolean;
   onConfirm: () => void;
   onClose: () => void;
 };
@@ -31,11 +33,12 @@ export function ConfirmDialog({
   tone = "danger",
   busy = false,
   error,
+  elevated = false,
   onConfirm,
   onClose,
 }: Props) {
   return (
-    <Modal title={title} onClose={busy ? () => {} : onClose}>
+    <Modal title={title} onClose={busy ? () => {} : onClose} elevated={elevated}>
       <div className="p-6">
         <div className="flex items-start gap-4">
           <div

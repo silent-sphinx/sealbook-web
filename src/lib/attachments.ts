@@ -139,6 +139,8 @@ export async function uploadAttachment(
       // The pending-attachment sweep is the backstop if cleanup also fails.
     }
     throw error;
+  } finally {
+    hasher.free();
   }
 }
 
@@ -149,36 +151,40 @@ export async function downloadAttachment(
   const collectionId = session.state.collection_id;
   const base = attachmentBase(session);
   const hasher = new AttachmentHasher();
-  // One Blob per chunk, so each plaintext is collectable as the loop advances
-  // and the assembled Blob references the parts instead of copying them: the
-  // file is held once rather than twice.
-  const parts: Blob[] = [];
-  for (let index = 0; index < attachment.chunkCount; index += 1) {
-    const { nonce, bytes } = await getAttachmentChunk(
-      `${base}/${attachment.id}/chunks/${index}`,
-      session.token,
-    );
-    let plaintext: Uint8Array;
-    try {
-      plaintext = openAttachmentChunk(
-        attachment.adk,
-        attachment.id,
-        collectionId,
-        index,
-        attachment.chunkCount,
-        nonce,
-        bytes,
+  try {
+    // One Blob per chunk, so each plaintext is collectable as the loop advances
+    // and the assembled Blob references the parts instead of copying them: the
+    // file is held once rather than twice.
+    const parts: Blob[] = [];
+    for (let index = 0; index < attachment.chunkCount; index += 1) {
+      const { nonce, bytes } = await getAttachmentChunk(
+        `${base}/${attachment.id}/chunks/${index}`,
+        session.token,
       );
-    } catch {
+      let plaintext: Uint8Array;
+      try {
+        plaintext = openAttachmentChunk(
+          attachment.adk,
+          attachment.id,
+          collectionId,
+          index,
+          attachment.chunkCount,
+          nonce,
+          bytes,
+        );
+      } catch {
+        throw new AttachmentIntegrityError(attachment.id);
+      }
+      hasher.update(plaintext);
+      parts.push(new Blob([plaintext]));
+    }
+    if (hasher.finalize() !== attachment.contentHash) {
       throw new AttachmentIntegrityError(attachment.id);
     }
-    hasher.update(plaintext);
-    parts.push(new Blob([plaintext]));
+    return new Blob(parts, { type: attachment.mimeType });
+  } finally {
+    hasher.free();
   }
-  if (hasher.finalize() !== attachment.contentHash) {
-    throw new AttachmentIntegrityError(attachment.id);
-  }
-  return new Blob(parts, { type: attachment.mimeType });
 }
 
 export async function loadAttachment(
@@ -210,13 +216,20 @@ export async function sweepOrphanedAttachments(
   now = Date.now(),
 ): Promise<number> {
   const base = attachmentBase(session);
-  const listed: { attachments: AttachmentListRow[]; next_after?: string | null } =
-    await getJson(base, session.token);
-  let page = listed;
-  const all: AttachmentListRow[] = [...page.attachments];
-  while (page.next_after) {
-    page = await getJson(`${base}?after=${encodeURIComponent(page.next_after)}`, session.token);
+  const listed: AttachmentPage = await getJson(base, session.token);
+  const all: AttachmentListRow[] = [...listed.attachments];
+  // A server whose cursor does not advance would otherwise page forever, so a
+  // repeated cursor ends the walk and the sweep runs on what it has.
+  const seen = new Set<string>();
+  let cursor = listed.next_after;
+  while (cursor && !seen.has(cursor)) {
+    seen.add(cursor);
+    const page: AttachmentPage = await getJson(
+      `${base}?after=${encodeURIComponent(cursor)}`,
+      session.token,
+    );
     all.push(...page.attachments);
+    cursor = page.next_after;
   }
   let removed = 0;
   for (const row of all) {
@@ -234,6 +247,7 @@ export async function sweepOrphanedAttachments(
 }
 
 type AttachmentListRow = { attachment_id: string; state: string; created_at: number };
+type AttachmentPage = { attachments: AttachmentListRow[]; next_after?: string | null };
 const ORPHAN_GRACE_MS = 48 * 60 * 60 * 1000;
 
 export class AttachmentIntegrityError extends Error {

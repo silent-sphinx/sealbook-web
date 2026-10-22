@@ -24,6 +24,8 @@ import { DEFAULT_ADDRESS_BOOK_ID } from "./lib/addressBook";
 import type { Contact, ContactDraft } from "./lib/types";
 
 const PASSWORD = "correct horse battery";
+/** The `updated` stamp the fake server writes onto a card it stores. */
+const SAVED_AT = "2026-10-22T09:30:00.000Z";
 
 let store: Contact[] = [];
 const writes: { id?: string; draft: ContactDraft }[] = [];
@@ -55,7 +57,16 @@ vi.mock("./lib/client", async () => {
     putContact: async (_session: unknown, draft: ContactDraft, id?: string) => {
       writes.push({ id, draft });
       const at = store.findIndex((contact) => contact.id === id);
-      if (at !== -1) store[at] = { ...store[at]!, ...draft } as Contact;
+      // As a real save does: what lands in the vault is the serialized card,
+      // carrying an `updated` stamp the draft that produced it never had.
+      if (at !== -1) {
+        store[at] = {
+          ...store[at]!,
+          ...draft,
+          updatedAt: SAVED_AT,
+          raw: JSON.stringify({ ...JSON.parse(draft.raw ?? "{}"), updated: SAVED_AT }),
+        } as Contact;
+      }
       return id ?? "new";
     },
   };
@@ -181,6 +192,36 @@ describe("selecting another contact while the pane is editing one", () => {
     // every key `CARD_KEYS` does not overwrite.
     expect(write!.draft.raw).toContain("Harvard Mark I");
     expect(write!.draft.raw).not.toContain("Analytical Engine");
+  });
+
+  it("shows the stored revision after its own save, not the one it opened", async () => {
+    await unlock();
+
+    fireEvent.click(screen.getByRole("button", { name: "View Ada Lovelace" }));
+    await paneIdle();
+    fireEvent.click(screen.getByRole("button", { name: "Edit contact" }));
+    fireEvent.change(await screen.findByLabelText("Full name"), {
+      target: { value: "Ada King" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await paneIdle();
+
+    // The pane holds a contact, not an id, so a save that only merged the draft
+    // in left it on the revision it opened with: no stored `updated` stamp.
+    await waitFor(() =>
+      expect(screen.getByLabelText("Ada King details").textContent).toContain("Modified"),
+    );
+
+    // And the next save merges onto the raw the refresh brought back, so a key
+    // only the stored card carries is not dropped on the way out.
+    fireEvent.click(screen.getByRole("button", { name: "Edit contact" }));
+    fireEvent.change(await screen.findByLabelText("Full name"), {
+      target: { value: "Ada Byron" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(writes.length).toBe(2));
+    expect(writes[1]!.draft.raw).toContain(SAVED_AT);
   });
 
   it("keeps the pane on the same contact across its own save", async () => {

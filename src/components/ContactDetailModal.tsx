@@ -102,6 +102,7 @@ export function ContactDetailModal({
   const [confirmRemovePhoto, setConfirmRemovePhoto] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<NoteAttachment[]>(contact.attachments ?? []);
+  const persistedAttachments = useRef<NoteAttachment[]>(contact.attachments ?? []);
   const [linkingSection, setLinkingSection] = useState<LinkableSection | null>(null);
   const [linkPickerSearch, setLinkPickerSearch] = useState("");
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -149,7 +150,16 @@ export function ContactDetailModal({
 
   async function handleAttachmentsChange(next: NoteAttachment[]): Promise<boolean> {
     setAttachments(next);
-    return await onSave({ ...contact, attachments: next.length > 0 ? next : undefined });
+    const saved = await onSave({ ...contact, attachments: next.length > 0 ? next : undefined });
+    // Back to the last list that reached the vault rather than the one this
+    // call hoped for, so a reported failure matches what the section shows. A
+    // batch of uploads keeps the files that landed before the one that failed.
+    if (saved) {
+      persistedAttachments.current = next;
+    } else {
+      setAttachments(persistedAttachments.current);
+    }
+    return saved;
   }
 
   return (

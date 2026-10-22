@@ -6,6 +6,8 @@ type Props = {
   title: string;
   children: ReactNode;
   onClose: () => void;
+  /** Above a full-screen overlay of its own, such as the attachment lightbox. */
+  elevated?: boolean;
 };
 
 // Open dialogs, outermost first. Only the topmost reacts to Escape and traps
@@ -21,7 +23,7 @@ const FOCUSABLE = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(",");
 
-export function Modal({ title, children, onClose }: Props) {
+export function Modal({ title, children, onClose, elevated = false }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const tokenRef = useRef({});
   // Callers pass an inline arrow, so onClose is a new function every render.
@@ -99,7 +101,7 @@ export function Modal({ title, children, onClose }: Props) {
     // design: Escape is the keyboard path, handled in the effect above.
     // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 sm:p-6 animate-fade-in"
+      className={`fixed inset-0 ${elevated ? "z-[110]" : "z-50"} flex items-center justify-center bg-black/70 backdrop-blur-md p-4 sm:p-6 animate-fade-in`}
       onClick={(event) => {
         // Only a click that landed on the backdrop itself. Testing the target
         // rather than stopping propagation on the panel leaves clicks inside

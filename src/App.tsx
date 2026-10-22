@@ -182,7 +182,6 @@ export default function App() {
   const [creatingBook, setCreatingBook] = useState(false);
   const [formKey, setFormKey] = useState(0);
   const [composing, setComposing] = useState(false);
-  const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [viewingContact, setViewingContact] = useState<Contact | null>(null);
   /**
    * Whether the detail pane has its edit form open. Owned here rather than in
@@ -636,6 +635,12 @@ export default function App() {
     }
     setAddressBooks(books);
     setContacts(listed.contacts);
+    // The pane holds a contact, not an id, so without this it keeps the copy it
+    // opened with: `raw`, `ciphertext`, `paddedSize` and the timestamps would
+    // stay at the revision before the save.
+    setViewingContact((current) =>
+      current ? listed.contacts.find((contact) => contact.id === current.id) ?? current : null,
+    );
     setCalendarEvents(listed.calendarEvents);
     setCalendars(listed.calendars);
     setNotes(listed.notes);
@@ -775,7 +780,6 @@ export default function App() {
     setAddConfirm(null);
     setAddCode("");
     setComposing(false);
-    setEditingContact(null);
     setViewingContact(null);
     setEditingDetail(false);
     setPendingNav(null);
@@ -1083,24 +1087,6 @@ export default function App() {
     }
   }
 
-  async function onEditContact(draft: ContactDraft) {
-    if (!session || !editingContact || !draft.name.trim()) {
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      await putContact(session, draft, editingContact.id);
-      setEditingContact(null);
-      setViewingContact(null);
-      await refreshAfterSave(session);
-    } catch (err) {
-      setError(friendlyError(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function onSaveViewedContact(draft: ContactDraft) {
     if (!session || !viewingContact || !draft.name.trim()) {
       return false;
@@ -1222,14 +1208,6 @@ export default function App() {
     }
   }
 
-  function closeEditor() {
-    if (busy) {
-      return;
-    }
-    setEditingContact(null);
-    setError(null);
-  }
-
   /**
    * Moves one contact into the Archive, or back out of it. `archived` is
    * cleared rather than written false, so a restored card reads as one that was
@@ -1249,9 +1227,6 @@ export default function App() {
       );
       if (viewingContact?.id === contact.id) {
         setViewingContact(null);
-      }
-      if (editingContact?.id === contact.id) {
-        setEditingContact(null);
       }
       await refreshAfterSave(session);
     } catch (err) {
@@ -1300,9 +1275,6 @@ export default function App() {
         }
       }
 
-      if (editingContact?.id === deletingContact.id) {
-        setEditingContact(null);
-      }
       if (viewingContact?.id === deletingContact.id) {
         setViewingContact(null);
       }
@@ -1849,7 +1821,6 @@ export default function App() {
           viewingArchive={viewingArchive}
           detailedContacts={detailedContacts}
           composing={composing}
-          editingContact={editingContact}
           deletingContact={deletingContact}
           deletingAddressBook={deletingAddressBook}
           onSetCreatingBook={setCreatingBook}
@@ -1887,24 +1858,6 @@ export default function App() {
             detailed={detailedContacts}
             onSubmit={onAdd}
             onCancel={closeComposer}
-          />
-        </Modal>
-      ) : null}
-
-      {/* Edit modal */}
-      {contactsEnabled && editingContact ? (
-        <Modal title="Edit contact" onClose={closeEditor}>
-          <ContactForm
-            key={`edit-${editingContact.id}`}
-            busy={busy}
-            error={error}
-            addressBooks={addressBooks}
-            initialDraft={editingContact}
-            submitLabel="Save changes"
-            detailed={detailedContacts}
-            onSubmit={onEditContact}
-            onCancel={closeEditor}
-            onDelete={() => promptDelete(editingContact)}
           />
         </Modal>
       ) : null}

@@ -10,6 +10,7 @@ import { optimizeAttachmentThumbnail } from "../lib/image";
 import { friendlyError } from "../lib/errors";
 import { focusRing } from "../lib/styles";
 import type { NoteAttachment } from "../lib/types";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 interface Props {
   session: Session;
@@ -44,6 +45,7 @@ export function ContactAttachmentsSection({
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState<NoteAttachment | null>(null);
   const objectUrlsRef = useRef<Map<string, string>>(new Map());
   const currentAttachment = lightbox !== null ? attachments[lightbox.index] ?? null : null;
 
@@ -88,7 +90,7 @@ export function ContactAttachmentsSection({
   }, [currentAttachment?.id, session]);
 
   useEffect(() => {
-    if (!lightbox) return;
+    if (!lightbox || confirmingDelete) return;
 
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -102,7 +104,7 @@ export function ContactAttachmentsSection({
 
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [lightbox, attachments.length]);
+  }, [lightbox, attachments.length, confirmingDelete]);
 
   function navigateLightbox(delta: number) {
     setLightbox((l) => {
@@ -179,22 +181,39 @@ export function ContactAttachmentsSection({
     }
   }
 
-  async function handleDelete() {
-    if (!lightbox) return;
-    const attachment = attachments[lightbox.index];
-    if (!attachment) return;
+  async function handleDelete(attachment: NoteAttachment) {
+    const at = attachments.findIndex((a) => a.id === attachment.id);
+    if (at === -1) return;
     setDeleting(attachment.id);
     setDeleteError(null);
     try {
-      await deleteAttachment(session, attachment.id);
-      objectUrlsRef.current.delete(attachment.id);
+      // The card is what makes an attachment real, so the shortened list is
+      // persisted first. A failure here leaves the file both referenced and
+      // stored; deleting at the server first would leave the card pointing at
+      // bytes that are gone.
       const next = attachments.filter((a) => a.id !== attachment.id);
-      await onAttachmentsChange(next);
+      if (!(await onAttachmentsChange(next))) {
+        setDeleteError("The change could not be saved on this contact.");
+        return;
+      }
+      setConfirmingDelete(null);
+      const url = objectUrlsRef.current.get(attachment.id);
+      if (url) {
+        URL.revokeObjectURL(url);
+        objectUrlsRef.current.delete(attachment.id);
+      }
       if (next.length === 0) {
         setLightbox(null);
       } else {
-        const nextIndex = Math.min(lightbox.index, next.length - 1);
+        const nextIndex = Math.min(at, next.length - 1);
         setLightbox({ index: nextIndex, objectUrl: null, loading: true });
+      }
+      // Off the card already, so `sweepOrphanedAttachments` reclaims the bytes
+      // if this fails; the viewer is not told about a file it no longer sees.
+      try {
+        await deleteAttachment(session, attachment.id);
+      } catch {
+        // Left to the sweep.
       }
     } catch (err) {
       setDeleteError(friendlyError(err));
@@ -259,7 +278,6 @@ export function ContactAttachmentsSection({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*,*/*"
         multiple
         className="hidden"
         onChange={handleFileChange}
@@ -292,7 +310,9 @@ export function ContactAttachmentsSection({
               {!readOnly ? (
                 <button
                   type="button"
-                  onClick={() => void handleDelete()}
+                  onClick={() => {
+                    if (currentAttachment) setConfirmingDelete(currentAttachment);
+                  }}
                   disabled={deleting !== null}
                   title="Delete attachment"
                   className={`flex h-8 w-8 items-center justify-center rounded-lg text-danger/80 transition-colors hover:bg-white/10 hover:text-danger disabled:opacity-50 ${focusRing}`}
@@ -311,12 +331,6 @@ export function ContactAttachmentsSection({
               </button>
             </div>
           </div>
-
-          {deleteError ? (
-            <p role="alert" className="shrink-0 border-y border-danger/30 bg-danger/10 px-5 py-2 text-center text-xs text-danger">
-              {deleteError}
-            </p>
-          ) : null}
 
           {/* Content area */}
           <div className="relative flex min-h-0 flex-1 items-center justify-center">
@@ -378,6 +392,24 @@ export function ContactAttachmentsSection({
             </div>
           ) : null}
         </div>
+      ) : null}
+
+      {confirmingDelete ? (
+        <ConfirmDialog
+          title="Delete attachment"
+          heading={`Delete "${confirmingDelete.filename}"?`}
+          body="The file is removed from this contact and deleted from your encrypted vault on every paired device. This cannot be undone."
+          confirmLabel="Delete"
+          busyLabel="Deleting"
+          busy={deleting !== null}
+          error={deleteError}
+          elevated
+          onConfirm={() => void handleDelete(confirmingDelete)}
+          onClose={() => {
+            setConfirmingDelete(null);
+            setDeleteError(null);
+          }}
+        />
       ) : null}
     </section>
   );

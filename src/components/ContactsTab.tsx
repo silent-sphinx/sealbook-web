@@ -39,7 +39,6 @@ interface ContactsTabProps {
   viewingArchive: boolean;
   detailedContacts: boolean;
   composing: boolean;
-  editingContact: Contact | null;
   deletingContact: Contact | null;
   deletingAddressBook: AddressBook | null;
   onSetCreatingBook: (value: boolean) => void;
@@ -85,7 +84,6 @@ export function ContactsTab({
   viewingArchive,
   detailedContacts,
   composing,
-  editingContact,
   deletingContact,
   deletingAddressBook,
   onSetCreatingBook,
@@ -239,7 +237,7 @@ export function ContactsTab({
             className="sb-split grid min-h-0 flex-1"
           >
             <div className={`min-w-0 overflow-y-auto ${viewingContact ? "hidden lg:block" : ""}`}>
-              {error && !composing && !editingContact && !deletingContact && !deletingAddressBook ? (
+              {error && !composing && !deletingContact && !deletingAddressBook ? (
                 <p className="border-b border-line/60 px-4 py-3 text-sm text-danger sm:px-5 lg:px-6" role="alert">{error}</p>
               ) : null}
 

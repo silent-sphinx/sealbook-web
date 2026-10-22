@@ -21,7 +21,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "./test/dom";
 import { aContact, enrolDevice, setConnectionDomain } from "./test/vault";
 import { DEFAULT_ACCOUNT_SETTINGS } from "./lib/accountSettings";
@@ -32,6 +32,9 @@ const PASSWORD = "correct horse battery";
 
 let store: Contact[] = [];
 const writes: { id?: string; draft: ContactDraft }[] = [];
+/** Contact writes and server deletes in the order they were issued. */
+const order: string[] = [];
+let writeFails = false;
 
 const uploadAttachment = vi.hoisted(() =>
   vi.fn<(session: unknown, file: { name: string; type: string }) => Promise<NoteAttachment>>(),
@@ -68,6 +71,8 @@ vi.mock("./lib/client", async () => {
     }),
     ensureDefaultAddressBook: async (_session: unknown, books: unknown) => books,
     putContact: async (_session: unknown, draft: ContactDraft, id?: string) => {
+      if (writeFails) throw lostNetwork();
+      order.push("write");
       writes.push({ id, draft });
       const at = store.findIndex((contact) => contact.id === id);
       if (at !== -1) store[at] = { ...store[at]!, ...draft } as Contact;
@@ -177,6 +182,11 @@ function shownPhoto(): HTMLImageElement {
   return img;
 }
 
+/** The delete confirmation raised by the viewer's trash button. */
+function confirmation(): HTMLElement {
+  return screen.getByRole("dialog", { name: "Delete attachment" });
+}
+
 /** The filenames a contact write recorded on the card. */
 function recorded(draft: ContactDraft): string[] {
   return (draft.attachments ?? []).map((attachment) => attachment.filename);
@@ -185,9 +195,14 @@ function recorded(draft: ContactDraft): string[] {
 beforeEach(() => {
   store = [aContact("Ada Lovelace", "c1")];
   writes.length = 0;
+  order.length = 0;
+  writeFails = false;
   uploadAttachment.mockReset();
   loadAttachment.mockReset();
   deleteAttachment.mockReset();
+  deleteAttachment.mockImplementation(async () => {
+    order.push("delete");
+  });
 });
 
 describe("picking several attachments at once", () => {
@@ -303,7 +318,6 @@ describe("the lightbox", () => {
     loadAttachment.mockImplementation(async (_session, attachment) =>
       tagged(attachment.filename),
     );
-    deleteAttachment.mockResolvedValue(undefined);
     await unlock();
 
     fireEvent.click(screen.getByRole("button", { name: "View Ada Lovelace" }));
@@ -313,8 +327,106 @@ describe("the lightbox", () => {
 
     // Deleting the first leaves the viewer on index 0, which is now the second.
     fireEvent.click(screen.getByRole("button", { name: "Delete attachment" }));
+    fireEvent.click(within(confirmation()).getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(shownPhoto().getAttribute("src")).toBe("blob:second.png"));
-    expect(deleteAttachment).toHaveBeenCalledWith(expect.anything(), "att-first.png");
+    // The viewer moves on once the card is written, so the server delete that
+    // follows it is waited for rather than assumed to have happened already.
+    await waitFor(() =>
+      expect(deleteAttachment).toHaveBeenCalledWith(expect.anything(), "att-first.png"),
+    );
     expect(recorded(store[0]! as ContactDraft)).toEqual(["second.png", "third.png"]);
+  });
+});
+
+describe("deleting an attachment", () => {
+  let createObjectURL: typeof URL.createObjectURL;
+  let revokeObjectURL: typeof URL.revokeObjectURL;
+  const revoked: string[] = [];
+
+  beforeEach(() => {
+    createObjectURL = URL.createObjectURL;
+    revokeObjectURL = URL.revokeObjectURL;
+    revoked.length = 0;
+    URL.createObjectURL = ((blob: Blob) => `blob:${(blob as TaggedBlob).tag}`) as typeof URL.createObjectURL;
+    URL.revokeObjectURL = ((url: string) => {
+      revoked.push(url);
+    }) as typeof URL.revokeObjectURL;
+    store = [withPhotos("first.png", "second.png")];
+    loadAttachment.mockImplementation(async (_session, attachment) =>
+      tagged(attachment.filename),
+    );
+  });
+
+  afterEach(() => {
+    URL.createObjectURL = createObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+  });
+
+  /** Opens the first photo in the viewer and presses the trash button. */
+  async function openAndPressTrash() {
+    await unlock();
+    fireEvent.click(screen.getByRole("button", { name: "View Ada Lovelace" }));
+    await paneIdle();
+    fireEvent.click(screen.getByTitle("first.png"));
+    await waitFor(() => expect(shownPhoto().getAttribute("src")).toBe("blob:first.png"));
+    fireEvent.click(screen.getByRole("button", { name: "Delete attachment" }));
+    return await screen.findByRole("dialog", { name: "Delete attachment" });
+  }
+
+  it("asks first, and deletes nothing if the prompt is dismissed", async () => {
+    const dialog = await openAndPressTrash();
+    expect(dialog.textContent).toContain("first.png");
+    expect(deleteAttachment).not.toHaveBeenCalled();
+    expect(writes).toHaveLength(0);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Delete attachment" })).toBeNull(),
+    );
+    expect(deleteAttachment).not.toHaveBeenCalled();
+    expect(recorded(store[0]! as ContactDraft)).toEqual(["first.png", "second.png"]);
+    // Still on screen, and its object URL is still the one the img is using.
+    expect(shownPhoto().getAttribute("src")).toBe("blob:first.png");
+    expect(revoked).toEqual([]);
+  });
+
+  it("records the shortened list before deleting the file at the server", async () => {
+    const dialog = await openAndPressTrash();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(deleteAttachment).toHaveBeenCalledTimes(1));
+    // The card is unreferenced first: the other order leaves it pointing at
+    // bytes that are gone if the write never lands.
+    expect(order.slice(0, 2)).toEqual(["write", "delete"]);
+    expect(recorded(writes[0]!.draft)).toEqual(["second.png"]);
+    expect(revoked).toEqual(["blob:first.png"]);
+  });
+
+  it("closes only the confirmation on Escape", async () => {
+    const dialog = await openAndPressTrash();
+    // The viewer's own key handler is on `document`, which bubbles before the
+    // dialog's, so without a guard one Escape would dismiss both.
+    fireEvent.keyDown(dialog, { key: "Escape" });
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Delete attachment" })).toBeNull(),
+    );
+    expect(screen.getByRole("dialog", { name: "Attachment viewer" })).toBeDefined();
+    expect(deleteAttachment).not.toHaveBeenCalled();
+  });
+
+  it("keeps the file when the contact write fails", async () => {
+    const dialog = await openAndPressTrash();
+    writeFails = true;
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert.textContent).toContain("could not be saved");
+    // Nothing deleted at the server, so the card's reference still resolves,
+    // and the list the pane shows is the one that is actually stored.
+    expect(deleteAttachment).not.toHaveBeenCalled();
+    expect(recorded(store[0]! as ContactDraft)).toEqual(["first.png", "second.png"]);
+    expect(revoked).toEqual([]);
+    expect(screen.getByTitle("first.png")).toBeDefined();
   });
 });
