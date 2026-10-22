@@ -26,7 +26,9 @@ import {
   enrolDevice,
   setConnectionDomain,
   setOnline,
+  snapshotWritten,
   storeSnapshot,
+  storedSnapshot,
 } from "./test/vault";
 import { DEFAULT_ACCOUNT_SETTINGS } from "./lib/accountSettings";
 import { DEFAULT_ADDRESS_BOOK_ID } from "./lib/addressBook";
@@ -95,6 +97,8 @@ async function openOnline() {
   await screen.findByRole("button", { name: "Unlock" });
   unlock();
   await screen.findByText(served[0]!.name);
+  // The contacts are on screen one derivation before the unlock is finished.
+  await snapshotWritten();
 }
 
 function goOnline() {
@@ -127,6 +131,7 @@ describe("an offline vault", () => {
 
   it("logs in again when the browser comes back, and lists what the server has", async () => {
     await openOffline([aContact("Ada Lovelace", "c1")]);
+    const stale = await storedSnapshot();
 
     goOnline();
 
@@ -137,6 +142,9 @@ describe("an offline vault", () => {
     await waitFor(() => expect(screen.queryByText("Ada Lovelace")).toBeNull());
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.getByRole("button", { name: "Add device" })).toBeDefined();
+    // The reconnect rewrites the snapshot behind the listing it has already
+    // shown, and the next test unlocks twice over whatever thread is left.
+    await snapshotWritten(stale);
   });
 
   it("keeps showing the snapshot when the server is still unreachable", async () => {

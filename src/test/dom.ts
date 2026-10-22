@@ -5,7 +5,19 @@
  */
 
 import { afterEach } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
+
+/**
+ * The default 1,000 ms leaves too little room for what these suites wait on.
+ * Several of them unlock the vault, which is two 600,000-iteration PBKDF2
+ * derivations before anything renders, and with one worker per file a full run
+ * has every core busy: the calendar import waits were measured at 757 ms under
+ * load, so a wait that is doing nothing wrong sits at three quarters of its
+ * budget. This is headroom against the machine, not against the app, and it
+ * stays well under `testTimeout` so an assertion that will never pass still
+ * fails with the query's own report of what it could not find.
+ */
+configure({ asyncUtilTimeout: 4000 });
 
 /**
  * jsdom performs no layout, so every element reports `offsetParent` as null.

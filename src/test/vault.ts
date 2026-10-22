@@ -13,13 +13,18 @@
 
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
-import { afterEach, beforeEach } from "vitest";
+import { afterEach, beforeEach, expect } from "vitest";
+import { waitFor } from "@testing-library/react";
+import { idbGet } from "../lib/idb";
 import { saveConnectionDomain, saveDevice, saveVaultSnapshot, type VaultSnapshot } from "../lib/storage";
 import { DEFAULT_ACCOUNT_SETTINGS } from "../lib/accountSettings";
 import { DEFAULT_ADDRESS_BOOK_ID } from "../lib/addressBook";
 import type { Contact, DeviceState } from "../lib/types";
 
 export const TEST_SERVER = "https://vault.example.com";
+
+/** As `storage.ts` keys the snapshot record, which it does not export. */
+const VAULT_RECORD = "snapshot";
 
 /**
  * Stand-ins for the key material. Nothing here is used as a key: the unlock
@@ -88,6 +93,34 @@ export async function storeSnapshot(
   if (!stored) {
     throw new Error("the snapshot fixture was not stored, so the test would not mean anything");
   }
+}
+
+/**
+ * The stored snapshot's ciphertext, read without decrypting it.
+ *
+ * `refresh` saves the snapshot as its last step, after it has already set the
+ * contacts (`App.tsx`), so a wait for a contact's name returns while the
+ * 600,000-iteration derivation behind that save is still running. Nothing in
+ * the DOM marks that tail, but the write it ends in is visible here.
+ */
+export async function storedSnapshot(): Promise<string | null> {
+  const stored = await idbGet<{ ciphertext: string }>(VAULT_RECORD);
+  return stored?.ciphertext ?? null;
+}
+
+/**
+ * Waits for the snapshot a session writes once it is open, so the derivation
+ * behind it does not run on into the next test's own unlocks on the single
+ * thread a worker gives them, or past the environment the last test tears down.
+ *
+ * `before` is the ciphertext from before the action, for the cases where a
+ * snapshot is already stored and the rewrite rather than the presence is the
+ * signal; the default waits for a first write.
+ */
+export async function snapshotWritten(before: string | null = null): Promise<void> {
+  await waitFor(async () => {
+    expect(await storedSnapshot()).not.toBe(before);
+  });
 }
 
 export function setOnline(online: boolean): void {
