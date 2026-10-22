@@ -56,6 +56,8 @@ function mount(settings: AccountSettings, initialSection?: SettingsSection) {
       notebooks={[]}
       bookmarks={[]}
       bookmarkCollections={[]}
+      tasks={[]}
+      taskLists={[]}
       onSessionUpdate={() => undefined}
       onPersistSession={async () => undefined}
       onAccountDeleted={() => undefined}

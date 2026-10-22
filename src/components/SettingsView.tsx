@@ -57,6 +57,8 @@ import type {
   AddressBook,
   Bookmark,
   BookmarkCollection,
+  Task,
+  TaskList,
   Calendar,
   CalendarEvent,
   Contact,
@@ -73,6 +75,7 @@ import { AccountImportSection } from "./AccountImportSection";
 import { ImportExportSection } from "./ImportExportSection";
 import { NotesImportExportSection } from "./NotesImportExportSection";
 import { BookmarksImportExportSection } from "./BookmarksImportExportSection";
+import { TasksImportExportSection } from "./TasksImportExportSection";
 import { PasswordField } from "./PasswordField";
 import { SECTIONS, type SettingsSection } from "../lib/settingsModel";
 
@@ -161,6 +164,8 @@ type Props = {
   notebooks: Notebook[];
   bookmarks: Bookmark[];
   bookmarkCollections: BookmarkCollection[];
+  tasks: Task[];
+  taskLists: TaskList[];
   onSessionUpdate: (updated: Session) => void;
   onPersistSession: (updated: Session, password: string) => Promise<void>;
   onAccountDeleted: () => void;
@@ -188,6 +193,8 @@ export function SettingsView({
   notebooks,
   bookmarks,
   bookmarkCollections,
+  tasks,
+  taskLists,
   onSessionUpdate,
   onPersistSession,
   onAccountDeleted,
@@ -1787,6 +1794,15 @@ export function SettingsView({
           bookmarkCollections={bookmarkCollections}
           onRefresh={onRefresh}
           onCreateCollection={onCreateBookmarkCollection}
+        />
+      )}
+
+      {activeSection === "tasks" && (
+        <TasksImportExportSection
+          session={session}
+          tasks={tasks}
+          taskLists={taskLists}
+          onRefresh={onRefresh}
         />
       )}
 

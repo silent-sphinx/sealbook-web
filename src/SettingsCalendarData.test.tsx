@@ -95,6 +95,8 @@ function mount(events: CalendarEvent[] = []) {
       notebooks={[]}
       bookmarks={[]}
       bookmarkCollections={[]}
+      tasks={[]}
+      taskLists={[]}
       onSessionUpdate={() => undefined}
       onPersistSession={async () => undefined}
       onAccountDeleted={() => undefined}

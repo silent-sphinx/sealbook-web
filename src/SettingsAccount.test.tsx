@@ -89,6 +89,8 @@ function mount(page: string) {
       notebooks={[]}
       bookmarks={[]}
       bookmarkCollections={[]}
+      tasks={[]}
+      taskLists={[]}
       onSessionUpdate={handlers.onSessionUpdate}
       onPersistSession={handlers.onPersistSession}
       onAccountDeleted={handlers.onAccountDeleted}

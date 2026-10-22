@@ -744,7 +744,7 @@ export default function App() {
       setOnboarding(false);
       // Only the features with a settings section of their own can be jumped
       // to; bookmarks has nothing to import, so the welcome just closes.
-      if (jumpTo && jumpTo !== "bookmarks" && jumpTo !== "tasks") {
+      if (jumpTo && jumpTo !== "bookmarks") {
         setSettingsSection(jumpTo);
         setActiveTab("settings");
       }
@@ -1765,6 +1765,8 @@ export default function App() {
             notebooks={notebooks}
             bookmarks={bookmarks}
             bookmarkCollections={bookmarkCollections}
+            tasks={tasks}
+            taskLists={taskLists}
             onSessionUpdate={(updated) => setSession(updated)}
             onPersistSession={persistSession}
             onAccountDeleted={() => {
