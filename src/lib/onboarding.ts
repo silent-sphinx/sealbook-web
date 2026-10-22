@@ -3,6 +3,7 @@ import { DEFAULT_ADDRESS_BOOK_NAME } from "./addressBook";
 import { DEFAULT_BOOKMARK_COLLECTION_NAME } from "./bookmark";
 import { DEFAULT_CALENDAR_NAME } from "./calendar";
 import { DEFAULT_NOTEBOOK_NAME } from "./note";
+import { DEFAULT_TASK_LIST_NAME } from "./task";
 import type { AccountSettings, FeatureKey } from "./types";
 
 /**
@@ -22,7 +23,12 @@ export type OnboardingStep =
   | "clients";
 
 /** The per-feature container lists, keyed as they are on the draft. */
-export type ContainerKey = "addressBooks" | "calendars" | "notebooks" | "collections";
+export type ContainerKey =
+  | "addressBooks"
+  | "calendars"
+  | "notebooks"
+  | "collections"
+  | "taskLists";
 
 export type OnboardingDraft = {
   settings: AccountSettings;
@@ -30,6 +36,7 @@ export type OnboardingDraft = {
   calendars: string[];
   notebooks: string[];
   collections: string[];
+  taskLists: string[];
 };
 
 export type OnboardingPlan = {
@@ -38,6 +45,7 @@ export type OnboardingPlan = {
   calendars: string[];
   notebooks: string[];
   collections: string[];
+  taskLists: string[];
 };
 
 export const CONTAINER_KEYS: Record<FeatureKey, ContainerKey> = {
@@ -45,6 +53,7 @@ export const CONTAINER_KEYS: Record<FeatureKey, ContainerKey> = {
   calendar: "calendars",
   notes: "notebooks",
   bookmarks: "collections",
+  tasks: "taskLists",
 };
 
 /**
@@ -58,6 +67,7 @@ export function initialOnboardingDraft(): OnboardingDraft {
     calendars: [],
     notebooks: [],
     collections: [],
+    taskLists: [],
   };
 }
 
@@ -126,6 +136,9 @@ export function onboardingPlan(draft: OnboardingDraft): OnboardingPlan {
     collections: isFeatureEnabled(settings, "bookmarks")
       ? normalizeNames(draft.collections, DEFAULT_BOOKMARK_COLLECTION_NAME)
       : [],
+    taskLists: isFeatureEnabled(settings, "tasks")
+      ? normalizeNames(draft.taskLists, DEFAULT_TASK_LIST_NAME)
+      : [],
   };
 }
 
@@ -134,6 +147,7 @@ export function plannedContainerCount(plan: OnboardingPlan): number {
     plan.addressBooks.length +
     plan.calendars.length +
     plan.notebooks.length +
-    plan.collections.length
+    plan.collections.length +
+    plan.taskLists.length
   );
 }

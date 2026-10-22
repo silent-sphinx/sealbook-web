@@ -65,6 +65,7 @@ describe("normalizeSnapshot", () => {
       calendar: true,
       notes: false,
       bookmarks: true,
+      tasks: true,
     });
   });
 

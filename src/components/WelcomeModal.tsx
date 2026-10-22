@@ -15,6 +15,7 @@ import { DEFAULT_ADDRESS_BOOK_NAME } from "../lib/addressBook";
 import { DEFAULT_CALENDAR_NAME } from "../lib/calendar";
 import { DEFAULT_NOTEBOOK_NAME } from "../lib/note";
 import { DEFAULT_BOOKMARK_COLLECTION_NAME } from "../lib/bookmark";
+import { DEFAULT_TASK_LIST_NAME } from "../lib/task";
 import {
   CONTAINER_KEYS,
   type ContainerKey,
@@ -52,6 +53,7 @@ const FEATURE_BLURBS: Record<FeatureKey, string> = {
   calendar: "Calendars and events, including repeating ones.",
   notes: "Notebooks of Markdown notes, arranged in a tree.",
   bookmarks: "Saved links, filed into collections that nest.",
+  tasks: "To-dos with due dates, repeats and subtasks, in lists that nest.",
 };
 
 const CONTAINER_COPY: Record<
@@ -86,6 +88,13 @@ const CONTAINER_COPY: Record<
     existing: `"${DEFAULT_BOOKMARK_COLLECTION_NAME}" is created the first time you open Bookmarks.`,
     placeholder: "Reading list",
   },
+  tasks: {
+    label: "Task lists",
+    singular: "task list",
+    article: "a",
+    existing: `"${DEFAULT_TASK_LIST_NAME}" is created the first time you open Tasks.`,
+    placeholder: "Groceries",
+  },
 };
 
 const IMPORT_COPY: Record<FeatureKey, { formats: string; sources: string }> = {
@@ -104,6 +113,10 @@ const IMPORT_COPY: Record<FeatureKey, { formats: string; sources: string }> = {
   bookmarks: {
     formats: "a Sealbook JSON backup",
     sources: "Links can also be added one at a time from the Bookmarks tab.",
+  },
+  tasks: {
+    formats: "a Sealbook JSON backup",
+    sources: "Tasks can also be added one at a time from the Tasks tab.",
   },
 };
 

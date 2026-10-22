@@ -46,6 +46,7 @@ import {
   putCalendar,
   putNotebook,
   putBookmarkCollection,
+  putTaskList,
   putContact,
   recoverAccount,
   registerAccount,
@@ -732,11 +733,14 @@ export default function App() {
       for (const name of plan.collections) {
         await putBookmarkCollection(session, name);
       }
+      for (const name of plan.taskLists) {
+        await putTaskList(session, name);
+      }
       await refreshAfterSave(session);
       setOnboarding(false);
       // Only the features with a settings section of their own can be jumped
       // to; bookmarks has nothing to import, so the welcome just closes.
-      if (jumpTo && jumpTo !== "bookmarks") {
+      if (jumpTo && jumpTo !== "bookmarks" && jumpTo !== "tasks") {
         setSettingsSection(jumpTo);
         setActiveTab("settings");
       }

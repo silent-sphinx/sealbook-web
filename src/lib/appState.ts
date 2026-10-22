@@ -1,7 +1,9 @@
 import { browserTimezone } from "./timezone";
 import { ONBOARDING_KEY } from "./onboarding";
 
-export type MainTab = "contacts" | "calendar" | "notes" | "bookmarks" | "settings";
+export const MAIN_TABS = ["contacts", "calendar", "notes", "bookmarks", "tasks", "settings"] as const;
+
+export type MainTab = (typeof MAIN_TABS)[number];
 
 export const LAST_TAB_KEY = "sealbook.last-tab";
 export const TIMEZONE_KEY = "sealbook.timezone";
@@ -42,7 +44,8 @@ export function rememberBrowserTimezone(): string {
 export function loadLastTab(): MainTab {
   try {
     const stored = sessionStorage.getItem(LAST_TAB_KEY);
-    return stored === "calendar" || stored === "notes" ? stored : "contacts";
+    const tab = MAIN_TABS.find((candidate) => candidate === stored);
+    return tab && tab !== "settings" ? tab : "contacts";
   } catch {
     return "contacts";
   }

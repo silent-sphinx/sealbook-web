@@ -63,7 +63,7 @@ export type SealedObject = {
 };
 
 /** The vault features an account can turn off; settings is always on. */
-export type FeatureKey = "contacts" | "calendar" | "notes" | "bookmarks";
+export type FeatureKey = "contacts" | "calendar" | "notes" | "bookmarks" | "tasks";
 
 /**
  * How much of a contact the UI offers. `detailed` adds the relationship

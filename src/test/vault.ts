@@ -179,6 +179,7 @@ beforeEach(() => {
 
 afterEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   // A fresh factory per test, so one test's snapshot is never another's.
   globalThis.indexedDB = new IDBFactory();
 });

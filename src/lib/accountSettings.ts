@@ -27,13 +27,14 @@ export const ACCOUNT_SETTINGS_ID = "00000000-0000-0000-0000-000000000004";
 export const LEGACY_ACCOUNT_SETTINGS_ID = "00000000-0000-0000-0000-000000000003";
 
 /** Also the order the features appear in the UI. */
-export const FEATURES: FeatureKey[] = ["contacts", "calendar", "notes", "bookmarks"];
+export const FEATURES: FeatureKey[] = ["contacts", "calendar", "notes", "bookmarks", "tasks"];
 
 export const FEATURE_LABELS: Record<FeatureKey, string> = {
   contacts: "Contacts",
   calendar: "Calendar",
   notes: "Notes",
   bookmarks: "Bookmarks",
+  tasks: "Tasks",
 };
 
 /**
@@ -85,7 +86,7 @@ export const ACCENT_COLORS: Record<AccentKey, { base: string; dim: string }> = {
 export const DEFAULT_ACCENT: AccentKey = "blue";
 
 export const DEFAULT_ACCOUNT_SETTINGS: AccountSettings = {
-  features: { contacts: true, calendar: true, notes: true, bookmarks: true },
+  features: { contacts: true, calendar: true, notes: true, bookmarks: true, tasks: true },
   contactMode: DEFAULT_CONTACT_MODE,
   accent: DEFAULT_ACCENT,
 };

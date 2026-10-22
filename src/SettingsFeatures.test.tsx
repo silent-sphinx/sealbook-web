@@ -75,8 +75,12 @@ function section(name: string) {
 }
 
 const onlyNotes = withFeature(
-  withFeature(withFeature(DEFAULT_ACCOUNT_SETTINGS, "contacts", false), "calendar", false),
-  "bookmarks",
+  withFeature(
+    withFeature(withFeature(DEFAULT_ACCOUNT_SETTINGS, "contacts", false), "calendar", false),
+    "bookmarks",
+    false,
+  ),
+  "tasks",
   false,
 );
 
@@ -98,6 +102,7 @@ describe("turning a feature off", () => {
       calendar: true,
       notes: true,
       bookmarks: false,
+      tasks: true,
     });
     expect(await screen.findByText(/Bookmarks disabled for this account/u)).toBeDefined();
   });
@@ -123,7 +128,7 @@ describe("turning a feature off", () => {
     expect(last.hasAttribute("disabled")).toBe(true);
     expect(screen.getByText("Your only enabled feature, so it has to stay on.")).toBeDefined();
 
-    // The other three are off and so can be turned back on.
+    // The other four are off and so can be turned back on.
     expect(screen.getByRole("switch", { name: "Contacts enabled" }).hasAttribute("disabled")).toBe(false);
   });
 });

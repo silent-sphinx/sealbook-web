@@ -27,6 +27,22 @@ import {
 const settings = (over: Partial<Record<string, boolean>> = {}) =>
   normalizeFeatures({ contacts: true, calendar: true, notes: true, bookmarks: true, ...over });
 
+describe("the tasks feature flag", () => {
+  it("reads as enabled for settings written before it existed", () => {
+    const settings = normalizeFeatures({ contacts: true, calendar: true, notes: true, bookmarks: false });
+    expect(isFeatureEnabled(settings, "tasks")).toBe(true);
+    expect(isFeatureEnabled(settings, "bookmarks")).toBe(false);
+  });
+
+  it("can be turned off, and not when it is the last feature on", () => {
+    const off = withFeature(DEFAULT_ACCOUNT_SETTINGS, "tasks", false);
+    expect(isFeatureEnabled(off, "tasks")).toBe(false);
+    const onlyTasks = normalizeFeatures({ contacts: false, calendar: false, notes: false, bookmarks: false });
+    expect(enabledFeatures(onlyTasks)).toEqual(["tasks"]);
+    expect(canDisableFeature(onlyTasks, "tasks")).toBe(false);
+  });
+});
+
 describe("account settings payload", () => {
   it("round trips the feature flags", () => {
     const stored = serializeAccountSettings(settings({ calendar: false }));
@@ -35,6 +51,7 @@ describe("account settings payload", () => {
       calendar: false,
       notes: true,
       bookmarks: true,
+      tasks: true,
     });
   });
 
@@ -59,7 +76,7 @@ describe("account settings payload", () => {
   it("repairs an all-off payload written by a client that ignored the rule", () => {
     const repaired = parseAccountSettings(
       JSON.stringify({
-        features: { contacts: false, calendar: false, notes: false, bookmarks: false },
+        features: { contacts: false, calendar: false, notes: false, bookmarks: false, tasks: false },
       }),
     );
     expect(enabledFeatures(repaired)).toEqual(["contacts"]);
@@ -73,7 +90,7 @@ describe("the at-least-one rule", () => {
   });
 
   it("refuses to disable the last enabled feature", () => {
-    const last = settings({ calendar: false, notes: false, bookmarks: false });
+    const last = settings({ calendar: false, notes: false, bookmarks: false, tasks: false });
     expect(canDisableFeature(last, "contacts")).toBe(false);
     // Returned unchanged rather than thrown, so a caller that skipped the check
     // cannot write an account with nothing in it.
@@ -81,7 +98,7 @@ describe("the at-least-one rule", () => {
   });
 
   it("re-enabling is never blocked", () => {
-    const only = settings({ calendar: false, notes: false, bookmarks: false });
+    const only = settings({ calendar: false, notes: false, bookmarks: false, tasks: false });
     expect(enabledFeatures(withFeature(only, "notes", true))).toEqual(["contacts", "notes"]);
   });
 });

@@ -4,6 +4,7 @@ import { normalizeFeatures, withContactMode, withFeature } from "./accountSettin
 import { DEFAULT_ADDRESS_BOOK_NAME } from "./addressBook";
 import { DEFAULT_CALENDAR_NAME } from "./calendar";
 import { DEFAULT_NOTEBOOK_NAME } from "./note";
+import { DEFAULT_TASK_LIST_NAME } from "./task";
 import {
   initialOnboardingDraft,
   nextOnboardingStep,
@@ -85,9 +86,21 @@ describe("onboarding plan", () => {
       calendars: ["Personal"],
       notebooks: ["Ideas"],
       collections: [],
+      taskLists: [],
     });
     expect(plan.calendars).toEqual([]);
     expect(plannedContainerCount(plan)).toBe(2);
+  });
+
+  it("plans task lists, but not a second default, and nothing once tasks is off", () => {
+    const draft = {
+      ...initialOnboardingDraft(),
+      taskLists: [DEFAULT_TASK_LIST_NAME, "Groceries", "groceries"],
+    };
+    expect(onboardingPlan(draft).taskLists).toEqual(["Groceries"]);
+    expect(plannedContainerCount(onboardingPlan(draft))).toBe(1);
+    const off = onboardingPlan({ ...draft, settings: withFeature(draft.settings, "tasks", false) });
+    expect(off.taskLists).toEqual([]);
   });
 
   it("carries the chosen settings through untouched", () => {
