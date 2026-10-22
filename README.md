@@ -7,20 +7,6 @@ Browser UI for the Sealbook vault.
 > [!IMPORTANT]
 This ia a web client only. A working [sealbook](https://github.com/silent-sphinx/sealbook) server is required for operation.
 
-> [!CAUTION]
-> **Requires a current `sealbook` server.** This client speaks the three-message
-> login flow, the signed device roster, the recovery that resets the account
-> password, and the sealed object envelope, and it will not work against a server
-> that predates any of them. Rebuild `src/pkg` with `npm run wasm` whenever the
-> `sealbook` repository changes: the transcripts and the roster format are
-> computed in that package, not here.
-
-> [!NOTE]
-> The device list in Settings comes from the account's signed roster, not from
-> the server's own list of devices, and the same roster is what a manifest
-> signature is checked against. A rotation performed elsewhere is handled too:
-> this client notices the `key_epoch` change and re-fetches its key wrap.
-
 > [!NOTE]
 > The server requires TLS 1.3 with the hybrid `X25519MLKEM768` key exchange, so
 > the browser must support it: Chrome/Edge 131+, Firefox 132+, or Safari 26+.
