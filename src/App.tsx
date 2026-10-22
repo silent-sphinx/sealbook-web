@@ -116,6 +116,7 @@ import type {
   CalendarEvent,
   Contact,
   ContactDraft,
+  ContactProfile,
   DeviceState,
   FeatureKey,
   Note,
@@ -1106,8 +1107,13 @@ export default function App() {
       await putContact(session, draft, viewingContact.id);
 
       // Sync bidirectional links: compare old vs new contactId sets in family/friends/colleagues.
+      // Accumulated per target and written once, since a target linked in two
+      // sections by one save would otherwise read its pre-save profile twice.
       const oldProfile = profileOf(viewingContact.profile);
       const newProfile = profileOf(draft.profile);
+      const updates = new Map<string, { target: Contact; profile: ContactProfile }>();
+      const profileFor = (target: Contact) =>
+        updates.get(target.id)?.profile ?? profileOf(target.profile);
       for (const section of LINKABLE_SECTIONS) {
         const oldIds = new Set(oldProfile[section].map((p) => p.contactId).filter(Boolean) as string[]);
         const newIds = new Set(newProfile[section].map((p) => p.contactId).filter(Boolean) as string[]);
@@ -1115,20 +1121,26 @@ export default function App() {
           if (oldIds.has(addedId)) continue;
           const target = contacts.find((c) => c.id === addedId);
           if (!target) continue;
-          const targetProfile = profileOf(target.profile);
+          const targetProfile = profileFor(target);
           if (targetProfile[section].some((p) => p.contactId === viewingContact.id)) continue;
           const reverse = { id: crypto.randomUUID(), name: draft.name || viewingContact.name, contactId: viewingContact.id };
-          await putContact(session, { ...target, profile: { ...targetProfile, [section]: [...targetProfile[section], reverse] } }, target.id);
+          updates.set(target.id, {
+            target,
+            profile: { ...targetProfile, [section]: [...targetProfile[section], reverse] },
+          });
         }
         for (const removedId of oldIds) {
           if (newIds.has(removedId)) continue;
           const target = contacts.find((c) => c.id === removedId);
           if (!target) continue;
-          const targetProfile = profileOf(target.profile);
+          const targetProfile = profileFor(target);
           const filtered = targetProfile[section].filter((p) => p.contactId !== viewingContact.id);
           if (filtered.length === targetProfile[section].length) continue;
-          await putContact(session, { ...target, profile: { ...targetProfile, [section]: filtered } }, target.id);
+          updates.set(target.id, { target, profile: { ...targetProfile, [section]: filtered } });
         }
+      }
+      for (const { target, profile } of updates.values()) {
+        await putContact(session, { ...target, profile }, target.id);
       }
 
       setViewingContact((current) =>

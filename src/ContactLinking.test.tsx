@@ -62,6 +62,18 @@ vi.mock("./lib/client", async () => {
 
 import App from "./App";
 
+/** Both relationship sections present, so the form offers each a link button. */
+function unlinkedSections(name: string, id: string): Contact {
+  return {
+    ...aContact(name, id),
+    profile: {
+      ...profileOf(),
+      friends: [{ id: `uf-${id}`, name: "Someone Else" }],
+      colleagues: [{ id: `uc-${id}`, name: "Someone Else" }],
+    },
+  };
+}
+
 /** A contact linked reciprocally to `peer` as both a friend and a colleague. */
 function friendAndColleague(name: string, id: string, peer: { id: string; name: string }): Contact {
   return {
@@ -97,6 +109,14 @@ function sectionOf(section: string): HTMLElement {
   const heading = screen.getByRole("heading", { name: section, level: 4 });
   const body = heading.closest("section");
   if (!body) throw new Error(`the ${section} section is not rendered`);
+  return body as HTMLElement;
+}
+
+/** The same, in the edit form, whose section headings sit a level higher. */
+function formSectionOf(section: string): HTMLElement {
+  const heading = screen.getByRole("heading", { name: section, level: 3 });
+  const body = heading.closest("section");
+  if (!body) throw new Error(`the ${section} form section is not rendered`);
   return body as HTMLElement;
 }
 
@@ -164,6 +184,67 @@ describe("unlinking one section of a pair linked in several", () => {
 
     // Grace's card agrees, so the map is not drawing an edge one side denies.
     expect(linkedIn("Friends")).toEqual([]);
+    expect(linkedIn("Colleagues")).toEqual(["Ada Lovelace"]);
+  });
+});
+
+describe("linking one contact into two sections in a single save", () => {
+  beforeEach(() => {
+    store = [unlinkedSections("Ada Lovelace", "c1"), aContact("Grace Hopper", "c2")];
+    writes.length = 0;
+  });
+
+  it("writes the target once, carrying both back-references", async () => {
+    await unlock();
+
+    fireEvent.click(screen.getByRole("button", { name: "View Ada Lovelace" }));
+    await paneIdle();
+    fireEvent.click(screen.getByRole("button", { name: "Edit contact" }));
+
+    for (const section of ["Friends", "Colleagues"]) {
+      fireEvent.click(
+        within(formSectionOf(section)).getByRole("button", { name: "Link a contact" }),
+      );
+      const picker = await screen.findByRole("dialog", {
+        name: `Link a contact to ${section.toLowerCase()}`,
+      });
+      fireEvent.click(within(picker).getByRole("button", { name: /Grace Hopper/ }));
+    }
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    // Ada's own card and one write for Grace, not one per section.
+    await waitFor(() => expect(writes.length).toBe(2));
+    const theirs = writes.filter((write) => write.id === "c2");
+    expect(theirs.length).toBe(1);
+    expect(names(theirs[0]!.draft, "friends")).toEqual(["Ada Lovelace"]);
+    expect(names(theirs[0]!.draft, "colleagues")).toEqual(["Ada Lovelace"]);
+  });
+
+  it("shows both links from the other side after the save", async () => {
+    await unlock();
+
+    fireEvent.click(screen.getByRole("button", { name: "View Ada Lovelace" }));
+    await paneIdle();
+    fireEvent.click(screen.getByRole("button", { name: "Edit contact" }));
+
+    for (const section of ["Friends", "Colleagues"]) {
+      fireEvent.click(
+        within(formSectionOf(section)).getByRole("button", { name: "Link a contact" }),
+      );
+      const picker = await screen.findByRole("dialog", {
+        name: `Link a contact to ${section.toLowerCase()}`,
+      });
+      fireEvent.click(within(picker).getByRole("button", { name: /Grace Hopper/ }));
+    }
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await paneIdle();
+
+    fireEvent.click(screen.getByRole("button", { name: "View Grace Hopper" }));
+    await paneIdle();
+
+    expect(linkedIn("Friends")).toEqual(["Ada Lovelace"]);
     expect(linkedIn("Colleagues")).toEqual(["Ada Lovelace"]);
   });
 });
