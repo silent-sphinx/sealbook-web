@@ -553,9 +553,10 @@ export function CalendarView({
           notes: notes.trim() || undefined,
           location: location.trim() || undefined,
           participants: participants.filter(Boolean),
-          timezone: allDay ? timezone : timezone,
+          timezone,
           calendarId: eventCalendarId || undefined,
           recurrence,
+          raw: editingEvent?.raw,
         },
         editingEvent?.id,
       );
