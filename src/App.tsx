@@ -10,6 +10,7 @@ import { DeleteAddressBookModal } from "./components/DeleteAddressBookModal";
 import { Modal } from "./components/Modal";
 import { NotesView } from "./components/NotesView";
 import { BookmarksView } from "./components/BookmarksView";
+import { TasksView } from "./components/TasksView";
 import { SettingsView, type SettingsSection } from "./components/SettingsView";
 import { PasswordField } from "./components/PasswordField";
 import { WelcomeModal } from "./components/WelcomeModal";
@@ -25,6 +26,7 @@ import {
   CalendarIcon,
   NotesIcon,
   BookmarksIcon,
+  TasksIcon,
   SettingsIcon,
   DevicePlusIcon,
   LockIcon,
@@ -138,6 +140,7 @@ const TABS: { id: MainTab; label: string; icon: React.ReactNode }[] = [
   { id: "calendar", label: "Calendar", icon: <CalendarIcon /> },
   { id: "notes", label: "Notes", icon: <NotesIcon /> },
   { id: "bookmarks", label: "Bookmarks", icon: <BookmarksIcon /> },
+  { id: "tasks", label: "Tasks", icon: <TasksIcon /> },
   { id: "settings", label: "Settings", icon: <SettingsIcon /> },
 ];
 
@@ -165,8 +168,9 @@ export default function App() {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [bookmarkCollections, setBookmarkCollections] = useState<BookmarkCollection[]>([]);
-  const [, setTasks] = useState<Task[]>([]);
-  const [, setTaskLists] = useState<TaskList[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [taskFocusId, setTaskFocusId] = useState<string | undefined>();
+  const [taskLists, setTaskLists] = useState<TaskList[]>([]);
   const [accountSettings, setAccountSettings] = useState<AccountSettings>(DEFAULT_ACCOUNT_SETTINGS);
   /** The settings payload last read, so a save merges onto it. */
   const accountSettingsRaw = useRef<string | undefined>(undefined);
@@ -1786,7 +1790,7 @@ export default function App() {
         </main>
       ) : activeTab === "calendar" ? (
         <div>
-          <CalendarView session={session} calendars={calendars} events={calendarEvents} contacts={contacts} busy={busy} timezone={timezone} onRefresh={() => refresh(session)} readOnly={isOffline} sidebar={sidebar} />
+          <CalendarView session={session} calendars={calendars} events={calendarEvents} contacts={contacts} busy={busy} timezone={timezone} onRefresh={() => refresh(session)} readOnly={isOffline} sidebar={sidebar} dueTasks={isFeatureEnabled(accountSettings, "tasks") ? tasks : undefined} onOpenTask={(id) => guardEditing(() => { setTaskFocusId(id); setActiveTab("tasks"); })} />
         </div>
       ) : activeTab === "notes" ? (
         <div>
@@ -1812,6 +1816,21 @@ export default function App() {
             onCreateCollection={onCreateBookmarkCollection}
             readOnly={isOffline}
             sidebar={sidebar}
+          />
+        </div>
+      ) : activeTab === "tasks" ? (
+        <div>
+          <TasksView
+            session={session}
+            tasks={tasks}
+            taskLists={taskLists}
+            busy={busy}
+            timezone={timezone}
+            onRefresh={() => refresh(session)}
+            readOnly={isOffline}
+            sidebar={sidebar}
+            focusTaskId={taskFocusId}
+            onFocusHandled={() => setTaskFocusId(undefined)}
           />
         </div>
       ) : activeTab === "contacts" ? (

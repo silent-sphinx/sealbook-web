@@ -42,3 +42,19 @@ export function flattenTaskTree(nodes: TaskTreeNode[]): TaskTreeNode[] {
 export function taskAncestors(tasks: Task[], id: string): string[] {
   return treeAncestors(tasks, id);
 }
+
+export type ChildCount = { done: number; total: number };
+
+/** Direct subtasks per parent, for the "2/5" badge. */
+export function childCounts(tasks: Task[]): Map<string, ChildCount> {
+  const ids = new Set(tasks.map((task) => task.id));
+  const counts = new Map<string, ChildCount>();
+  for (const task of tasks) {
+    if (!task.parentId || task.parentId === task.id || !ids.has(task.parentId)) continue;
+    const entry = counts.get(task.parentId) ?? { done: 0, total: 0 };
+    entry.total += 1;
+    if (task.done) entry.done += 1;
+    counts.set(task.parentId, entry);
+  }
+  return counts;
+}

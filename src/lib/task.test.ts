@@ -5,6 +5,7 @@ import {
   canMoveTaskList,
   completeTask,
   DEFAULT_TASK_LIST_ID,
+  dueLabel,
   emptyTaskDraft,
   inScope,
   isOverdue,
@@ -21,7 +22,7 @@ import {
   taskFitsObjectLimit,
   taskMatches,
 } from "./task";
-import { buildTaskTree, canReparentTask, flattenTaskTree } from "./taskTree";
+import { buildTaskTree, canReparentTask, childCounts, flattenTaskTree } from "./taskTree";
 import type { RecurrenceRule, Task, TaskDraft, TaskList } from "./types";
 
 const TZ = "Europe/London";
@@ -313,5 +314,33 @@ describe("task lists and subtasks", () => {
     const tasks = [task({}, "p"), task({ parentId: "p" }, "c")];
     expect(canReparentTask(tasks, "p", "c")).toBe(false);
     expect(canReparentTask(tasks, "c", null)).toBe(true);
+  });
+});
+
+describe("dueLabel", () => {
+  const now = new Date("2026-10-22T10:00:00Z");
+
+  it("names the days around today", () => {
+    expect(dueLabel(task({ dueDate: "2026-10-22" }), now, TZ)).toBe("Today");
+    expect(dueLabel(task({ dueDate: "2026-10-23" }), now, TZ)).toBe("Tomorrow");
+    expect(dueLabel(task({ dueDate: "2026-10-21" }), now, TZ)).toBe("Yesterday");
+    expect(dueLabel(task(), now, TZ)).toBeNull();
+  });
+
+  it("adds the local time to a timed due date", () => {
+    expect(dueLabel(task({ dueDate: "2026-10-23T08:30:00.000Z" }), now, TZ)).toBe("Tomorrow 09:30");
+  });
+});
+
+describe("childCounts", () => {
+  it("counts direct subtasks and how many are done", () => {
+    const tasks = [
+      task({}, "p"),
+      task({ parentId: "p", done: true }, "a"),
+      task({ parentId: "p" }, "b"),
+      task({ parentId: "missing" }, "c"),
+    ];
+    expect(childCounts(tasks).get("p")).toEqual({ done: 1, total: 2 });
+    expect(childCounts(tasks).has("missing")).toBe(false);
   });
 });

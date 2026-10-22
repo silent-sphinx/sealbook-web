@@ -7,7 +7,8 @@ import {
   putCalendarEvent,
   type Session,
 } from "../lib/client";
-import type { Calendar, CalendarEvent, Contact, RecurrenceRule } from "../lib/types";
+import type { Calendar, CalendarEvent, Contact, RecurrenceRule, Task } from "../lib/types";
+import { dueTaskMarks } from "../lib/taskCalendar";
 import { DEFAULT_CALENDAR_COLOR } from "../lib/types";
 import { DEFAULT_CALENDAR_ID, activeCalendars, archivedCalendars, isCalendarVisible, visibleCalendarIds } from "../lib/calendar";
 import { friendlyError } from "../lib/errors";
@@ -34,7 +35,10 @@ import { searchEvents, type SearchResult } from "../lib/calendarSearch";
 import {
   HIDDEN_CALENDARS,
   SHOWN_ARCHIVED_CALENDARS,
+  TASKS_OVERLAY,
+  loadCalendarFlag,
   loadCalendarIds,
+  storeCalendarFlag,
   storeCalendarIds,
 } from "../lib/calendarVisibility";
 
@@ -162,6 +166,8 @@ export function CalendarView({
   onRefresh,
   readOnly,
   sidebar,
+  dueTasks,
+  onOpenTask,
 }: {
   session: Session;
   calendars: Calendar[];
@@ -173,6 +179,9 @@ export function CalendarView({
   readOnly?: boolean;
   /** Shared with the rest of the shell; the header owns the control. */
   sidebar: Sidebar;
+  /** Absent when the tasks feature is off, which also hides the overlay's switch. */
+  dueTasks?: Task[];
+  onOpenTask?: (id: string) => void;
 }) {
   const today = new Date();
   const todayKey = keyFor(today);
@@ -183,6 +192,15 @@ export function CalendarView({
   const [composer, setComposer] = useState(false);
   const [calendarComposer, setCalendarComposer] = useState(false);
   const [editingCalendar, setEditingCalendar] = useState<Calendar | null>(null);
+  const [showTasks, setShowTasks] = useState(() => loadCalendarFlag(session.state.collection_id, TASKS_OVERLAY, true));
+  const taskMarks = useMemo(
+    () => (dueTasks && showTasks ? dueTaskMarks(dueTasks, new Date(), timezone) : undefined),
+    [dueTasks, showTasks, timezone],
+  );
+  function toggleTasks(next: boolean) {
+    setShowTasks(next);
+    storeCalendarFlag(session.state.collection_id, TASKS_OVERLAY, next);
+  }
   const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(() => loadCalendarIds(session.state.collection_id, HIDDEN_CALENDARS));
   const [shownArchivedIds, setShownArchivedIds] = useState<Set<string>>(() => loadCalendarIds(session.state.collection_id, SHOWN_ARCHIVED_CALENDARS));
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
@@ -713,6 +731,14 @@ export function CalendarView({
           >
             <CalendarList calendars={activeCals} archived={archivedCals} isVisible={(calendar) => isCalendarVisible(calendar, hiddenCalendarIds, shownArchivedIds)} readOnly={readOnlyMode} canArchive={activeCals.length > 1} onToggle={toggleCalendar} onShowAll={showAllCalendars} onToggleFavorite={(calendar) => void toggleFavorite(calendar)} onToggleArchived={(calendar) => void toggleArchived(calendar)} onEdit={openEditCalendar} onCreate={openNewCalendar} />
           </SidebarSection>
+          {dueTasks ? (
+            <SidebarSection label="Tasks">
+              <label className="mt-2 flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-xs text-mute transition-colors hover:bg-surface/40 hover:text-text">
+                <input type="checkbox" checked={showTasks} onChange={(event) => toggleTasks(event.target.checked)} className="h-4 w-4 accent-accent" />
+                Show tasks with a due date
+              </label>
+            </SidebarSection>
+          ) : null}
         </SidebarDrawer>
 
         <section className="order-1 flex min-w-0 flex-col overflow-hidden lg:order-none lg:min-h-0">
@@ -731,11 +757,11 @@ export function CalendarView({
             </div>
           </header>
           {mode === "month" ? (
-            <ExtractedMonthGrid month={month} days={days} selected={selected} todayKey={todayKey} events={visibleEvents} spans={spans} calendars={calendars} onSelect={selectDay} onAdd={readOnlyMode ? () => undefined : (day) => openNewTask(day)} onEdit={editOccurrence} />
+            <ExtractedMonthGrid month={month} days={days} selected={selected} todayKey={todayKey} events={visibleEvents} spans={spans} calendars={calendars} onSelect={selectDay} onAdd={readOnlyMode ? () => undefined : (day) => openNewTask(day)} onEdit={editOccurrence} taskMarks={taskMarks} onOpenTask={onOpenTask} />
           ) : mode === "day" ? (
-            <ExtractedDayView day={selectedDate} events={visibleEvents} spans={spans} calendars={calendars} timezone={timezone} todayKey={todayKey} nowMinutes={nowMinutes} onAdd={readOnlyMode ? () => undefined : openNewTask} onEdit={editOccurrence} />
+            <ExtractedDayView day={selectedDate} events={visibleEvents} spans={spans} calendars={calendars} timezone={timezone} todayKey={todayKey} nowMinutes={nowMinutes} onAdd={readOnlyMode ? () => undefined : openNewTask} onEdit={editOccurrence} taskMarks={taskMarks} onOpenTask={onOpenTask} />
           ) : mode === "week" ? (
-            <ExtractedWeekView days={week} selected={selected} todayKey={todayKey} events={visibleEvents} spans={spans} calendars={calendars} timezone={timezone} nowMinutes={nowMinutes} onSelect={selectDay} onAdd={readOnlyMode ? () => undefined : openNewTask} onEdit={editOccurrence} />
+            <ExtractedWeekView days={week} selected={selected} todayKey={todayKey} events={visibleEvents} spans={spans} calendars={calendars} timezone={timezone} nowMinutes={nowMinutes} onSelect={selectDay} onAdd={readOnlyMode ? () => undefined : openNewTask} onEdit={editOccurrence} taskMarks={taskMarks} onOpenTask={onOpenTask} />
           ) : (
             <ExtractedYearView months={yearMonths} today={today} selected={selected} events={visibleEvents} spans={spans} onOpenDay={openDay} />
           )}

@@ -26,3 +26,22 @@ export function storeCalendarIds(collectionId: string, group: string, ids: Reado
     // Storage unavailable; the choice then lasts for this session only.
   }
 }
+
+export const TASKS_OVERLAY = "tasks-overlay";
+
+export function loadCalendarFlag(collectionId: string, group: string, fallback: boolean): boolean {
+  try {
+    const stored = localStorage.getItem(calendarIdsStorageKey(collectionId, group));
+    return stored === null ? fallback : stored === "1";
+  } catch {
+    return fallback;
+  }
+}
+
+export function storeCalendarFlag(collectionId: string, group: string, value: boolean): void {
+  try {
+    localStorage.setItem(calendarIdsStorageKey(collectionId, group), value ? "1" : "0");
+  } catch {
+    // Storage unavailable; the choice then lasts for this session only.
+  }
+}

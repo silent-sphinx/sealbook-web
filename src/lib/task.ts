@@ -322,3 +322,23 @@ export function canMoveTaskList(lists: TaskList[], id: string, parentId: string 
 export function taskListTone(lists: TaskList[], id: string): string {
   return collectionTone(lists, id);
 }
+
+export function dueLabel(task: Task, now: Date, timezone: string): string | null {
+  const due = normalizeDueDate(task.dueDate);
+  if (!due) return null;
+  const day = dayOf(due, timezone);
+  const today = dayOf(now.toISOString(), timezone);
+  const delta = Math.round((day.getTime() - today.getTime()) / 86_400_000);
+  let label: string;
+  if (delta === 0) label = "Today";
+  else if (delta === 1) label = "Tomorrow";
+  else if (delta === -1) label = "Yesterday";
+  else {
+    label = day.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      ...(day.getFullYear() === today.getFullYear() ? {} : { year: "numeric" }),
+    });
+  }
+  return isAllDayDue(due) ? label : `${label} ${utcToLocalInput(due, timezone).slice(11)}`;
+}
