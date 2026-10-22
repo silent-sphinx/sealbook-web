@@ -1,8 +1,17 @@
+import "fake-indexeddb/auto";
+import { IDBFactory } from "fake-indexeddb";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { DEFAULT_ACCOUNT_SETTINGS } from "./accountSettings";
 import { friendlyError } from "./errors";
-import { DeviceStorageError, normalizeSnapshot, saveDevice } from "./storage";
+import { idbGetAttachment, idbPutAttachment } from "./idb";
+import {
+  ATTACHMENT_CACHE_SALT_KEY,
+  clearDevice,
+  DeviceStorageError,
+  normalizeSnapshot,
+  saveDevice,
+} from "./storage";
 import type { DeviceState } from "./types";
 
 const original = {
@@ -121,5 +130,63 @@ describe("saveDevice", () => {
     await saveDevice(state, "pw");
     expect(written).not.toContain("secret-token");
     expect(JSON.parse(written)).toMatchObject({ metadata: { username: "ada" } });
+  });
+});
+
+describe("clearDevice", () => {
+  const stored: Record<string, string> = {};
+
+  afterEach(() => {
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+    globalThis.indexedDB = new IDBFactory();
+  });
+
+  function stubStorage() {
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: (key: string) => stored[key] ?? null,
+      setItem: (key: string, value: string) => {
+        stored[key] = value;
+      },
+      removeItem: (key: string) => delete stored[key],
+    };
+  }
+
+  it("empties the attachment cache, which sign-out left on disk", async () => {
+    stubStorage();
+    stored["sealbook.device"] = "{}";
+    stored[ATTACHMENT_CACHE_SALT_KEY] = "AAAA";
+    await idbPutAttachment("a", {
+      version: 1,
+      iv: new Uint8Array(12),
+      ciphertext: new Uint8Array(8),
+      bytes: 8,
+      lastUsed: 1,
+    });
+
+    await clearDevice();
+
+    expect(await idbGetAttachment("a")).toBeNull();
+    expect(stored["sealbook.device"]).toBeUndefined();
+    expect(stored[ATTACHMENT_CACHE_SALT_KEY]).toBeUndefined();
+  });
+
+  it("still empties the stores when the storage area throws", async () => {
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: () => null,
+      setItem: () => undefined,
+      removeItem: () => {
+        throw new DOMException("site data is blocked");
+      },
+    };
+    await idbPutAttachment("a", {
+      version: 1,
+      iv: new Uint8Array(12),
+      ciphertext: new Uint8Array(8),
+      bytes: 8,
+      lastUsed: 1,
+    });
+
+    await expect(clearDevice()).resolves.toBeUndefined();
+    expect(await idbGetAttachment("a")).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import { b64ToByteArray, b64encode } from "./bytes";
 import { describeError, log } from "./log";
-import { idbDelete, idbGet, idbPut } from "./idb";
+import { idbClearAttachments, idbDelete, idbGet, idbPut } from "./idb";
 import { DEFAULT_ACCOUNT_SETTINGS, normalizeAccountSettings } from "./accountSettings";
 import type {
   AccountSettings,
@@ -20,6 +20,8 @@ const KEY = "sealbook.device";
 const LEGACY_VAULT_KEY = "sealbook.vault";
 const VAULT_RECORD = "snapshot";
 const DOMAIN_KEY = "sealbook.connection-domain";
+/** Read by `attachmentCache.ts`, which derives its key the same way this does. */
+export const ATTACHMENT_CACHE_SALT_KEY = "sealbook.attachment-cache-salt";
 const STORAGE_VERSION = 1;
 const PBKDF2_ITERATIONS = 600_000;
 
@@ -170,7 +172,7 @@ export function loadDeviceMetadata(): DeviceMetadata | null {
   return null;
 }
 
-async function deriveStorageKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
+export async function deriveStorageKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
   return crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
@@ -359,9 +361,19 @@ export async function loadVaultSnapshot(password: string): Promise<VaultSnapshot
   }
 }
 
-export function clearDevice(): void {
-  log.info("clearing this device's stored keys and offline snapshot");
-  localStorage.removeItem(KEY);
-  localStorage.removeItem(LEGACY_VAULT_KEY);
-  void idbDelete(VAULT_RECORD);
+/**
+ * Awaited rather than fired off: the attachment cache holds the account's files,
+ * so a sign-out that returns before the store is empty has not signed out.
+ */
+export async function clearDevice(): Promise<void> {
+  log.info("clearing this device's stored keys, offline snapshot and attachment cache");
+  try {
+    localStorage.removeItem(KEY);
+    localStorage.removeItem(LEGACY_VAULT_KEY);
+    localStorage.removeItem(ATTACHMENT_CACHE_SALT_KEY);
+  } catch (err) {
+    // A throwing storage area must not stop the stores below being emptied.
+    log.warn("the stored device record could not be removed", { reason: describeError(err) });
+  }
+  await Promise.all([idbDelete(VAULT_RECORD), idbClearAttachments()]);
 }

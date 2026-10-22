@@ -1,5 +1,9 @@
 import { b64encode } from "./bytes";
-import { idbDeleteAttachment, idbGetAttachment, idbPutAttachment } from "./idb";
+import {
+  forgetCachedAttachment,
+  readCachedAttachment,
+  writeCachedAttachment,
+} from "./attachmentCache";
 import {
   ATTACHMENT_NONCE_LEN,
   AttachmentHasher,
@@ -171,15 +175,15 @@ export async function loadAttachment(
   session: Session,
   attachment: NoteAttachment,
 ): Promise<Blob> {
-  const cached = await idbGetAttachment(attachment.id);
+  const cached = await readCachedAttachment(attachment);
   if (cached) return cached;
   const blob = await downloadAttachment(session, attachment);
-  await idbPutAttachment(attachment.id, blob);
+  await writeCachedAttachment(attachment.id, blob);
   return blob;
 }
 
 export async function deleteAttachment(session: Session, attachmentId: string): Promise<void> {
-  await idbDeleteAttachment(attachmentId);
+  await forgetCachedAttachment(attachmentId);
   const res = await fetch(`${attachmentBase(session)}/${attachmentId}`, {
     method: "DELETE",
     headers: { authorization: `Bearer ${session.token}` },

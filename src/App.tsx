@@ -74,6 +74,7 @@ import {
 import { emptyDraft, sortContacts } from "./lib/contact";
 import { extractRecoveryWords } from "./lib/phrase";
 import { findInvalidBip39Words } from "./lib/bip39Words";
+import { closeAttachmentCache, primeAttachmentCache } from "./lib/attachmentCache";
 import {
   clearDevice,
   loadConnectionDomain,
@@ -602,6 +603,7 @@ export default function App() {
 
   async function openSession(next: Session, passwordForStorage: string) {
     await saveDevice(next.state, passwordForStorage);
+    primeAttachmentCache(passwordForStorage);
     setStored(next.state);
     setSession(next);
     await refresh(next);
@@ -609,6 +611,7 @@ export default function App() {
 
   async function persistSession(next: Session, passwordForStorage: string) {
     await saveDevice(next.state, passwordForStorage);
+    primeAttachmentCache(passwordForStorage);
     setPassword(passwordForStorage);
     setStored(next.state);
     setSession(next);
@@ -781,6 +784,7 @@ export default function App() {
     const active = session;
     setSession(null);
     setPassword("");
+    closeAttachmentCache();
     resetVaultState();
     if (active) {
       try {
@@ -807,7 +811,7 @@ export default function App() {
 
   async function signOut() {
     await lock();
-    clearDevice();
+    await clearDevice();
     setOnboarding(false);
     setStored(null);
     resetPair();
@@ -870,6 +874,7 @@ export default function App() {
           notes: snapshot.notes.length,
           bookmarks: snapshot.bookmarks.length,
         });
+        primeAttachmentCache(password);
         setSession({ state: unlocked, collectionKey: "", token: "", latestRevision: 0, keyEpoch: 0, manifestSeq: 0, offline: true });
       } else {
         await openSession(await loginAccount(unlocked, password), password);
@@ -906,6 +911,7 @@ export default function App() {
       const defaultTimezone = rememberBrowserTimezone();
       setTimezoneState(defaultTimezone);
       await saveDevice(next.state, password);
+      primeAttachmentCache(password);
       setStored(next.state);
       setSession(next);
       setPhrase(words);

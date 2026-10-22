@@ -603,7 +603,7 @@ export function SettingsView({
     setDeleteError(null);
     try {
       await deleteAccount(session, deletePassword);
-      clearDevice();
+      await clearDevice();
       setShowDeleteModal(false);
       onAccountDeleted();
     } catch (err) {
