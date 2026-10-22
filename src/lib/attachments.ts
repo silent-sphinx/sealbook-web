@@ -29,7 +29,7 @@ const ATTACHMENT_TIMEOUT_MS = 120_000;
 async function putAttachmentChunk(
   url: string,
   nonceB64: string,
-  body: Uint8Array,
+  body: Uint8Array<ArrayBuffer>,
   token: string,
 ): Promise<void> {
   const timeout = AbortSignal.timeout(ATTACHMENT_TIMEOUT_MS);
@@ -161,7 +161,7 @@ export async function downloadAttachment(
         `${base}/${attachment.id}/chunks/${index}`,
         session.token,
       );
-      let plaintext: Uint8Array;
+      let plaintext: Uint8Array<ArrayBuffer>;
       try {
         plaintext = openAttachmentChunk(
           attachment.adk,

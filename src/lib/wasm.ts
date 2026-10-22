@@ -519,7 +519,8 @@ export function sealAttachmentChunk(
   chunkIndex: number,
   chunkCount: number,
   plaintext: Uint8Array,
-): Uint8Array {
+): Uint8Array<ArrayBuffer> {
+  // wasm-bindgen copies its return into a fresh, non-shared buffer.
   return seal_attachment_chunk(
     adk,
     attachmentId,
@@ -527,7 +528,7 @@ export function sealAttachmentChunk(
     chunkIndex,
     chunkCount,
     plaintext,
-  );
+  ) as Uint8Array<ArrayBuffer>;
 }
 
 /** The nonce length `sealAttachmentChunk` prepends to its ciphertext. */
@@ -542,7 +543,7 @@ export function openAttachmentChunk(
   chunkCount: number,
   nonce: string,
   ciphertext: Uint8Array,
-): Uint8Array {
+): Uint8Array<ArrayBuffer> {
   return open_attachment_chunk(
     adk,
     attachmentId,
@@ -551,7 +552,7 @@ export function openAttachmentChunk(
     chunkCount,
     nonce,
     ciphertext,
-  );
+  ) as Uint8Array<ArrayBuffer>;
 }
 
 /**
