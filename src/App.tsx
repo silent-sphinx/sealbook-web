@@ -169,9 +169,10 @@ export default function App() {
   /**
    * The address books switched off in the sidebar, as `loadHiddenAddressBooks`
    * holds them. Loaded per collection once a vault is open, since the key is
-   * the collection's.
+   * the collection's, and `hiddenBooksCollection` records which one is loaded.
    */
   const [hiddenBooks, setHiddenBooks] = useState<Set<string>>(new Set());
+  const [hiddenBooksCollection, setHiddenBooksCollection] = useState<string | null>(null);
   /**
    * Whether the list is showing the Archive instead of the address books. A
    * view rather than a book filter: an archived contact is out of every book
@@ -366,10 +367,15 @@ export default function App() {
 
   // The sidebar's switched-off books are stored per collection, so they can only
   // be read once a vault is open, and are dropped again when one is signed out.
+  //
+  // Adjusted during render rather than in an effect: the read is a synchronous
+  // one from localStorage, and an effect would let the first render go out
+  // with every book still showing, flashing the hidden contacts for a frame.
   const collectionId = session?.state.collection_id ?? null;
-  useEffect(() => {
+  if (hiddenBooksCollection !== collectionId) {
+    setHiddenBooksCollection(collectionId);
     setHiddenBooks(collectionId ? loadHiddenAddressBooks(collectionId) : new Set());
-  }, [collectionId]);
+  }
 
   const archivedContacts = useMemo(
     () => contacts.filter((contact) => contact.archived === true),

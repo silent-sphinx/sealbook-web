@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   buildContactNetwork,
   NetworkSimulation,
@@ -10,7 +10,7 @@ import type { Contact } from "../lib/types";
 import { Avatar } from "./ContactCard";
 import { focusRing, iconButton } from "../lib/styles";
 
-/** Before the container has been measured. */
+/** For a pane with no box to measure, such as one that is hidden. */
 const FALLBACK_SIZE = { width: 320, height: 320 };
 const MIN_NODE_RADIUS = 14;
 const MAX_NODE_RADIUS = 30;
@@ -53,9 +53,8 @@ export function ContactNetworkMap({
 }) {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [view, setView] = useState<View>(DEFAULT_VIEW);
-  const [size, setSize] = useState(FALLBACK_SIZE);
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [showAllContacts, setShowAllContacts] = useState(false);
-  const [, bumpTick] = useReducer((count: number) => count + 1, 0);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -68,9 +67,23 @@ export function ContactNetworkMap({
 
   // Sizes the graph to the pane's actual shape rather than a fixed square, so
   // it fills the area instead of letterboxing inside it.
-  useEffect(() => {
+  //
+  // Measured before the first paint, and nothing is drawn until it has been:
+  // a guessed size is a `viewBox` the browser scales to the pane, so the whole
+  // graph, icons and all, would be drawn at the wrong scale and then jump when
+  // the real size arrived. Only a pane with no box to measure settles for the
+  // fallback, and a later measurement resizes it like any other.
+  useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    setSize(
+      rect.width > 0 && rect.height > 0
+        ? { width: rect.width, height: rect.height }
+        : FALLBACK_SIZE,
+    );
+
     const observer = new ResizeObserver(([entry]) => {
       if (!entry) return;
       const { width, height } = entry.contentRect;
@@ -79,6 +92,8 @@ export function ContactNetworkMap({
     observer.observe(container);
     return () => observer.disconnect();
   }, []);
+
+  const pane = size ?? FALLBACK_SIZE;
 
   const byId = useMemo(() => {
     const map = new Map<string, Contact>();
@@ -91,24 +106,82 @@ export function ContactNetworkMap({
     [contacts, showAllContacts],
   );
 
-  // Groups edges by the pair they connect, so a pair sharing more than one
-  // relationship (e.g. friends and colleagues) can be drawn as parallel
-  // lines rather than one overdrawing the other.
-  const edgeGroups = useMemo(() => {
-    const groups = new Map<string, ContactNetworkEdge[]>();
-    for (const edge of graph.edges) {
+  // A pair sharing more than one relationship (e.g. friends and colleagues)
+  // is drawn as parallel lines rather than one overdrawing the other, so each
+  // edge carries the perpendicular offset its place in the pair gives it.
+  const edgeOffsets = useMemo(() => {
+    const sizes = new Map<string, number>();
+    for (const edge of graph.edges) sizes.set(pairKey(edge), (sizes.get(pairKey(edge)) ?? 0) + 1);
+
+    const seen = new Map<string, number>();
+    return graph.edges.map((edge) => {
       const key = pairKey(edge);
-      const group = groups.get(key);
-      if (group) group.push(edge);
-      else groups.set(key, [edge]);
-    }
-    return groups;
+      const index = seen.get(key) ?? 0;
+      seen.set(key, index + 1);
+      return (index - ((sizes.get(key) ?? 1) - 1) / 2) * EDGE_OFFSET_GAP;
+    });
   }, [graph.edges]);
 
-  // Runs the loop that steps the physics simulation and re-renders while
+  // The painted elements, in the graph's own node and edge order, so a frame
+  // can go straight from a simulation index to the element it moves.
+  const nodeEls = useMemo(
+    () => graph.nodes.map((): SVGGElement | null => null),
+    [graph.nodes],
+  );
+  const edgeEls = useMemo(
+    () => graph.edges.map((): SVGLineElement | null => null),
+    [graph.edges],
+  );
+
+  // Writes the layout the simulation holds onto the SVG. Positions are the
+  // simulation's state rather than React's, so a frame moves the existing
+  // elements instead of re-rendering a `<g>`, `<foreignObject>`, `<button>`
+  // and `<Avatar>` per node.
+  const paint = useCallback(() => {
+    const sim = simRef.current;
+    if (!sim) return;
+    const coordinates = sim.coordinates();
+    const endpoints = sim.endpoints();
+
+    for (const [index, element] of nodeEls.entries()) {
+      if (!element) continue;
+      element.setAttribute(
+        "transform",
+        `translate(${coordinates[index * 2]} ${coordinates[index * 2 + 1]})`,
+      );
+    }
+
+    for (const [index, element] of edgeEls.entries()) {
+      if (!element) continue;
+      const source = endpoints[index * 2]! * 2;
+      const target = endpoints[index * 2 + 1]! * 2;
+      if (source < 0 || target < 0) continue;
+
+      const x1 = coordinates[source]!;
+      const y1 = coordinates[source + 1]!;
+      const x2 = coordinates[target]!;
+      const y2 = coordinates[target + 1]!;
+
+      let nx = 0;
+      let ny = 0;
+      const offset = edgeOffsets[index] ?? 0;
+      if (offset !== 0) {
+        const length = Math.max(Math.hypot(x2 - x1, y2 - y1), 1);
+        nx = (-(y2 - y1) / length) * offset;
+        ny = ((x2 - x1) / length) * offset;
+      }
+
+      element.setAttribute("x1", String(x1 + nx));
+      element.setAttribute("y1", String(y1 + ny));
+      element.setAttribute("x2", String(x2 + nx));
+      element.setAttribute("y2", String(y2 + ny));
+    }
+  }, [nodeEls, edgeEls, edgeOffsets]);
+
+  // Runs the loop that steps the physics simulation and repaints while
   // anything is moving (including the duration of a node drag), then goes
   // idle once everything has settled, rather than ticking forever.
-  function wake() {
+  const wake = useCallback(() => {
     if (rafRef.current !== null) return;
     const loop = () => {
       const sim = simRef.current;
@@ -117,7 +190,7 @@ export function ContactNetworkMap({
         return;
       }
       const moving = sim.step();
-      bumpTick();
+      paint();
       if (moving || nodeDragRef.current) {
         rafRef.current = requestAnimationFrame(loop);
       } else {
@@ -125,28 +198,37 @@ export function ContactNetworkMap({
       }
     };
     rafRef.current = requestAnimationFrame(loop);
+  }, [paint]);
+
+  // Builds the simulation on the first render that has a measured pane, or
+  // updates it in place (keeping existing node positions) when the graph or
+  // pane size changes, so the layout is already available for this render
+  // rather than flashing in a frame late via an effect.
+  if (size) {
+    if (!simRef.current) {
+      const sim = new NetworkSimulation(graph, size.width, size.height);
+      for (let i = 0; i < PRESETTLE_ITERATIONS; i++) sim.step();
+      simRef.current = sim;
+      simGraphRef.current = graph;
+      simSizeRef.current = size;
+    } else if (
+      simGraphRef.current !== graph ||
+      simSizeRef.current?.width !== size.width ||
+      simSizeRef.current?.height !== size.height
+    ) {
+      simRef.current.resize(size.width, size.height);
+      simRef.current.setGraph(graph);
+      simGraphRef.current = graph;
+      simSizeRef.current = size;
+    }
   }
 
-  // Builds the simulation on first render, or updates it in place (keeping
-  // existing node positions) when the graph or pane size changes, so the
-  // layout is already available for this render rather than flashing in a
-  // frame late via an effect.
-  if (!simRef.current) {
-    const sim = new NetworkSimulation(graph, size.width, size.height);
-    for (let i = 0; i < PRESETTLE_ITERATIONS; i++) sim.step();
-    simRef.current = sim;
-    simGraphRef.current = graph;
-    simSizeRef.current = size;
-  } else if (
-    simGraphRef.current !== graph ||
-    simSizeRef.current?.width !== size.width ||
-    simSizeRef.current?.height !== size.height
-  ) {
-    simRef.current.resize(size.width, size.height);
-    simRef.current.setGraph(graph);
-    simGraphRef.current = graph;
-    simSizeRef.current = size;
-  }
+  // A render that replaced the elements, or the one that first measured the
+  // pane, leaves them with no coordinates on them, so every render paints
+  // before the browser draws rather than a frame later. Attribute writes on
+  // elements that are already in place, so it costs little next to the render
+  // that preceded it.
+  useLayoutEffect(paint);
 
   // Starting and cancelling the loop in one effect keeps `rafRef` honest: a
   // cancelled frame id left behind would make every later `wake()` no-op on
@@ -159,7 +241,7 @@ export function ContactNetworkMap({
         rafRef.current = null;
       }
     };
-  }, [graph, size.width, size.height]);
+  }, [wake, pane.width, pane.height]);
 
   // React marks its own `onWheel` listener passive, which silently drops
   // `preventDefault`, so zoom is wired through a real DOM listener instead.
@@ -169,7 +251,7 @@ export function ContactNetworkMap({
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const point = clientToSvgPoint(svg, e.clientX, e.clientY, size.width, size.height);
+      const point = clientToSvgPoint(svg, e.clientX, e.clientY, pane.width, pane.height);
       setView((prev) => {
         const factor = Math.exp(-e.deltaY * 0.0015);
         const nextScale = clampZoom(prev.scale * factor);
@@ -184,7 +266,7 @@ export function ContactNetworkMap({
 
     svg.addEventListener("wheel", onWheel, { passive: false });
     return () => svg.removeEventListener("wheel", onWheel);
-  }, [size.width, size.height]);
+  }, [pane.width, pane.height]);
 
   const isEmpty = graph.nodes.length === 0;
 
@@ -195,16 +277,14 @@ export function ContactNetworkMap({
     hoveredNodeId !== null &&
     (edge.source === hoveredNodeId || edge.target === hoveredNodeId);
 
-  const position = (id: string): NetworkPoint => simRef.current!.getPosition(id)!;
-
   function zoomBy(factor: number) {
     setView((prev) => {
       const nextScale = clampZoom(prev.scale * factor);
       const k = nextScale / prev.scale;
       return {
         scale: nextScale,
-        x: (size.width / 2) * (1 - k) + k * prev.x,
-        y: (size.height / 2) * (1 - k) + k * prev.y,
+        x: (pane.width / 2) * (1 - k) + k * prev.x,
+        y: (pane.height / 2) * (1 - k) + k * prev.y,
       };
     });
   }
@@ -214,7 +294,7 @@ export function ContactNetworkMap({
     const svg = svgRef.current;
     if (!svg) return;
     panRef.current = {
-      start: clientToSvgPoint(svg, e.clientX, e.clientY, size.width, size.height),
+      start: clientToSvgPoint(svg, e.clientX, e.clientY, pane.width, pane.height),
       startView: { x: view.x, y: view.y },
     };
   }
@@ -223,7 +303,7 @@ export function ContactNetworkMap({
     const pan = panRef.current;
     const svg = svgRef.current;
     if (!pan || !svg) return;
-    const point = clientToSvgPoint(svg, e.clientX, e.clientY, size.width, size.height);
+    const point = clientToSvgPoint(svg, e.clientX, e.clientY, pane.width, pane.height);
     setView((prev) => ({
       ...prev,
       x: pan.startView.x + (point.x - pan.start.x),
@@ -253,7 +333,7 @@ export function ContactNetworkMap({
     if (!drag.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
     drag.moved = true;
 
-    const outer = clientToSvgPoint(svg, e.clientX, e.clientY, size.width, size.height);
+    const outer = clientToSvgPoint(svg, e.clientX, e.clientY, pane.width, pane.height);
     const graphPoint = {
       x: (outer.x - view.x) / view.scale,
       y: (outer.y - view.y) / view.scale,
@@ -296,10 +376,10 @@ export function ContactNetworkMap({
                 : "Link a family member, friend, or colleague on a contact's detail page to see them here."}
             </p>
           </div>
-        ) : (
+        ) : size ? (
           <svg
             ref={svgRef}
-            viewBox={`0 0 ${size.width} ${size.height}`}
+            viewBox={`0 0 ${pane.width} ${pane.height}`}
             className="h-full w-full"
             style={{ touchAction: "none" }}
             role="img"
@@ -308,8 +388,8 @@ export function ContactNetworkMap({
             <rect
               x={0}
               y={0}
-              width={size.width}
-              height={size.height}
+              width={pane.width}
+              height={pane.height}
               fill="transparent"
               className="cursor-grab active:cursor-grabbing"
               onPointerDown={handleBackgroundPointerDown}
@@ -319,27 +399,15 @@ export function ContactNetworkMap({
 
             <g transform={`translate(${view.x} ${view.y}) scale(${view.scale})`}>
               <g>
-                {graph.edges.map((edge) => {
-                  const from = position(edge.source);
-                  const to = position(edge.target);
+                {graph.edges.map((edge, index) => {
                   const highlighted = isHighlighted(edge);
-
-                  const group = edgeGroups.get(pairKey(edge)) ?? [edge];
-                  const index = group.indexOf(edge);
-                  const offset = (index - (group.length - 1) / 2) * EDGE_OFFSET_GAP;
-                  const dx = to.x - from.x;
-                  const dy = to.y - from.y;
-                  const length = Math.max(Math.hypot(dx, dy), 1);
-                  const nx = (-dy / length) * offset;
-                  const ny = (dx / length) * offset;
 
                   return (
                     <line
                       key={edge.id}
-                      x1={from.x + nx}
-                      y1={from.y + ny}
-                      x2={to.x + nx}
-                      y2={to.y + ny}
+                      ref={(element) => {
+                        edgeEls[index] = element;
+                      }}
                       pointerEvents="none"
                       className={EDGE_CLASS[edge.kind]}
                       strokeWidth={highlighted ? 2.5 : 1.5}
@@ -352,8 +420,7 @@ export function ContactNetworkMap({
               </g>
 
               <g>
-                {graph.nodes.map((node) => {
-                  const point = position(node.id);
+                {graph.nodes.map((node, index) => {
                   const radius = nodeRadius(node.degree);
                   const diameter = radius * 2;
                   const contact = byId.get(node.id);
@@ -362,7 +429,9 @@ export function ContactNetworkMap({
                   return (
                     <g
                       key={node.id}
-                      transform={`translate(${point.x} ${point.y})`}
+                      ref={(element) => {
+                        nodeEls[index] = element;
+                      }}
                       className="cursor-grab active:cursor-grabbing"
                       onPointerDown={(e) => handleNodePointerDown(e, node.id)}
                       onPointerMove={(e) => handleNodePointerMove(e, node.id)}
@@ -405,7 +474,7 @@ export function ContactNetworkMap({
               </g>
             </g>
           </svg>
-        )}
+        ) : null}
 
         <div
           role="group"

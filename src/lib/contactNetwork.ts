@@ -132,13 +132,17 @@ export const PRESETTLE_ITERATIONS = 250;
  * through its edges each step, pulling connected nodes along with it.
  */
 export class NetworkSimulation {
-  private nodes: ContactNetworkNode[] = [];
-  private edges: ContactNetworkEdge[] = [];
+  private count = 0;
   private width: number;
   private height: number;
-  private positions = new Map<string, NetworkPoint>();
-  private velocities = new Map<string, NetworkPoint>();
-  private pinned = new Set<string>();
+  /** `[x0, y0, x1, y1, ...]`, indexed by a node's place in the graph's node list. */
+  private positions = new Float64Array(0);
+  private velocities = new Float64Array(0);
+  private forces = new Float64Array(0);
+  private pinned = new Uint8Array(0);
+  private indexById = new Map<string, number>();
+  /** Edge endpoints as index pairs into `positions`, resolved once per graph rather than per step. */
+  private edgePairs = new Int32Array(0);
   private springLength = MIN_SPRING_LENGTH;
   private repel = 0;
   private centerStrength = MIN_CENTER_STRENGTH;
@@ -151,7 +155,7 @@ export class NetworkSimulation {
 
   /** Scales the forces to the pane, so a graph spreads across the space it has rather than clumping at one fixed size. */
   private retune(): void {
-    const count = Math.max(this.nodes.length, 1);
+    const count = Math.max(this.count, 1);
     const spacing = Math.sqrt((this.width * this.height) / count) * SPACING_FACTOR;
     this.springLength = Math.min(Math.max(spacing, MIN_SPRING_LENGTH), MAX_SPRING_LENGTH);
     this.repel = this.springLength * this.springLength * REPEL_RATIO;
@@ -166,32 +170,42 @@ export class NetworkSimulation {
     const centerX = this.width / 2;
     const centerY = this.height / 2;
     const radius = Math.min(this.width, this.height) * 0.35;
+    const count = graph.nodes.length;
 
-    const positions = new Map<string, NetworkPoint>();
-    const velocities = new Map<string, NetworkPoint>();
+    const positions = new Float64Array(count * 2);
+    const velocities = new Float64Array(count * 2);
+    const pinned = new Uint8Array(count);
+    const indexById = new Map<string, number>();
 
     graph.nodes.forEach((node, index) => {
-      const existing = this.positions.get(node.id);
-      if (existing) {
-        positions.set(node.id, existing);
-        velocities.set(node.id, this.velocities.get(node.id) ?? { x: 0, y: 0 });
+      indexById.set(node.id, index);
+      const previous = this.indexById.get(node.id);
+      if (previous === undefined) {
+        const angle = (2 * Math.PI * index) / Math.max(count, 1);
+        positions[index * 2] = centerX + radius * Math.cos(angle);
+        positions[index * 2 + 1] = centerY + radius * Math.sin(angle);
         return;
       }
-      const angle = (2 * Math.PI * index) / Math.max(graph.nodes.length, 1);
-      positions.set(node.id, {
-        x: centerX + radius * Math.cos(angle),
-        y: centerY + radius * Math.sin(angle),
-      });
-      velocities.set(node.id, { x: 0, y: 0 });
+      positions[index * 2] = this.positions[previous * 2];
+      positions[index * 2 + 1] = this.positions[previous * 2 + 1];
+      velocities[index * 2] = this.velocities[previous * 2];
+      velocities[index * 2 + 1] = this.velocities[previous * 2 + 1];
+      pinned[index] = this.pinned[previous];
     });
 
-    this.nodes = graph.nodes;
-    this.edges = graph.edges;
+    const edgePairs = new Int32Array(graph.edges.length * 2);
+    graph.edges.forEach((edge, index) => {
+      edgePairs[index * 2] = indexById.get(edge.source) ?? -1;
+      edgePairs[index * 2 + 1] = indexById.get(edge.target) ?? -1;
+    });
+
+    this.count = count;
     this.positions = positions;
     this.velocities = velocities;
-    for (const id of this.pinned) {
-      if (!positions.has(id)) this.pinned.delete(id);
-    }
+    this.forces = new Float64Array(count * 2);
+    this.pinned = pinned;
+    this.indexById = indexById;
+    this.edgePairs = edgePairs;
     this.retune();
   }
 
@@ -203,78 +217,107 @@ export class NetworkSimulation {
 
   /** Holds a node at a fixed point, e.g. the pointer during a drag, until `unpin`. */
   pin(id: string, point: NetworkPoint): void {
-    if (!this.positions.has(id)) return;
-    this.positions.set(id, point);
-    this.velocities.set(id, { x: 0, y: 0 });
-    this.pinned.add(id);
+    const index = this.indexById.get(id);
+    if (index === undefined) return;
+    this.positions[index * 2] = point.x;
+    this.positions[index * 2 + 1] = point.y;
+    this.velocities[index * 2] = 0;
+    this.velocities[index * 2 + 1] = 0;
+    this.pinned[index] = 1;
   }
 
   unpin(id: string): void {
-    this.pinned.delete(id);
+    const index = this.indexById.get(id);
+    if (index !== undefined) this.pinned[index] = 0;
   }
 
   getPosition(id: string): NetworkPoint | undefined {
-    return this.positions.get(id);
+    const index = this.indexById.get(id);
+    if (index === undefined) return undefined;
+    return { x: this.positions[index * 2], y: this.positions[index * 2 + 1] };
+  }
+
+  /**
+   * The live `[x, y, ...]` buffer in the graph's node order, so a caller
+   * painting every node each frame can read it without a point object per
+   * node. Valid until the next `setGraph`.
+   */
+  coordinates(): Float64Array {
+    return this.positions;
+  }
+
+  /** Edge endpoints as `[source, target, ...]` indices into `coordinates()`, in the graph's edge order; -1 for an endpoint the graph does not hold. */
+  endpoints(): Int32Array {
+    return this.edgePairs;
   }
 
   /** Advances the simulation by one step. Returns whether anything is still moving. */
   step(): boolean {
-    const forces = new Map<string, NetworkPoint>(this.nodes.map((node) => [node.id, { x: 0, y: 0 }]));
+    const { count, positions, velocities, forces, pinned, edgePairs, repel, springLength } = this;
+    forces.fill(0);
 
-    for (let i = 0; i < this.nodes.length; i++) {
-      for (let j = i + 1; j < this.nodes.length; j++) {
-        const a = this.nodes[i]!;
-        const b = this.nodes[j]!;
-        const pa = this.positions.get(a.id)!;
-        const pb = this.positions.get(b.id)!;
-        const dx = pa.x - pb.x;
-        const dy = pa.y - pb.y;
-        const distance = Math.max(Math.hypot(dx, dy), MIN_DISTANCE);
-        const force = this.repel / (distance * distance);
-        const fx = (dx / distance) * force;
-        const fy = (dy / distance) * force;
-        forces.get(a.id)!.x += fx;
-        forces.get(a.id)!.y += fy;
-        forces.get(b.id)!.x -= fx;
-        forces.get(b.id)!.y -= fy;
+    for (let i = 0; i < count; i++) {
+      const a = i * 2;
+      const ax = positions[a];
+      const ay = positions[a + 1];
+      let fax = 0;
+      let fay = 0;
+      for (let j = i + 1; j < count; j++) {
+        const b = j * 2;
+        const dx = ax - positions[b];
+        const dy = ay - positions[b + 1];
+        const distance = Math.max(Math.sqrt(dx * dx + dy * dy), MIN_DISTANCE);
+        const scale = repel / (distance * distance * distance);
+        const fx = dx * scale;
+        const fy = dy * scale;
+        fax += fx;
+        fay += fy;
+        forces[b] -= fx;
+        forces[b + 1] -= fy;
       }
+      forces[a] += fax;
+      forces[a + 1] += fay;
     }
 
-    for (const edge of this.edges) {
-      const pa = this.positions.get(edge.source);
-      const pb = this.positions.get(edge.target);
-      if (!pa || !pb) continue;
-      const dx = pb.x - pa.x;
-      const dy = pb.y - pa.y;
-      const distance = Math.max(Math.hypot(dx, dy), MIN_DISTANCE);
-      const force = (distance - this.springLength) * SPRING_STRENGTH;
-      const fx = (dx / distance) * force;
-      const fy = (dy / distance) * force;
-      forces.get(edge.source)!.x += fx;
-      forces.get(edge.source)!.y += fy;
-      forces.get(edge.target)!.x -= fx;
-      forces.get(edge.target)!.y -= fy;
+    for (let e = 0; e < edgePairs.length; e += 2) {
+      const source = edgePairs[e];
+      const target = edgePairs[e + 1];
+      if (source < 0 || target < 0) continue;
+      const a = source * 2;
+      const b = target * 2;
+      const dx = positions[b] - positions[a];
+      const dy = positions[b + 1] - positions[a + 1];
+      const distance = Math.max(Math.sqrt(dx * dx + dy * dy), MIN_DISTANCE);
+      const scale = ((distance - springLength) * SPRING_STRENGTH) / distance;
+      const fx = dx * scale;
+      const fy = dy * scale;
+      forces[a] += fx;
+      forces[a + 1] += fy;
+      forces[b] -= fx;
+      forces[b + 1] -= fy;
     }
 
     const centerX = this.width / 2;
     const centerY = this.height / 2;
+    const maxX = this.width - MARGIN;
+    const maxY = this.height - MARGIN;
+    const centerStrength = this.centerStrength;
+    const settleSpeed = SETTLE_SPEED * SETTLE_SPEED;
     let moving = false;
 
-    for (const node of this.nodes) {
-      if (this.pinned.has(node.id)) continue;
+    for (let i = 0; i < count; i++) {
+      if (pinned[i]) continue;
+      const a = i * 2;
+      const fx = forces[a] + (centerX - positions[a]) * centerStrength;
+      const fy = forces[a + 1] + (centerY - positions[a + 1]) * centerStrength;
+      const vx = (velocities[a] + fx) * DAMPING;
+      const vy = (velocities[a + 1] + fy) * DAMPING;
+      velocities[a] = vx;
+      velocities[a + 1] = vy;
+      positions[a] = Math.min(Math.max(positions[a] + vx, MARGIN), maxX);
+      positions[a + 1] = Math.min(Math.max(positions[a + 1] + vy, MARGIN), maxY);
 
-      const position = this.positions.get(node.id)!;
-      const force = forces.get(node.id)!;
-      force.x += (centerX - position.x) * this.centerStrength;
-      force.y += (centerY - position.y) * this.centerStrength;
-
-      const velocity = this.velocities.get(node.id)!;
-      velocity.x = (velocity.x + force.x) * DAMPING;
-      velocity.y = (velocity.y + force.y) * DAMPING;
-      position.x = Math.min(Math.max(position.x + velocity.x, MARGIN), this.width - MARGIN);
-      position.y = Math.min(Math.max(position.y + velocity.y, MARGIN), this.height - MARGIN);
-
-      if (Math.hypot(velocity.x, velocity.y) > SETTLE_SPEED) moving = true;
+      if (vx * vx + vy * vy > settleSpeed) moving = true;
     }
 
     return moving;

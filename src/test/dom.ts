@@ -10,11 +10,11 @@ import { cleanup } from "@testing-library/react";
 /**
  * jsdom performs no layout, so every element reports `offsetParent` as null.
  *
- * That matters because it is the one layout property the app reads: `Modal`
- * filters its focusable elements by it to skip controls that are present but
- * not rendered. Left as jsdom has it, the filter would discard every candidate
- * and a focus-trap test would exercise the empty-list branch rather than the
- * wrap it is meant to cover.
+ * That matters because it is the layout property the app reads where a zero
+ * cannot be lived with: `Modal` filters its focusable elements by it to skip
+ * controls that are present but not rendered. Left as jsdom has it, the filter
+ * would discard every candidate and a focus-trap test would exercise the
+ * empty-list branch rather than the wrap it is meant to cover.
  *
  * This restores the only part of the real contract that filter depends on: an
  * element that is rendered has an offset parent, one that is hidden does not.
@@ -35,6 +35,21 @@ Object.defineProperty(HTMLElement.prototype, "offsetParent", {
     return this.parentElement;
   },
 });
+
+/**
+ * jsdom performs no layout, so it ships no `ResizeObserver` either. The shell's
+ * header measures itself to size the calendar, `SplitPane` measures its own
+ * column and the contact network map measures its pane; all three only need
+ * the constructor to exist for a render to get through, and nothing a suite
+ * looks at depends on a measurement.
+ */
+class NoopResizeObserver implements ResizeObserver {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+globalThis.ResizeObserver ??= NoopResizeObserver;
 
 /**
  * jsdom has no `matchMedia` at all, so `useMediaQuery` throws before the first
