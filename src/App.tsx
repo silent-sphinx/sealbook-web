@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSidebar } from "./components/SidebarDrawer";
 import { useSplitPane } from "./components/SplitPane";
 import { AddDeviceModal } from "./components/AddDeviceModal";
@@ -60,18 +60,17 @@ import {
   isFeatureEnabled,
 } from "./lib/accountSettings";
 import { type OnboardingPlan } from "./lib/onboarding";
-import { LINKABLE_SECTIONS, profileOf, profileSearchText, type LinkableSection } from "./lib/contactProfile";
+import { LINKABLE_SECTIONS, profileOf, type LinkableSection } from "./lib/contactProfile";
 import {
   ARCHIVE_VIEW_NAME,
   DEFAULT_ADDRESS_BOOK_ID,
-  bookNameById,
   loadHiddenAddressBooks,
   pruneHiddenAddressBooks,
   resolveAddressBookId,
   storeHiddenAddressBooks,
   visibleAddressBooks,
 } from "./lib/addressBook";
-import { emptyDraft, sortContacts } from "./lib/contact";
+import { contactSearchText, emptyDraft, sortContacts } from "./lib/contact";
 import { extractRecoveryWords } from "./lib/phrase";
 import { findInvalidBip39Words } from "./lib/bip39Words";
 import { closeAttachmentCache, primeAttachmentCache } from "./lib/attachmentCache";
@@ -382,6 +381,21 @@ export default function App() {
     [contacts],
   );
 
+  // A full pass over every contact, so the typed value is deferred: the field
+  // stays responsive on a vault the filter takes time over.
+  const deferredSearch = useDeferredValue(search);
+
+  // The heaviest part of a match is reading the contact out, and it does not
+  // depend on the query, so it is built once per contact here and a keystroke
+  // costs one `includes` against each.
+  const searchText = useMemo(() => {
+    const haystacks = new Map<string, string>();
+    for (const contact of contacts) {
+      haystacks.set(contact.id, contactSearchText(contact, addressBooks));
+    }
+    return haystacks;
+  }, [addressBooks, contacts]);
+
   const filtered = useMemo(() => {
     // Hidden rather than shown is what is matched, so a contact whose book was
     // deleted out from under it still appears instead of vanishing. The archive
@@ -393,28 +407,12 @@ export default function App() {
           contact.archived !== true &&
           !hiddenBooks.has(resolveAddressBookId(contact.addressBookId)),
       );
-    const query = search.trim().toLowerCase();
+    const query = deferredSearch.trim().toLowerCase();
     const matches = !query
       ? inBook
-      : inBook.filter((contact) => {
-        const haystack = [
-          contact.name,
-          contact.nickname,
-          contact.email,
-          ...contact.emails.map((e) => e.value),
-          ...contact.phones.map((p) => p.value),
-          ...contact.work.map((w) => `${w.organization} ${w.title ?? ""}`),
-          contact.notes,
-          profileSearchText(contact.profile),
-          bookNameById(addressBooks, contact.addressBookId),
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        return haystack.includes(query);
-      });
+      : inBook.filter((contact) => searchText.get(contact.id)?.includes(query) === true);
     return sortContacts(matches);
-  }, [addressBooks, archivedContacts, contacts, hiddenBooks, search, viewingArchive]);
+  }, [archivedContacts, contacts, deferredSearch, hiddenBooks, searchText, viewingArchive]);
 
   const shownBooks = useMemo(
     () => visibleAddressBooks(addressBooks, hiddenBooks),

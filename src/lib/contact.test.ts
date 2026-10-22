@@ -5,6 +5,7 @@ import {
   addressLines,
   channelKindLabel,
   contactByteSize,
+  contactSearchText,
   contactValidationError,
   dateKindLabel,
   emptyDraft,
@@ -14,7 +15,8 @@ import {
   sortContacts,
 } from "./contact";
 import { DEFAULT_ADDRESS_BOOK_ID } from "./addressBook";
-import type { ContactDraft } from "./types";
+import { emptyProfile } from "./contactProfile";
+import type { AddressBook, Contact, ContactDraft } from "./types";
 
 /** A card with something in every section a person can fill in. */
 function fullDraft(): ContactDraft {
@@ -337,5 +339,55 @@ describe("addressLines", () => {
   it("is empty for no address at all", () => {
     expect(addressLines()).toEqual([]);
     expect(addressLines({})).toEqual([]);
+  });
+});
+
+describe("contactSearchText", () => {
+  const books: AddressBook[] = [{ id: "book-work", name: "Colleagues", raw: "" }];
+
+  function contact(overrides: Partial<Contact> = {}): Contact {
+    return {
+      ...fullDraft(),
+      id: "c1",
+      raw: "",
+      ciphertext: "",
+      paddedSize: 0,
+      ...overrides,
+    };
+  }
+
+  it("folds every searched field into one lowercased string", () => {
+    const text = contactSearchText(contact({ email: "legacy@example.com" }), books);
+    expect(text).toContain("ada lovelace");
+    expect(text).toContain("legacy@example.com");
+    expect(text).toContain("ada@analytical.example");
+    expect(text).toContain("+44 20 7946 0000");
+    expect(text).toContain("analytical engine mathematician");
+    expect(text).toContain("wrote the first algorithm.");
+  });
+
+  it("includes the profile and the address book name", () => {
+    const text = contactSearchText(
+      contact({
+        addressBookId: "book-work",
+        profile: { ...emptyProfile(), howWeMet: "At the Royal Society" },
+      }),
+      books,
+    );
+    expect(text).toContain("at the royal society");
+    expect(text).toContain("colleagues");
+  });
+
+  it("names the default book for a contact whose book is gone", () => {
+    const text = contactSearchText(contact({ addressBookId: "deleted" }), books);
+    expect(text).toContain("default address book");
+  });
+
+  it("leaves out the fields a contact has not filled in", () => {
+    const text = contactSearchText(
+      contact({ nickname: undefined, notes: undefined, work: [], profile: undefined }),
+      books,
+    );
+    expect(text).not.toContain("undefined");
   });
 });

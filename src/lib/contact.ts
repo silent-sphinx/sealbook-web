@@ -1,6 +1,7 @@
 import {
   ADDRESS_BOOK_ID_PROP,
   DEFAULT_ADDRESS_BOOK_ID,
+  bookNameById,
   resolveAddressBookId,
 } from "./addressBook";
 import {
@@ -10,10 +11,12 @@ import {
   PROFILE_SECTIONS,
   parseProfile,
   profileOf,
+  profileSearchText,
   serializeProfile,
 } from "./contactProfile";
 import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
 import type {
+  AddressBook,
   Contact,
   ContactAddress,
   ContactChannel,
@@ -65,7 +68,27 @@ export function sortContacts<T extends { name: string }>(contacts: T[]): T[] {
   );
 }
 
-
+/**
+ * Every field the contact list searches, lowercased into one string. Built per
+ * contact rather than per keystroke: the text depends only on the contact and
+ * its address book, so the query itself is one `includes`.
+ */
+export function contactSearchText(contact: Contact, addressBooks: AddressBook[]): string {
+  return [
+    contact.name,
+    contact.nickname,
+    contact.email,
+    ...contact.emails.map((e) => e.value),
+    ...contact.phones.map((p) => p.value),
+    ...contact.work.map((w) => `${w.organization} ${w.title ?? ""}`),
+    contact.notes,
+    profileSearchText(contact.profile),
+    bookNameById(addressBooks, contact.addressBookId),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
 
 function newId(): string {
   return crypto.randomUUID();
