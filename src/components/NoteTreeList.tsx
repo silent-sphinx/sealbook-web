@@ -14,12 +14,18 @@ type Props = {
   onSelect: (note: Note) => void;
   onAddChild: (parentId: string) => void;
   onDelete: (note: Note) => void;
-  /** Whether `id` may become a child of `parentId`; the tree refuses a cycle. */
-  canDrop: (id: string, parentId: string | null) => boolean;
+  /**
+   * The ids `id` may not be dropped onto, read once when the drag starts rather
+   * than per row per frame. `onMove` is still the last word on a drop, since
+   * the tree can change under a drag in flight.
+   */
+  blockedDropIds: (id: string) => Set<string>;
   onMove: (id: string, parentId: string | null) => void;
 };
 
 const DRAG_TYPE = "application/x-sealbook-note";
+
+const NO_BLOCKED: ReadonlySet<string> = new Set();
 
 export function NoteTreeList({
   tree,
@@ -30,12 +36,19 @@ export function NoteTreeList({
   onSelect,
   onAddChild,
   onDelete,
-  canDrop,
+  blockedDropIds,
   onMove,
 }: Props) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState<ReadonlySet<string>>(NO_BLOCKED);
   const menu = useContextMenu();
+
+  function endDrag() {
+    setDragging(null);
+    setOver(null);
+    setBlocked(NO_BLOCKED);
+  }
 
   /** The same actions the row's own buttons carry, for the context menu. */
   function itemsFor(note: Note): MenuItem[] {
@@ -52,7 +65,7 @@ export function NoteTreeList({
       const open = expanded.has(note.id);
       const hasChildren = node.children.length > 0;
       const active = selectedId === note.id;
-      const droppable = dragging !== null && dragging !== note.id && canDrop(dragging, note.id);
+      const droppable = dragging !== null && !blocked.has(note.id);
 
       /**
        * One slot, at the column the notebook list puts its icon in: a chevron
@@ -106,24 +119,21 @@ export function NoteTreeList({
               event.dataTransfer.setData(DRAG_TYPE, note.id);
               event.dataTransfer.effectAllowed = "move";
               setDragging(note.id);
+              setBlocked(blockedDropIds(note.id));
             }}
-            onDragEnd={() => {
-              setDragging(null);
-              setOver(null);
-            }}
+            onDragEnd={endDrag}
             onDragOver={(event) => {
               if (!droppable) return;
               event.preventDefault();
               event.dataTransfer.dropEffect = "move";
-              setOver(note.id);
+              if (over !== note.id) setOver(note.id);
             }}
             onDragLeave={() => setOver((current) => (current === note.id ? null : current))}
             onDrop={(event) => {
               if (!droppable) return;
               event.preventDefault();
               const id = event.dataTransfer.getData(DRAG_TYPE);
-              setOver(null);
-              setDragging(null);
+              endDrag();
               if (id) onMove(id, note.id);
             }}
             onContextMenu={(event) => menu.open(event, itemsFor(note))}
@@ -180,7 +190,7 @@ export function NoteTreeList({
     });
   }
 
-  const rootDroppable = dragging !== null && canDrop(dragging, null);
+  const rootDroppable = dragging !== null;
 
   return (
     // No scroller of its own: the tree sits inside the notebook list now, and
@@ -194,14 +204,13 @@ export function NoteTreeList({
         <div
           onDragOver={(event) => {
             event.preventDefault();
-            setOver("__root__");
+            if (over !== "__root__") setOver("__root__");
           }}
           onDragLeave={() => setOver((current) => (current === "__root__" ? null : current))}
           onDrop={(event) => {
             event.preventDefault();
             const id = event.dataTransfer.getData(DRAG_TYPE);
-            setOver(null);
-            setDragging(null);
+            endDrag();
             if (id) onMove(id, null);
           }}
           className={`mt-1 rounded-lg border border-dashed px-3 py-1.5 text-center text-[10px] transition-colors ${

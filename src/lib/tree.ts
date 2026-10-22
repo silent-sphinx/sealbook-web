@@ -58,7 +58,9 @@ export function buildTree<T extends TreeItem>(
   const children = new Map<string | null, T[]>();
   for (const item of items) {
     const parent = resolveParent(item.id, byId);
-    children.set(parent, [...(children.get(parent) ?? []), item]);
+    const siblings = children.get(parent);
+    if (siblings) siblings.push(item);
+    else children.set(parent, [item]);
   }
   const build = (parent: string | null, depth: number): TreeNode<T>[] =>
     sort(children.get(parent) ?? []).map((item) => ({
@@ -75,7 +77,10 @@ export function subtree<T extends TreeItem>(items: T[], id: string): string[] {
   const childrenOf = new Map<string, string[]>();
   for (const item of items) {
     const parent = resolveParent(item.id, byId);
-    if (parent !== null) childrenOf.set(parent, [...(childrenOf.get(parent) ?? []), item.id]);
+    if (parent === null) continue;
+    const siblings = childrenOf.get(parent);
+    if (siblings) siblings.push(item.id);
+    else childrenOf.set(parent, [item.id]);
   }
   const out: string[] = [];
   const seen = new Set<string>();

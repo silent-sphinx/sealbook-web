@@ -625,7 +625,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
         onSelect={openNote}
         onAddChild={(parentId) => newNote(parentId)}
         onDelete={(note) => setConfirmDelete(note)}
-        canDrop={(id, parentId) => canReparent(notes, id, parentId)}
+        blockedDropIds={(id) => new Set(noteSubtree(notes, id))}
         onMove={(id, parentId) => void moveNote(id, parentId)}
       />
     );
