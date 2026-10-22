@@ -147,7 +147,7 @@ export function CalendarList({ calendars, archived, isVisible, readOnly, canArch
                 <CalendarSwatch color={calendar.color} hidden={hidden} />
                 <span className={`min-w-0 flex-1 truncate font-medium transition-colors ${hidden ? "text-mute" : "text-text"}`}>{calendar.name}</span>
               </button>
-              <span className="relative flex h-7 w-[76px] shrink-0 items-center justify-end">
+              <span className={`relative flex h-7 shrink-0 items-center justify-end ${readOnly ? "w-4" : "list-row-slot"}`}>
                 <span className="list-row-rest absolute inset-0 flex items-center justify-end pr-1">{calendar.favorite ? <Icon name="star" className="h-3 w-3 text-accent" /> : null}</span>
                 {readOnly ? null : (
                   <span className="list-row-actions absolute inset-0 flex items-center justify-end gap-0.5">

@@ -282,6 +282,21 @@ body.sb-dragging * {
 }
 
 /*
+ * The trailing slot a row keeps for its buttons. Once those give way to the
+ * context menu the slot only has to hold the at-rest marker, so it hands the
+ * rest of its width back to the row's label.
+ */
+.list-row-slot {
+  width: 76px;
+}
+
+@media (hover: hover) {
+  .list-row-slot {
+    width: 1rem;
+  }
+}
+
+/*
  * Rendered markdown in a note. The element styles live here rather than as class
  * strings in the renderer: the renderer emits a plain tree, and a dozen Tailwind
  * constants threaded through it would be harder to keep coherent than one block,
