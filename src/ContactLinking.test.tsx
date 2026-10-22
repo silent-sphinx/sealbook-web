@@ -18,7 +18,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "./test/dom";
-import { aContact, enrolDevice, setConnectionDomain } from "./test/vault";
+import { aContact, enrolDevice, setConnectionDomain, snapshotWritten } from "./test/vault";
 import { DEFAULT_ACCOUNT_SETTINGS } from "./lib/accountSettings";
 import { DEFAULT_ADDRESS_BOOK_ID } from "./lib/addressBook";
 import { profileOf, type LinkableSection } from "./lib/contactProfile";
@@ -100,6 +100,8 @@ async function unlock() {
   fireEvent.change(await screen.findByLabelText("Password"), { target: { value: PASSWORD } });
   fireEvent.click(screen.getByRole("button", { name: "Unlock" }));
   await screen.findByRole("button", { name: "View Ada Lovelace" });
+  // The list is on screen one derivation before the unlock is finished.
+  await snapshotWritten();
 }
 
 /** Resolves once the pane's own controls are live, so a click is not refused. */

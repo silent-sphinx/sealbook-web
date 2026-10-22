@@ -11,7 +11,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import "./test/dom";
-import { aContact, enrolDevice, setConnectionDomain } from "./test/vault";
+import { aContact, enrolDevice, setConnectionDomain, snapshotWritten } from "./test/vault";
 import { DEFAULT_ACCOUNT_SETTINGS } from "./lib/accountSettings";
 import { DEFAULT_ADDRESS_BOOK_ID } from "./lib/addressBook";
 import type { Contact } from "./lib/types";
@@ -65,6 +65,8 @@ async function unlock() {
   fireEvent.change(await screen.findByLabelText("Password"), { target: { value: PASSWORD } });
   fireEvent.click(screen.getByRole("button", { name: "Unlock" }));
   await screen.findByText("Ada Lovelace");
+  // The list is on screen one derivation before the unlock is finished.
+  await snapshotWritten();
 }
 
 function hiddenIds(): string[] {
@@ -102,6 +104,8 @@ describe("switching an address book off in the sidebar", () => {
     fireEvent.change(await screen.findByLabelText("Password"), { target: { value: PASSWORD } });
     fireEvent.click(screen.getByRole("button", { name: "Unlock" }));
     await screen.findByText("Ada Lovelace");
+    // The list is on screen one derivation before the unlock is finished.
+    await snapshotWritten();
 
     expect(screen.queryByText("Grace Hopper")).toBeNull();
 

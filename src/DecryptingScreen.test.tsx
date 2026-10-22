@@ -14,7 +14,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import "./test/dom";
-import { aContact, enrolDevice, setConnectionDomain } from "./test/vault";
+import { aContact, enrolDevice, setConnectionDomain, snapshotWritten } from "./test/vault";
 import { DEFAULT_ACCOUNT_SETTINGS } from "./lib/accountSettings";
 import { DEFAULT_ADDRESS_BOOK_ID } from "./lib/addressBook";
 import type { VaultProgress } from "./lib/client";
@@ -82,6 +82,8 @@ describe("the first vault read", () => {
 
     expect(await screen.findByText("Ada Lovelace")).toBeDefined();
     expect(screen.queryByText("Decrypting your Sealbook")).toBeNull();
+    // The list is on screen one derivation before the unlock is finished.
+    await snapshotWritten();
   });
 
   it("says which stage the read has reached", async () => {
@@ -96,5 +98,7 @@ describe("the first vault read", () => {
 
     release!();
     await screen.findByText("Ada Lovelace");
+    // The list is on screen one derivation before the unlock is finished.
+    await snapshotWritten();
   });
 });

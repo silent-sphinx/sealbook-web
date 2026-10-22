@@ -14,7 +14,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "./test/dom";
-import { aContact, enrolDevice, setConnectionDomain } from "./test/vault";
+import { aContact, enrolDevice, setConnectionDomain, snapshotWritten } from "./test/vault";
 import { DEFAULT_ACCOUNT_SETTINGS } from "./lib/accountSettings";
 import { DEFAULT_ADDRESS_BOOK_ID } from "./lib/addressBook";
 import type { Contact, ContactDraft } from "./lib/types";
@@ -71,6 +71,8 @@ async function unlock() {
   fireEvent.click(screen.getByRole("button", { name: "Unlock" }));
   // Grace is the contact no test archives, so she is on screen either way.
   await screen.findByText("Grace Hopper");
+  // The list is on screen one derivation before the unlock is finished.
+  await snapshotWritten();
 }
 
 function openArchive() {
