@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { expandCalendarEvents } from "./recurrence";
-import type { CalendarEvent } from "./types";
+import { expandCalendarEvents, nextOccurrence } from "./recurrence";
+import type { CalendarEvent, RecurrenceRule } from "./types";
 
 const TZ = "Europe/London";
 const at = (year: number, month: number, day: number) => new Date(year, month - 1, day);
@@ -278,5 +278,48 @@ describe("expandCalendarEvents", () => {
 
   it("returns nothing for an empty input", () => {
     expect(expandCalendarEvents([], at(2026, 9, 1), at(2026, 9, 30), TZ)).toEqual([]);
+  });
+});
+
+describe("nextOccurrence", () => {
+  const key = (date: Date | null) =>
+    date
+      ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+      : null;
+  const next = (anchor: string, rule: RecurrenceRule, after = anchor) =>
+    key(nextOccurrence(new Date(`${anchor}T00:00`), rule, new Date(`${after}T00:00`)));
+
+  it("steps a daily rule by its interval", () => {
+    expect(next("2026-10-22", { frequency: "daily" })).toBe("2026-10-23");
+    expect(next("2026-10-22", { frequency: "daily", interval: 3 })).toBe("2026-10-25");
+  });
+
+  it("picks the next listed weekday, then wraps to the following week", () => {
+    const rule: RecurrenceRule = { frequency: "weekly", weekdays: [1, 4] };
+    expect(next("2026-10-22", rule)).toBe("2026-10-26");
+    expect(next("2026-10-26", rule)).toBe("2026-10-29");
+  });
+
+  it("walks past a month with no 31st", () => {
+    expect(next("2026-10-31", { frequency: "monthly" })).toBe("2026-12-31");
+  });
+
+  it("walks past a month with no fifth weekday", () => {
+    const rule: RecurrenceRule = { frequency: "monthly", nthWeekday: { ordinal: 5, weekday: 5 } };
+    expect(next("2026-10-30", rule)).toBe("2027-01-29");
+  });
+
+  it("is null once until has passed", () => {
+    expect(next("2026-10-22", { frequency: "daily", until: "2026-10-22" })).toBeNull();
+    expect(next("2026-10-22", { frequency: "daily", until: "2026-10-23" })).toBe("2026-10-23");
+  });
+
+  it("counts occurrences from the anchor inclusive", () => {
+    expect(next("2026-10-22", { frequency: "daily", count: 1 })).toBeNull();
+    expect(next("2026-10-22", { frequency: "daily", count: 2 })).toBe("2026-10-23");
+  });
+
+  it("is null for an unreadable date", () => {
+    expect(nextOccurrence(new Date("nope"), { frequency: "daily" }, new Date())).toBeNull();
   });
 });

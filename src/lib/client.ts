@@ -49,6 +49,14 @@ export {
   putBookmark,
   putBookmarkCollection,
 } from "./bookmarkApi";
+export {
+  deleteTask,
+  deleteTaskList,
+  ensureDefaultTaskList,
+  newTaskId,
+  putTask,
+  putTaskList,
+} from "./taskApi";
 export { ManifestError, RosterTooOldError, syncRoster, verifiedRoster } from "./roster";
 
 export type { Session } from "./clientCore";

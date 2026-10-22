@@ -441,6 +441,55 @@ export type BookmarkCollection = {
   raw: string;
 };
 
+export type TaskDraft = {
+  title: string;
+  /** Plain text, as a bookmark's or an event's. */
+  notes?: string;
+  /** Absent rather than `false` on a task that is open. */
+  done?: boolean;
+  /** When the current `done` was set. Absent on an open task. */
+  completedAt?: string;
+  /** Times a recurring task was completed and rolled forward, newest first. */
+  completions?: string[];
+  /**
+   * `YYYY-MM-DD` for a task due on a day, or an RFC 3339 instant for one due at
+   * a time. A `T` is what tells them apart, as in `CalendarEvent.start`.
+   */
+  dueDate?: string;
+  /**
+   * 0 none, 1 low, 2 medium, 3 high, absent for none. A number rather than a
+   * name so a value a newer build wrote still sorts the right way round. It is
+   * the reverse of RFC 5545 `PRIORITY`, where 1 is the highest.
+   */
+  priority?: number;
+  tags?: string[];
+  taskListId: string;
+  /** A subtask's parent. Resolved through `lib/tree`, like a note's. */
+  parentId?: string;
+  recurrence?: RecurrenceRule;
+  /**
+   * The date the recurrence rule counts from, written once and kept through
+   * every roll-forward. `dueDate` moves on; re-anchoring on it would change
+   * which dates a rule with several weekdays and an interval lands on.
+   */
+  recurrenceAnchor?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  /** As `BookmarkDraft.raw`: what a save merges onto, so unknown fields survive. */
+  raw?: string;
+};
+
+export type Task = TaskDraft & { id: string; raw: string };
+
+/** Task lists nest exactly as bookmark collections do. See `BookmarkCollection`. */
+export type TaskList = {
+  id: string;
+  name: string;
+  parentId?: string;
+  color?: string;
+  raw: string;
+};
+
 /**
  * Colour a calendar starts life with, and the fallback for one stored without
  * a colour. Matches `--color-accent`, but is duplicated here on purpose: the

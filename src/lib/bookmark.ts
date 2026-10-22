@@ -264,10 +264,10 @@ export function bookmarkMatches(bookmark: Bookmark, query: string): boolean {
  * Mirrors `MAX_PADDED_OBJECT_SIZE` in `sealbook/crates/sealbook-protocol`. A write
  * past it is a `400` from the server, so it is worth catching before the upload.
  */
-const MAX_PADDED_OBJECT_SIZE = 8 * 1024 * 1024;
+export const MAX_PADDED_OBJECT_SIZE = 8 * 1024 * 1024;
 
 /** The envelope's other keys: version, contentType, tombstone, revision. */
-const ENVELOPE_OVERHEAD = 256;
+export const ENVELOPE_OVERHEAD = 256;
 
 export function bookmarkByteSize(draft: BookmarkDraft): number {
   const payload = JSON.stringify(serializeBookmark(draft));

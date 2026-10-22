@@ -186,3 +186,30 @@ export function expandCalendarEvents(events: CalendarEvent[], from: Date, to: Da
     return !untilKey || event.occurrenceKey <= untilKey;
   });
 }
+
+/**
+ * The first occurrence of `rule` on a later day than `after`, at local midnight,
+ * or null once the rule is spent.
+ *
+ * `count` is read as occurrences from `anchor` inclusive, the same as for an
+ * event, so a caller that re-anchors on the date this returns has to take one
+ * off `count` itself.
+ */
+export function nextOccurrence(anchor: Date, rule: RecurrenceRule, after: Date): Date | null {
+  if (Number.isNaN(anchor.getTime()) || Number.isNaN(after.getTime())) return null;
+  const untilKey = rule.until?.slice(0, 10);
+  const afterKey = dateKey(after);
+  const anchorDay = startOfDay(anchor);
+  const first = firstPeriodIndex(anchorDay, rule, after);
+  let occurrenceCount = rule.count ? occurrencesBefore(anchorDay, rule, first) : 0;
+  for (let index = first; index < first + MAX_RECURRENCE_PERIODS; index += 1) {
+    const period = periodOf(anchorDay, rule, index);
+    for (const date of period.dates) {
+      if (untilKey && dateKey(date) > untilKey) return null;
+      occurrenceCount += 1;
+      if (rule.count && occurrenceCount > rule.count) return null;
+      if (dateKey(date) > afterKey) return startOfDay(date);
+    }
+  }
+  return null;
+}
