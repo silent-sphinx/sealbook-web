@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { focusRing } from "../lib/styles";
+import { focusRing, sidebarMark, sidebarNameInput, sidebarRowAction, sidebarRowState } from "../lib/styles";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 
 /** Anything with a name that groups other objects: an address book, a notebook. */
@@ -54,7 +54,7 @@ type Props<T extends Container> = {
  * hollow square when it is hidden. Takes the leading slot the icon holds in
  * selection mode, so a row carries one mark rather than two.
  */
-function VisibilityBox({ shown }: { shown: boolean }) {
+export function VisibilityBox({ shown }: { shown: boolean }) {
   return (
     <span
       aria-hidden="true"
@@ -202,9 +202,9 @@ export function ContainerList<T extends Container>({
           type="button"
           onClick={() => onSelect(allId)}
           aria-current={selectedId === allId ? "true" : undefined}
-          className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${selectedId === allId ? "bg-surface text-text" : "text-mute hover:bg-surface/40 hover:text-text"}`}
+          className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${sidebarRowState(selectedId === allId)}`}
         >
-          <BookIcon />
+          <span className={sidebarMark}><BookIcon /></span>
           <span className="min-w-0 flex-1 truncate font-medium">{allLabel}</span>
         </button>
       ) : null}
@@ -227,7 +227,7 @@ export function ContainerList<T extends Container>({
                 onKeyDown={(event) => { if (event.key === "Escape") cancel(); }}
                 disabled={busy}
                 aria-label={`Rename ${book.name}`}
-                className="h-8 w-full rounded-lg border border-accent-dim bg-bg px-2 text-xs text-text outline-none ring-1 ring-accent-ring"
+                className={sidebarNameInput}
               />
             </form>
           );
@@ -248,12 +248,14 @@ export function ContainerList<T extends Container>({
               title={toggling ? `${shown ? "Hide" : "Show"} ${book.name}` : undefined}
               className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${(toggling ? shown : selected) ? "text-text" : "text-mute"}`}
             >
-              {toggling ? <VisibilityBox shown={shown} /> : renderIcon ? renderIcon(book) : <BookIcon />}
+              <span className={sidebarMark}>
+                {toggling ? <VisibilityBox shown={shown} /> : renderIcon ? renderIcon(book) : <BookIcon />}
+              </span>
               <span className="min-w-0 flex-1 truncate font-medium">{book.name}</span>
             </button>
 
             {readOnly && !renderMeta ? null : (
-              <span className="relative flex h-7 w-[50px] shrink-0 items-center justify-end">
+              <span className={`relative flex h-7 shrink-0 items-center justify-end ${readOnly ? "w-4" : "list-row-slot"}`}>
                 {renderMeta ? (
                   <span className="list-row-rest absolute inset-0 flex items-center justify-end pr-1 text-[10px] tabular-nums text-mute/70">
                     {renderMeta(book)}
@@ -266,7 +268,7 @@ export function ContainerList<T extends Container>({
                     onClick={() => startRename(book)}
                     title={`Rename ${kindLabel}`}
                     aria-label={`Rename ${book.name}`}
-                    className={`flex h-6 w-6 items-center justify-center rounded-md text-mute transition-colors hover:bg-elevated hover:text-text ${focusRing}`}
+                    className={`${sidebarRowAction} hover:text-text`}
                   >
                     <PencilIcon />
                   </button>
@@ -276,7 +278,7 @@ export function ContainerList<T extends Container>({
                       onClick={() => onDelete(book)}
                       title={`Delete ${kindLabel}`}
                       aria-label={`Delete ${book.name}`}
-                      className={`flex h-6 w-6 items-center justify-center rounded-md text-mute transition-colors hover:bg-elevated hover:text-danger ${focusRing}`}
+                      className={`${sidebarRowAction} hover:text-danger`}
                     >
                       <TrashIcon />
                     </button>
@@ -302,7 +304,7 @@ export function ContainerList<T extends Container>({
             placeholder={`${kindLabel} name`}
             disabled={busy}
             aria-label={`New ${kindLabel} name`}
-            className="h-8 w-full rounded-lg border border-accent-dim bg-bg px-2 text-xs text-text outline-none ring-1 ring-accent-ring placeholder:text-mute/60"
+            className={sidebarNameInput}
           />
         </form>
       ) : null}

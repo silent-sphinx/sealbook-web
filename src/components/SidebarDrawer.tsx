@@ -241,7 +241,8 @@ type SidebarSectionProps = {
 export function SidebarSection({ label, action, children }: SidebarSectionProps) {
   return (
     <div className="mt-6 border-t border-line pt-4">
-      <div className="flex items-center justify-between">
+      {/* Held at the action's height so a section without one lines up too. */}
+      <div className="flex min-h-7 items-center justify-between">
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">{label}</p>
         {action ?? null}
       </div>

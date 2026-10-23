@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import type { NoteTreeNode } from "../lib/noteTree";
-import { focusRing } from "../lib/styles";
+import { focusRing, sidebarGutter } from "../lib/styles";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 import type { Note } from "../lib/types";
 
@@ -80,7 +80,7 @@ export function NoteTreeList({
           onClick={() => onToggle(note.id)}
           aria-label={open ? `Collapse ${note.title}` : `Expand ${note.title}`}
           aria-expanded={open}
-          className={`flex h-7 w-3.5 shrink-0 items-center justify-center text-mute transition-colors hover:text-text ${focusRing}`}
+          className={`${sidebarGutter} text-mute transition-colors hover:text-text ${focusRing}`}
         >
           <svg
             viewBox="0 0 16 16"
@@ -95,7 +95,7 @@ export function NoteTreeList({
           </svg>
         </button>
       ) : (
-        <span aria-hidden="true" className="flex h-7 w-3.5 shrink-0 items-center justify-center">
+        <span aria-hidden="true" className={sidebarGutter}>
           <svg
             viewBox="0 0 16 16"
             className={`h-3.5 w-3.5 ${active ? "text-note" : "text-mute/70"}`}
@@ -156,7 +156,7 @@ export function NoteTreeList({
             </button>
 
             {readOnly ? null : (
-              <span className="relative flex h-7 w-[50px] shrink-0 items-center justify-end">
+              <span className="list-row-slot relative flex h-7 shrink-0 items-center justify-end">
                 <span className="list-row-actions absolute inset-0 flex items-center justify-end gap-0.5">
                   <button
                     type="button"

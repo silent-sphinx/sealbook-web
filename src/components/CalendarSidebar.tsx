@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Calendar } from "../lib/types";
-import { focusRing } from "../lib/styles";
+import { focusRing, sidebarCount, sidebarMark, sidebarRowState, sidebarSubgroup } from "../lib/styles";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 
 function Icon({ name, className = "h-4 w-4" }: { name: "chevron" | "pencil" | "star" | "archive" | "unarchive"; className?: string }) {
@@ -93,19 +93,20 @@ export function CalendarList({ calendars, archived, isVisible, readOnly, canArch
   const anyHidden = calendars.some((calendar) => !isVisible(calendar));
 
   const archivedGroup = archived.length === 0 ? null : (
-    <div className="mt-3 border-t border-line pt-2">
-      <button type="button" onClick={() => setArchivedOpen((open) => !open)} aria-expanded={archivedOpen} className={`-ml-2 flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-mute transition-colors hover:text-text ${focusRing}`}>
-        <Icon name="chevron" className={`h-3 w-3 transition-transform ${archivedOpen ? "rotate-90" : ""}`} />
-        Archived ({archived.length})
+    <div className={sidebarSubgroup}>
+      <button type="button" onClick={() => setArchivedOpen((open) => !open)} aria-expanded={archivedOpen} className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${sidebarRowState(false)} ${focusRing}`}>
+        <span className={sidebarMark}><Icon name="chevron" className={`h-3 w-3 transition-transform ${archivedOpen ? "rotate-90" : ""}`} /></span>
+        <span className="min-w-0 flex-1 truncate font-medium">Archived calendars</span>
+        <span className={`shrink-0 ${sidebarCount}`}>{archived.length}</span>
       </button>
       {archivedOpen ? (
-        <div className="mt-1 space-y-0.5">
+        <div className="mt-0.5 space-y-0.5">
           {archived.map((calendar) => {
             const shown = isVisible(calendar);
             return (
               <div key={calendar.id} className="group -mx-2 flex items-center rounded-lg pr-2 transition-colors hover:bg-surface/40" onContextMenu={(event) => menu.open(event, itemsFor(calendar, true))}>
                 <button type="button" onClick={() => onToggle(calendar.id)} aria-pressed={shown} title={`${shown ? "Hide" : "Show"} ${calendar.name}`} className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing}`}>
-                  <CalendarSwatch color={calendar.color} hidden={!shown} />
+                  <span className={sidebarMark}><CalendarSwatch color={calendar.color} hidden={!shown} /></span>
                   <span className={`min-w-0 flex-1 truncate font-medium transition-colors ${shown ? "text-text" : "text-mute"}`}>{calendar.name}</span>
                 </button>
                 {readOnly ? null : (
@@ -144,7 +145,7 @@ export function CalendarList({ calendars, archived, isVisible, readOnly, canArch
           return (
             <div key={calendar.id} className="list-row group -mx-2 flex items-center rounded-lg pr-2 transition-colors hover:bg-surface/40" onContextMenu={(event) => menu.open(event, itemsFor(calendar, false))}>
               <button type="button" onClick={() => onToggle(calendar.id)} aria-pressed={!hidden} title={`${hidden ? "Show" : "Hide"} ${calendar.name}`} className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing}`}>
-                <CalendarSwatch color={calendar.color} hidden={hidden} />
+                <span className={sidebarMark}><CalendarSwatch color={calendar.color} hidden={hidden} /></span>
                 <span className={`min-w-0 flex-1 truncate font-medium transition-colors ${hidden ? "text-mute" : "text-text"}`}>{calendar.name}</span>
               </button>
               <span className={`relative flex h-7 shrink-0 items-center justify-end ${readOnly ? "w-4" : "list-row-slot"}`}>

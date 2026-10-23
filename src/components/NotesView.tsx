@@ -28,7 +28,13 @@ import {
   sortNotes,
 } from "../lib/note";
 import { ancestorsOf, buildNoteTree, canReparent, noteSubtree } from "../lib/noteTree";
-import { focusRing } from "../lib/styles";
+import {
+  focusRing,
+  sidebarChildren,
+  sidebarGutter,
+  sidebarHeaderAction,
+  sidebarSectionAction,
+} from "../lib/styles";
 import type { Note, NoteAttachment, NoteDraft, Notebook } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ContainerList } from "./ContainerList";
@@ -639,7 +645,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
       className={`list-row -mx-2 flex w-[calc(100%+1rem)] items-center rounded-lg pr-2 text-left transition-colors hover:bg-surface/40 ${focusRing}`}
       style={{ paddingLeft: "0.5rem" }}
     >
-      <span className="flex h-7 w-3.5 shrink-0 items-center justify-center text-note-new">
+      <span className={`${sidebarGutter} text-note-new`}>
         <Icon name="plus" className="h-3.5 w-3.5" />
       </span>
       <span className="py-2 pl-2.5 text-xs text-mute transition-colors group-hover:text-text">
@@ -667,7 +673,23 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
 
       <div className="sb-shell grid min-h-0 flex-1" style={sidebar.cols}>
         <SidebarDrawer title="Notes" sidebar={sidebar}>
-          <SidebarHeader eyebrow="My notes" title="Notes" />
+          <SidebarHeader
+            eyebrow="My notes"
+            title="Notes"
+            action={
+              !readOnlyMode ? (
+                <button
+                  type="button"
+                  onClick={() => newNote()}
+                  aria-label="Create note"
+                  title="Create note"
+                  className={sidebarHeaderAction}
+                >
+                  <Icon name="plus" className="h-4 w-4" />
+                </button>
+              ) : null
+            }
+          />
 
           <div className="mt-5 flex items-center gap-1.5">
             <div className="relative min-w-0 flex-1">
@@ -689,7 +711,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                 <button
                   type="button"
                   onClick={() => setCreatingNotebook(true)}
-                  className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
+                  className={sidebarSectionAction}
                   aria-label="Add notebook"
                 >
                   <Icon name="plus" className="h-3.5 w-3.5" />
@@ -715,7 +737,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                  the two read as one thing rather than as two stacked lists. */
               renderUnder={(notebook) =>
                 notebook.id === scope ? (
-                  <div className="mb-1 ml-3.5 border-l border-line pb-1 pl-2.5 pt-1">
+                  <div className={`${sidebarChildren} mb-1`}>
                     {notebookContents}
                     {addNoteRow}
                   </div>

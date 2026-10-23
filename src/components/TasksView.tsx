@@ -17,7 +17,7 @@ import {
   type Session,
 } from "../lib/client";
 import { friendlyError } from "../lib/errors";
-import { focusRing } from "../lib/styles";
+import { focusRing, sidebarHeaderAction } from "../lib/styles";
 import {
   buildTaskListTree,
   canMoveTaskList,
@@ -499,7 +499,27 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
 
       <div className="sb-shell grid min-h-0 flex-1" style={sidebar.cols}>
         <SidebarDrawer title="Tasks" sidebar={sidebar}>
-          <SidebarHeader eyebrow="My to-dos" title="Tasks" />
+          <SidebarHeader
+            eyebrow="My to-dos"
+            title="Tasks"
+            action={
+              !readOnlyMode ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    startAdd();
+                    sidebar.close();
+                  }}
+                  disabled={disabled}
+                  aria-label="Create task"
+                  title="Create task"
+                  className={sidebarHeaderAction}
+                >
+                  <TaskIcon name="plus" className="h-4 w-4" />
+                </button>
+              ) : null
+            }
+          />
           <TaskListSidebar
             lists={taskLists}
             scope={scope}

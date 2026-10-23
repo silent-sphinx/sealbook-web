@@ -16,7 +16,8 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { SidebarDrawer, SidebarHeader, SidebarSection, type Sidebar } from "./SidebarDrawer";
 import { Modal } from "./Modal";
 import { localInputToUtc, utcToLocalInput } from "../lib/timezone";
-import { btnDanger, btnPrimary, field, focusRing } from "../lib/styles";
+import { btnDanger, btnPrimary, field, focusRing, sidebarHeaderAction, sidebarMark, sidebarSectionAction } from "../lib/styles";
+import { VisibilityBox } from "./ContainerList";
 import { CalendarList } from "./CalendarSidebar";
 import { DayView as ExtractedDayView, MonthGrid as ExtractedMonthGrid, WeekView as ExtractedWeekView, YearView as ExtractedYearView } from "./CalendarViews";
 import {
@@ -722,19 +723,20 @@ export function CalendarView({
           <SidebarHeader
             eyebrow="My calendar"
             title="Calendar"
-            action={!readOnlyMode ? <button type="button" onClick={() => openNewTask()} className={`flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface text-text transition-colors hover:border-line-light hover:bg-elevated ${focusRing}`} aria-label="Create event"><Icon name="plus" /></button> : null}
+            action={!readOnlyMode ? <button type="button" onClick={() => openNewTask()} className={sidebarHeaderAction} aria-label="Create event"><Icon name="plus" /></button> : null}
           />
           <MiniMonth month={month} selected={selected} events={miniEvents} spans={miniSpans} onSelect={(day) => { selectDay(day); sidebar.close(); }} />
           <SidebarSection
             label="Calendars"
-            action={!readOnlyMode ? <button type="button" onClick={openNewCalendar} className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`} aria-label="Add calendar"><Icon name="plus" /></button> : null}
+            action={!readOnlyMode ? <button type="button" onClick={openNewCalendar} className={sidebarSectionAction} aria-label="Add calendar"><Icon name="plus" className="h-3 w-3" /></button> : null}
           >
             <CalendarList calendars={activeCals} archived={archivedCals} isVisible={(calendar) => isCalendarVisible(calendar, hiddenCalendarIds, shownArchivedIds)} readOnly={readOnlyMode} canArchive={activeCals.length > 1} onToggle={toggleCalendar} onShowAll={showAllCalendars} onToggleFavorite={(calendar) => void toggleFavorite(calendar)} onToggleArchived={(calendar) => void toggleArchived(calendar)} onEdit={openEditCalendar} onCreate={openNewCalendar} />
           </SidebarSection>
           {dueTasks ? (
             <SidebarSection label="Tasks">
-              <label className="mt-2 flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-xs text-mute transition-colors hover:bg-surface/40 hover:text-text">
-                <input type="checkbox" checked={showTasks} onChange={(event) => toggleTasks(event.target.checked)} className="h-4 w-4 accent-accent" />
+              <label className={`mt-2.5 -mx-2 flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-xs font-medium transition-colors hover:bg-surface/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent-ring ${showTasks ? "text-text" : "text-mute hover:text-text"}`}>
+                <input type="checkbox" checked={showTasks} onChange={(event) => toggleTasks(event.target.checked)} className="sr-only" />
+                <span className={sidebarMark}><VisibilityBox shown={showTasks} /></span>
                 Show tasks with a due date
               </label>
             </SidebarSection>

@@ -9,7 +9,17 @@ import {
   taskListTone,
 } from "../lib/task";
 import type { TaskScope } from "../lib/task";
-import { focusRing } from "../lib/styles";
+import {
+  focusRing,
+  sidebarChildren,
+  sidebarCount,
+  sidebarGutter,
+  sidebarMark,
+  sidebarNameInput,
+  sidebarRowAction,
+  sidebarRowState,
+  sidebarSectionAction,
+} from "../lib/styles";
 import type { TreeNode } from "../lib/tree";
 import type { TaskList } from "../lib/types";
 
@@ -22,16 +32,7 @@ export const SMART_VIEWS: { id: TaskScope; label: string }[] = [
 
 const LIST_DRAG_TYPE = "application/x-sealbook-task-list";
 const ROOT_DROP = "__root__";
-const nameInput =
-  "h-8 w-full rounded-lg border border-accent-dim bg-bg px-2 text-xs text-text outline-none ring-1 ring-accent-ring placeholder:text-mute/60";
-const rowBase = "list-row group -mx-2 flex items-center rounded-lg pr-2 transition-colors";
-const rowButton = `flex h-6 w-6 items-center justify-center rounded-md text-mute transition-colors hover:bg-elevated ${focusRing}`;
-const sectionButton = `flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`;
-
-/** Depth as the row's leading inset, so every row keeps one vertical rhythm. */
-function indentOf(depth: number) {
-  return { paddingLeft: `${depth * 0.75}rem` };
-}
+const rowBase = "list-row group -mx-2 flex items-center gap-1 rounded-lg px-2 transition-colors";
 
 type Props = {
   lists: TaskList[];
@@ -62,9 +63,7 @@ export function TaskListSidebar({
 }: Props) {
   const menu = useContextMenu();
   const tree = buildTaskListTree(lists);
-  const [creatingUnder, setCreatingUnder] = useState<{ parentId?: string; depth: number } | null>(
-    null,
-  );
+  const [creatingUnder, setCreatingUnder] = useState<{ parentId?: string } | null>(null);
   const [newName, setNewName] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
@@ -92,8 +91,8 @@ export function TaskListSidebar({
     });
   }
 
-  function startCreate(parentId: string | undefined, depth: number) {
-    setCreatingUnder({ parentId, depth });
+  function startCreate(parentId: string | undefined) {
+    setCreatingUnder({ parentId });
     setNewName("");
     if (parentId) reveal(parentId);
   }
@@ -137,10 +136,10 @@ export function TaskListSidebar({
     if (name && name !== list.name) await onRename(list, name);
   }
 
-  function itemsFor(list: TaskList, depth: number): MenuItem[] {
+  function itemsFor(list: TaskList): MenuItem[] {
     if (readOnly) return [];
     const items: MenuItem[] = [
-      { label: "Add sublist", onSelect: () => startCreate(list.id, depth + 1) },
+      { label: "Add sublist", onSelect: () => startCreate(list.id) },
       { label: "Rename list", onSelect: () => startRename(list) },
     ];
     if (list.id !== DEFAULT_TASK_LIST_ID) {
@@ -149,7 +148,7 @@ export function TaskListSidebar({
     return items;
   }
 
-  function createInput(label: string, placeholder: string, depth: number) {
+  function createInput(label: string, placeholder: string) {
     return (
       <form
         onSubmit={(event) => {
@@ -157,7 +156,6 @@ export function TaskListSidebar({
           void create();
         }}
         autoComplete="off"
-        style={indentOf(depth)}
         className="-mx-2 px-2 py-1"
       >
         <input
@@ -170,7 +168,7 @@ export function TaskListSidebar({
           }}
           placeholder={placeholder}
           aria-label={label}
-          className={nameInput}
+          className={sidebarNameInput}
         />
       </form>
     );
@@ -193,7 +191,6 @@ export function TaskListSidebar({
                 void rename(item);
               }}
               autoComplete="off"
-              style={indentOf(node.depth)}
               className="-mx-2 px-2 py-1"
             >
               <input
@@ -208,7 +205,7 @@ export function TaskListSidebar({
                   }
                 }}
                 aria-label={`Rename ${item.name}`}
-                className={nameInput}
+                className={sidebarNameInput}
               />
             </form>
           ) : (
@@ -241,8 +238,7 @@ export function TaskListSidebar({
                   void onMove(id, item.id);
                 }
               }}
-              onContextMenu={(event) => menu.open(event, itemsFor(item, node.depth))}
-              style={indentOf(node.depth)}
+              onContextMenu={(event) => menu.open(event, itemsFor(item))}
               className={`${rowBase} ${active ? "bg-surface" : "hover:bg-surface/40"} ${
                 dropTarget === item.id ? "ring-1 ring-accent-ring" : ""
               }`}
@@ -253,7 +249,7 @@ export function TaskListSidebar({
                   onClick={() => toggle(item.id)}
                   aria-label={open ? `Collapse ${item.name}` : `Expand ${item.name}`}
                   aria-expanded={open}
-                  className={`flex h-7 w-3 shrink-0 items-center justify-center text-mute transition-colors hover:text-text ${focusRing}`}
+                  className={`${sidebarGutter} text-mute transition-colors hover:text-text ${focusRing}`}
                 >
                   <TaskIcon
                     name="chevron"
@@ -261,25 +257,27 @@ export function TaskListSidebar({
                   />
                 </button>
               ) : (
-                <span aria-hidden="true" className="h-7 w-3 shrink-0" />
+                <span aria-hidden="true" className={sidebarGutter} />
               )}
-              {!readOnly && !item.parentId ? (
-                <input
-                  type="color"
-                  value={taskListTone(lists, item.id)}
-                  onClick={(event) => event.stopPropagation()}
-                  onChange={(event) => void onRecolor(item, event.target.value)}
-                  title={`Change colour for ${item.name}`}
-                  aria-label={`Change colour for ${item.name}`}
-                  className="color-dot ml-1 h-3.5 w-3.5 shrink-0 cursor-pointer"
-                />
-              ) : (
-                <span
-                  aria-hidden="true"
-                  className="ml-1 h-3.5 w-3.5 shrink-0 rounded-full"
-                  style={{ background: taskListTone(lists, item.id) }}
-                />
-              )}
+              <span className={sidebarMark}>
+                {!readOnly && !item.parentId ? (
+                  <input
+                    type="color"
+                    value={taskListTone(lists, item.id)}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => void onRecolor(item, event.target.value)}
+                    title={`Change colour for ${item.name}`}
+                    aria-label={`Change colour for ${item.name}`}
+                    className="color-dot h-3.5 w-3.5 shrink-0 cursor-pointer"
+                  />
+                ) : (
+                  <span
+                    aria-hidden="true"
+                    className="h-3.5 w-3.5 shrink-0 rounded-full"
+                    style={{ background: taskListTone(lists, item.id) }}
+                  />
+                )}
+              </span>
               <button
                 type="button"
                 onClick={() => onScope(item.id)}
@@ -287,7 +285,7 @@ export function TaskListSidebar({
                   if (!readOnly) startRename(item);
                 }}
                 aria-current={active ? "true" : undefined}
-                className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-2 pl-2.5 pr-2 text-left text-xs transition-colors ${
+                className={`flex min-w-0 flex-1 items-center rounded-lg py-2 pl-1.5 pr-2 text-left text-xs transition-colors ${
                   active ? "text-text" : "text-mute"
                 } ${focusRing}`}
               >
@@ -298,17 +296,17 @@ export function TaskListSidebar({
                   readOnly ? "w-4" : "list-row-slot"
                 }`}
               >
-                <span className="list-row-rest absolute inset-0 flex items-center justify-end pr-1 text-[10px] tabular-nums text-mute/70">
+                <span className={`list-row-rest absolute inset-0 flex items-center justify-end ${sidebarCount}`}>
                   {listCounts.get(item.id) || ""}
                 </span>
                 {readOnly ? null : (
                   <span className="list-row-actions absolute inset-0 flex items-center justify-end gap-0.5">
                     <button
                       type="button"
-                      onClick={() => startCreate(item.id, node.depth + 1)}
+                      onClick={() => startCreate(item.id)}
                       title="Add sublist"
                       aria-label={`Add sublist under ${item.name}`}
-                      className={`${rowButton} hover:text-text`}
+                      className={`${sidebarRowAction} hover:text-text`}
                     >
                       <TaskIcon name="plus" className="h-3 w-3" />
                     </button>
@@ -317,7 +315,7 @@ export function TaskListSidebar({
                       onClick={() => startRename(item)}
                       title="Rename list"
                       aria-label={`Rename ${item.name}`}
-                      className={`${rowButton} hover:text-text`}
+                      className={`${sidebarRowAction} hover:text-text`}
                     >
                       <TaskIcon name="pencil" className="h-3 w-3" />
                     </button>
@@ -327,7 +325,7 @@ export function TaskListSidebar({
                         onClick={() => onDelete(item)}
                         title="Delete list"
                         aria-label={`Delete ${item.name}`}
-                        className={`${rowButton} hover:text-danger`}
+                        className={`${sidebarRowAction} hover:text-danger`}
                       >
                         <TaskIcon name="trash" className="h-3 w-3" />
                       </button>
@@ -338,11 +336,13 @@ export function TaskListSidebar({
             </div>
           )}
 
-          {creatingUnder && creatingUnder.parentId === item.id
-            ? createInput(`New sublist under ${item.name}`, "Sublist name", node.depth + 1)
-            : null}
+          {creatingUnder && creatingUnder.parentId === item.id ? (
+            <div className={sidebarChildren}>
+              {createInput(`New sublist under ${item.name}`, "Sublist name")}
+            </div>
+          ) : null}
 
-          {hasChildren && open ? <ul className="space-y-0.5">{rows(node.children)}</ul> : null}
+          {hasChildren && open ? <ul className={sidebarChildren}>{rows(node.children)}</ul> : null}
         </li>
       );
     });
@@ -361,14 +361,12 @@ export function TaskListSidebar({
                 type="button"
                 onClick={() => onScope(view.id)}
                 aria-current={scope === view.id ? "true" : undefined}
-                className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${
-                  scope === view.id
-                    ? "bg-surface text-text"
-                    : "text-mute hover:bg-surface/40 hover:text-text"
-                } ${focusRing}`}
+                className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${sidebarRowState(
+                  scope === view.id,
+                )} ${focusRing}`}
               >
                 <span className="min-w-0 flex-1 truncate font-medium">{view.label}</span>
-                <span className="pr-1 text-[10px] tabular-nums text-mute/70">
+                <span className={sidebarCount}>
                   {smartCounts[view.id] || ""}
                 </span>
               </button>
@@ -383,10 +381,10 @@ export function TaskListSidebar({
           !readOnly ? (
             <button
               type="button"
-              onClick={() => startCreate(undefined, 0)}
+              onClick={() => startCreate(undefined)}
               title="Add a top-level list"
               aria-label="Add list"
-              className={sectionButton}
+              className={sidebarSectionAction}
             >
               <TaskIcon name="plus" />
             </button>
@@ -418,7 +416,7 @@ export function TaskListSidebar({
         ) : null}
 
         {creatingUnder && creatingUnder.parentId === undefined
-          ? createInput("New list name", "List name", 0)
+          ? createInput("New list name", "List name")
           : null}
       </SidebarSection>
     </>

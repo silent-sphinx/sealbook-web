@@ -12,7 +12,17 @@ import {
   isAddressBookVisible,
   resolveAddressBookId,
 } from "../lib/addressBook";
-import { btnPrimary, focusRing, ghost } from "../lib/styles";
+import {
+  btnPrimary,
+  focusRing,
+  ghost,
+  sidebarCount,
+  sidebarHeaderAction,
+  sidebarMark,
+  sidebarRowState,
+  sidebarSectionAction,
+  sidebarSubgroup,
+} from "../lib/styles";
 import type { Session } from "../lib/client";
 import type { LinkableSection } from "../lib/contactProfile";
 import type { AddressBook, Contact, ContactDraft } from "../lib/types";
@@ -129,9 +139,9 @@ export function ContactsTab({
                   type="button"
                   onClick={onOpenComposer}
                   aria-label="Add contact"
-                  className={`flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface text-text transition-colors hover:border-line-light hover:bg-elevated ${focusRing}`}
+                  className={sidebarHeaderAction}
                 >
-                  <PlusIcon />
+                  <PlusIcon className="h-4 w-4" />
                 </button>
               ) : null
             }
@@ -145,9 +155,9 @@ export function ContactsTab({
                   type="button"
                   onClick={() => onSetCreatingBook(true)}
                   aria-label="Add address book"
-                  className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
+                  className={sidebarSectionAction}
                 >
-                  <PlusIcon />
+                  <PlusIcon className="h-4 w-4" />
                 </button>
               ) : null
             }
@@ -165,20 +175,19 @@ export function ContactsTab({
               readOnly={isOffline}
               busy={busy}
             />
-            <div className="my-1.5 border-t border-line" aria-hidden="true" />
-            <button
-              type="button"
-              onClick={() => onGuardEditing(() => onSetViewingArchive(!viewingArchive))}
-              aria-current={viewingArchive ? "true" : undefined}
-              title={viewingArchive ? "Back to the address books" : "Show archived contacts"}
-              className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${viewingArchive ? "bg-surface text-text" : "text-mute hover:bg-surface/40 hover:text-text"}`}
-            >
-              <ArchiveIcon />
-              <span className="min-w-0 flex-1 truncate font-medium">{ARCHIVE_VIEW_NAME}</span>
-              <span className="shrink-0 text-[10px] tabular-nums text-mute/70">
-                {archivedContacts.length}
-              </span>
-            </button>
+            <div className={sidebarSubgroup}>
+              <button
+                type="button"
+                onClick={() => onGuardEditing(() => onSetViewingArchive(!viewingArchive))}
+                aria-current={viewingArchive ? "true" : undefined}
+                title={viewingArchive ? "Back to the address books" : "Show archived contacts"}
+                className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${sidebarRowState(viewingArchive)}`}
+              >
+                <span className={sidebarMark}><ArchiveIcon /></span>
+                <span className="min-w-0 flex-1 truncate font-medium">{ARCHIVE_VIEW_NAME}</span>
+                <span className={`shrink-0 ${sidebarCount}`}>{archivedContacts.length || ""}</span>
+              </button>
+            </div>
           </SidebarSection>
         </SidebarDrawer>
 

@@ -33,6 +33,15 @@ import {
   fieldBase,
   focusRing,
   selectField,
+  sidebarChildren,
+  sidebarCount,
+  sidebarGutter,
+  sidebarHeaderAction,
+  sidebarMark,
+  sidebarNameInput,
+  sidebarRowAction,
+  sidebarRowState,
+  sidebarSectionAction,
 } from "../lib/styles";
 import { flattenTree, type TreeNode } from "../lib/tree";
 import type { Bookmark, BookmarkCollection, BookmarkDraft } from "../lib/types";
@@ -76,6 +85,7 @@ function Icon({
     trash: "M3.5 4.5h9M6.5 4.5V3h3v1.5M5 4.5l.5 8h5l.5-8",
     pencil: "M11.5 2.5 13.5 4.5 5.5 12.5 3 13l.5-2.5 8-8Z",
     close: "M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5",
+    bookmark: "M4.5 2.5h7v11L8 10.75 4.5 13.5v-11Z",
   };
   return (
     <svg
@@ -553,7 +563,7 @@ export function BookmarksView({
       return (
         <li key={item.id}>
           {renamingId === item.id ? (
-            <div className="flex items-center gap-1.5 py-0.5 pl-1">
+            <div className="-mx-2 px-2 py-1">
               <input
                 autoFocus
                 value={renameText}
@@ -564,7 +574,7 @@ export function BookmarksView({
                   if (event.key === "Escape") cancelRename();
                 }}
                 aria-label={`Rename ${item.name}`}
-                className="h-8 w-full min-w-0 rounded-lg border border-line bg-bg px-2.5 text-xs text-text outline-none focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
+                className={sidebarNameInput}
               />
             </div>
           ) : (
@@ -597,7 +607,7 @@ export function BookmarksView({
                 if (id) void moveCollection(id, item.id);
               }}
               onContextMenu={(event) => menu.open(event, itemsFor(item))}
-              className={`list-row flex items-center rounded-lg transition-colors ${
+              className={`list-row group -mx-2 flex items-center gap-1 rounded-lg px-2 transition-colors ${
                 scope === item.id ? "bg-surface" : "hover:bg-surface/40"
               } ${dropTarget === item.id ? "ring-1 ring-accent-ring" : ""}`}
             >
@@ -607,7 +617,7 @@ export function BookmarksView({
                   onClick={() => toggleCollapsed(item.id)}
                   aria-label={open ? `Collapse ${item.name}` : `Expand ${item.name}`}
                   aria-expanded={open}
-                  className={`flex h-7 w-4 shrink-0 items-center justify-center text-mute transition-colors hover:text-text ${focusRing}`}
+                  className={`${sidebarGutter} text-mute transition-colors hover:text-text ${focusRing}`}
                 >
                   <Icon
                     name="chevron"
@@ -615,27 +625,29 @@ export function BookmarksView({
                   />
                 </button>
               ) : (
-                <span aria-hidden="true" className="h-7 w-4 shrink-0" />
+                <span aria-hidden="true" className={sidebarGutter} />
               )}
-              {!readOnlyMode && collectionRootId(collections, item.id) === item.id ? (
-                <input
-                  type="color"
-                  value={collectionTone(collections, item.id)}
-                  onClick={(event) => event.stopPropagation()}
-                  onChange={(event) =>
-                    void changeCollectionColor(item, event.target.value)
-                  }
-                  title={`Change colour for ${item.name}`}
-                  aria-label={`Change colour for ${item.name}`}
-                  className="color-dot mr-1.5 h-3.5 w-3.5 shrink-0 cursor-pointer"
-                />
-              ) : (
-                <span
-                  aria-hidden="true"
-                  className="mr-1.5 h-3.5 w-3.5 shrink-0 rounded-full"
-                  style={{ background: collectionTone(collections, item.id) }}
-                />
-              )}
+              <span className={sidebarMark}>
+                {!readOnlyMode && collectionRootId(collections, item.id) === item.id ? (
+                  <input
+                    type="color"
+                    value={collectionTone(collections, item.id)}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) =>
+                      void changeCollectionColor(item, event.target.value)
+                    }
+                    title={`Change colour for ${item.name}`}
+                    aria-label={`Change colour for ${item.name}`}
+                    className="color-dot h-3.5 w-3.5 shrink-0 cursor-pointer"
+                  />
+                ) : (
+                  <span
+                    aria-hidden="true"
+                    className="h-3.5 w-3.5 shrink-0 rounded-full"
+                    style={{ background: collectionTone(collections, item.id) }}
+                  />
+                )}
+              </span>
               <button
                 type="button"
                 onClick={() => setScope(item.id)}
@@ -643,54 +655,62 @@ export function BookmarksView({
                   if (!readOnlyMode) startRename(item);
                 }}
                 aria-current={scope === item.id ? "true" : undefined}
-                className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-2 pr-2 text-left text-xs transition-colors ${
+                className={`flex min-w-0 flex-1 items-center rounded-lg py-2 pl-1.5 pr-2 text-left text-xs transition-colors ${
                   scope === item.id ? "text-text" : "text-mute hover:text-text"
                 } ${focusRing}`}
               >
                 <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
-                <span className="text-[10px] tabular-nums text-mute/70">
+              </button>
+              <span
+                className={`relative flex h-7 shrink-0 items-center justify-end ${
+                  readOnlyMode ? "w-4" : "list-row-slot"
+                }`}
+              >
+                <span className={`list-row-rest absolute inset-0 flex items-center justify-end ${sidebarCount}`}>
                   {countByCollection.get(item.id) || ""}
                 </span>
-              </button>
-              {!readOnlyMode ? (
-                <div className="list-row-actions flex shrink-0 items-center gap-0.5">
-                  <button
-                    type="button"
-                    onClick={() => startCreateUnder(item.id)}
-                    title="Add subcollection"
-                    aria-label={`Add subcollection under ${item.name}`}
-                    className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
-                  >
-                    <Icon name="plus" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => startRename(item)}
-                    aria-label={`Rename ${item.name}`}
-                    className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
-                  >
-                    <Icon name="pencil" />
-                  </button>
-                  {/* The default collection can be renamed but not deleted: it
-                      is the id that is reserved, not the name, and every
-                      bookmark without a collection resolves to it. */}
-                  {!isDefault ? (
+                {!readOnlyMode ? (
+                  <span className="list-row-actions absolute inset-0 flex items-center justify-end gap-0.5">
                     <button
                       type="button"
-                      onClick={() => setDeletingCollection(item)}
-                      aria-label={`Delete ${item.name}`}
-                      className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-danger ${focusRing}`}
+                      onClick={() => startCreateUnder(item.id)}
+                      title="Add subcollection"
+                      aria-label={`Add subcollection under ${item.name}`}
+                      className={`${sidebarRowAction} hover:text-text`}
                     >
-                      <Icon name="trash" />
+                      <Icon name="plus" className="h-3 w-3" />
                     </button>
-                  ) : null}
-                </div>
-              ) : null}
+                    <button
+                      type="button"
+                      onClick={() => startRename(item)}
+                      title="Rename collection"
+                      aria-label={`Rename ${item.name}`}
+                      className={`${sidebarRowAction} hover:text-text`}
+                    >
+                      <Icon name="pencil" className="h-3 w-3" />
+                    </button>
+                    {/* The default collection can be renamed but not deleted: it
+                        is the id that is reserved, not the name, and every
+                        bookmark without a collection resolves to it. */}
+                    {!isDefault ? (
+                      <button
+                        type="button"
+                        onClick={() => setDeletingCollection(item)}
+                        title="Delete collection"
+                        aria-label={`Delete ${item.name}`}
+                        className={`${sidebarRowAction} hover:text-danger`}
+                      >
+                        <Icon name="trash" className="h-3 w-3" />
+                      </button>
+                    ) : null}
+                  </span>
+                ) : null}
+              </span>
             </div>
           )}
 
           {creatingUnder && creatingUnder.parentId === item.id ? (
-            <div className="ml-5 flex items-center gap-1.5 border-l border-line py-0.5 pl-2.5">
+            <div className={`${sidebarChildren} flex items-center gap-1.5 py-1`}>
               <input
                 autoFocus
                 value={newCollectionName}
@@ -704,7 +724,7 @@ export function BookmarksView({
                 }}
                 placeholder="Subcollection name"
                 aria-label={`New subcollection under ${item.name}`}
-                className="h-8 w-full min-w-0 rounded-lg border border-line bg-bg px-2.5 text-xs text-text outline-none focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
+                className={sidebarNameInput}
               />
               <button
                 type="button"
@@ -717,7 +737,7 @@ export function BookmarksView({
           ) : null}
 
           {hasChildren && open ? (
-            <ul className="ml-4 mt-0.5 space-y-0.5 border-l border-line pl-2">
+            <ul className={sidebarChildren}>
               {renderCollectionRows(node.children)}
             </ul>
           ) : null}
@@ -745,7 +765,27 @@ export function BookmarksView({
 
       <div className="sb-shell grid min-h-0 flex-1" style={sidebar.cols}>
         <SidebarDrawer title="Bookmarks" sidebar={sidebar}>
-          <SidebarHeader eyebrow="My links" title="Bookmarks" />
+          <SidebarHeader
+            eyebrow="My links"
+            title="Bookmarks"
+            action={
+              !readOnlyMode ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    startAdd();
+                    sidebar.close();
+                  }}
+                  disabled={disabled}
+                  aria-label="Create bookmark"
+                  title="Create bookmark"
+                  className={sidebarHeaderAction}
+                >
+                  <Icon name="plus" className="h-4 w-4" />
+                </button>
+              ) : null
+            }
+          />
 
           <SidebarSection
             label="Collections"
@@ -755,7 +795,7 @@ export function BookmarksView({
                   type="button"
                   onClick={() => startCreateUnder(undefined)}
                   title="Add a top-level collection"
-                  className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
+                  className={sidebarSectionAction}
                   aria-label="Add collection"
                 >
                   <Icon name="plus" />
@@ -763,20 +803,22 @@ export function BookmarksView({
               ) : null
             }
           >
-            <ul className="mt-2 space-y-0.5">
+            <ul className="mt-2.5 space-y-0.5">
               <li>
                 <button
                   type="button"
                   onClick={() => setScope(ALL)}
                   aria-current={scope === ALL ? "true" : undefined}
-                  className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${
-                    scope === ALL
-                      ? "bg-surface text-text"
-                      : "text-mute hover:bg-surface/40 hover:text-text"
-                  } ${focusRing}`}
+                  className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-1 rounded-lg px-2 py-2 text-left text-xs transition-colors ${sidebarRowState(
+                    scope === ALL,
+                  )} ${focusRing}`}
                 >
-                  <span className="min-w-0 flex-1 truncate font-medium">All bookmarks</span>
-                  <span className="text-[10px] tabular-nums text-mute/70">
+                  <span aria-hidden="true" className="w-4 shrink-0" />
+                  <span className={sidebarMark}>
+                    <Icon name="bookmark" />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate pl-1.5 font-medium">All bookmarks</span>
+                  <span className={sidebarCount}>
                     {bookmarks.length || ""}
                   </span>
                 </button>
@@ -811,7 +853,7 @@ export function BookmarksView({
             ) : null}
 
             {creatingUnder && creatingUnder.parentId === undefined ? (
-              <div className="mt-2 flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 py-1">
                 <input
                   autoFocus
                   value={newCollectionName}
@@ -825,7 +867,7 @@ export function BookmarksView({
                   }}
                   placeholder="Collection name"
                   aria-label="New collection name"
-                  className="h-8 w-full min-w-0 rounded-lg border border-line bg-bg px-2.5 text-xs text-text outline-none focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
+                  className={sidebarNameInput}
                 />
                 <button
                   type="button"

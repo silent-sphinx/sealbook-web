@@ -36,3 +36,25 @@ export const dangerButton =
 // stretch the full viewport, leaving name and badge hundreds of pixels apart on
 // a wide monitor. The header uses the same cap so it stays aligned with content.
 export const shell = "mx-auto w-full max-w-6xl";
+
+// Sidebar tokens shared by every view's `SidebarDrawer` content. Rows bleed
+// `-mx-2` past the column's padding so a mark sits on the section label's edge.
+export const sidebarHeaderAction =
+  `flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-line bg-surface text-text transition-colors hover:border-line-light hover:bg-elevated ${focusRing}`;
+export const sidebarSectionAction =
+  `flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`;
+export const sidebarRowAction =
+  `flex h-6 w-6 items-center justify-center rounded-md text-mute transition-colors hover:bg-elevated ${focusRing}`;
+export const sidebarRowState = (active: boolean) =>
+  active ? "bg-surface text-text" : "text-mute hover:bg-surface/40 hover:text-text";
+/** A row's leading mark: checkbox, swatch, dot or icon. */
+export const sidebarMark = "flex h-4 w-4 shrink-0 items-center justify-center";
+/** A tree row's disclosure column, ahead of its mark. */
+export const sidebarGutter = "flex h-7 w-4 shrink-0 items-center justify-center";
+/** Nested rows, hung off a guide line under the parent's leading column. */
+export const sidebarChildren = "ml-2 mt-0.5 space-y-0.5 border-l border-line pl-2";
+/** A secondary group at the foot of a section, such as an archive. */
+export const sidebarSubgroup = "mt-2.5 border-t border-line pt-2.5";
+export const sidebarCount = "pr-1 text-[10px] tabular-nums text-mute/70";
+export const sidebarNameInput =
+  "h-8 w-full min-w-0 rounded-lg border border-accent-dim bg-bg px-2 text-xs text-text outline-none ring-1 ring-accent-ring placeholder:text-mute/60";
