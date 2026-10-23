@@ -144,6 +144,22 @@ beforeEach(() => {
 });
 
 describe("reading the file before anything is written", () => {
+  // jsdom does not enforce `accept`, so only the attribute itself can be checked.
+  it("offers the iCalendar extensions the file dialog would otherwise hide", () => {
+    const accept = mount().accept.split(",");
+
+    expect(accept).toContain(".ics");
+    expect(accept).toContain(".ical");
+  });
+
+  it("takes an .ical file", async () => {
+    const input = mount();
+    await pick(input, "moons.ical", ics({ uid: "a", summary: "Full Moon" }));
+
+    expect(await screen.findByText(/Detected ICS · 1 event found/u)).toBeDefined();
+    expect(screen.getByText("Full Moon")).toBeDefined();
+  });
+
   it("reports what it holds and writes nothing yet", async () => {
     const input = mount();
     await pick(input, "work.ics", ics({ uid: "a", summary: "Standup" }, { uid: "b", summary: "Retro" }));

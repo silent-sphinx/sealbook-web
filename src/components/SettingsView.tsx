@@ -1083,7 +1083,7 @@ export function SettingsView({
                 <h4 className="text-sm font-semibold text-text">Import Events</h4>
               </div>
               <span className="text-[11px] text-mute font-mono">
-                .ics, .json
+                .ics, .ical, .json
               </span>
             </div>
 
@@ -1116,7 +1116,7 @@ export function SettingsView({
                 <input
                   ref={icsInputRef}
                   type="file"
-                  accept=".ics,.json,text/calendar,application/json"
+                  accept=".ics,.ical,.json,text/calendar,application/json"
                   onChange={onIcsInputChange}
                   className="hidden"
                 />
@@ -1137,7 +1137,7 @@ export function SettingsView({
                   Click to select file or drag &amp; drop here
                 </p>
                 <p className="mt-1 text-[11px] text-mute">
-                  Supports Apple Calendar / Google Calendar / Outlook (.ics), or Sealbook (.json)
+                  Supports Apple Calendar / Google Calendar / Outlook (.ics, .ical), or Sealbook (.json)
                 </p>
               </div>
             ) : (
