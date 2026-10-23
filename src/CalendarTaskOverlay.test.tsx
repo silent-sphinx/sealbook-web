@@ -119,7 +119,7 @@ describe("the calendar's task overlay", () => {
 
     const box = await screen.findByRole("checkbox", { name: "Complete water" });
     expect(box.closest("[data-task-id]")?.getAttribute("data-task-id")).toBe("water");
-    expect(box.closest("[data-task-id]")?.className).toContain("ring-accent-ring");
+    expect(box.closest("[data-task-id]")?.className).toContain("border-l-accent");
     const aside = document.querySelector("aside") as HTMLElement;
     expect(
       within(aside).getByRole("button", { name: /^Default Task List\d*$/ }).getAttribute("aria-current"),

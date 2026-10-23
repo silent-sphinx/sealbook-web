@@ -51,10 +51,10 @@ export type SplitPane = {
  * measured with a `ResizeObserver` rather than a window `resize` listener
  * because collapsing the sidebar changes its width without resizing the window.
  */
-export function useSplitPane(storageKey: string): SplitPane {
+export function useSplitPane(storageKey: string, defaultLeading: number = DEFAULT_LEADING): SplitPane {
   const isDesktop = useMediaQuery(DESKTOP);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [stored, setStored] = useState<number>(() => loadSplit(storageKey));
+  const [stored, setStored] = useState<number>(() => loadSplit(storageKey, defaultLeading));
   const [available, setAvailable] = useState(0);
   const [dragging, setDragging] = useState(false);
 
@@ -151,9 +151,9 @@ export function useSplitPane(storageKey: string): SplitPane {
   );
 
   const onDoubleClick = useCallback(() => {
-    setStored(DEFAULT_LEADING);
+    setStored(defaultLeading);
     saveSplit(storageKey, null);
-  }, [storageKey]);
+  }, [defaultLeading, storageKey]);
 
   return {
     dragging,

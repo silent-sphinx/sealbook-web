@@ -13,10 +13,15 @@ function asTaskNode(node: TreeNode<Task>): TaskTreeNode {
   return { task: node.item, depth: node.depth, children: node.children.map(asTaskNode) };
 }
 
+/** The tree over whatever set is on screen; a task whose parent is outside it
+ * sits at the top level. */
+export function buildTaskTreeOf(scoped: Task[]): TaskTreeNode[] {
+  return buildTree(scoped, sortTasks).map(asTaskNode);
+}
+
 /** A task whose parent is in another list sits at this list's top level. */
 export function buildTaskTree(tasks: Task[], taskListId: string): TaskTreeNode[] {
-  const scoped = tasks.filter((task) => resolveTaskListId(task.taskListId) === taskListId);
-  return buildTree(scoped, sortTasks).map(asTaskNode);
+  return buildTaskTreeOf(tasks.filter((task) => resolveTaskListId(task.taskListId) === taskListId));
 }
 
 export function taskSubtree(tasks: Task[], id: string): string[] {

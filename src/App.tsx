@@ -110,6 +110,7 @@ import {
   focusRing,
   shell,
 } from "./lib/styles";
+import { mergeTaskLists, mergeTasks } from "./lib/task";
 import { DEFAULT_CALENDAR_COLOR } from "./lib/types";
 import type {
   AccountSettings,
@@ -127,6 +128,7 @@ import type {
   BookmarkCollection,
   Task,
   TaskList,
+  TaskPatch,
 } from "./lib/types";
 
 type Screen = "auth" | "phrase" | "pair" | "recover";
@@ -702,6 +704,22 @@ export default function App() {
       next[at] = note;
       return next;
     });
+  }
+
+  /**
+   * Folds one task action's writes into the lists. A full `refresh` per write
+   * walks and decrypts the whole collection, which ticking a checkbox does not
+   * warrant; `TasksView` re-reads once the writing has stopped.
+   */
+  function applyTaskPatch(patch: TaskPatch) {
+    if (patch.tasks || patch.removedTaskIds) {
+      setTasks((current) => mergeTasks(current, patch.tasks ?? [], patch.removedTaskIds));
+    }
+    if (patch.taskLists || patch.removedTaskListIds) {
+      setTaskLists((current) =>
+        mergeTaskLists(current, patch.taskLists ?? [], patch.removedTaskListIds),
+      );
+    }
   }
 
   async function onSaveAccountSettings(next: AccountSettings) {
@@ -1829,6 +1847,7 @@ export default function App() {
             busy={busy}
             timezone={timezone}
             onRefresh={() => refresh(session)}
+            onApply={applyTaskPatch}
             readOnly={isOffline}
             sidebar={sidebar}
             focusTaskId={taskFocusId}

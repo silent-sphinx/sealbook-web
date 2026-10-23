@@ -301,6 +301,33 @@ export function sortTaskLists(lists: TaskList[]): TaskList[] {
   });
 }
 
+/**
+ * Folds written tasks into a listing, dropping `removed` ids. The writer knows
+ * what it stored, so showing a save does not need a vault re-read.
+ */
+export function mergeTasks(current: Task[], saved: Task[], removed?: string[]): Task[] {
+  return sortTasks(mergeById(current, saved, removed));
+}
+
+/** `mergeTasks` for task lists. */
+export function mergeTaskLists(
+  current: TaskList[],
+  saved: TaskList[],
+  removed?: string[],
+): TaskList[] {
+  return sortTaskLists(mergeById(current, saved, removed));
+}
+
+function mergeById<T extends { id: string }>(current: T[], saved: T[], removed?: string[]): T[] {
+  const gone = new Set(removed ?? []);
+  const bySaved = new Map(saved.filter((item) => !gone.has(item.id)).map((item) => [item.id, item]));
+  const merged = current
+    .filter((item) => !gone.has(item.id))
+    .map((item) => bySaved.get(item.id) ?? item);
+  const seen = new Set(merged.map((item) => item.id));
+  return [...merged, ...[...bySaved.values()].filter((item) => !seen.has(item.id))];
+}
+
 export function taskListNameById(lists: TaskList[], taskListId?: string): string {
   const id = resolveTaskListId(taskListId);
   return lists.find((list) => list.id === id)?.name ?? DEFAULT_TASK_LIST_NAME;

@@ -149,7 +149,9 @@ export function TasksImportExportSection({ session, tasks, taskLists, onRefresh 
     let written = 0;
     try {
       let listId = targetListId;
-      if (creatingList && newListName.trim()) listId = await putTaskList(session, newListName.trim());
+      if (creatingList && newListName.trim()) {
+        listId = (await putTaskList(session, newListName.trim())).id;
+      }
       const newIds = new Map<string, string>();
       for (const entry of ordered) {
         const id = newTaskId();

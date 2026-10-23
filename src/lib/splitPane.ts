@@ -10,6 +10,9 @@ export const MIN_TRAILING = 352;
 /** 22rem, the width the contacts list had before the split could be dragged. */
 export const DEFAULT_LEADING = 352;
 
+/** 30rem: a task row carries a due date, a priority and a list pill. */
+export const TASKS_LEADING = 480;
+
 /** One nudge of an arrow key. */
 export const KEY_STEP = 16;
 
@@ -42,12 +45,12 @@ export function clampLeading(stored: number, available: number): number {
  * also the honest scope for a layout tweak usually made to read one contact
  * rather than as a lasting preference.
  */
-export function loadSplit(key: string): number {
+export function loadSplit(key: string, fallback: number = DEFAULT_LEADING): number {
   try {
     const stored = Number(sessionStorage.getItem(key));
-    return Number.isFinite(stored) && stored > 0 ? stored : DEFAULT_LEADING;
+    return Number.isFinite(stored) && stored > 0 ? stored : fallback;
   } catch {
-    return DEFAULT_LEADING;
+    return fallback;
   }
 }
 

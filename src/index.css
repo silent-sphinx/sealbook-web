@@ -297,6 +297,28 @@ body.sb-dragging * {
 }
 
 /*
+ * A parent task's open subtasks. The guide line sits in the parent's arrow
+ * column (`--sb-task-guide`, set per level by `TaskTreeList`) and the tint
+ * recesses the group, so the rows read as inside the parent rather than as
+ * siblings of it.
+ */
+.task-subtree {
+  position: relative;
+  background-color: color-mix(in srgb, var(--color-surface) 45%, transparent);
+}
+
+.task-subtree::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--sb-task-guide, 0.75rem);
+  width: 1px;
+  background-color: var(--color-line-light);
+  pointer-events: none;
+}
+
+/*
  * Rendered markdown in a note. The element styles live here rather than as class
  * strings in the renderer: the renderer emits a plain tree, and a dozen Tailwind
  * constants threaded through it would be harder to keep coherent than one block,

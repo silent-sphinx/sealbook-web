@@ -481,6 +481,17 @@ export type TaskDraft = {
 
 export type Task = TaskDraft & { id: string; raw: string };
 
+/**
+ * What one task action wrote, for folding into a listing. Carried instead of a
+ * full vault refresh, which walks and decrypts every object in the collection.
+ */
+export type TaskPatch = {
+  tasks?: Task[];
+  removedTaskIds?: string[];
+  taskLists?: TaskList[];
+  removedTaskListIds?: string[];
+};
+
 /** Task lists nest exactly as bookmark collections do. See `BookmarkCollection`. */
 export type TaskList = {
   id: string;

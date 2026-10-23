@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { DragEventHandler } from "react";
+import type { CSSProperties, DragEventHandler } from "react";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 import { TaskIcon } from "./TaskIcon";
 import { dueLabel, isOverdue, priorityLabel } from "../lib/task";
@@ -11,13 +11,30 @@ const DRAG_TYPE = "application/x-sealbook-task";
 const ROOT_DROP = "__root__";
 const NO_BLOCKED: ReadonlySet<string> = new Set();
 
+type Zone = "top" | "inside" | "bottom";
+type Over = { id: string; zone: Zone; parentId: string | null } | typeof ROOT_DROP;
+
+/** The outer quarters of a row drop beside it, the middle drops inside it. */
+function zoneAt(event: React.DragEvent): Zone {
+  const rect = event.currentTarget.getBoundingClientRect();
+  if (rect.height === 0) return "inside";
+  const offset = (event.clientY - rect.top) / rect.height;
+  if (offset < 0.25) return "top";
+  if (offset > 0.75) return "bottom";
+  return "inside";
+}
+
 export type TaskActions = {
   now: Date;
   timezone: string;
   readOnly: boolean;
   counts: Map<string, ChildCount>;
   highlightId?: string;
+  activeId?: string;
+  /** Left out when every row shares one list, so the pill is not repeated. */
+  listNameFor?: (task: Task) => string | undefined;
   onToggleDone: (task: Task) => void;
+  onSelect: (task: Task) => void;
   onEdit: (task: Task) => void;
   onAddChild: (parentId: string) => void;
   onDelete: (task: Task) => void;
@@ -27,9 +44,8 @@ type RowProps = TaskActions & {
   task: Task;
   depth?: number;
   lead?: React.ReactNode;
-  caption?: string;
-  active?: boolean;
   className?: string;
+  dropLine?: "top" | "bottom";
   dragProps?: {
     draggable: boolean;
     onDragStart: DragEventHandler;
@@ -51,8 +67,10 @@ function itemsFor(task: Task, actions: TaskActions): MenuItem[] {
 }
 
 function TaskRow(props: RowProps) {
-  const { task, depth = 0, lead, caption, active, className = "", dragProps, menu, ...actions } = props;
-  const { now, timezone, readOnly, counts, highlightId, onToggleDone, onEdit, onAddChild, onDelete } = actions;
+  const { task, depth = 0, lead, className = "", dropLine, dragProps, menu, ...actions } = props;
+  const { now, timezone, readOnly, counts, highlightId, activeId, listNameFor, onToggleDone, onSelect, onAddChild, onDelete } = actions;
+  const listName = listNameFor?.(task);
+  const current = activeId === task.id || highlightId === task.id;
   const due = dueLabel(task, now, timezone);
   const overdue = isOverdue(task, now, timezone);
   const priority = priorityLabel(task.priority);
@@ -76,50 +94,69 @@ function TaskRow(props: RowProps) {
   }
   if (children) meta.push(<span key="children">{`${children.done}/${children.total} subtasks`}</span>);
   if (task.tags && task.tags.length > 0) meta.push(<span key="tags">{task.tags.join(", ")}</span>);
-  if (caption) meta.push(<span key="caption">{caption}</span>);
 
   return (
     <div
       {...dragProps}
       data-task-id={task.id}
       onContextMenu={(event) => menu.open(event, itemsFor(task, actions))}
-      style={{ paddingLeft: `calc(0.5rem + ${depth * 1.25}rem)` }}
-      className={`list-row flex items-center gap-2 rounded-lg pr-2 transition-colors hover:bg-panel/60 ${
-        active || highlightId === task.id ? "bg-surface ring-1 ring-accent-ring" : ""
+      style={{ paddingLeft: `calc(0.5rem + ${depth * 1.5}rem)` }}
+      className={`list-row relative flex items-start gap-2 border-b border-l-2 border-line/60 py-2.5 pr-3 transition-colors duration-150 ${
+        current ? "border-l-accent bg-surface/70" : "border-l-transparent hover:bg-surface/40"
       } ${className}`}
     >
-      {lead ?? <span aria-hidden="true" className="h-7 w-4 shrink-0" />}
-      <input
-        type="checkbox"
-        checked={task.done === true}
-        disabled={readOnly}
-        onChange={() => onToggleDone(task)}
-        aria-label={`Complete ${task.title}`}
-        className="h-4 w-4 shrink-0 cursor-pointer accent-accent disabled:cursor-default"
-      />
+      {dropLine ? (
+        <span
+          aria-hidden="true"
+          style={{ left: `calc(2.5rem + ${depth * 1.5}rem)` }}
+          className={`pointer-events-none absolute right-3 h-0.5 rounded-full bg-accent ${
+            dropLine === "top" ? "-top-px" : "-bottom-px"
+          }`}
+        />
+      ) : null}
+      {lead ?? <span aria-hidden="true" className="h-5 w-5 shrink-0" />}
+      <span className="flex h-5 shrink-0 items-center">
+        <input
+          type="checkbox"
+          checked={task.done === true}
+          disabled={readOnly}
+          onChange={() => onToggleDone(task)}
+          aria-label={`Complete ${task.title}`}
+          className="h-4 w-4 cursor-pointer accent-accent disabled:cursor-default"
+        />
+      </span>
       <button
         type="button"
-        onClick={() => onEdit(task)}
-        className={`min-w-0 flex-1 rounded-lg py-2.5 text-left ${focusRing}`}
+        onClick={() => onSelect(task)}
+        className={`ml-1 flex min-w-0 flex-1 items-start gap-3 rounded-sm text-left ${focusRing}`}
       >
-        <span
-          className={`block truncate text-sm font-medium ${task.done ? "text-mute line-through" : "text-text"}`}
-        >
-          {task.title}
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span
+            className={`min-w-0 truncate text-sm font-medium leading-5 ${
+              task.done ? "text-mute line-through" : current ? "text-accent" : "text-text"
+            }`}
+          >
+            {task.title}
+          </span>
+          {meta.length > 0 ? (
+            <span className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs leading-4 text-mute">
+              {meta.map((entry, index) => (
+                <span key={index} className="inline-flex items-center gap-2">
+                  {index > 0 ? <span aria-hidden="true">·</span> : null}
+                  {entry}
+                </span>
+              ))}
+            </span>
+          ) : null}
         </span>
-        {meta.length > 0 ? (
-          <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-mute">
-            {meta.map((entry, index) => (
-              <span key={index} className="inline-flex items-center gap-2">
-                {index > 0 ? <span aria-hidden="true">·</span> : null}
-                {entry}
-              </span>
-            ))}
+        {listName ? (
+          <span className="max-w-[10rem] shrink-0 truncate rounded-full border border-line px-2 text-[11px] font-medium leading-[18px] text-mute">
+            {listName}
           </span>
         ) : null}
       </button>
       {readOnly ? null : (
-        <span className="list-row-actions flex shrink-0 items-center gap-0.5">
+        <span className="list-row-actions -my-1 ml-1 flex shrink-0 items-center gap-0.5">
           <button
             type="button"
             onClick={() => onAddChild(task.id)}
@@ -144,31 +181,59 @@ function TaskRow(props: RowProps) {
   );
 }
 
-type FlatProps = TaskActions & {
-  tasks: Task[];
-  captionFor: (task: Task) => string | undefined;
+type NestProps = {
+  nodes: TaskTreeNode[];
+  expanded: ReadonlySet<string>;
+  onToggle: (id: string) => void;
+  renderRow: (
+    node: TaskTreeNode,
+    lead: React.ReactNode | undefined,
+    parentId: string | null,
+  ) => React.ReactNode;
+  parentId?: string | null;
 };
 
-/** Rows with no nesting, for the smart views and for search results. */
-export function TaskFlatList({ tasks, captionFor, ...actions }: FlatProps) {
-  const menu = useContextMenu();
-  return (
-    <div>
-      <ContextMenu state={menu.menu} onClose={menu.close} />
-      <ul className="divide-y divide-line/60 border-y border-line/60">
-        {tasks.map((task) => (
-          <li key={task.id}>
-            <TaskRow {...actions} task={task} caption={captionFor(task)} menu={menu} />
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
+/**
+ * The rows of a tree, with each open parent's subtasks in a group of their own
+ * beneath it. `parentId` is the parent as drawn, which in a smart view can
+ * differ from the stored one when that parent is out of scope.
+ */
+function nested({ nodes, expanded, onToggle, renderRow, parentId = null }: NestProps): React.ReactNode {
+  return nodes.map((node) => {
+    const { task } = node;
+    const hasChildren = node.children.length > 0;
+    const open = expanded.has(task.id);
+    const lead = hasChildren ? (
+      <button
+        type="button"
+        onClick={() => onToggle(task.id)}
+        aria-label={open ? `Collapse ${task.title}` : `Expand ${task.title}`}
+        aria-expanded={open}
+        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-mute transition-colors hover:text-text ${focusRing}`}
+      >
+        <TaskIcon name="chevron" className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} />
+      </button>
+    ) : undefined;
+    return (
+      <li key={task.id}>
+        {renderRow(node, lead, parentId)}
+        {hasChildren && open ? (
+          <ul
+            className="task-subtree"
+            style={{ "--sb-task-guide": `calc(1.125rem + 2px + ${node.depth * 1.5}rem)` } as CSSProperties}
+          >
+            {nested({ nodes: node.children, expanded, onToggle, renderRow, parentId: task.id })}
+          </ul>
+        ) : null}
+      </li>
+    );
+  });
 }
 
 type TreeProps = TaskActions & {
   tree: TaskTreeNode[];
-  collapsed: ReadonlySet<string>;
+  /** Parents whose subtasks are shown; a parent starts closed. */
+  expanded: ReadonlySet<string>;
   onToggle: (id: string) => void;
   /** Read once when a drag starts; `onMove` is still the last word on a drop. */
   blockedDropIds: (id: string) => Set<string>;
@@ -177,7 +242,7 @@ type TreeProps = TaskActions & {
 
 export function TaskTreeList({
   tree,
-  collapsed,
+  expanded,
   onToggle,
   blockedDropIds,
   onMove,
@@ -185,7 +250,7 @@ export function TaskTreeList({
 }: TreeProps) {
   const menu = useContextMenu();
   const [dragging, setDragging] = useState<string | null>(null);
-  const [over, setOver] = useState<string | null>(null);
+  const [over, setOver] = useState<Over | null>(null);
   const [blocked, setBlocked] = useState<ReadonlySet<string>>(NO_BLOCKED);
 
   function endDrag() {
@@ -194,67 +259,60 @@ export function TaskTreeList({
     setBlocked(NO_BLOCKED);
   }
 
-  function rows(nodes: TaskTreeNode[]): React.ReactNode {
-    return nodes.map((node) => {
-      const { task } = node;
-      const hasChildren = node.children.length > 0;
-      const open = !collapsed.has(task.id);
-      const droppable = dragging !== null && dragging !== task.id && !blocked.has(task.id);
-      const lead = hasChildren ? (
-        <button
-          type="button"
-          onClick={() => onToggle(task.id)}
-          aria-label={open ? `Collapse ${task.title}` : `Expand ${task.title}`}
-          aria-expanded={open}
-          className={`flex h-7 w-4 shrink-0 items-center justify-center text-mute transition-colors hover:text-text ${focusRing}`}
-        >
-          <TaskIcon name="chevron" className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} />
-        </button>
-      ) : undefined;
-      return (
-        <li key={task.id}>
-          <TaskRow
-            {...actions}
-            task={task}
-            depth={node.depth}
-            lead={lead}
-            menu={menu}
-            className={over === task.id ? "ring-1 ring-accent-ring" : ""}
-            dragProps={{
-              draggable: !actions.readOnly,
-              onDragStart: (event) => {
-                event.dataTransfer.setData(DRAG_TYPE, task.id);
-                event.dataTransfer.effectAllowed = "move";
-                setDragging(task.id);
-                setBlocked(blockedDropIds(task.id));
-              },
-              onDragEnd: endDrag,
-              onDragOver: (event) => {
-                if (!droppable) return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = "move";
-                if (over !== task.id) setOver(task.id);
-              },
-              onDragLeave: () => setOver((current) => (current === task.id ? null : current)),
-              onDrop: (event) => {
-                if (!droppable) return;
-                event.preventDefault();
-                const id = event.dataTransfer.getData(DRAG_TYPE);
-                endDrag();
-                if (id) onMove(id, task.id);
-              },
-            }}
-          />
-          {hasChildren && open ? <ul>{rows(node.children)}</ul> : null}
-        </li>
-      );
-    });
+  function renderRow(
+    node: TaskTreeNode,
+    lead: React.ReactNode | undefined,
+    parentId: string | null,
+  ): React.ReactNode {
+    const { task } = node;
+    const here = over !== ROOT_DROP && over?.id === task.id ? over : null;
+    return (
+      <TaskRow
+        {...actions}
+        task={task}
+        depth={node.depth}
+        lead={lead}
+        menu={menu}
+        className={here?.zone === "inside" ? "ring-1 ring-inset ring-accent-ring" : ""}
+        dropLine={here && here.zone !== "inside" ? here.zone : undefined}
+        dragProps={{
+          draggable: !actions.readOnly,
+          onDragStart: (event) => {
+            event.dataTransfer.setData(DRAG_TYPE, task.id);
+            event.dataTransfer.effectAllowed = "move";
+            setDragging(task.id);
+            setBlocked(blockedDropIds(task.id));
+          },
+          onDragEnd: endDrag,
+          onDragOver: (event) => {
+            if (dragging === null || blocked.has(task.id)) return;
+            const zone = zoneAt(event);
+            const target = zone === "inside" ? task.id : parentId;
+            if (target !== null && blocked.has(target)) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "move";
+            if (here?.zone !== zone) setOver({ id: task.id, zone, parentId: target });
+          },
+          onDragLeave: (event) => {
+            if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+            setOver((current) => (current !== ROOT_DROP && current?.id === task.id ? null : current));
+          },
+          onDrop: (event) => {
+            if (!here) return;
+            event.preventDefault();
+            const id = event.dataTransfer.getData(DRAG_TYPE);
+            endDrag();
+            if (id) onMove(id, here.parentId);
+          },
+        }}
+      />
+    );
   }
 
   return (
     <div>
       <ContextMenu state={menu.menu} onClose={menu.close} />
-      <ul className="border-y border-line/60">{rows(tree)}</ul>
+      <ul className="min-w-0">{nested({ nodes: tree, expanded, onToggle, renderRow })}</ul>
       {dragging !== null ? (
         <div
           onDragOver={(event) => {
@@ -268,7 +326,7 @@ export function TaskTreeList({
             endDrag();
             if (id) onMove(id, null);
           }}
-          className={`mt-2 rounded-lg border border-dashed px-3 py-1.5 text-center text-[10px] transition-colors ${
+          className={`mx-4 mt-2 rounded-lg border border-dashed px-3 py-1.5 text-center text-xs transition-colors ${
             over === ROOT_DROP ? "border-accent-dim text-text" : "border-line text-mute"
           }`}
         >

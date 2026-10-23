@@ -10,6 +10,8 @@ import {
   inScope,
   isOverdue,
   MAX_TASK_COMPLETIONS,
+  mergeTaskLists,
+  mergeTasks,
   parseTask,
   parseTaskList,
   priorityLabel,
@@ -342,5 +344,31 @@ describe("childCounts", () => {
     ];
     expect(childCounts(tasks).get("p")).toEqual({ done: 1, total: 2 });
     expect(childCounts(tasks).has("missing")).toBe(false);
+  });
+});
+
+describe("mergeTasks and mergeTaskLists", () => {
+  it("replaces a task in place and keeps the order a listing would give", () => {
+    const current = [task({ title: "Water plants" }, "a"), task({ title: "Pay rent" }, "b")];
+    const merged = mergeTasks(current, [task({ title: "Water plants", done: true }, "a")]);
+    expect(merged.map((item) => item.id)).toEqual(["b", "a"]);
+    expect(merged.find((item) => item.id === "a")?.done).toBe(true);
+  });
+
+  it("adds a task it has not seen", () => {
+    const merged = mergeTasks([task({}, "a")], [task({ title: "New" }, "b")]);
+    expect(merged.map((item) => item.id).sort()).toEqual(["a", "b"]);
+  });
+
+  it("drops a removed id, even when the same id was also written", () => {
+    const current = [task({}, "a"), task({ title: "Child" }, "b")];
+    const merged = mergeTasks(current, [task({}, "a")], ["a"]);
+    expect(merged.map((item) => item.id)).toEqual(["b"]);
+  });
+
+  it("merges task lists the same way, default list first", () => {
+    const current = [list("work", "Work"), list(DEFAULT_TASK_LIST_ID, "Tasks")];
+    const merged = mergeTaskLists(current, [list("errands", "Errands")], ["work"]);
+    expect(merged.map((item) => item.id)).toEqual([DEFAULT_TASK_LIST_ID, "errands"]);
   });
 });

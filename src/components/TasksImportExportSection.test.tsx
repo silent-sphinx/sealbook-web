@@ -24,11 +24,12 @@ vi.mock("../lib/taskApi", () => ({
   newTaskId: () => `new-${(issued += 1)}`,
   putTask: async (_session: unknown, draft: TaskDraft, id?: string) => {
     writes.push({ id, draft });
-    return id ?? "unissued";
+    const made = id ?? "unissued";
+    return parseTask(made, serializeTask(draft));
   },
   putTaskList: async (_session: unknown, name: string) => {
     listWrites.push(name);
-    return `list-${name}`;
+    return parseTaskList(`list-${name}`, serializeTaskList(name));
   },
 }));
 

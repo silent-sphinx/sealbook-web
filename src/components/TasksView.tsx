@@ -1,10 +1,12 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SidebarDrawer, SidebarHeader, type Sidebar } from "./SidebarDrawer";
+import { SplitHandle, useSplitPane } from "./SplitPane";
+import { TaskDetailPane } from "./TaskDetailPane";
 import { TaskForm } from "./TaskForm";
 import { SMART_VIEWS, TaskListSidebar } from "./TaskListSidebar";
 import { TaskIcon } from "./TaskIcon";
-import { TaskFlatList, TaskTreeList } from "./TaskTreeList";
+import { TaskTreeList } from "./TaskTreeList";
 import type { TaskActions } from "./TaskTreeList";
 import {
   deleteTask,
@@ -33,14 +35,17 @@ import {
 import type { TaskScope } from "../lib/task";
 import {
   buildTaskTree,
+  buildTaskTreeOf,
   canReparentTask,
+  flattenTaskTree,
   childCounts,
   taskAncestors,
   taskSubtree,
 } from "../lib/taskTree";
+import { TASKS_LEADING } from "../lib/splitPane";
 import { utcToLocalInput } from "../lib/timezone";
 import { flattenTree } from "../lib/tree";
-import type { Task, TaskDraft, TaskList } from "../lib/types";
+import type { Task, TaskDraft, TaskList, TaskPatch } from "../lib/types";
 
 type Props = {
   session: Session;
@@ -49,6 +54,11 @@ type Props = {
   busy: boolean;
   timezone: string;
   onRefresh: () => Promise<unknown> | void;
+  /**
+   * Folds one action's writes into the vault listing. Without it every action
+   * falls back to `onRefresh`, which re-reads the whole collection.
+   */
+  onApply?: (patch: TaskPatch) => void;
   readOnly?: boolean;
   sidebar: Sidebar;
   /** A task to bring into view, such as one opened from the calendar. */
@@ -59,13 +69,17 @@ type Props = {
 type FormState = { initial: TaskDraft; editingId: string | null; key: number };
 type Notice = { message: string; previous: Task };
 
-export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh, readOnly, sidebar, focusTaskId, onFocusHandled }: Props) {
+/** Idle time after the last write before the vault is re-read in the background. */
+const REFRESH_IDLE_MS = 10_000;
+
+export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh, onApply, readOnly, sidebar, focusTaskId, onFocusHandled }: Props) {
   const readOnlyMode = readOnly === true;
   const [requestedScope, setScope] = useState<string>("all");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [search, setSearch] = useState("");
   const [form, setForm] = useState<FormState | null>(null);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState<Task | null>(null);
   const [deletingList, setDeletingList] = useState<TaskList | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -74,6 +88,8 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
   const formCount = useRef(0);
   const [handledFocus, setHandledFocus] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | undefined>();
+  // Remembered for the session, not for good: see `useSplitPane`.
+  const split = useSplitPane("sealbook.tasks-split", TASKS_LEADING);
 
   if (!focusTaskId && handledFocus !== null) {
     setHandledFocus(null);
@@ -85,9 +101,11 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
       setScope(resolveTaskListId(target.taskListId));
       setSearch("");
       setHighlightId(target.id);
-      setCollapsed((current) => {
+      setSelectedId(target.id);
+      setForm(null);
+      setExpanded((current) => {
         const next = new Set(current);
-        for (const id of ancestors) next.delete(id);
+        for (const id of ancestors) next.add(id);
         return next;
       });
     }
@@ -109,13 +127,14 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     if (taskLists.some((list) => list.id === DEFAULT_TASK_LIST_ID)) return;
     void (async () => {
       try {
-        await ensureDefaultTaskList(session, taskLists);
-        await onRefresh();
+        const lists = await ensureDefaultTaskList(session, taskLists);
+        if (onApply) onApply({ taskLists: lists });
+        else await onRefresh();
       } catch (err) {
         setError(friendlyError(err));
       }
     })();
-  }, [taskLists, onRefresh, readOnlyMode, session]);
+  }, [taskLists, onApply, onRefresh, readOnlyMode, session]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 60_000);
@@ -152,12 +171,12 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     return result;
   }, [tasks]);
 
-  const flat = useMemo(() => {
+  const scopeTree = useMemo(() => {
     if (!isSmart && !searching) return null;
     const scoped = isSmart
       ? tasks.filter((task) => inScope(task, scope as TaskScope, now, timezone))
       : tasks.filter((task) => resolveTaskListId(task.taskListId) === scope);
-    return sortTasks(scoped.filter((task) => taskMatches(task, deferredSearch)));
+    return buildTaskTreeOf(scoped.filter((task) => taskMatches(task, deferredSearch)));
   }, [tasks, scope, isSmart, searching, deferredSearch, now, timezone]);
 
   const tree = useMemo(
@@ -165,14 +184,68 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     [tasks, scope, isSmart],
   );
 
+  const selected = selectedId ? (tasks.find((task) => task.id === selectedId) ?? null) : null;
+  const selectedParent = selected?.parentId
+    ? tasks.find((task) => task.id === selected.parentId)
+    : undefined;
+  const subtasks = useMemo(
+    () => (selected ? sortTasks(tasks.filter((task) => task.parentId === selected.id)) : []),
+    [tasks, selected],
+  );
+
   const disabled = busy || saving || readOnlyMode;
 
-  async function run(action: () => Promise<void>): Promise<boolean> {
+  function toggleExpanded(id: string) {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function backgroundRefresh() {
+    if (refreshTimer.current !== null) {
+      clearTimeout(refreshTimer.current);
+      refreshTimer.current = null;
+    }
+    // A failed re-read changes nothing on screen: the patch already put the
+    // write there, and the next one tries again.
+    void Promise.resolve(onRefresh()).catch(() => {});
+  }
+
+  /**
+   * Arms the trailing re-read. The patch keeps this view current, so the walk is
+   * only for what another device wrote and for the offline snapshot, and waits
+   * until the ticking and dragging has stopped.
+   */
+  function scheduleRefresh() {
+    if (refreshTimer.current !== null) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(backgroundRefresh, REFRESH_IDLE_MS);
+  }
+
+  useEffect(
+    () => () => {
+      if (refreshTimer.current === null) return;
+      clearTimeout(refreshTimer.current);
+      refreshTimer.current = null;
+    },
+    [],
+  );
+
+  async function run(action: () => Promise<TaskPatch | void>): Promise<boolean> {
     setSaving(true);
     setError(null);
     try {
-      await action();
-      await onRefresh();
+      const patch = await action();
+      if (patch && onApply) {
+        onApply(patch);
+        scheduleRefresh();
+      } else {
+        await onRefresh();
+      }
       return true;
     } catch (err) {
       setError(friendlyError(err));
@@ -180,6 +253,12 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     } finally {
       setSaving(false);
     }
+  }
+
+  function changeScope(next: string) {
+    setScope(next);
+    setSelectedId(null);
+    setForm(null);
   }
 
   function openForm(initial: TaskDraft, editingId: string | null) {
@@ -196,9 +275,9 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
       initial.dueDate = utcToLocalInput(new Date().toISOString(), timezone).slice(0, 10);
     }
     if (parentId) {
-      setCollapsed((current) => {
+      setExpanded((current) => {
         const next = new Set(current);
-        next.delete(parentId);
+        next.add(parentId);
         return next;
       });
     }
@@ -209,27 +288,31 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     if (!form) return;
     const { editingId } = form;
     const original = editingId ? tasks.find((task) => task.id === editingId) : undefined;
+    let savedId = editingId;
     const ok = await run(async () => {
       const moved = original && resolveTaskListId(original.taskListId) !== draft.taskListId;
       const next = moved ? { ...draft, parentId: undefined } : draft;
-      await putTask(session, next, editingId ?? undefined);
+      const saved = [await putTask(session, next, editingId ?? undefined)];
+      savedId = saved[0]!.id;
       if (moved && editingId) {
         for (const id of taskSubtree(tasks, editingId).slice(1)) {
           const child = tasks.find((task) => task.id === id);
-          if (child) await putTask(session, { ...child, taskListId: draft.taskListId }, id);
+          if (child) saved.push(await putTask(session, { ...child, taskListId: draft.taskListId }, id));
         }
       }
+      return { tasks: saved };
     });
-    if (ok) setForm(null);
+    if (ok) {
+      setForm(null);
+      setSelectedId(savedId);
+    }
   }
 
   async function toggleDone(task: Task) {
     setNotice(null);
     const finishing = !task.done;
     const draft = finishing ? completeTask(task, new Date(), timezone) : reopenTask(task);
-    const ok = await run(async () => {
-      await putTask(session, draft, task.id);
-    });
+    const ok = await run(async () => ({ tasks: [await putTask(session, draft, task.id)] }));
     if (ok && finishing && task.recurrence && !draft.done) {
       const label = dueLabel({ ...task, dueDate: draft.dueDate }, new Date(), timezone);
       setNotice({ message: `"${task.title}" is next due ${label ?? "later"}.`, previous: task });
@@ -238,21 +321,23 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
 
   async function undo(previous: Task) {
     setNotice(null);
-    await run(async () => {
-      await putTask(session, previous, previous.id);
-    });
+    await run(async () => ({ tasks: [await putTask(session, previous, previous.id)] }));
   }
 
   async function removeTask(task: Task) {
     const ok = await run(async () => {
+      const saved: Task[] = [];
       for (const child of tasks) {
-        if (child.parentId === task.id) await putTask(session, { ...child, parentId: task.parentId }, child.id);
+        if (child.parentId !== task.id) continue;
+        saved.push(await putTask(session, { ...child, parentId: task.parentId }, child.id));
       }
       await deleteTask(session, task.id);
+      return { tasks: saved, removedTaskIds: [task.id] };
     });
     if (ok) {
       setConfirmDelete(null);
       if (form?.editingId === task.id) setForm(null);
+      if (selectedId === task.id) setSelectedId(task.parentId ?? null);
     }
   }
 
@@ -264,31 +349,56 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
       setError("A task cannot be moved inside itself.");
       return;
     }
-    if ((task.parentId ?? null) === parentId) return;
+    const parent = parentId ? tasks.find((entry) => entry.id === parentId) : undefined;
+    const listId = resolveTaskListId((parent ?? task).taskListId);
+    const relisted = listId !== resolveTaskListId(task.taskListId);
+    if ((task.parentId ?? null) === parentId && !relisted) return;
     if (parentId) {
-      setCollapsed((current) => {
+      setExpanded((current) => {
         const next = new Set(current);
-        next.delete(parentId);
+        next.add(parentId);
         return next;
       });
     }
+    // A subtask follows its parent into another list, and its own subtasks follow it.
     await run(async () => {
-      await putTask(session, { ...task, parentId: parentId ?? undefined }, id);
+      const written = [
+        await putTask(
+          session,
+          { ...task, parentId: parentId ?? undefined, taskListId: relisted ? listId : task.taskListId },
+          id,
+        ),
+      ];
+      if (relisted) {
+        for (const childId of taskSubtree(tasks, id).slice(1)) {
+          const child = tasks.find((entry) => entry.id === childId);
+          if (child) written.push(await putTask(session, { ...child, taskListId: listId }, childId));
+        }
+      }
+      return { tasks: written };
     });
   }
 
   async function createList(name: string, parentId?: string): Promise<string | undefined> {
     let created: string | undefined;
     await run(async () => {
-      created = await putTaskList(session, name, parentId);
+      const list = await putTaskList(session, name, parentId);
+      created = list.id;
+      return { taskLists: [list] };
     });
     return created;
   }
 
   async function renameList(list: TaskList, name: string) {
-    await run(async () => {
-      await putTaskList(session, name, list.parentId, list.id, list.raw, list.color);
-    });
+    await run(async () => ({
+      taskLists: [await putTaskList(session, name, list.parentId, list.id, list.raw, list.color)],
+    }));
+  }
+
+  async function recolorList(list: TaskList, color: string) {
+    await run(async () => ({
+      taskLists: [await putTaskList(session, list.name, list.parentId, list.id, list.raw, color)],
+    }));
   }
 
   async function moveList(id: string, parentId: string | null) {
@@ -300,26 +410,35 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
       return;
     }
     if ((list.parentId ?? null) === parentId) return;
-    await run(async () => {
-      await putTaskList(session, list.name, parentId ?? undefined, list.id, list.raw, list.color);
-    });
+    await run(async () => ({
+      taskLists: [
+        await putTaskList(session, list.name, parentId ?? undefined, list.id, list.raw, list.color),
+      ],
+    }));
   }
 
   async function removeList(list: TaskList) {
     const parentId = list.parentId;
     const ok = await run(async () => {
+      const savedLists: TaskList[] = [];
       for (const child of taskLists) {
         if (child.parentId !== list.id) continue;
-        await putTaskList(session, child.name, parentId, child.id, child.raw, child.color);
+        savedLists.push(
+          await putTaskList(session, child.name, parentId, child.id, child.raw, child.color),
+        );
       }
+      const savedTasks: Task[] = [];
       for (const task of tasks) {
         if (resolveTaskListId(task.taskListId) !== list.id) continue;
-        await putTask(session, { ...task, taskListId: parentId ?? DEFAULT_TASK_LIST_ID }, task.id);
+        savedTasks.push(
+          await putTask(session, { ...task, taskListId: parentId ?? DEFAULT_TASK_LIST_ID }, task.id),
+        );
       }
       await deleteTaskList(session, list.id);
+      return { tasks: savedTasks, taskLists: savedLists, removedTaskListIds: [list.id] };
     });
     if (ok) {
-      if (scope === list.id) setScope(parentId ?? "all");
+      if (scope === list.id) changeScope(parentId ?? "all");
       setDeletingList(null);
     }
   }
@@ -330,8 +449,22 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     readOnly: readOnlyMode || saving,
     counts,
     highlightId,
+    activeId: selectedId ?? undefined,
+    // Only a smart view or a search mixes lists, and only with a second list is
+    // the pill worth the row's width.
+    listNameFor:
+      isSmart && taskLists.length > 1
+        ? (task) => taskListNameById(taskLists, task.taskListId)
+        : undefined,
     onToggleDone: (task) => void toggleDone(task),
-    onEdit: (task) => openForm({ ...task }, task.id),
+    onSelect: (task) => {
+      setForm(null);
+      setSelectedId(task.id);
+    },
+    onEdit: (task) => {
+      setSelectedId(task.id);
+      openForm({ ...task }, task.id);
+    },
     onAddChild: (parentId) => startAdd(parentId),
     onDelete: (task) => setConfirmDelete(task),
   };
@@ -339,7 +472,10 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
   const title = isSmart
     ? (SMART_VIEWS.find((view) => view.id === scope)?.label ?? "Tasks")
     : (taskLists.find((list) => list.id === scope)?.name ?? "Tasks");
-  const shown = flat ? flat.length : tasks.filter((task) => resolveTaskListId(task.taskListId) === scope).length;
+  const shown = scopeTree
+    ? flattenTaskTree(scopeTree).length
+    : tasks.filter((task) => resolveTaskListId(task.taskListId) === scope).length;
+  const paneOpen = form !== null || selected !== null;
 
   return (
     <main className="flex h-[calc(100dvh-var(--sb-header-h,74px))] flex-col overflow-hidden bg-bg pb-[env(safe-area-inset-bottom)] text-text lg:pb-0">
@@ -367,18 +503,19 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
           <TaskListSidebar
             lists={taskLists}
             scope={scope}
-            onScope={setScope}
+            onScope={changeScope}
             smartCounts={smartCounts}
             listCounts={listCounts}
             readOnly={readOnlyMode}
             onCreate={createList}
             onRename={renameList}
+            onRecolor={recolorList}
             onMove={moveList}
             onDelete={setDeletingList}
           />
         </SidebarDrawer>
 
-        <section className="flex min-h-0 flex-col overflow-hidden">
+        <section className="order-1 flex min-w-0 flex-col overflow-hidden lg:order-none lg:min-h-0">
           <header className="flex flex-col gap-2.5 border-b border-line px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4 sm:px-5 sm:py-3.5 lg:px-6">
             <div className="flex min-w-0 items-center gap-2">
               <h1 className="truncate text-base font-semibold tracking-tight">{title}</h1>
@@ -426,53 +563,87 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
             </div>
           </header>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 lg:px-6">
-            {form ? (
-              <TaskForm
-                key={form.key}
-                initial={form.initial}
-                editing={form.editingId !== null}
-                listOptions={listRows.map(({ item, depth }) => ({ id: item.id, name: item.name, depth }))}
-                timezone={timezone}
-                disabled={disabled}
-                onSubmit={(draft) => void saveForm(draft)}
-                onCancel={() => setForm(null)}
-              />
-            ) : null}
-
-            {flat ? (
-              flat.length === 0 ? (
-                <p className="py-12 text-center text-sm text-mute">
-                  {searching ? "No tasks match that search." : "Nothing here."}
+          <div
+            ref={split.containerRef}
+            style={split.cols}
+            className="sb-split grid min-h-0 flex-1"
+          >
+            <div className={`min-w-0 overflow-y-auto ${paneOpen ? "hidden lg:block" : ""}`}>
+              {scopeTree ? (
+                scopeTree.length === 0 ? (
+                  <p className="px-6 py-12 text-center text-sm text-mute">
+                    {searching ? "No tasks match that search." : "Nothing here."}
+                  </p>
+                ) : (
+                  <TaskTreeList
+                    {...actions}
+                    tree={scopeTree}
+                    expanded={expanded}
+                    onToggle={toggleExpanded}
+                    blockedDropIds={(id) => new Set(taskSubtree(tasks, id))}
+                    onMove={(id, parentId) => void moveTask(id, parentId)}
+                  />
+                )
+              ) : tree.length === 0 ? (
+                <p className="px-6 py-12 text-center text-sm text-mute">
+                  No tasks in this list yet. Tasks are encrypted on this device before they leave it.
                 </p>
               ) : (
-                <TaskFlatList
+                <TaskTreeList
                   {...actions}
-                  tasks={flat}
-                  captionFor={(task) => (isSmart ? taskListNameById(taskLists, task.taskListId) : undefined)}
+                  tree={tree}
+                  expanded={expanded}
+                  onToggle={toggleExpanded}
+                  blockedDropIds={(id) => new Set(taskSubtree(tasks, id))}
+                  onMove={(id, parentId) => void moveTask(id, parentId)}
                 />
-              )
-            ) : tree.length === 0 ? (
-              <p className="py-12 text-center text-sm text-mute">
-                No tasks in this list yet. Tasks are encrypted on this device before they leave it.
-              </p>
-            ) : (
-              <TaskTreeList
-                {...actions}
-                tree={tree}
-                collapsed={collapsed}
-                onToggle={(id) =>
-                  setCollapsed((current) => {
-                    const next = new Set(current);
-                    if (next.has(id)) next.delete(id);
-                    else next.add(id);
-                    return next;
-                  })
-                }
-                blockedDropIds={(id) => new Set(taskSubtree(tasks, id))}
-                onMove={(id, parentId) => void moveTask(id, parentId)}
-              />
-            )}
+              )}
+            </div>
+
+            <SplitHandle split={split} label="Resize the task list" />
+
+            <div className={`min-w-0 flex-col overflow-hidden lg:flex ${paneOpen ? "flex" : "hidden"}`}>
+              {form ? (
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:h-dvh max-lg:w-screen">
+                  <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-5">
+                    <TaskForm
+                      key={form.key}
+                      initial={form.initial}
+                      editing={form.editingId !== null}
+                      listOptions={listRows.map(({ item, depth }) => ({ id: item.id, name: item.name, depth }))}
+                      timezone={timezone}
+                      disabled={disabled}
+                      onSubmit={(draft) => void saveForm(draft)}
+                      onCancel={() => setForm(null)}
+                    />
+                  </div>
+                </div>
+              ) : selected ? (
+                <TaskDetailPane
+                  key={selected.id}
+                  task={selected}
+                  listName={taskListNameById(taskLists, selected.taskListId)}
+                  parent={selectedParent}
+                  subtasks={subtasks}
+                  now={now}
+                  timezone={timezone}
+                  readOnly={readOnlyMode}
+                  busy={disabled}
+                  onToggleDone={(task) => void toggleDone(task)}
+                  onEdit={(task) => openForm({ ...task }, task.id)}
+                  onAddChild={(parentId) => startAdd(parentId)}
+                  onDelete={(task) => setConfirmDelete(task)}
+                  onSelect={(task) => setSelectedId(task.id)}
+                  onClose={() => setSelectedId(null)}
+                />
+              ) : (
+                <div className="hidden min-h-56 flex-1 items-center justify-center px-6 text-center lg:flex">
+                  <p className="max-w-xs text-sm leading-relaxed text-mute">
+                    Select a task to see its details.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </section>
       </div>
