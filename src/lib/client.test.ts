@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import init from "../pkg/sealbook_wasm.js";
 import {
   AttachmentIntegrityError,
@@ -11,7 +11,9 @@ import {
   importVault,
   paddedLength,
   listVault,
+  apiRoot,
   normalizeServer,
+  setProxyLoopback,
   pairApprove,
   pairPreview,
   putAccountSettings,
@@ -1891,6 +1893,28 @@ describe("normalizeServer", () => {
 
   it("still rejects embedded credentials", () => {
     expect(() => normalizeServer("https://user:pw@vault.example.com")).toThrow(/credentials/u);
+  });
+});
+
+describe("apiRoot", () => {
+  afterEach(() => {
+    setProxyLoopback(true);
+  });
+
+  it("collapses the dev server's loopback origins so requests ride the Vite proxy", () => {
+    expect(apiRoot("https://127.0.0.1:8443")).toBe("");
+    expect(apiRoot("https://localhost:8443")).toBe("");
+  });
+
+  it("keeps the absolute origin once the proxy collapse is off", () => {
+    setProxyLoopback(false);
+    expect(apiRoot("https://127.0.0.1:8443")).toBe("https://127.0.0.1:8443");
+    expect(apiRoot("https://localhost:8443")).toBe("https://localhost:8443");
+  });
+
+  it("returns the empty string for an empty server either way", () => {
+    setProxyLoopback(false);
+    expect(apiRoot("")).toBe("");
   });
 });
 

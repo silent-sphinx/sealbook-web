@@ -67,6 +67,59 @@ jobs:
       - name: Build the bundle
         run: npx vite build
 
+  # The browser extension imports this repo's `src/lib` modules directly, by
+  # path, through a Vite alias. That directory has no public-API contract, so a
+  # rename here breaks that repo with no warning in the pull request that caused
+  # it. Building it from this workflow is what makes the break land here.
+  extension:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sealbook-firefox
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: sealbook-web
+
+      - uses: actions/checkout@v4
+        with:
+          repository: silent-sphinx/sealbook-firefox
+          path: sealbook-firefox
+          token: ${{ secrets.SEALBOOK_REPO_TOKEN }}
+
+      - uses: actions/checkout@v4
+        with:
+          repository: silent-sphinx/sealbook
+          path: sealbook
+          token: ${{ secrets.SEALBOOK_REPO_TOKEN }}
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+          workspaces: sealbook
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: sealbook-firefox/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the WebAssembly package
+        run: npm run wasm
+
+      - name: Typecheck the extension against this checkout
+        run: npx tsc -b
+
+      - name: Build the extension
+        run: npx vite build
+
   audit:
     runs-on: ubuntu-latest
     steps:

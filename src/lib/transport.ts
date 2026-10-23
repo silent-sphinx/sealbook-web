@@ -100,12 +100,24 @@ export function normalizeServer(server: string): string {
   return `${parsed.origin}${parsed.pathname.replace(/\/$/u, "")}`;
 }
 
+// The dev server's default loopback origins are collapsed to relative paths so
+// requests ride the Vite proxy (vite.config.ts). A host with no proxy turns this
+// off once at bootstrap: in a browser extension a relative path resolves against
+// the extension's own package, where every request 404s.
+let proxyLoopback = true;
+
+export function setProxyLoopback(enabled: boolean): void {
+  proxyLoopback = enabled;
+}
+
 export function apiRoot(server: string): string {
   const trimmed = normalizeServer(server);
+  if (!trimmed) {
+    return "";
+  }
   if (
-    !trimmed ||
-    trimmed === "https://127.0.0.1:8443" ||
-    trimmed === "https://localhost:8443"
+    proxyLoopback &&
+    (trimmed === "https://127.0.0.1:8443" || trimmed === "https://localhost:8443")
   ) {
     return "";
   }

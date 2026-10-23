@@ -2,8 +2,10 @@ export { importBatches, paddedLength } from "./vaultImport";
 export {
   ApiError,
   REQUEST_TIMEOUT_MS,
+  apiRoot,
   normalizeServer,
   RequestTimeoutError,
+  setProxyLoopback,
   ServerUnreachableError,
 } from "./transport";
 export {
