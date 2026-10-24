@@ -97,22 +97,13 @@ function Icon({ name, className = "h-4 w-4" }: { name: IconName; className?: str
   );
 }
 
-function pad(value: number): string {
-  return String(value).padStart(2, "0");
-}
-
-/**
- * Fixed rather than locale-formatted: the rows are a dense column that has to
- * align, and `03/04` is a different day either side of the Atlantic. The locale
- * string is the row's `title`.
- */
 function stamp(iso: string | undefined, withTime = false): string | null {
   if (!iso) return null;
   const parsed = Date.parse(iso);
   if (Number.isNaN(parsed)) return null;
-  const at = new Date(parsed);
-  const date = `${at.getFullYear()}/${pad(at.getMonth() + 1)}/${pad(at.getDate())}`;
-  return withTime ? `${date} ${pad(at.getHours())}:${pad(at.getMinutes())}` : date;
+  return new Date(parsed).toLocaleString(undefined, withTime
+    ? { dateStyle: "medium", timeStyle: "short" }
+    : { dateStyle: "medium" });
 }
 
 function longStamp(iso: string | undefined): string {
