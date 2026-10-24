@@ -26,6 +26,8 @@ import type { Contact, ContactDraft } from "./lib/types";
 const PASSWORD = "correct horse battery";
 /** The `updated` stamp the fake server writes onto a card it stores. */
 const SAVED_AT = "2026-10-22T09:30:00.000Z";
+/** The id the fake server mints for a card stored without one. */
+const NEW_ID = "c3";
 
 let store: Contact[] = [];
 const writes: { id?: string; draft: ContactDraft }[] = [];
@@ -66,8 +68,18 @@ vi.mock("./lib/client", async () => {
           updatedAt: SAVED_AT,
           raw: JSON.stringify({ ...JSON.parse(draft.raw ?? "{}"), updated: SAVED_AT }),
         } as Contact;
+        return id!;
       }
-      return id ?? "new";
+      // A create: `putContact` mints the id, and the next listing carries the
+      // new card, which is what the pane is then expected to open on.
+      const minted = id ?? NEW_ID;
+      store.push({
+        ...aContact(draft.name, minted),
+        ...draft,
+        id: minted,
+        updatedAt: SAVED_AT,
+      } as Contact);
+      return minted;
     },
   };
 });
@@ -243,5 +255,33 @@ describe("selecting another contact while the pane is editing one", () => {
     await paneIdle();
     expect(writes.map((write) => write.id)).toEqual(["c1"]);
     expect(screen.getByRole("heading", { name: "Ada King" })).toBeDefined();
+  });
+});
+
+describe("creating a contact", () => {
+  it("opens the new contact in the detail pane", async () => {
+    await unlock();
+
+    fireEvent.click(screen.getByRole("button", { name: "New contact" }));
+    fireEvent.change(await screen.findByLabelText("Full name"), {
+      target: { value: "Katherine Johnson" },
+    });
+    // The sidebar's own "Add contact" shares the label, so this picks the
+    // composer's submit.
+    fireEvent.click(
+      screen
+        .getAllByRole("button", { name: "Add contact" })
+        .find((button) => button.getAttribute("type") === "submit")!,
+    );
+
+    await waitFor(() => expect(writes.length).toBe(1));
+    expect(writes[0]!.id).toBeUndefined();
+
+    // The pane opens on the stored card the refresh brought back, read-only,
+    // rather than leaving the list with nothing selected.
+    await paneIdle();
+    expect(screen.getByRole("heading", { name: "Katherine Johnson" })).toBeDefined();
+    expect(screen.getByLabelText("Katherine Johnson details")).toBeDefined();
+    expect(screen.queryByLabelText("Full name")).toBeNull();
   });
 });

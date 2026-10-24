@@ -632,7 +632,7 @@ export default function App() {
     setSession(next);
   }
 
-  async function refresh(next: Session) {
+  async function refresh(next: Session, selectContactId?: string) {
     setLoadingVault(true);
     let listed;
     let books;
@@ -648,10 +648,14 @@ export default function App() {
     setContacts(listed.contacts);
     // The pane holds a contact, not an id, so without this it keeps the copy it
     // opened with: `raw`, `ciphertext`, `paddedSize` and the timestamps would
-    // stay at the revision before the save.
-    setViewingContact((current) =>
-      current ? listed.contacts.find((contact) => contact.id === current.id) ?? current : null,
-    );
+    // stay at the revision before the save. `selectContactId` moves the pane to
+    // a different contact, such as one just created.
+    setViewingContact((current) => {
+      const wanted = selectContactId ?? current?.id;
+      return wanted
+        ? listed.contacts.find((contact) => contact.id === wanted) ?? current
+        : null;
+    });
     setCalendarEvents(listed.calendarEvents);
     setCalendars(listed.calendars);
     setNotes(listed.notes);
@@ -774,9 +778,9 @@ export default function App() {
 
   // Refresh after a successful write. A refresh failure is reported separately
   // so it isn't mistaken for a failed save. Returns whether the refresh worked.
-  async function refreshAfterSave(next: Session): Promise<boolean> {
+  async function refreshAfterSave(next: Session, selectContactId?: string): Promise<boolean> {
     try {
-      await refresh(next);
+      await refresh(next, selectContactId);
       return true;
     } catch (err) {
       log.error("the write succeeded but the vault could not be re-read", {
@@ -1114,10 +1118,10 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
-      await putContact(session, draft);
+      const id = await putContact(session, draft);
       setFormKey((key) => key + 1);
       setComposing(false);
-      await refreshAfterSave(session);
+      await refreshAfterSave(session, id);
     } catch (err) {
       setError(friendlyError(err));
     } finally {
