@@ -20,6 +20,9 @@ import type { Session } from "./lib/client";
 
 const writes: { id: string; payload: string }[] = [];
 
+// Held open by a test that needs the write still in flight while it asserts.
+let gate: Promise<void> | null = null;
+
 // Faked a layer below `lib/client`, because `putCalendarEvent` reaches
 // `putSealed` through the client module rather than taking it as an argument.
 vi.mock("./lib/clientVault", async () => {
@@ -27,6 +30,7 @@ vi.mock("./lib/clientVault", async () => {
   return {
     ...actual,
     putSealed: async (_session: unknown, id: string, _contentType: string, _tombstone: boolean, payload: string) => {
+      if (gate) await gate;
       writes.push({ id, payload });
       return 1;
     },
@@ -89,7 +93,7 @@ function anEvent(): CalendarEvent {
   };
 }
 
-function mount(events: CalendarEvent[]) {
+function mount(events: CalendarEvent[], onRefresh: () => Promise<void> = async () => undefined) {
   render(
     <CalendarView
       session={session}
@@ -98,14 +102,22 @@ function mount(events: CalendarEvent[]) {
       contacts={[]}
       busy={false}
       timezone={TIMEZONE}
-      onRefresh={async () => undefined}
+      onRefresh={onRefresh}
       sidebar={sidebar}
     />,
   );
 }
 
+/** A promise with its resolve, for holding one step of a save open. */
+function held() {
+  let release = () => undefined as void;
+  const promise = new Promise<void>((resolve) => { release = () => resolve(); });
+  return { promise, release: () => release() };
+}
+
 beforeEach(() => {
   writes.length = 0;
+  gate = null;
 });
 
 describe("saving an event that was opened for editing", () => {
@@ -122,5 +134,48 @@ describe("saving an event that was opened for editing", () => {
     const payload = JSON.parse(write.payload) as Record<string, unknown>;
     expect(payload.title).toBe("Standup, moved");
     expect(payload.attendeeStatus).toEqual({ ada: "accepted" });
+  });
+});
+
+describe("while the save is in flight", () => {
+  it("reports the save on the button and takes no second submit", async () => {
+    const write = held();
+    gate = write.promise;
+    mount([anEvent()]);
+
+    fireEvent.click(screen.getByText("Standup"));
+    fireEvent.change(await screen.findByPlaceholderText("Event title"), { target: { value: "Standup, moved" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const saving = await screen.findByRole("button", { name: "Saving\u2026" });
+    expect(saving.hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Delete" }).hasAttribute("disabled")).toBe(true);
+
+    // The second click is what would otherwise write the event twice.
+    fireEvent.click(saving);
+    write.release();
+
+    await waitFor(() => expect(screen.queryByPlaceholderText("Event title")).toBeNull());
+    expect(writes.length).toBe(1);
+  });
+
+  /**
+   * The write is the cheap half: the refresh behind it walks the vault. Closing
+   * on the write took the dialog down before the button had been painted, so
+   * the save looked instant and the wait came after it with nothing on screen.
+   */
+  it("holds the dialog open until the refresh behind the write is done", async () => {
+    const refresh = held();
+    mount([anEvent()], () => refresh.promise);
+
+    fireEvent.click(screen.getByText("Standup"));
+    fireEvent.change(await screen.findByPlaceholderText("Event title"), { target: { value: "Standup, moved" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(writes.length).toBe(1));
+    expect(screen.getByRole("button", { name: "Saving\u2026" })).toBeTruthy();
+
+    refresh.release();
+    await waitFor(() => expect(screen.queryByPlaceholderText("Event title")).toBeNull());
   });
 });

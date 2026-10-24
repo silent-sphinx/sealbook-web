@@ -225,6 +225,8 @@ export function CalendarView({
   const [confirmDeleteCalendar, setConfirmDeleteCalendar] = useState(false);
   const [confirmPurgeEvents, setConfirmPurgeEvents] = useState(false);
   const [purgingEvents, setPurgingEvents] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [removingEvent, setRemovingEvent] = useState(false);
   const [deleteProgress, setDeleteProgress] = useState({ current: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
   const [nowMinutes, setNowMinutes] = useState(() => today.getHours() * 60 + today.getMinutes());
@@ -531,6 +533,7 @@ export function CalendarView({
   }
 
   async function saveEvent() {
+    if (saving || removingEvent) return;
     if (!title.trim() || calendars.length === 0 || !calendars.some((calendar) => calendar.id === eventCalendarId)) return;
     setError(null);
     try {
@@ -563,6 +566,7 @@ export function CalendarView({
         : repeatEnd === "count" ? { ...pattern, count: Math.max(1, Math.round(repeatCount) || 1) }
           : repeatEnd === "date" ? { ...pattern, until: repeatUntil }
             : pattern;
+      setSaving(true);
       await putCalendarEvent(
         session,
         {
@@ -579,28 +583,34 @@ export function CalendarView({
         },
         editingEvent?.id,
       );
-      closeTaskDialog();
       await onRefresh();
+      closeTaskDialog();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
     }
   }
 
   async function removeEvent() {
-    if (!editingEvent) return;
+    if (!editingEvent || saving || removingEvent) return;
     setError(null);
+    setRemovingEvent(true);
     try {
       await deleteCalendarEvent(session, editingEvent.id);
-      closeTaskDialog();
       await onRefresh();
+      closeTaskDialog();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRemovingEvent(false);
     }
   }
 
   async function saveCalendar() {
-    if (!calendarName.trim()) return;
+    if (!calendarName.trim() || saving) return;
     setError(null);
+    setSaving(true);
     try {
       await putCalendar(
         session,
@@ -613,18 +623,22 @@ export function CalendarView({
         },
         editingCalendar?.id,
       );
+      await onRefresh();
       setCalendarName("");
       setCalendarColor(DEFAULT_CALENDAR_COLOR);
       setEditingCalendar(null);
       setCalendarComposer(false);
-      await onRefresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
     }
   }
 
   async function toggleFavorite(calendar: Calendar) {
+    if (saving) return;
     setError(null);
+    setSaving(true);
     try {
       await putCalendar(
         session,
@@ -634,6 +648,8 @@ export function CalendarView({
       await onRefresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -646,12 +662,14 @@ export function CalendarView({
    * from the archived group without being restored.
    */
   async function toggleArchived(calendar: Calendar) {
+    if (saving) return;
     const archiving = calendar.archived !== true;
     if (archiving && activeCals.length <= 1) {
       setError(`“${calendar.name}” is your only calendar in use. Create or restore another one before archiving it.`);
       return;
     }
     setError(null);
+    setSaving(true);
     try {
       await putCalendar(
         session,
@@ -662,6 +680,8 @@ export function CalendarView({
       await onRefresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -770,8 +790,8 @@ export function CalendarView({
         </section>
       </div>
 
-      {composer ? <TaskDialog editing={editingEvent !== null} title={title} start={start} end={end} notes={notes} location={location} participants={participants} contacts={contacts} allDay={allDay} calendarId={eventCalendarId} calendars={composerCalendars} repeatChoice={repeatChoice} customFrequency={customFrequency} customInterval={customInterval} repeatEnd={repeatEnd} repeatCount={repeatCount} repeatUntil={repeatUntil} minRepeatUntil={start.slice(0, 10)} busy={busy} error={error} onClose={closeTaskDialog} onSave={() => void saveEvent()} onDelete={editingEvent ? () => void removeEvent() : undefined} onTitleChange={setTitle} onStartChange={updateStart} onEndChange={setEnd} onNotesChange={setNotes} onLocationChange={setLocation} onParticipantsChange={setParticipants} onAllDayChange={setAllDay} onCalendarChange={setEventCalendarId} onRepeatChange={setRepeatChoice} onCustomFrequencyChange={setCustomFrequency} onCustomIntervalChange={setCustomInterval} onRepeatEndChange={setRepeatEnd} onRepeatCountChange={setRepeatCount} onRepeatUntilChange={setRepeatUntil} /> : null}
-      {calendarComposer ? <CalendarDialog editing={editingCalendar !== null} name={calendarName} color={calendarColor} busy={busy || purgingEvents} error={error} eventCount={editingCalendar ? events.filter((event) => event.calendarId === editingCalendar.id).length : 0} onClose={() => { setCalendarComposer(false); setEditingCalendar(null); }} onSave={() => void saveCalendar()} onDelete={editingCalendar && editingCalendar.id !== DEFAULT_CALENDAR_ID ? () => setConfirmDeleteCalendar(true) : undefined} onPurge={editingCalendar ? () => setConfirmPurgeEvents(true) : undefined} onNameChange={setCalendarName} onColorChange={setCalendarColor} /> : null}
+      {composer ? <TaskDialog editing={editingEvent !== null} title={title} start={start} end={end} notes={notes} location={location} participants={participants} contacts={contacts} allDay={allDay} calendarId={eventCalendarId} calendars={composerCalendars} repeatChoice={repeatChoice} customFrequency={customFrequency} customInterval={customInterval} repeatEnd={repeatEnd} repeatCount={repeatCount} repeatUntil={repeatUntil} minRepeatUntil={start.slice(0, 10)} busy={busy} saving={saving} removing={removingEvent} error={error} onClose={() => { if (!saving && !removingEvent) closeTaskDialog(); }} onSave={() => void saveEvent()} onDelete={editingEvent ? () => void removeEvent() : undefined} onTitleChange={setTitle} onStartChange={updateStart} onEndChange={setEnd} onNotesChange={setNotes} onLocationChange={setLocation} onParticipantsChange={setParticipants} onAllDayChange={setAllDay} onCalendarChange={setEventCalendarId} onRepeatChange={setRepeatChoice} onCustomFrequencyChange={setCustomFrequency} onCustomIntervalChange={setCustomInterval} onRepeatEndChange={setRepeatEnd} onRepeatCountChange={setRepeatCount} onRepeatUntilChange={setRepeatUntil} /> : null}
+      {calendarComposer ? <CalendarDialog editing={editingCalendar !== null} name={calendarName} color={calendarColor} busy={busy || purgingEvents} saving={saving} error={error} eventCount={editingCalendar ? events.filter((event) => event.calendarId === editingCalendar.id).length : 0} onClose={() => { if (saving) return; setCalendarComposer(false); setEditingCalendar(null); }} onSave={() => void saveCalendar()} onDelete={editingCalendar && editingCalendar.id !== DEFAULT_CALENDAR_ID ? () => setConfirmDeleteCalendar(true) : undefined} onPurge={editingCalendar ? () => setConfirmPurgeEvents(true) : undefined} onNameChange={setCalendarName} onColorChange={setCalendarColor} /> : null}
       {confirmDeleteCalendar && editingCalendar ? (
         <ConfirmDialog
           title="Delete calendar"
@@ -947,7 +967,7 @@ function ParticipantPicker({
   );
 }
 
-function TaskDialog({ editing, title, start, end, notes, location, participants, contacts, allDay, calendarId, calendars, repeatChoice, customFrequency, customInterval, repeatEnd, repeatCount, repeatUntil, minRepeatUntil, busy, error, onClose, onSave, onDelete, onTitleChange, onStartChange, onEndChange, onNotesChange, onLocationChange, onParticipantsChange, onAllDayChange, onCalendarChange, onRepeatChange, onCustomFrequencyChange, onCustomIntervalChange, onRepeatEndChange, onRepeatCountChange, onRepeatUntilChange }: { editing: boolean; title: string; start: string; end: string; notes: string; location: string; participants: string[]; contacts: Contact[]; allDay: boolean; calendarId: string; calendars: Calendar[]; repeatChoice: RepeatChoice; customFrequency: "daily" | "weekly" | "monthly" | "yearly"; customInterval: number; repeatEnd: RepeatEnd; repeatCount: number; repeatUntil: string; minRepeatUntil: string; busy: boolean; error: string | null; onClose: () => void; onSave: () => void; onDelete?: () => void; onTitleChange: (value: string) => void; onStartChange: (value: string) => void; onEndChange: (value: string) => void; onNotesChange: (value: string) => void; onLocationChange: (value: string) => void; onParticipantsChange: (value: string[]) => void; onAllDayChange: (value: boolean) => void; onCalendarChange: (value: string) => void; onRepeatChange: (value: RepeatChoice) => void; onCustomFrequencyChange: (value: "daily" | "weekly" | "monthly" | "yearly") => void; onCustomIntervalChange: (value: number) => void; onRepeatEndChange: (value: "never" | "count" | "date") => void; onRepeatCountChange: (value: number) => void; onRepeatUntilChange: (value: string) => void }) {
+function TaskDialog({ editing, title, start, end, notes, location, participants, contacts, allDay, calendarId, calendars, repeatChoice, customFrequency, customInterval, repeatEnd, repeatCount, repeatUntil, minRepeatUntil, busy, saving, removing, error, onClose, onSave, onDelete, onTitleChange, onStartChange, onEndChange, onNotesChange, onLocationChange, onParticipantsChange, onAllDayChange, onCalendarChange, onRepeatChange, onCustomFrequencyChange, onCustomIntervalChange, onRepeatEndChange, onRepeatCountChange, onRepeatUntilChange }: { editing: boolean; title: string; start: string; end: string; notes: string; location: string; participants: string[]; contacts: Contact[]; allDay: boolean; calendarId: string; calendars: Calendar[]; repeatChoice: RepeatChoice; customFrequency: "daily" | "weekly" | "monthly" | "yearly"; customInterval: number; repeatEnd: RepeatEnd; repeatCount: number; repeatUntil: string; minRepeatUntil: string; busy: boolean; saving: boolean; removing: boolean; error: string | null; onClose: () => void; onSave: () => void; onDelete?: () => void; onTitleChange: (value: string) => void; onStartChange: (value: string) => void; onEndChange: (value: string) => void; onNotesChange: (value: string) => void; onLocationChange: (value: string) => void; onParticipantsChange: (value: string[]) => void; onAllDayChange: (value: boolean) => void; onCalendarChange: (value: string) => void; onRepeatChange: (value: RepeatChoice) => void; onCustomFrequencyChange: (value: "daily" | "weekly" | "monthly" | "yearly") => void; onCustomIntervalChange: (value: number) => void; onRepeatEndChange: (value: "never" | "count" | "date") => void; onRepeatCountChange: (value: number) => void; onRepeatUntilChange: (value: string) => void }) {
   return (
     <Modal title={editing ? "Edit event" : "New event"} onClose={onClose}>
         <div className="event-dialog flex-1 space-y-3 overflow-y-auto px-5 py-4">
@@ -1038,14 +1058,14 @@ function TaskDialog({ editing, title, start, end, notes, location, participants,
 
         {/* Footer */}
         <div className="flex shrink-0 items-center justify-between border-t border-line px-5 py-3.5">
-          <div>{onDelete ? <button type="button" onClick={onDelete} disabled={busy} className={btnDanger}>Delete</button> : null}</div>
-          <button type="button" onClick={onSave} disabled={busy || !title.trim() || !calendarId} className={btnPrimary}>{editing ? "Save changes" : "Save event"}</button>
+          <div>{onDelete ? <button type="button" onClick={onDelete} disabled={busy || saving || removing} aria-busy={removing} className={btnDanger}>{removing ? "Deleting…" : "Delete"}</button> : null}</div>
+          <button type="button" onClick={onSave} disabled={busy || saving || removing || !title.trim() || !calendarId} aria-busy={saving} className={btnPrimary}>{saving ? "Saving…" : editing ? "Save changes" : "Save event"}</button>
         </div>
     </Modal>
   );
 }
 
-function CalendarDialog({ editing, name, color, busy, error, eventCount, onClose, onSave, onDelete, onPurge, onNameChange, onColorChange }: { editing: boolean; name: string; color: string; busy: boolean; error: string | null; eventCount: number; onClose: () => void; onSave: () => void; onDelete?: () => void; onPurge?: () => void; onNameChange: (value: string) => void; onColorChange: (value: string) => void }) {
+function CalendarDialog({ editing, name, color, busy, saving, error, eventCount, onClose, onSave, onDelete, onPurge, onNameChange, onColorChange }: { editing: boolean; name: string; color: string; busy: boolean; saving: boolean; error: string | null; eventCount: number; onClose: () => void; onSave: () => void; onDelete?: () => void; onPurge?: () => void; onNameChange: (value: string) => void; onColorChange: (value: string) => void }) {
   return (
     <Modal title={editing ? "Edit calendar" : "Create calendar"} onClose={onClose}>
       <div className="space-y-4 p-6">
@@ -1083,7 +1103,7 @@ function CalendarDialog({ editing, name, color, busy, error, eventCount, onClose
         <div className="flex items-center justify-between gap-3 pt-1">
           <div>
             {onPurge ? (
-              <button type="button" onClick={onPurge} disabled={busy || eventCount === 0} className={btnDanger}>
+              <button type="button" onClick={onPurge} disabled={busy || saving || eventCount === 0} className={btnDanger}>
                 Purge Events
               </button>
             ) : null}
@@ -1091,7 +1111,7 @@ function CalendarDialog({ editing, name, color, busy, error, eventCount, onClose
               <button
                 type="button"
                 onClick={onDelete}
-                disabled={busy}
+                disabled={busy || saving}
                 className={`${btnDanger} ml-2`}
               >
                 Delete calendar
@@ -1101,10 +1121,11 @@ function CalendarDialog({ editing, name, color, busy, error, eventCount, onClose
           <button
             type="button"
             onClick={onSave}
-            disabled={busy || !name.trim()}
+            disabled={busy || saving || !name.trim()}
+            aria-busy={saving}
             className={btnPrimary}
           >
-            {editing ? "Save changes" : "Create calendar"}
+            {saving ? "Saving…" : editing ? "Save changes" : "Create calendar"}
           </button>
         </div>
       </div>
