@@ -1,10 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, type MouseEvent as ReactMouseEvent } from "react";
 import { SidebarDrawer, SidebarHeader, SidebarSection, useSidebar } from "./SidebarDrawer";
 import { SplitHandle, useSplitPane } from "./SplitPane";
 import { AddressBookList } from "./AddressBookList";
 import { ContactCard, ContactListSkeleton } from "./ContactCard";
 import { ContactDetailModal } from "./ContactDetailModal";
 import { ContactNetworkMap } from "./ContactNetworkMap";
+import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 import { ArchiveIcon, PlusIcon, SearchIcon, ClearIcon } from "./AppIcons";
 import {
   ARCHIVE_VIEW_NAME,
@@ -125,6 +126,37 @@ export function ContactsTab({
       ),
     [contacts, hiddenBooks],
   );
+
+  const menu = useContextMenu();
+
+  /** The detail pane's own actions, reachable from the row itself. */
+  function itemsFor(contact: Contact): MenuItem[] {
+    if (isOffline) return [];
+    return [
+      {
+        label: "Edit contact",
+        onSelect: () =>
+          onGuardEditing(() => {
+            onSetError(null);
+            onSetViewingContact(contact);
+            onSetEditingDetail(true);
+          }),
+      },
+      {
+        label: contact.archived ? "Restore from archive" : "Archive contact",
+        onSelect: () => onGuardEditing(() => void onToggleArchive(contact)),
+      },
+      {
+        label: "Delete contact",
+        danger: true,
+        onSelect: () => onGuardEditing(() => onPromptDelete(contact)),
+      },
+    ];
+  }
+
+  function openRowMenu(event: ReactMouseEvent, contact: Contact) {
+    menu.open(event, itemsFor(contact));
+  }
 
   return (
     <main className="flex flex-col bg-bg pb-[env(safe-area-inset-bottom)] text-text lg:h-[calc(100dvh-var(--sb-header-h,74px))] lg:overflow-hidden lg:pb-0">
@@ -313,6 +345,7 @@ export function ContactsTab({
                           onSetViewingContact(contact);
                         })
                       }
+                      onContextMenu={openRowMenu}
                     />
                   ))}
                 </ul>
@@ -365,6 +398,8 @@ export function ContactsTab({
           </div>
         </section>
       </div>
+
+      <ContextMenu state={menu.menu} onClose={menu.close} />
     </main>
   );
 }

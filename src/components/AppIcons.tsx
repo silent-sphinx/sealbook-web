@@ -113,6 +113,25 @@ export function DevicePlusIcon() {
   );
 }
 
+export function RefreshIcon() {
+  return (
+    <svg
+      className="h-3.5 w-3.5 text-accent"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-7.4-3.9" />
+      <path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 7.4 3.9" />
+      <polyline points="19.5 2.5 19.5 7 15 7" />
+      <polyline points="4.5 21.5 4.5 17 9 17" />
+    </svg>
+  );
+}
+
 export function LockIcon() {
   return (
     <svg

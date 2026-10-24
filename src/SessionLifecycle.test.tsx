@@ -174,6 +174,24 @@ describe("going offline with the vault open", () => {
   });
 });
 
+describe("refreshing", () => {
+  it("re-reads the vault and shows what the server now has", async () => {
+    await openOnline();
+
+    served = [aContact("Katherine Johnson", "c3")];
+    fireEvent.click(screen.getByRole("button", { name: "Refresh vault" }));
+
+    expect(await screen.findByText("Katherine Johnson")).toBeDefined();
+    await waitFor(() => expect(screen.queryByText("Grace Hopper")).toBeNull());
+  });
+
+  it("is not offered while offline", async () => {
+    await openOffline([aContact("Ada Lovelace", "c1")]);
+
+    expect(screen.queryByRole("button", { name: "Refresh vault" })).toBeNull();
+  });
+});
+
 describe("locking", () => {
   it("clears the vault but keeps this device enrolled", async () => {
     await openOnline();

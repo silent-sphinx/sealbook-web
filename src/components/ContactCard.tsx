@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { Contact } from "../lib/types";
 
 export function ContactCard({
@@ -6,11 +6,13 @@ export function ContactCard({
   bookName,
   selected = false,
   onSelect,
+  onContextMenu,
 }: {
   contact: Contact;
   bookName?: string;
   selected?: boolean;
   onSelect?: (contact: Contact) => void;
+  onContextMenu?: (event: ReactMouseEvent, contact: Contact) => void;
 }) {
   const subtitle =
     contact.work[0]?.organization ||
@@ -26,6 +28,7 @@ export function ContactCard({
         aria-label={`View ${contact.name}`}
         aria-current={selected ? "true" : undefined}
         onClick={() => onSelect?.(contact)}
+        onContextMenu={(event) => onContextMenu?.(event, contact)}
         className={`flex min-w-0 flex-1 items-center gap-3 border-l-2 px-4 py-2.5 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring sm:px-5 lg:px-6 ${selected ? "border-accent" : "border-transparent"}`}
       >
         <Avatar name={contact.name} avatar={contact.avatar} />

@@ -29,6 +29,7 @@ import {
   TasksIcon,
   SettingsIcon,
   DevicePlusIcon,
+  RefreshIcon,
   LockIcon,
 } from "./components/AppIcons";
 import {
@@ -827,6 +828,21 @@ export default function App() {
     setDeletingAddressBook(null);
     setSearch("");
     setError(null);
+  }
+
+  // Re-reads the vault from the server on demand. `refresh` owns the loading
+  // flag, so the button only has to report a failure.
+  async function onRefreshVault() {
+    if (!session) return;
+    setError(null);
+    try {
+      await refresh(session);
+    } catch (err) {
+      log.warn("the manual refresh could not read the vault", {
+        reason: describeError(err),
+      });
+      setError("Couldn't refresh the vault. Check your connection and try again.");
+    }
   }
 
   async function lock() {
@@ -1755,6 +1771,23 @@ export default function App() {
               >
                 <DevicePlusIcon />
                 <span className="hidden sm:inline">Add device</span>
+              </button> : null}
+              {!isOffline ? <button
+                type="button"
+                aria-label="Refresh vault"
+                title="Refresh vault"
+                disabled={loadingVault}
+                className={`inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface/70 px-2.5 py-1.5 text-xs font-medium text-text transition-all duration-150 hover:bg-surface hover:border-line-light cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 sm:px-3 ${focusRing}`}
+                onClick={() =>
+                  guardEditing(() => {
+                    void onRefreshVault();
+                  })
+                }
+              >
+                <span className={loadingVault ? "animate-spin" : undefined}>
+                  <RefreshIcon />
+                </span>
+                <span className="hidden sm:inline">Refresh</span>
               </button> : null}
               <button
                 type="button"
