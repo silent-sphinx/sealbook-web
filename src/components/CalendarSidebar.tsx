@@ -92,8 +92,11 @@ export function CalendarList({ calendars, archived, isVisible, readOnly, canArch
   );
   const anyHidden = calendars.some((calendar) => !isVisible(calendar));
 
+  // The group sits between its own rule and the next section's: trim the 24px
+  // the following section adds down to the 10px above, so the band keeps equal
+  // space on both sides whether collapsed or open.
   const archivedGroup = archived.length === 0 ? null : (
-    <div className={sidebarSubgroup}>
+    <div className={`${sidebarSubgroup} -mb-3.5`}>
       <button type="button" onClick={() => setArchivedOpen((open) => !open)} aria-expanded={archivedOpen} className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${sidebarRowState(false)} ${focusRing}`}>
         <span className={sidebarMark}><Icon name="chevron" className={`h-3 w-3 transition-transform ${archivedOpen ? "rotate-90" : ""}`} /></span>
         <span className="min-w-0 flex-1 truncate font-medium">Archived calendars</span>
