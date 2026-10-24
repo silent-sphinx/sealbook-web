@@ -7,6 +7,7 @@ const PATHS: Record<string, string> = {
   close: "M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5",
   check: "m3.5 8.5 3 3 6-7",
   repeat: "M3 7V6a2 2 0 0 1 2-2h7.5M10.5 2l2 2-2 2M13 9v1a2 2 0 0 1-2 2H3.5M5.5 14l-2-2 2-2",
+  checkbox: "M4 2.5h8A1.5 1.5 0 0 1 13.5 4v8a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V4A1.5 1.5 0 0 1 4 2.5Zm1.5 5.75 1.75 1.75 3.25-3.75",
 };
 
 export function TaskIcon({

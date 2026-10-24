@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import type { Calendar, CalendarEvent } from "../lib/types";
 import type { TaskMark } from "../lib/taskCalendar";
+import { TaskIcon } from "./TaskIcon";
 import { DEFAULT_CALENDAR_COLOR } from "../lib/types";
 import {
   buildDaySlots,
@@ -27,9 +28,9 @@ function TaskChip({ mark, onOpen }: { mark: TaskMark; onOpen?: (id: string) => v
       aria-label={`Open task ${mark.title}`}
       onClick={(click) => { click.stopPropagation(); open(); }}
       onKeyDown={(keyEvent) => { if (keyEvent.key === "Enter" || keyEvent.key === " ") { keyEvent.preventDefault(); keyEvent.stopPropagation(); open(); } }}
-      className={`block h-4 w-full truncate rounded border border-dashed px-1 text-[11px] leading-[14px] ${mark.overdue ? "border-danger/60 text-danger" : "border-line-light text-mute"} hover:text-text`}
+      className={`block h-4 w-full truncate rounded px-1 text-[11px] font-medium leading-4 transition-colors hover:bg-surface ${mark.overdue ? "text-danger" : "text-mute hover:text-text"}`}
     >
-      <span aria-hidden="true" className="mr-1">&#9744;</span>
+      <TaskIcon name="checkbox" className="mr-1 inline-block h-3 w-3 align-[-2px]" />
       {mark.timeLabel ? <span className="mr-1 opacity-60">{mark.timeLabel}</span> : null}
       {mark.title}
     </span>
