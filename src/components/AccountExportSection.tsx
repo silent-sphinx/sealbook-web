@@ -45,7 +45,7 @@ export function AccountExportSection({ session }: Props) {
   }
 
   return (
-    <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
+    <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h3 className="text-base font-semibold text-text">Export account data</h3>

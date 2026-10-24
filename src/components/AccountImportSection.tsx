@@ -86,7 +86,7 @@ export function AccountImportSection({ session, onRefresh }: Props) {
     !picked.parsed.source.startsWith(`${session.state.username} at `);
 
   return (
-    <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
+    <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
       <div>
         <h3 className="text-base font-semibold text-text">Import account data</h3>
         <p className="mt-1 max-w-md text-xs leading-relaxed text-mute">
@@ -115,7 +115,7 @@ export function AccountImportSection({ session, onRefresh }: Props) {
             event.preventDefault();
             fileInputRef.current?.click();
           }}
-          className={`mt-5 flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-7 text-center transition-all cursor-pointer ${focusRing} ${
+          className={`mt-5 flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-5 text-center sm:p-7 transition-all cursor-pointer ${focusRing} ${
             dragActive
               ? "border-accent bg-accent/10 scale-[0.99]"
               : "border-line/80 hover:border-line-light hover:bg-surface/30"

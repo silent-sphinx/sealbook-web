@@ -230,7 +230,7 @@ export function ImportExportSection({
   }
 
   return (
-    <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm space-y-8">
+    <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6 space-y-8">
       <div>
         <h3 className="text-base font-semibold text-text">
           Import & Export Contacts
@@ -242,8 +242,8 @@ export function ImportExportSection({
       </div>
 
       {/* SUB-SECTION 1: IMPORT */}
-      <div className="rounded-xl border border-line/80 bg-bg/50 p-5 space-y-5">
-        <div className="flex items-center justify-between">
+      <div className="rounded-xl border border-line/80 bg-bg/50 p-4 space-y-5 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent/15 text-accent text-xs font-bold">
               ↓
@@ -275,7 +275,7 @@ export function ImportExportSection({
               event.preventDefault();
               fileInputRef.current?.click();
             }}
-            className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-7 text-center transition-all cursor-pointer ${focusRing} ${
+            className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-5 text-center sm:p-7 transition-all cursor-pointer ${focusRing} ${
               dragActive
                 ? "border-accent bg-accent/10 scale-[0.99]"
                 : "border-line/80 hover:border-line-light hover:bg-surface/30"
@@ -312,8 +312,8 @@ export function ImportExportSection({
           /* File Preview & Address Book Selection */
           <div className="space-y-4 rounded-xl border border-accent/30 bg-surface/40 p-4 animate-fade-in">
             <div className="flex items-center justify-between gap-3 border-b border-line/60 pb-3">
-              <div>
-                <p className="text-xs font-semibold text-text truncate max-w-xs sm:max-w-sm">
+              <div className="min-w-0">
+                <p className="truncate text-xs font-semibold text-text">
                   {importFile.name}
                 </p>
                 <p className="text-[11px] text-accent font-medium mt-0.5">
@@ -325,7 +325,7 @@ export function ImportExportSection({
                 type="button"
                 disabled={importing}
                 onClick={resetImport}
-                className="text-xs text-mute hover:text-text cursor-pointer"
+                className="shrink-0 text-xs text-mute hover:text-text cursor-pointer"
               >
                 Change file
               </button>
@@ -333,7 +333,7 @@ export function ImportExportSection({
 
             {/* Address Book Selection Prompt */}
             <div className="space-y-2 pt-1">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <label htmlFor={`${ids}-target-book`} className="text-xs font-medium text-text">
                   Target Address Book
                 </label>
@@ -387,12 +387,12 @@ export function ImportExportSection({
                 {parsedContacts.slice(0, 3).map((contact, idx) => (
                   <div
                     key={idx}
-                    className="flex items-center justify-between py-1 border-b border-line/40 last:border-0"
+                    className="flex items-center justify-between gap-3 py-1 border-b border-line/40 last:border-0"
                   >
-                    <span className="font-medium text-text truncate max-w-[160px]">
+                    <span className="min-w-0 flex-1 truncate font-medium text-text">
                       {contact.name}
                     </span>
-                    <span className="text-mute truncate max-w-[180px] text-[11px] font-mono">
+                    <span className="min-w-0 truncate font-mono text-[11px] text-mute">
                       {contact.emails.find((e) => e.value)?.value ||
                         contact.phones.find((p) => p.value)?.value ||
                         "No direct channels"}
@@ -423,7 +423,7 @@ export function ImportExportSection({
             )}
 
             {/* Action Buttons */}
-            <div className="flex justify-end gap-2.5 pt-2">
+            <div className="flex flex-wrap justify-end gap-2.5 pt-2">
               <button
                 type="button"
                 disabled={importing}
@@ -466,8 +466,8 @@ export function ImportExportSection({
       </div>
 
       {/* SUB-SECTION 2: EXPORT */}
-      <div className="rounded-xl border border-line/80 bg-bg/50 p-5 space-y-5">
-        <div className="flex items-center justify-between">
+      <div className="rounded-xl border border-line/80 bg-bg/50 p-4 space-y-5 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent/15 text-accent text-xs font-bold">
               ↑

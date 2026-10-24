@@ -821,7 +821,7 @@ export function SettingsView({
 
   const recoveryPhraseCard = newWords ? (
     <div className="mt-6 rounded-xl border border-accent/30 bg-bg/70 p-5 animate-fade-in">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs font-semibold uppercase tracking-wider text-accent">
           Active 24-Word Recovery Phrase
         </span>
@@ -871,9 +871,9 @@ export function SettingsView({
   ) : null;
 
   return (
-    <div className="grid gap-8 animate-fade-in-up lg:grid-cols-[220px_minmax(0,1fr)]">
-      <aside className="h-fit rounded-2xl border border-line bg-panel/75 p-3 shadow-sm lg:sticky lg:top-6">
-        <div className="px-3 pb-3 pt-2">
+    <div className="grid gap-5 animate-fade-in-up lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-8">
+      <aside className="h-fit min-w-0 rounded-2xl border border-line bg-panel/75 p-2 shadow-sm sm:p-3 lg:sticky lg:top-6">
+        <div className="hidden px-3 pb-3 pt-2 lg:block">
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-mute/70">
             Settings
           </p>
@@ -881,20 +881,26 @@ export function SettingsView({
             Manage your Sealbook workspace
           </p>
         </div>
-        <nav className="flex gap-1 overflow-x-auto lg:flex-col" aria-label="Settings sections">
+        {/* Below lg the nav is a scrolling chip strip: the section blurb is
+            dropped because the content heading repeats it, and the chips stay
+            label-width so more than one fits on a phone. */}
+        <nav
+          className="-mx-1 flex gap-1 overflow-x-auto px-1 py-1 lg:mx-0 lg:flex-col lg:px-0 lg:py-0"
+          aria-label="Settings sections"
+        >
           {sections.map(({ id, label, nav: description }) => (
             <button
               key={id}
               type="button"
               aria-current={activeSection === id ? "page" : undefined}
               onClick={() => { setActiveSection(id); setAccountPage(null); }}
-              className={`min-w-[190px] rounded-xl border px-3 py-3 text-left transition-colors lg:min-w-0 ${activeSection === id
+              className={`shrink-0 whitespace-nowrap rounded-xl border px-3 py-2 text-left transition-colors lg:w-full lg:whitespace-normal lg:py-3 ${activeSection === id
                 ? "border-accent/30 bg-accent/10 text-text"
                 : "border-transparent text-mute hover:border-line hover:bg-surface/60 hover:text-text"
                 }`}
             >
               <span className="block text-sm font-semibold">{label}</span>
-              <span className="mt-1 block text-[11px] leading-relaxed text-mute">
+              <span className="mt-1 hidden text-[11px] leading-relaxed text-mute lg:block">
                 {description}
               </span>
             </button>
@@ -902,7 +908,7 @@ export function SettingsView({
         </nav>
       </aside>
 
-      <div className="min-w-0 space-y-8">
+      <div className="min-w-0 space-y-6 sm:space-y-8">
         <div className="border-b border-line pb-4">
           {accountPageMeta ? (
             <button
@@ -923,7 +929,7 @@ export function SettingsView({
         </div>
 
       {activeSection === "features" && (
-        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
+        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
           <h3 className="text-base font-semibold text-text">Enabled features</h3>
           <p className="mt-1 text-xs leading-relaxed text-mute">
             Turning one off hides its tab and its settings on every device signed in to
@@ -988,7 +994,7 @@ export function SettingsView({
       )}
 
       {activeSection === "appearance" && (
-        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
+        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
           <h3 className="text-base font-semibold text-text">Accent colour</h3>
           <p className="mt-1 text-xs leading-relaxed text-mute">
             The accent tints buttons, links, selected rows, and focus rings. Calendar
@@ -1055,14 +1061,14 @@ export function SettingsView({
       )}
 
       {activeSection === "calendar" && (<>
-        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
+        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
           <h3 className="text-base font-semibold text-text">Calendar timezone</h3>
           <select value={timezone} onChange={(event) => onTimezoneChange(event.target.value)} className={`${field} mt-5`}>
             {[...new Set([timezone, ...allTimezones])].map((zone) => <option key={zone} value={zone}>{zone} [{utcOffsetLabel(zone)}]</option>)}
           </select>
         </section>
 
-        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm space-y-8">
+        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6 space-y-8">
           <div>
             <h3 className="text-base font-semibold text-text">
               Import &amp; Export Calendars
@@ -1074,8 +1080,8 @@ export function SettingsView({
           </div>
 
           {/* SUB-SECTION 1: IMPORT */}
-          <div className="rounded-xl border border-line/80 bg-bg/50 p-5 space-y-5">
-            <div className="flex items-center justify-between">
+          <div className="rounded-xl border border-line/80 bg-bg/50 p-4 space-y-5 sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent/15 text-accent text-xs font-bold">
                   ↓
@@ -1107,7 +1113,7 @@ export function SettingsView({
                   event.preventDefault();
                   icsInputRef.current?.click();
                 }}
-                className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-7 text-center transition-all cursor-pointer ${focusRing} ${
+                className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-5 text-center sm:p-7 transition-all cursor-pointer ${focusRing} ${
                   icsDragActive
                     ? "border-accent bg-accent/10 scale-[0.99]"
                     : "border-line/80 hover:border-line-light hover:bg-surface/30"
@@ -1144,8 +1150,8 @@ export function SettingsView({
               /* File Preview & Calendar Selection */
               <div className="space-y-4 rounded-xl border border-accent/30 bg-surface/40 p-4 animate-fade-in">
                 <div className="flex items-center justify-between gap-3 border-b border-line/60 pb-3">
-                  <div>
-                    <p className="text-xs font-semibold text-text truncate max-w-xs sm:max-w-sm">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-semibold text-text">
                       {icsFile.name}
                     </p>
                     <p className="text-[11px] text-accent font-medium mt-0.5">
@@ -1158,7 +1164,7 @@ export function SettingsView({
                     type="button"
                     disabled={importingIcs}
                     onClick={resetIcsImport}
-                    className="text-xs text-mute hover:text-text cursor-pointer"
+                    className="shrink-0 text-xs text-mute hover:text-text cursor-pointer"
                   >
                     Change file
                   </button>
@@ -1166,7 +1172,7 @@ export function SettingsView({
 
                 {/* Calendar Selection Prompt */}
                 <div className="space-y-2 pt-1">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <label htmlFor={`${ids}-ics-calendar`} className="text-xs font-medium text-text">
                       Target Calendar
                     </label>
@@ -1218,12 +1224,12 @@ export function SettingsView({
                     {parsedEvents.slice(0, 3).map((event, idx) => (
                       <div
                         key={idx}
-                        className="flex items-center justify-between py-1 border-b border-line/40 last:border-0"
+                        className="flex items-center justify-between gap-3 py-1 border-b border-line/40 last:border-0"
                       >
-                        <span className="font-medium text-text truncate max-w-[160px]">
+                        <span className="min-w-0 flex-1 truncate font-medium text-text">
                           {event.title}
                         </span>
-                        <span className="text-mute truncate max-w-[180px] text-[11px] font-mono">
+                        <span className="min-w-0 truncate font-mono text-[11px] text-mute">
                           {event.start.slice(0, 16).replace("T", " ")}
                         </span>
                       </div>
@@ -1252,7 +1258,7 @@ export function SettingsView({
                 )}
 
                 {/* Action Buttons */}
-                <div className="flex justify-end gap-2.5 pt-2">
+                <div className="flex flex-wrap justify-end gap-2.5 pt-2">
                   <button
                     type="button"
                     disabled={importingIcs}
@@ -1296,8 +1302,8 @@ export function SettingsView({
           </div>
 
           {/* SUB-SECTION 2: EXPORT */}
-          <div className="rounded-xl border border-line/80 bg-bg/50 p-5 space-y-5">
-            <div className="flex items-center justify-between">
+          <div className="rounded-xl border border-line/80 bg-bg/50 p-4 space-y-5 sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent/15 text-accent text-xs font-bold">
                   ↑
@@ -1415,12 +1421,10 @@ export function SettingsView({
       )}
 
       {activeSection === "account" && accountPage === "username" && (
-      <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h3 className="text-base font-semibold text-text">Username</h3>
-          </div>
-          <span className="inline-flex items-center rounded-full bg-accent/15 px-3 py-1 font-mono text-xs font-semibold text-accent border border-accent/20">
+      <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-base font-semibold text-text">Username</h3>
+          <span className="inline-flex min-w-0 max-w-full items-center truncate rounded-full bg-accent/15 px-3 py-1 font-mono text-xs font-semibold text-accent border border-accent/20">
             {session.state.username}
           </span>
         </div>
@@ -1480,7 +1484,7 @@ export function SettingsView({
       )}
 
       {activeSection === "account" && accountPage === "password" && (
-      <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
+      <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
         <div>
           <h3 className="text-base font-semibold text-text">Change Password</h3>
         </div>
@@ -1552,7 +1556,7 @@ export function SettingsView({
       )}
 
       {activeSection === "account" && accountPage === "devices" && (
-      <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
+      <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
         <div className="flex flex-col gap-1">
           <h3 className="text-base font-semibold text-text">Paired devices</h3>
           <p className="text-xs leading-relaxed text-mute max-w-md">
@@ -1614,7 +1618,7 @@ export function SettingsView({
       )}
 
       {activeSection === "account" && accountPage === "recovery" && (
-      <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
+      <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h3 className="text-base font-semibold text-text">
@@ -1708,7 +1712,7 @@ export function SettingsView({
       )}
 
       {activeSection === "contacts" && (<>
-        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
+        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
           <h3 className="text-base font-semibold text-text">Contact detail</h3>
           <p className="mt-1 text-xs leading-relaxed text-mute">
             Detailed contacts turn the address book into a personal relationship manager:
@@ -1807,7 +1811,7 @@ export function SettingsView({
       )}
 
       {activeSection === "account" && accountPage === "signout" && (
-        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-6 shadow-sm">
+        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h3 className="text-base font-semibold text-text">Sign out</h3>
@@ -1841,7 +1845,7 @@ export function SettingsView({
       )}
 
       {activeSection === "account" && accountPage === "delete" && (
-      <section className="rounded-2xl border border-danger/40 bg-danger/5 backdrop-blur-md p-6 shadow-sm">
+      <section className="rounded-2xl border border-danger/40 bg-danger/5 backdrop-blur-md p-4 shadow-sm sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h3 className="text-base font-semibold text-danger">Danger Zone</h3>

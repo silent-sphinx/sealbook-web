@@ -201,7 +201,7 @@ export function TasksImportExportSection({ session, tasks, taskLists, onRefresh 
   }
 
   return (
-    <section className="space-y-8 rounded-2xl border border-line bg-panel/75 p-6 shadow-sm backdrop-blur-md">
+    <section className="space-y-8 rounded-2xl border border-line bg-panel/75 p-4 shadow-sm backdrop-blur-md sm:p-6">
       <div>
         <h3 className="text-base font-semibold text-text">Import &amp; Export Tasks</h3>
         <p className="mt-1 text-xs leading-relaxed text-mute">
@@ -210,8 +210,8 @@ export function TasksImportExportSection({ session, tasks, taskLists, onRefresh 
         </p>
       </div>
 
-      <div className="space-y-5 rounded-xl border border-line/80 bg-bg/50 p-5">
-        <div className="flex items-center justify-between">
+      <div className="space-y-5 rounded-xl border border-line/80 bg-bg/50 p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h4 className="text-sm font-semibold text-text">Import Tasks</h4>
           <span className="font-mono text-[11px] text-mute">.json</span>
         </div>
@@ -231,7 +231,7 @@ export function TasksImportExportSection({ session, tasks, taskLists, onRefresh 
               event.preventDefault();
               fileInputRef.current?.click();
             }}
-            className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-7 text-center transition-all ${focusRing} ${
+            className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-5 text-center sm:p-7 transition-all ${focusRing} ${
               dragActive
                 ? "scale-[0.99] border-accent bg-accent/10"
                 : "border-line/80 hover:border-line-light hover:bg-surface/30"
@@ -253,8 +253,8 @@ export function TasksImportExportSection({ session, tasks, taskLists, onRefresh 
         ) : (
           <div className="animate-fade-in space-y-4 rounded-xl border border-accent/30 bg-surface/40 p-4">
             <div className="flex items-center justify-between gap-3 border-b border-line/60 pb-3">
-              <div>
-                <p className="max-w-xs truncate text-xs font-semibold text-text sm:max-w-sm">
+              <div className="min-w-0">
+                <p className="truncate text-xs font-semibold text-text">
                   {importFile.name}
                 </p>
                 <p className="mt-0.5 text-[11px] font-medium text-accent">
@@ -273,7 +273,7 @@ export function TasksImportExportSection({ session, tasks, taskLists, onRefresh 
             </div>
 
             <div className="space-y-2 pt-1">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <label htmlFor={`${ids}-target`} className="text-xs font-medium text-text">
                   Target list
                 </label>
@@ -324,7 +324,7 @@ export function TasksImportExportSection({ session, tasks, taskLists, onRefresh 
                     key={index}
                     className="flex items-center justify-between gap-3 border-b border-line/40 py-1 last:border-0"
                   >
-                    <span className="max-w-[200px] truncate font-medium text-text">
+                    <span className="min-w-0 flex-1 truncate font-medium text-text">
                       {entry.draft.title}
                     </span>
                     <span className="font-mono text-[11px] text-mute">
@@ -352,7 +352,7 @@ export function TasksImportExportSection({ session, tasks, taskLists, onRefresh 
               </div>
             ) : null}
 
-            <div className="flex justify-end gap-2.5 pt-2">
+            <div className="flex flex-wrap justify-end gap-2.5 pt-2">
               <button type="button" disabled={importing} onClick={resetImport} className={btnSecondary}>
                 Cancel
               </button>
@@ -373,8 +373,8 @@ export function TasksImportExportSection({ session, tasks, taskLists, onRefresh 
         <Banner message={importMsg} />
       </div>
 
-      <div className="space-y-5 rounded-xl border border-line/80 bg-bg/50 p-5">
-        <div className="flex items-center justify-between">
+      <div className="space-y-5 rounded-xl border border-line/80 bg-bg/50 p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h4 className="text-sm font-semibold text-text">Export Tasks</h4>
           <span className="font-mono text-[11px] text-mute">{plural(exportTasks.length, "task")}</span>
         </div>
