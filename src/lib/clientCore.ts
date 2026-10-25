@@ -1,19 +1,24 @@
 import { b64ToByteArray, bytesFromJson } from "./bytes";
 import {
+  coreAcceptManifestSeq,
+  coreManifestAbsenceOk,
+  coreManifestAccept,
+  coreManifestApply,
+  coreManifestBucketsAccept,
+  coreManifestBucketsFromWhole,
+  coreManifestBucketsRequest,
+  coreManifestRequest,
+  coreManifestSigner,
+  coreManifestVerify,
+  coreErrorOf,
   createEnrollment,
-  manifestBucketOf,
-  manifestBucketsApply,
-  manifestBucketsBlob,
-  manifestBucketsRoot,
-  manifestVerify,
-  manifestVerifyRoot,
   objectContentDigest,
   sealObject,
   unwrapCk,
 } from "./wasm";
 import { describeError, log, serverHost } from "./log";
 import { ManifestError, rosterDevices } from "./roster";
-import { apiRoot, getJson } from "./transport";
+import { apiRoot, getJson, getText } from "./transport";
 import { PROTOCOL_VERSION, speaksProtocol } from "./protocol";
 import type {
   DeviceOut,
@@ -23,6 +28,15 @@ import type {
   ManifestEntry,
   Roster,
 } from "./types";
+import type {
+  BucketedManifest,
+  CoreDevice,
+  ManifestContext,
+  ManifestPlan,
+  ManifestSigner,
+} from "../pkg/sealbook_wasm.js";
+
+export type { BucketedManifest, ManifestPlan };
 
 export type Session = {
   state: DeviceState;
@@ -98,14 +112,57 @@ export function serializeVault<T>(collectionId: string, run: () => Promise<T>): 
  * app and reopening it cannot be used to rewind the high-water mark.
  */
 export function rememberManifestSeq(session: Session, seq: number): void {
-  session.manifestSeq = seq;
-  session.state.manifest_seq = seq;
+  const next = coreAcceptManifestSeq(session.manifestSeq, seq);
+  session.manifestSeq = next;
+  session.state.manifest_seq = next;
 }
 
-type ManifestResponse = {
-  manifest: ManifestBody | null;
-  entries: ManifestEntry[];
-};
+/** Just what a manifest decision reads out of this session. */
+export function manifestContext(session: Session): ManifestContext {
+  return {
+    collection_id: session.state.collection_id,
+    device_id: session.state.device_id,
+    manifest_seq: session.manifestSeq,
+  };
+}
+
+/**
+ * The roster a served manifest's signature is checked against.
+ *
+ * Fetched here because core names the epoch and the signer but cannot go and
+ * get them, and nothing is needed at all when no manifest was served.
+ */
+async function devicesFor(
+  session: Session,
+  signer: ManifestSigner | undefined,
+): Promise<CoreDevice[]> {
+  if (!signer) {
+    return [];
+  }
+  return rosterDevices(session, signer.key_epoch, signer.device_id);
+}
+
+/**
+ * Raises what core refused as the class this app's callers already catch.
+ *
+ * Core states the condition; the lead-in a person reads is `friendlyError`'s.
+ */
+function manifestFailure(err: unknown): Error {
+  const core = coreErrorOf(err);
+  if (core === null) {
+    return err instanceof Error ? err : new Error(describeError(err));
+  }
+  return new ManifestError("detail" in core ? core.detail : core.kind);
+}
+
+/** The signer core named, with its refusal raised as this app's own class. */
+function signerOf(body: string): ManifestSigner | undefined {
+  try {
+    return coreManifestSigner(body);
+  } catch (err) {
+    throw manifestFailure(err);
+  }
+}
 
 /**
  * Fetches the manifest and checks it against the entries the server serves with it.
@@ -119,122 +176,95 @@ export async function manifestState(session: Session): Promise<{
   latestRevision: number;
   entries: ManifestEntry[];
 }> {
-  const { state, token } = session;
-  const response = await getJson<ManifestResponse>(
-    `${apiRoot(state.server)}/v1/collections/${state.collection_id}/manifest`,
-    token,
+  const context = manifestContext(session);
+  const body = await getText(
+    `${apiRoot(session.state.server)}${coreManifestRequest(context).path}`,
+    session.token,
   );
-  if (!response.manifest) {
-    // A collection no v3 client has written yet. Accepted only while this device
-    // has never seen a manifest, so the server cannot pretend one away.
-    if (session.manifestSeq > 0) {
-      throw new ManifestError(
-        `The server has no manifest for this vault, but this device has already seen ` +
-          `sequence ${session.manifestSeq}. Refusing to continue.`,
-      );
+  // Outside the try: a roster failure is the roster's to report, not a manifest
+  // failure, and it has already been worded by `rosterDevices`.
+  const devices = await devicesFor(session, signerOf(body));
+  try {
+    const outcome = coreManifestAccept(context, body, devices);
+    if ("Signed" in outcome) {
+      const { plan, entries } = outcome.Signed;
+      log.debug("vault manifest verified", {
+        seq: plan.manifest_seq,
+        objects: entries.length,
+        key_epoch: plan.key_epoch,
+      });
+      rememberManifestSeq(session, plan.manifest_seq);
+      return {
+        seq: plan.manifest_seq,
+        keyEpoch: plan.key_epoch,
+        latestRevision: plan.latest_revision,
+        entries,
+      };
     }
-    const latest = response.entries.reduce((high, entry) => Math.max(high, entry.revision), 0);
-    return { seq: 0, keyEpoch: session.keyEpoch, latestRevision: latest, entries: response.entries };
+    // A collection no manifest-signing client has written yet. The epoch to
+    // sign the next write under is the session's: there is no signed one to
+    // read, and core will not guess.
+    return {
+      seq: 0,
+      keyEpoch: session.keyEpoch,
+      latestRevision: outcome.Unmanifested.latest_revision,
+      entries: outcome.Unmanifested.entries,
+    };
+  } catch (err) {
+    log.error("vault manifest refused", { reason: describeError(err) });
+    throw manifestFailure(err);
   }
-  await verifyManifest(session, response.manifest, response.entries);
-  return {
-    seq: response.manifest.manifest_seq,
-    keyEpoch: response.manifest.key_epoch,
-    latestRevision: response.manifest.latest_revision,
-    entries: response.entries,
-  };
 }
 
 /**
- * Verifies a manifest's signature and that it describes the given entries.
+ * Verifies a manifest served alongside pages of objects, against the entry set
+ * those pages produced.
  *
- * The signature says an enrolled device vouched for this shape of the collection;
- * the digest says the shape is the one being served. A valid signature over a
- * different state is exactly what a rollback looks like, so both are required.
+ * The signature says an enrolled device vouched for this shape of the
+ * collection; the digest says the shape is the one being served. A valid
+ * signature over a different state is exactly what a rollback looks like, so
+ * both are required.
  */
 export async function verifyManifest(
   session: Session,
   manifest: ManifestBody,
   entries: ManifestEntry[],
 ): Promise<void> {
-  if (manifest.manifest_seq < session.manifestSeq) {
-    log.error("vault manifest went backwards", {
-      seen_seq: session.manifestSeq,
-      served_seq: manifest.manifest_seq,
-    });
-    throw new ManifestError(
-      `The vault went backwards: this device has seen manifest ${session.manifestSeq} but the ` +
-        `server served ${manifest.manifest_seq}.`,
-    );
-  }
-  if (manifest.object_count !== entries.length) {
-    log.error("vault manifest commits to a different object count", {
-      served_objects: entries.length,
-      manifest_objects: manifest.object_count,
-    });
-    throw new ManifestError(
-      `Server sent ${entries.length} objects but the manifest commits to ${manifest.object_count}.`,
-    );
-  }
-  const devices = await rosterDevices(session, manifest.key_epoch, manifest.device_id);
-  const signer = devices.find((device) => device.device_id === manifest.device_id);
-  if (!signer) {
-    log.error("vault manifest was signed by a device outside the roster", {
-      roster_devices: devices.length,
-    });
-    throw new ManifestError(
-      "The vault manifest was signed by a device that is not in this account's signed roster.",
-    );
-  }
+  const context = manifestContext(session);
+  const devices = await devicesFor(session, {
+    key_epoch: manifest.key_epoch,
+    device_id: manifest.device_id,
+  });
+  let plan: ManifestPlan;
   try {
-    manifestVerify(
-      signer.mldsa_pk,
-      signer.ed25519_pk,
-      session.state.collection_id,
-      manifest,
-      entries,
-    );
+    plan = coreManifestVerify(context, JSON.stringify(manifest), entries, devices);
   } catch (err) {
-    log.error("vault manifest signature did not verify", {
+    log.error("vault manifest refused", {
       seq: manifest.manifest_seq,
       objects: entries.length,
       reason: describeError(err),
     });
-    throw new ManifestError(err instanceof Error ? err.message : String(err));
+    throw manifestFailure(err);
   }
   log.debug("vault manifest verified", {
-    seq: manifest.manifest_seq,
+    seq: plan.manifest_seq,
     objects: entries.length,
-    key_epoch: manifest.key_epoch,
+    key_epoch: plan.key_epoch,
   });
-  rememberManifestSeq(session, manifest.manifest_seq);
+  rememberManifestSeq(session, plan.manifest_seq);
 }
 
-/** The manifest's bucket count, which the server's digest blob is sized by. */
-const MANIFEST_BUCKETS = 256;
-
-type ManifestBucketsResponse = {
-  manifest: ManifestBody | null;
-  /** The 256 bucket digests concatenated, 32 bytes each, base64url. */
-  buckets: string;
-  object_count: number;
-  served: number[];
-  entries: ManifestEntry[];
-};
-
-/**
- * The collection as one write needs to see it.
- *
- * A write changes one bucket per object, so it needs those buckets' entries and
- * the remaining digests, not the whole collection. `apply` folds the write in
- * and returns what the next manifest has to commit to.
- */
-export type BucketedManifest = {
-  seq: number;
-  keyEpoch: number;
-  latestRevision: number;
-  apply: (written: ManifestEntry[]) => { objectCount: number; root: string };
-};
+/** The rule for a server that served objects with no manifest at all. */
+export function requireManifestAbsenceOk(session: Session): void {
+  try {
+    coreManifestAbsenceOk(manifestContext(session));
+  } catch (err) {
+    log.error("the vault was served with no manifest after this device had seen one", {
+      seen_seq: session.manifestSeq,
+    });
+    throw manifestFailure(err);
+  }
+}
 
 /**
  * Fetches the manifest and only the buckets these objects fall in.
@@ -249,149 +279,50 @@ export async function manifestBucketState(
   session: Session,
   ids: string[],
 ): Promise<BucketedManifest> {
-  const { state, token } = session;
-  const wanted = [...new Set(ids.map(manifestBucketOf))].sort((a, b) => a - b);
-  const query = wanted.map((bucket) => bucket.toString(16).padStart(2, "0")).join("");
-  const response = await getJson<ManifestBucketsResponse>(
-    `${apiRoot(state.server)}/v1/collections/${state.collection_id}` +
-      `/manifest/buckets?buckets=${query}`,
-    token,
+  const context = manifestContext(session);
+  const body = await getText(
+    `${apiRoot(session.state.server)}${coreManifestBucketsRequest(context, ids).path}`,
+    session.token,
   );
-  // Both lists are sorted and deduplicated, so this is the whole check that
-  // every bucket asked for was answered for.
-  if (
-    response.served.length !== wanted.length ||
-    response.served.some((bucket, index) => bucket !== wanted[index])
-  ) {
-    log.error("vault served manifest buckets other than the ones asked for", {
-      asked: wanted.length,
-      served: response.served.length,
-    });
-    throw new ManifestError(
-      "The server answered for manifest buckets other than the ones this write asked for.",
-    );
-  }
-  let root: string;
+  const devices = await devicesFor(session, signerOf(body));
+  let outcome;
   try {
-    root = manifestBucketsRoot(
-      response.buckets,
-      response.object_count,
-      response.served,
-      response.entries,
-    );
+    outcome = coreManifestBucketsAccept(context, ids, body, devices);
   } catch (err) {
-    log.error("vault manifest buckets did not match their digests", {
-      reason: describeError(err),
-    });
-    throw new ManifestError(err instanceof Error ? err.message : String(err));
+    log.error("vault manifest buckets refused", { reason: describeError(err) });
+    throw manifestFailure(err);
   }
-
-  // A collection no v3 client has written yet. The revision a write takes has to
-  // be the collection's next one, and a bucket answer carries no revision for
-  // the entries it did not serve, so this legacy case reads the whole set. It
-  // costs an extra request, on a path that stops being taken once anything has
-  // written a manifest.
-  if (!response.manifest) {
+  if (outcome === "Unmanifested") {
+    // A bucket answer carries no revision for the entries it did not serve, so
+    // the revision this write takes cannot be chosen from it. It costs an extra
+    // request, on a path nothing takes once anything has written a manifest.
     const whole = await manifestState(session);
-    const buckets = manifestBucketsBlob(whole.entries);
-    const all = Array.from({ length: MANIFEST_BUCKETS }, (_, bucket) => bucket);
-    return {
-      seq: whole.seq,
-      keyEpoch: whole.keyEpoch,
-      latestRevision: whole.latestRevision,
-      apply: (written: ManifestEntry[]) =>
-        applied(buckets, whole.entries.length, all, whole.entries, written),
-    };
-  }
-
-  const manifest = response.manifest;
-  if (manifest.object_count !== response.object_count) {
-    log.error("vault manifest commits to a different object count", {
-      served_objects: response.object_count,
-      manifest_objects: manifest.object_count,
-    });
-    throw new ManifestError(
-      `Server says ${response.object_count} objects but the manifest commits to ` +
-        `${manifest.object_count}.`,
+    return coreManifestBucketsFromWhole(
+      {
+        manifest_seq: whole.seq,
+        key_epoch: whole.keyEpoch,
+        latest_revision: whole.latestRevision,
+      },
+      whole.entries,
     );
   }
-  await verifyManifestRoot(session, manifest, root);
-
-  return {
-    seq: manifest.manifest_seq,
-    keyEpoch: manifest.key_epoch,
-    latestRevision: manifest.latest_revision,
-    apply: (written: ManifestEntry[]) =>
-      applied(response.buckets, response.object_count, wanted, response.entries, written),
-  };
+  const { held } = outcome.Signed;
+  log.debug("vault manifest verified", {
+    seq: held.plan.manifest_seq,
+    objects: held.object_count,
+    key_epoch: held.plan.key_epoch,
+  });
+  rememberManifestSeq(session, held.plan.manifest_seq);
+  return held;
 }
 
-/** The object count and root the manifest after a write must carry. */
-function applied(
-  buckets: string,
-  objectCount: number,
-  held: number[],
-  entries: ManifestEntry[],
+/** What the manifest after a write has to carry. */
+export function applyWrite(
+  held: BucketedManifest,
   written: ManifestEntry[],
 ): { objectCount: number; root: string } {
-  const next = manifestBucketsApply(buckets, objectCount, held, entries, written);
+  const next = coreManifestApply(held, written);
   return { objectCount: next.object_count, root: next.root };
-}
-
-/**
- * Verifies a manifest's signature against a root derived from the bucket
- * digests, and pins its sequence number.
- *
- * The root is already known to describe the digests served, so what is left is
- * that an enrolled device vouched for it.
- */
-async function verifyManifestRoot(
-  session: Session,
-  manifest: ManifestBody,
-  root: string,
-): Promise<void> {
-  if (manifest.manifest_seq < session.manifestSeq) {
-    log.error("vault manifest went backwards", {
-      seen_seq: session.manifestSeq,
-      served_seq: manifest.manifest_seq,
-    });
-    throw new ManifestError(
-      `The vault went backwards: this device has seen manifest ${session.manifestSeq} but the ` +
-        `server served ${manifest.manifest_seq}.`,
-    );
-  }
-  const devices = await rosterDevices(session, manifest.key_epoch, manifest.device_id);
-  const signer = devices.find((device) => device.device_id === manifest.device_id);
-  if (!signer) {
-    log.error("vault manifest was signed by a device outside the roster", {
-      roster_devices: devices.length,
-    });
-    throw new ManifestError(
-      "The vault manifest was signed by a device that is not in this account's signed roster.",
-    );
-  }
-  try {
-    manifestVerifyRoot(
-      signer.mldsa_pk,
-      signer.ed25519_pk,
-      session.state.collection_id,
-      manifest,
-      root,
-    );
-  } catch (err) {
-    log.error("vault manifest signature did not verify", {
-      seq: manifest.manifest_seq,
-      objects: manifest.object_count,
-      reason: describeError(err),
-    });
-    throw new ManifestError(err instanceof Error ? err.message : String(err));
-  }
-  log.debug("vault manifest verified", {
-    seq: manifest.manifest_seq,
-    objects: manifest.object_count,
-    key_epoch: manifest.key_epoch,
-  });
-  rememberManifestSeq(session, manifest.manifest_seq);
 }
 
 export async function alignKeyEpoch(session: Session, keyEpoch: number): Promise<void> {

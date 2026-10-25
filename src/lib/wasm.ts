@@ -1,5 +1,18 @@
 import init, {
   account_op_sign,
+  core_accept_manifest_seq,
+  core_manifest_absence_ok,
+  core_manifest_accept,
+  core_manifest_apply,
+  core_manifest_buckets_accept,
+  core_manifest_buckets_from_whole,
+  core_manifest_buckets_request,
+  core_manifest_entry_for,
+  core_manifest_request,
+  core_manifest_sign,
+  core_manifest_sign_root,
+  core_manifest_signer,
+  core_manifest_verify,
   core_pin_roster,
   core_roster_accept,
   core_roster_accept_sealed,
@@ -22,14 +35,9 @@ import init, {
   opaque_register_start,
   login_start_proof,
   manifest_bucket_of_id,
-  manifest_buckets_apply,
   manifest_buckets_blob,
-  manifest_buckets_root,
   manifest_digest_of,
   manifest_sign,
-  manifest_sign_root,
-  manifest_verify,
-  manifest_verify_root,
   object_content_digest,
   open_object,
   pair_confirmation_code,
@@ -52,11 +60,21 @@ import init, {
   wrap_ck_for_password,
 } from "../pkg/sealbook_wasm.js";
 import type {
+  AppliedManifest,
+  BucketedManifest,
+  BucketsOutcome,
+  CoreDevice,
   CoreError,
+  CoreManifestEntry,
   CoreRoster,
   CoreRosterPin,
   HttpRequest,
+  ManifestContext,
+  ManifestOutcome,
+  ManifestPlan,
+  ManifestSigner,
   RosterContext,
+  SignedManifest,
   VerifiedRoster,
 } from "../pkg/sealbook_wasm.js";
 import { log } from "./log";
@@ -694,135 +712,14 @@ export function manifestSign(
   ) as ManifestBody;
 }
 
-/**
- * Checks a served manifest against the entries it claims to describe.
- *
- * Throws when they disagree. That is not a transient error: it means the server
- * served something no device signed for — an object withheld, rolled back or
- * substituted.
- */
-export function manifestVerify(
-  signerMldsaPk: string,
-  signerEd25519Pk: string,
-  collectionId: string,
-  manifest: ManifestBody,
-  entries: ManifestEntry[],
-): void {
-  manifest_verify(
-    signerMldsaPk,
-    signerEd25519Pk,
-    collectionId,
-    BigInt(manifest.manifest_seq),
-    BigInt(manifest.key_epoch),
-    BigInt(manifest.latest_revision),
-    JSON.stringify(entries),
-    manifest.digest,
-    manifest.signature.mldsa,
-    manifest.signature.ed25519,
-  );
-}
-
 /** The manifest bucket an object id falls in. */
 export function manifestBucketOf(id: string): number {
   return manifest_bucket_of_id(id);
 }
 
-/**
- * Checks a bucketed manifest answer and returns the root it commits to.
- *
- * The served entries of each bucket must hash to that bucket's digest, and the
- * digests with the object count must produce the root. Together they are what
- * the whole-collection digest check is, over a fraction of the entries.
- */
-export function manifestBucketsRoot(
-  buckets: string,
-  objectCount: number,
-  served: number[],
-  entries: ManifestEntry[],
-): string {
-  return manifest_buckets_root(
-    buckets,
-    BigInt(objectCount),
-    JSON.stringify(served),
-    JSON.stringify(entries),
-  );
-}
-
 /** The 256 bucket digests of a whole entry set, concatenated and base64url. */
 export function manifestBucketsBlob(entries: ManifestEntry[]): string {
   return manifest_buckets_blob(JSON.stringify(entries));
-}
-
-/** Folds written entries into a bucketed manifest, returning the next state. */
-export function manifestBucketsApply(
-  buckets: string,
-  objectCount: number,
-  held: number[],
-  entries: ManifestEntry[],
-  written: ManifestEntry[],
-): { object_count: number; root: string } {
-  return JSON.parse(
-    manifest_buckets_apply(
-      buckets,
-      BigInt(objectCount),
-      JSON.stringify(held),
-      JSON.stringify(entries),
-      JSON.stringify(written),
-    ),
-  ) as { object_count: number; root: string };
-}
-
-/** Signs a manifest for a root already derived from the bucket digests. */
-export function manifestSignRoot(
-  mldsaSeed: string,
-  ed25519Sk: string,
-  collectionId: string,
-  deviceId: string,
-  manifestSeq: number,
-  keyEpoch: number,
-  latestRevision: number,
-  objectCount: number,
-  root: string,
-): ManifestBody {
-  return JSON.parse(
-    manifest_sign_root(
-      mldsaSeed,
-      ed25519Sk,
-      collectionId,
-      deviceId,
-      BigInt(manifestSeq),
-      BigInt(keyEpoch),
-      BigInt(latestRevision),
-      BigInt(objectCount),
-      root,
-    ),
-  ) as ManifestBody;
-}
-
-/**
- * Checks a served manifest's signature against a root derived from the bucket
- * digests, the counterpart of `manifestVerify` for a bucketed read.
- */
-export function manifestVerifyRoot(
-  signerMldsaPk: string,
-  signerEd25519Pk: string,
-  collectionId: string,
-  manifest: ManifestBody,
-  root: string,
-): void {
-  manifest_verify_root(
-    signerMldsaPk,
-    signerEd25519Pk,
-    collectionId,
-    BigInt(manifest.manifest_seq),
-    BigInt(manifest.key_epoch),
-    BigInt(manifest.latest_revision),
-    BigInt(manifest.object_count),
-    root,
-    manifest.digest,
-    manifest.signature.mldsa,
-    manifest.signature.ed25519,
-  );
 }
 
 export type AccountOp = "username" | "password" | "delete";
@@ -850,6 +747,128 @@ export function accountOpSign(
       JSON.stringify(payload),
     ),
   ) as DualSignature;
+}
+
+// ── Core: manifest ──
+
+/** The manifest request to send, with a server-relative path. */
+export function coreManifestRequest(context: ManifestContext): HttpRequest {
+  return core_manifest_request(context);
+}
+
+/** The request for only the buckets these objects fall in. */
+export function coreManifestBucketsRequest(
+  context: ManifestContext,
+  ids: string[],
+): HttpRequest {
+  return core_manifest_buckets_request(context, ids);
+}
+
+/**
+ * The epoch and device a served manifest must be checked against.
+ *
+ * Read before the roster is fetched, because the manifest is what says which
+ * roster to fetch. `undefined` is a collection with no manifest, which needs
+ * no roster.
+ */
+export function coreManifestSigner(body: string): ManifestSigner | undefined {
+  return core_manifest_signer(body);
+}
+
+/**
+ * Checks a served manifest against the entry set it is supposed to describe.
+ *
+ * The body crosses as the text the server sent: `Vec<u8>` crosses as `number[]`
+ * and a whole collection's entry set is larger than a roster history.
+ */
+export function coreManifestAccept(
+  context: ManifestContext,
+  body: string,
+  devices: CoreDevice[],
+): ManifestOutcome {
+  return core_manifest_accept(context, body, devices);
+}
+
+/** Checks a bucketed manifest answer and returns what a write needs from it. */
+export function coreManifestBucketsAccept(
+  context: ManifestContext,
+  ids: string[],
+  body: string,
+  devices: CoreDevice[],
+): BucketsOutcome {
+  return core_manifest_buckets_accept(context, ids, body, devices);
+}
+
+/**
+ * Checks a manifest served alongside pages of objects against the entry set
+ * those pages produced.
+ */
+export function coreManifestVerify(
+  context: ManifestContext,
+  manifestJson: string,
+  entries: CoreManifestEntry[],
+  devices: CoreDevice[],
+): ManifestPlan {
+  return core_manifest_verify(context, manifestJson, entries, devices);
+}
+
+/** The rule for a server that served objects with no manifest at all. */
+export function coreManifestAbsenceOk(context: ManifestContext): void {
+  core_manifest_absence_ok(context);
+}
+
+/** The bucketed view of a collection whose every entry is in hand. */
+export function coreManifestBucketsFromWhole(
+  plan: ManifestPlan,
+  entries: CoreManifestEntry[],
+): BucketedManifest {
+  return core_manifest_buckets_from_whole(plan, entries);
+}
+
+/** Folds written entries in and returns what the next manifest must commit to. */
+export function coreManifestApply(
+  held: BucketedManifest,
+  written: CoreManifestEntry[],
+): AppliedManifest {
+  return core_manifest_apply(held, written);
+}
+
+/** Signs a manifest over an entry set, for the caller that holds all of it. */
+export function coreManifestSign(
+  mldsaSeed: string,
+  ed25519Sk: string,
+  context: ManifestContext,
+  plan: ManifestPlan,
+  entries: CoreManifestEntry[],
+): SignedManifest {
+  return core_manifest_sign(mldsaSeed, ed25519Sk, context, plan, entries);
+}
+
+/** Signs a manifest over a root already derived from the bucket digests. */
+export function coreManifestSignRoot(
+  mldsaSeed: string,
+  ed25519Sk: string,
+  context: ManifestContext,
+  plan: ManifestPlan,
+  applied: AppliedManifest,
+): SignedManifest {
+  return core_manifest_sign_root(mldsaSeed, ed25519Sk, context, plan, applied);
+}
+
+/** The manifest entry a sealed object produces. */
+export function coreManifestEntryFor(
+  id: string,
+  revision: number,
+  tombstone: boolean,
+  nonce: string,
+  ciphertext: string,
+): CoreManifestEntry {
+  return core_manifest_entry_for(id, BigInt(revision), tombstone, nonce, ciphertext);
+}
+
+/** The sequence to persist once a manifest has been verified. */
+export function coreAcceptManifestSeq(current: number, seq: number): number {
+  return Number(core_accept_manifest_seq(BigInt(current), BigInt(seq)));
 }
 
 // ── Core: roster ──

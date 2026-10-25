@@ -1,6 +1,6 @@
 import type { AccountImportObject } from "./accountExport";
 import { bytesFromJson } from "./bytes";
-import { manifestSignRoot, newUuid, openObject, sealedContentType } from "./wasm";
+import { coreManifestSignRoot, newUuid, openObject, sealedContentType } from "./wasm";
 import {
   ACCOUNT_SETTINGS_CONTENT_TYPE,
   ACCOUNT_SETTINGS_ID,
@@ -43,7 +43,6 @@ import { parseContact, sortContacts } from "./contact";
 import { log, elapsed } from "./log";
 import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
 import { importBatches } from "./vaultImport";
-import { ManifestError } from "./roster";
 import {
   isAddressBookPayload,
   isCalendarEventPayload,
@@ -54,10 +53,13 @@ import {
 import { apiRoot, getJson, putJson } from "./transport";
 import {
   alignKeyEpoch,
+  applyWrite,
   entryFor,
   manifestBucketState,
+  manifestContext,
   manifestState,
   rememberManifestSeq,
+  requireManifestAbsenceOk,
   sealPayload,
   serializeVault,
   verifyManifest,
@@ -91,6 +93,30 @@ const CHANGES_PAGE_LIMIT = 500;
  */
 const MAX_SYNC_RESTARTS = 3;
 
+/**
+ * Signs the manifest for the state a write produces.
+ *
+ * The root comes from `applyWrite`, so the signature covers the same value a
+ * signature over every entry in the collection would.
+ */
+function signNextManifest(
+  session: Session,
+  manifestSeq: number,
+  keyEpoch: number,
+  latestRevision: number,
+  objectCount: number,
+  root: string,
+): ManifestBody {
+  const signed = coreManifestSignRoot(
+    bytesFromJson(session.state.mldsa_seed),
+    bytesFromJson(session.state.ed25519_sk),
+    manifestContext(session),
+    { manifest_seq: manifestSeq, key_epoch: keyEpoch, latest_revision: latestRevision },
+    { object_count: objectCount, root },
+  );
+  return JSON.parse(signed.manifest_json) as ManifestBody;
+}
+
 export async function putSealed(
   session: Session,
   id: string,
@@ -103,7 +129,7 @@ export async function putSealed(
     // write is what made autosave in a large vault re-download the collection
     // on each keystroke pause.
     const state = await manifestBucketState(session, [id]);
-    const { seq, keyEpoch, latestRevision } = state;
+    const { manifest_seq: seq, key_epoch: keyEpoch, latest_revision: latestRevision } = state.plan;
     await alignKeyEpoch(session, keyEpoch);
     const revision = latestRevision + 1;
     const sealed = sealPayload(session, id, contentType, payload, revision);
@@ -114,18 +140,8 @@ export async function putSealed(
       ciphertext: sealed.encrypted.ciphertext,
       tombstone,
     });
-    const { objectCount, root } = state.apply([newEntry]);
-    const manifest = manifestSignRoot(
-      bytesFromJson(session.state.mldsa_seed),
-      bytesFromJson(session.state.ed25519_sk),
-      session.state.collection_id,
-      session.state.device_id,
-      seq + 1,
-      keyEpoch,
-      revision,
-      objectCount,
-      root,
-    );
+    const { objectCount, root } = applyWrite(state, [newEntry]);
+    const manifest = signNextManifest(session, seq + 1, keyEpoch, revision, objectCount, root);
     const response = await putJson<{ revision: number }>(
       `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`,
       {
@@ -173,7 +189,8 @@ export async function putCalendarEvents(
       // gives: reading every entry per batch made an import of n objects cost
       // bytes proportional to n squared.
       const state = await manifestBucketState(session, batchIds);
-      const { seq, keyEpoch, latestRevision } = state;
+      const { manifest_seq: seq, key_epoch: keyEpoch, latest_revision: latestRevision } =
+        state.plan;
       await alignKeyEpoch(session, keyEpoch);
       const writes = batch.map((event, index) => {
         const { raw, ...fields } = event;
@@ -190,7 +207,8 @@ export async function putCalendarEvents(
         );
         return { id: batchIds[index], revision, sealed };
       });
-      const { objectCount, root } = state.apply(
+      const { objectCount, root } = applyWrite(
+        state,
         writes.map((write) =>
           entryFor({
             id: write.id,
@@ -201,11 +219,8 @@ export async function putCalendarEvents(
           }),
         ),
       );
-      const manifest = manifestSignRoot(
-        bytesFromJson(session.state.mldsa_seed),
-        bytesFromJson(session.state.ed25519_sk),
-        session.state.collection_id,
-        session.state.device_id,
+      const manifest = signNextManifest(
+        session,
         seq + 1,
         keyEpoch,
         latestRevision + writes.length,
@@ -457,13 +472,8 @@ async function openVault(
   if (walk.manifest) {
     onProgress?.({ stage: "verifying" });
     await verifyManifest(session, walk.manifest, walk.objects.map(entryFor));
-  } else if (session.manifestSeq > 0) {
-    log.error("the vault was served with no manifest after this device had seen one", {
-      seen_seq: session.manifestSeq,
-    });
-    throw new ManifestError(
-      "The server served this vault with no manifest, but this device has seen one. Refusing to continue.",
-    );
+  } else {
+    requireManifestAbsenceOk(session);
   }
   if (onProgress && walk.objects.length > 0) {
     onProgress({ stage: "decrypting", count: walk.objects.length });
@@ -568,7 +578,8 @@ export async function importVault(
         session,
         batch.map((object) => object.id),
       );
-      const { seq, keyEpoch, latestRevision } = state;
+      const { manifest_seq: seq, key_epoch: keyEpoch, latest_revision: latestRevision } =
+        state.plan;
       await alignKeyEpoch(session, keyEpoch);
       const sealed = batch.map((object, index) => {
         const revision = latestRevision + index + 1;
@@ -589,12 +600,9 @@ export async function importVault(
           ciphertext: write.sealed.encrypted.ciphertext,
         }),
       );
-      const { objectCount, root } = state.apply(newEntries);
-      const manifest = manifestSignRoot(
-        bytesFromJson(session.state.mldsa_seed),
-        bytesFromJson(session.state.ed25519_sk),
-        session.state.collection_id,
-        session.state.device_id,
+      const { objectCount, root } = applyWrite(state, newEntries);
+      const manifest = signNextManifest(
+        session,
         seq + 1,
         keyEpoch,
         latestRevision + sealed.length,

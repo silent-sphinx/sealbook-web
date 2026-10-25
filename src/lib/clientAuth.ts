@@ -4,7 +4,7 @@ import {
   createDevice,
   createEnrollment,
   loginStartProof,
-  manifestSign,
+  coreManifestSign,
   opaqueLoginFinish,
   opaqueLoginStart,
   opaqueRegisterFinish,
@@ -39,6 +39,7 @@ import type {
   DeviceState,
   Enrollment,
   KeyWrap,
+  ManifestBody,
   Roster,
 } from "./types";
 
@@ -145,16 +146,15 @@ export async function registerAccount(
       collection_id: collectionId,
       // An account has a signed manifest from the moment it exists, so a client is
       // never asked to accept an unsigned "your vault is empty".
-      manifest: manifestSign(
-        enrollment.mldsa_seed,
-        enrollment.ed25519_sk,
-        collectionId,
-        enrollment.device_id,
-        1,
-        1,
-        0,
-        [],
-      ),
+      manifest: JSON.parse(
+        coreManifestSign(
+          enrollment.mldsa_seed,
+          enrollment.ed25519_sk,
+          { collection_id: collectionId, device_id: enrollment.device_id, manifest_seq: 0 },
+          { manifest_seq: 1, key_epoch: 1, latest_revision: 0 },
+          [],
+        ).manifest_json,
+      ) as ManifestBody,
       roster: genesis,
     },
   );

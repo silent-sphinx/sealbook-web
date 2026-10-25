@@ -1015,7 +1015,11 @@ describe("listVault", () => {
       // unsigned device list left to take it from.
       "/roster": () => ({ rosters: [owner.roster] }),
     });
-    await expect(listVault(owner.session)).rejects.toThrow(/roster/iu);
+    // Core's wording, not the roster's: the roster verified, and it is the
+    // manifest that named a device the roster does not list.
+    await expect(listVault(owner.session)).rejects.toThrow(
+      /signed by a device this account does not have/u,
+    );
   });
 });
 
@@ -1653,7 +1657,7 @@ describe("a single-object write against a large vault", () => {
         name: "Ada",
         addressBookId: DEFAULT_ADDRESS_BOOK_ID,
       }),
-    ).rejects.toThrow(/buckets other than the ones this write asked for/u);
+    ).rejects.toThrow(/answered for other buckets/u);
   });
 });
 

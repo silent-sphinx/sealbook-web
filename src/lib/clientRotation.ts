@@ -1,7 +1,7 @@
 import { bytesFromJson } from "./bytes";
 import {
   generateNewPhrase,
-  manifestSign,
+  coreManifestSign,
   newCollectionKey,
   resealObject,
   rosterSealDevice,
@@ -16,13 +16,14 @@ import { apiRoot, postJson } from "./transport";
 import {
   alignKeyEpoch,
   entryFor,
+  manifestContext,
   manifestState,
   rememberManifestSeq,
   serializeVault,
   type Session,
 } from "./clientCore";
 import { walkChanges } from "./clientVault";
-import type { RotatedObject, SealedObject } from "./types";
+import type { ManifestBody, RotatedObject, SealedObject } from "./types";
 
 /**
  * The rotation proper, on a session that has just authenticated.
@@ -166,16 +167,19 @@ async function rotateAuthenticatedInner(
   // exactly those rows and recomputes the digest from what it then holds, so a
   // list that does not match this entry set is refused.
   const manifestEntries = [...objects.map(entryFor), ...tombstones.map(entryFor)];
-  const manifest = manifestSign(
-    bytesFromJson(fresh.state.mldsa_seed),
-    bytesFromJson(fresh.state.ed25519_sk),
-    collectionId,
-    fresh.state.device_id,
-    seq + 1,
-    keyEpoch,
-    firstRevision + objects.length - 1,
-    manifestEntries,
-  );
+  const manifest = JSON.parse(
+    coreManifestSign(
+      bytesFromJson(fresh.state.mldsa_seed),
+      bytesFromJson(fresh.state.ed25519_sk),
+      manifestContext(fresh),
+      {
+        manifest_seq: seq + 1,
+        key_epoch: keyEpoch,
+        latest_revision: firstRevision + objects.length - 1,
+      },
+      manifestEntries,
+    ).manifest_json,
+  ) as ManifestBody;
   const newRoster = rosterSealDevice(
     collectionId,
     currentRoster.roster_seq + 1,
