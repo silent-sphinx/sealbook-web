@@ -1,5 +1,10 @@
 import init, {
   account_op_sign,
+  core_pin_roster,
+  core_roster_accept,
+  core_roster_accept_sealed,
+  core_roster_answers_for,
+  core_roster_request,
   AttachmentHash,
   create_device,
   create_enrollment,
@@ -45,6 +50,14 @@ import init, {
   unwrap_phrase,
   wrap_ck_for_device,
   wrap_ck_for_password,
+} from "../pkg/sealbook_wasm.js";
+import type {
+  CoreError,
+  CoreRoster,
+  CoreRosterPin,
+  HttpRequest,
+  RosterContext,
+  VerifiedRoster,
 } from "../pkg/sealbook_wasm.js";
 import { log } from "./log";
 import { PAYLOAD_SCHEMA_VERSION } from "./payload";
@@ -837,4 +850,81 @@ export function accountOpSign(
       JSON.stringify(payload),
     ),
   ) as DualSignature;
+}
+
+// ── Core: roster ──
+
+/**
+ * The error core raised, or `null` for anything else.
+ *
+ * Core serializes its error across the boundary so a caller maps a variant onto
+ * its own error class rather than matching on a sentence. See `CoreError` in
+ * `sealbook-core`: a variant is renamed only together with its callers.
+ */
+export function coreErrorOf(err: unknown): CoreError | null {
+  if (!(err instanceof Error)) {
+    return null;
+  }
+  try {
+    const parsed: unknown = JSON.parse(err.message);
+    if (typeof parsed === "object" && parsed !== null && "kind" in parsed) {
+      return parsed as CoreError;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/** The roster request to send, with a server-relative path. */
+export function coreRosterRequest(context: RosterContext): HttpRequest {
+  return core_roster_request(context);
+}
+
+/**
+ * Verifies a served roster history from this device's pin.
+ *
+ * `ck` empty means no collection key is held, which only an already pinned
+ * device can verify from. Does not move the pin; `corePinRoster` does.
+ */
+export function coreRosterAccept(
+  context: RosterContext,
+  ck: string,
+  keyEpoch: number,
+  status: number,
+  body: string,
+): VerifiedRoster {
+  return core_roster_accept(context, ck, BigInt(keyEpoch), status, body);
+}
+
+/** Verifies a roster this device sealed itself, at the roster's own key epoch. */
+export function coreRosterAcceptSealed(
+  context: RosterContext,
+  ck: string,
+  rosterJson: string,
+): VerifiedRoster {
+  return core_roster_accept_sealed(context, ck, rosterJson);
+}
+
+/** The roster fields to persist, refusing a pin that would move backwards. */
+export function corePinRoster(context: RosterContext, pin: CoreRosterPin): RosterContext {
+  return core_pin_roster(context, pin);
+}
+
+/**
+ * Whether a roster in hand answers the caller, or the chain must be rewalked.
+ *
+ * A constraint left out is not checked, for the caller that wants whatever
+ * roster this session has verified.
+ */
+export function coreRosterAnswersFor(
+  cached: CoreRoster,
+  keyEpoch?: number,
+  signer?: string,
+): boolean {
+  return core_roster_answers_for(
+    cached,
+    keyEpoch === undefined ? undefined : BigInt(keyEpoch),
+    signer,
+  );
 }

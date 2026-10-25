@@ -33,6 +33,17 @@ export function errorMessage(text: string, statusText: string): string {
 }
 
 export async function request<T>(method: string, url: string, init: RequestInit): Promise<T> {
+  return JSON.parse(await requestText(method, url, init)) as T;
+}
+
+/**
+ * As `request`, stopping at the text the server sent.
+ *
+ * For a body that goes straight to core, which parses it itself: `Vec<u8>`
+ * crosses the wasm boundary as `number[]`, so handing it the text avoids both a
+ * parse here and an array of bytes there.
+ */
+export async function requestText(method: string, url: string, init: RequestInit): Promise<string> {
   const path = logPath(url);
   const started = performance.now();
   const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
@@ -76,7 +87,7 @@ export async function request<T>(method: string, url: string, init: RequestInit)
     throw new ApiError(message);
   }
   log.debug("request", { method, path, status: res.status, ms, bytes: text.length });
-  return JSON.parse(text) as T;
+  return text;
 }
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -149,6 +160,14 @@ export async function getJson<T>(url: string, token?: string): Promise<T> {
     headers.authorization = `Bearer ${token}`;
   }
   return request<T>("GET", url, { headers });
+}
+
+export async function getText(url: string, token?: string): Promise<string> {
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers.authorization = `Bearer ${token}`;
+  }
+  return requestText("GET", url, { headers });
 }
 
 export async function deleteJson<T>(url: string, token: string, body?: unknown): Promise<T> {

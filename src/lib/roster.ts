@@ -1,7 +1,15 @@
 import type { Session } from "./client";
 import { describeError, log } from "./log";
-import { apiRoot, getJson } from "./transport";
-import { rosterVerify } from "./wasm";
+import { apiRoot, getText } from "./transport";
+import {
+  coreErrorOf,
+  corePinRoster,
+  coreRosterAccept,
+  coreRosterAcceptSealed,
+  coreRosterAnswersFor,
+  coreRosterRequest,
+} from "./wasm";
+import type { CoreError, CoreRoster, RosterContext } from "../pkg/sealbook_wasm.js";
 import type {
   DevicePublic,
   DeviceState,
@@ -23,63 +31,85 @@ export class RosterTooOldError extends Error {
   }
 }
 
-function rememberRosterPin(session: Session, seq: number, transcript: string): void {
-  if (seq < (session.state.roster_seq ?? 0)) {
-    throw new ManifestError("Refusing to pin an older device roster.");
+const ROSTER_TOO_OLD =
+  "This device is further behind than the server's device-list history reaches, so the " +
+  "chain from the roster it pinned cannot be checked. Pair this device again to anchor " +
+  "it on the current list.";
+
+/**
+ * Core's verdict as the class the callers of this module already catch.
+ *
+ * Core states the condition and the sentence is this client's, so the three
+ * clients can word it for their own user without the decision differing.
+ */
+function rosterFailure(err: unknown): Error {
+  const core: CoreError | null = coreErrorOf(err);
+  if (core === null) {
+    return err instanceof Error ? err : new Error(describeError(err));
   }
-  session.state.roster_seq = seq;
-  session.state.roster_transcript = transcript;
+  if (core.kind === "RosterTooOld") {
+    return new RosterTooOldError(ROSTER_TOO_OLD);
+  }
+  return new ManifestError("detail" in core ? core.detail : core.kind);
 }
 
-function rosterPin(state: DeviceState): { seq: number; transcript: string } {
-  const seq = state.roster_seq ?? 0;
-  const transcript = state.roster_transcript ?? "";
-  return seq > 0 && transcript ? { seq, transcript } : { seq: 0, transcript: "" };
+function rosterContext(state: DeviceState): RosterContext {
+  return {
+    collection_id: state.collection_id,
+    device_id: state.device_id,
+    roster_seq: state.roster_seq ?? 0,
+    roster_transcript: state.roster_transcript ?? "",
+  };
+}
+
+/** The fields core reads out of a wire roster. */
+function coreRosterOf(roster: Roster): CoreRoster {
+  return {
+    roster_seq: roster.roster_seq,
+    key_epoch: roster.key_epoch,
+    devices: roster.devices,
+    phrase_mldsa_pk: roster.phrase_mldsa_pk,
+    phrase_ed25519_pk: roster.phrase_ed25519_pk,
+    signer: roster.signer,
+  };
+}
+
+function rememberRosterPin(session: Session, seq: number, transcript: string): void {
+  let next;
+  try {
+    next = corePinRoster(rosterContext(session.state), { roster_seq: seq, transcript });
+  } catch (err) {
+    throw rosterFailure(err);
+  }
+  session.state.roster_seq = next.roster_seq;
+  session.state.roster_transcript = next.roster_transcript;
 }
 
 async function verifiedRosterChain(session: Session): Promise<RosterVerified> {
   const { state, token } = session;
-  const pin = rosterPin(state);
-  const base = `${apiRoot(state.server)}/v1/collections/${state.collection_id}/roster`;
-  const url = pin.seq > 0 ? `${base}?from=${pin.seq}` : base;
-  const response = await getJson<{ rosters: Roster[]; floor?: number }>(url, token);
-  const floor = response.floor ?? 0;
-  if (pin.seq > 0 && floor > pin.seq) {
-    log.error("roster history no longer reaches this device's pin", {
-      pinned_seq: pin.seq,
-      server_floor: floor,
-    });
-    throw new RosterTooOldError(
-      "This device is further behind than the server's device-list history reaches, so the " +
-        "chain from the roster it pinned cannot be checked. Pair this device again to anchor " +
-        "it on the current list.",
-    );
-  }
+  const context = rosterContext(state);
+  const request = coreRosterRequest(context);
+  const body = await getText(`${apiRoot(state.server)}${request.path}`, token);
   try {
-    const verified = rosterVerify(
-      state.collection_id,
-      pin.seq,
-      pin.transcript,
-      response.rosters,
-      session.collectionKey,
-      session.keyEpoch,
-      state.device_id,
-    );
+    const verified = coreRosterAccept(context, session.collectionKey, session.keyEpoch, 200, body);
+    const roster = JSON.parse(verified.roster_json) as Roster;
     log.info("device roster verified", {
-      from_seq: pin.seq,
-      to_seq: verified.pin_seq,
-      links: response.rosters.length,
-      devices: verified.roster.devices.length,
-      key_epoch: verified.roster.key_epoch,
+      from_seq: context.roster_seq,
+      to_seq: verified.pin.roster_seq,
+      bytes: body.length,
+      devices: roster.devices.length,
+      key_epoch: roster.key_epoch,
     });
-    return verified;
+    return { roster, pin_seq: verified.pin.roster_seq, pin_transcript: verified.pin.transcript };
   } catch (err) {
-    log.error("device roster failed to verify", {
-      pinned_seq: pin.seq,
-      links: response.rosters.length,
-      reason: describeError(err),
-    });
-    throw new ManifestError(err instanceof Error ? err.message : String(err));
+    const failure = rosterFailure(err);
+    log.error(
+      failure instanceof RosterTooOldError
+        ? "roster history no longer reaches this device's pin"
+        : "device roster failed to verify",
+      { pinned_seq: context.roster_seq, bytes: body.length, reason: failure.message },
+    );
+    throw failure;
   }
 }
 
@@ -95,16 +125,17 @@ export async function syncRoster(session: Session): Promise<Roster> {
 }
 
 export function pinSealedRoster(session: Session, roster: Roster): void {
-  const verified = rosterVerify(
-    session.state.collection_id,
-    0,
-    "",
-    [roster],
-    session.collectionKey,
-    session.keyEpoch,
-    session.state.device_id,
-  );
-  rememberRosterPin(session, verified.pin_seq, verified.pin_transcript);
+  let verified;
+  try {
+    verified = coreRosterAcceptSealed(
+      rosterContext(session.state),
+      session.collectionKey,
+      JSON.stringify(roster),
+    );
+  } catch (err) {
+    throw rosterFailure(err);
+  }
+  rememberRosterPin(session, verified.pin.roster_seq, verified.pin.transcript);
   session.roster = roster;
 }
 
@@ -114,11 +145,7 @@ export async function rosterDevices(
   signer: string,
 ): Promise<DevicePublic[]> {
   const cached = session.roster;
-  if (
-    cached &&
-    cached.key_epoch === keyEpoch &&
-    cached.devices.some((device) => device.device_id === signer)
-  ) {
+  if (cached && coreRosterAnswersFor(coreRosterOf(cached), keyEpoch, signer)) {
     return cached.devices;
   }
   return (await syncRoster(session)).devices;
