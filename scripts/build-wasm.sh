@@ -6,6 +6,7 @@ fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SEALBOOK="$(cd "$ROOT/../sealbook" && pwd)"
+bash "$ROOT/scripts/check-sealbook-pin.sh"
 export PATH="$HOME/.cargo/bin:$PATH"
 if ! command -v rustup >/dev/null 2>&1; then
   echo "rustup is required to build the WASM crypto module" >&2

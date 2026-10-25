@@ -1,6 +1,6 @@
 import type { AccountImportObject } from "./accountExport";
 import { bytesFromJson } from "./bytes";
-import { manifestSign, newUuid, openObject, sealedContentType } from "./wasm";
+import { manifestSignRoot, newUuid, openObject, sealedContentType } from "./wasm";
 import {
   ACCOUNT_SETTINGS_CONTENT_TYPE,
   ACCOUNT_SETTINGS_ID,
@@ -55,6 +55,7 @@ import { apiRoot, getJson, putJson } from "./transport";
 import {
   alignKeyEpoch,
   entryFor,
+  manifestBucketState,
   manifestState,
   rememberManifestSeq,
   sealPayload,
@@ -98,7 +99,11 @@ export async function putSealed(
   payload: string,
 ): Promise<number> {
   const attempt = async (): Promise<number> => {
-    const { seq, keyEpoch, latestRevision, entries } = await manifestState(session);
+    // Only the bucket this object falls in is read. Reading every entry per
+    // write is what made autosave in a large vault re-download the collection
+    // on each keystroke pause.
+    const state = await manifestBucketState(session, [id]);
+    const { seq, keyEpoch, latestRevision } = state;
     await alignKeyEpoch(session, keyEpoch);
     const revision = latestRevision + 1;
     const sealed = sealPayload(session, id, contentType, payload, revision);
@@ -109,7 +114,8 @@ export async function putSealed(
       ciphertext: sealed.encrypted.ciphertext,
       tombstone,
     });
-    const manifest = manifestSign(
+    const { objectCount, root } = state.apply([newEntry]);
+    const manifest = manifestSignRoot(
       bytesFromJson(session.state.mldsa_seed),
       bytesFromJson(session.state.ed25519_sk),
       session.state.collection_id,
@@ -117,7 +123,8 @@ export async function putSealed(
       seq + 1,
       keyEpoch,
       revision,
-      [...entries.filter((e) => e.id !== id), newEntry],
+      objectCount,
+      root,
     );
     const response = await putJson<{ revision: number }>(
       `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`,
@@ -162,7 +169,11 @@ export async function putCalendarEvents(
     const batch = events.slice(offset, offset + MAX_CALENDAR_EVENT_BATCH);
     const batchIds = ids.slice(offset, offset + MAX_CALENDAR_EVENT_BATCH);
     await serializeVault(session.state.collection_id, async () => {
-      const { seq, keyEpoch, latestRevision, entries } = await manifestState(session);
+      // Only the buckets this batch writes into, for the reason `putSealed`
+      // gives: reading every entry per batch made an import of n objects cost
+      // bytes proportional to n squared.
+      const state = await manifestBucketState(session, batchIds);
+      const { seq, keyEpoch, latestRevision } = state;
       await alignKeyEpoch(session, keyEpoch);
       const writes = batch.map((event, index) => {
         const { raw, ...fields } = event;
@@ -179,17 +190,18 @@ export async function putCalendarEvents(
         );
         return { id: batchIds[index], revision, sealed };
       });
-      const manifestEntries = [
-        ...entries,
-        ...writes.map((write) => entryFor({
-          id: write.id,
-          revision: write.revision,
-          tombstone: false,
-          nonce: write.sealed.encrypted.nonce,
-          ciphertext: write.sealed.encrypted.ciphertext,
-        })),
-      ];
-      const manifest = manifestSign(
+      const { objectCount, root } = state.apply(
+        writes.map((write) =>
+          entryFor({
+            id: write.id,
+            revision: write.revision,
+            tombstone: false,
+            nonce: write.sealed.encrypted.nonce,
+            ciphertext: write.sealed.encrypted.ciphertext,
+          }),
+        ),
+      );
+      const manifest = manifestSignRoot(
         bytesFromJson(session.state.mldsa_seed),
         bytesFromJson(session.state.ed25519_sk),
         session.state.collection_id,
@@ -197,7 +209,8 @@ export async function putCalendarEvents(
         seq + 1,
         keyEpoch,
         latestRevision + writes.length,
-        manifestEntries,
+        objectCount,
+        root,
       );
       const response = await putJson<{ latest_revision: number }>(
         `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects/batch`,
@@ -551,7 +564,11 @@ export async function importVault(
 
   for (const batch of importBatches(writes)) {
     await serializeVault(session.state.collection_id, async () => {
-      const { seq, keyEpoch, latestRevision, entries } = await manifestState(session);
+      const state = await manifestBucketState(
+        session,
+        batch.map((object) => object.id),
+      );
+      const { seq, keyEpoch, latestRevision } = state;
       await alignKeyEpoch(session, keyEpoch);
       const sealed = batch.map((object, index) => {
         const revision = latestRevision + index + 1;
@@ -572,12 +589,8 @@ export async function importVault(
           ciphertext: write.sealed.encrypted.ciphertext,
         }),
       );
-      const writtenIds = new Set(sealed.map((write) => write.id));
-      const manifestEntries = [
-        ...entries.filter((e) => !writtenIds.has(e.id)),
-        ...newEntries,
-      ];
-      const manifest = manifestSign(
+      const { objectCount, root } = state.apply(newEntries);
+      const manifest = manifestSignRoot(
         bytesFromJson(session.state.mldsa_seed),
         bytesFromJson(session.state.ed25519_sk),
         session.state.collection_id,
@@ -585,7 +598,8 @@ export async function importVault(
         seq + 1,
         keyEpoch,
         latestRevision + sealed.length,
-        manifestEntries,
+        objectCount,
+        root,
       );
       const response = await putJson<{ latest_revision: number }>(
         `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects/batch`,

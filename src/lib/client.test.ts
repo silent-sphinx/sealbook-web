@@ -32,6 +32,8 @@ import { b64ToByteArray } from "./bytes";
 import {
   createDevice,
   createEnrollment,
+  manifestBucketOf,
+  manifestBucketsBlob,
   manifestSign,
   newCollectionKey,
   newUuid,
@@ -170,6 +172,34 @@ function server(routes: Record<string, Handler>) {
   });
   vi.stubGlobal("fetch", fetchMock);
   return { sent, fetchMock };
+}
+
+/**
+ * The two shapes a flow may read the manifest in: the whole entry set, and the
+ * bucketed answer a single-object write uses. Both are served from one entry
+ * list, so a test cannot have them disagree, and the state is read per request
+ * so a route whose vault moves mid-flow still answers for the current one.
+ */
+function manifestRoutes(
+  state: () => { manifest: ManifestBody | null; entries: ManifestEntry[] },
+): Record<string, Handler> {
+  return {
+    "/manifest/buckets": (url) => {
+      const { manifest, entries } = state();
+      const query = url.searchParams.get("buckets") ?? "";
+      const served = [
+        ...new Set((query.match(/../gu) ?? []).map((pair) => parseInt(pair, 16))),
+      ].sort((a, b) => a - b);
+      return {
+        manifest,
+        buckets: manifestBucketsBlob(entries),
+        object_count: entries.length,
+        served,
+        entries: entries.filter((entry) => served.includes(manifestBucketOf(entry.id))),
+      };
+    },
+    "/manifest": () => state(),
+  };
 }
 
 describe("splitForRotation", () => {
@@ -1179,7 +1209,7 @@ describe("importVault", () => {
     const { manifest, entries } = live(owner, held, JSON.stringify({ "@type": "Card" }));
     const batches: BatchBody[] = [];
     server({
-      "/manifest": () => ({ manifest, entries }),
+      ...manifestRoutes(() => ({ manifest, entries })),
       "/roster": () => ({ rosters: [owner.roster] }),
       "/objects/batch": (_url, body) => {
         batches.push(body as BatchBody);
@@ -1300,7 +1330,7 @@ describe("a read that overlaps this device's own write", () => {
       }));
 
     server({
-      "/manifest": () => ({ manifest: current, entries: entriesOf(objects) }),
+      ...manifestRoutes(() => ({ manifest: current, entries: entriesOf(objects) })),
       "/objects": (_url, body) => {
         const put = body as SealedObject & { manifest: ManifestBody };
         objects = [
@@ -1369,7 +1399,7 @@ describe("putAccountSettings", () => {
       [],
     );
     const { sent } = server({
-      "/manifest": () => ({ manifest, entries: [] }),
+      ...manifestRoutes(() => ({ manifest, entries: [] })),
       "/roster": () => ({ rosters: [owner.roster] }),
       "/objects": () => ({ revision: 1 }),
     });
@@ -1411,6 +1441,222 @@ describe("putAccountSettings", () => {
   });
 });
 
+describe("a single-object write against a large vault", () => {
+  const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+  /** A distinct, well-formed 32-byte digest. The last character carries two
+   * spare bits, so it stays at zero. */
+  const digestOf = (n: number): string =>
+    ALPHABET[n % 64] + ALPHABET[Math.floor(n / 64) % 64] + "A".repeat(41);
+
+  /** A well-formed uuid whose first byte, and so whose bucket, is `bucket`. */
+  const idInBucket = (bucket: number): string =>
+    bucket.toString(16).padStart(2, "0") + newUuid().slice(2);
+
+  /** A vault of `count` objects, as the manifest describes it. */
+  function held(count: number): ManifestEntry[] {
+    return Array.from({ length: count }, (_, index) => ({
+      id: newUuid(),
+      revision: index + 1,
+      tombstone: false,
+      content_digest: digestOf(index),
+    }));
+  }
+
+  function vault(owner: Account, entries: ManifestEntry[]) {
+    const manifest = manifestSign(
+      owner.enrollment.mldsa_seed,
+      owner.enrollment.ed25519_sk,
+      owner.collectionId,
+      owner.enrollment.device_id,
+      2,
+      1,
+      entries.length,
+      entries,
+    );
+    return server({
+      ...manifestRoutes(() => ({ manifest, entries })),
+      "/roster": () => ({ rosters: [owner.roster] }),
+      "/objects": () => ({ revision: entries.length + 1 }),
+    });
+  }
+
+  it("reads one bucket rather than every entry in the collection", async () => {
+    const owner = account();
+    const entries = held(600);
+    const { fetchMock, sent } = vault(owner, entries);
+
+    await putContact(owner.session, {
+        ...emptyDraft(),
+        name: "Ada",
+        addressBookId: DEFAULT_ADDRESS_BOOK_ID,
+      });
+
+    const paths = fetchMock.mock.calls.map((call) => new URL(String(call[0])).pathname);
+    // The whole-collection read is what made autosave cost the vault's size.
+    expect(paths.filter((path) => path.endsWith("/manifest"))).toEqual([]);
+
+    const asked = fetchMock.mock.calls
+      .map((call) => String(call[0]))
+      .filter((url) => url.includes("/manifest/buckets"))
+      .map((url) => new URL(url).searchParams.get("buckets"));
+    const put = sent["/objects"] as SealedObject;
+    // One request, for the one bucket the written id falls in.
+    expect(asked).toEqual([manifestBucketOf(put.id).toString(16).padStart(2, "0")]);
+    // And it was served a fraction of the collection, not all 600 entries.
+    const served = entries.filter((entry) => manifestBucketOf(entry.id) === manifestBucketOf(put.id));
+    expect(served.length).toBeLessThan(40);
+  });
+
+  it("signs the digest a write that read every entry would have signed", async () => {
+    const owner = account();
+    const entries = held(600);
+    const { sent } = vault(owner, entries);
+
+    await putContact(owner.session, {
+        ...emptyDraft(),
+        name: "Ada",
+        addressBookId: DEFAULT_ADDRESS_BOOK_ID,
+      });
+
+    const put = sent["/objects"] as SealedObject & { manifest: ManifestBody };
+    const amended = [
+      ...entries,
+      {
+        id: put.id,
+        revision: put.revision,
+        tombstone: put.tombstone,
+        content_digest: objectContentDigest(put.nonce, put.ciphertext),
+      },
+    ];
+    // The bucketed root and the whole-collection digest are the same value, so a
+    // bucketed write is wire-compatible with one that held every entry.
+    const whole = manifestSign(
+      owner.enrollment.mldsa_seed,
+      owner.enrollment.ed25519_sk,
+      owner.collectionId,
+      owner.enrollment.device_id,
+      put.manifest.manifest_seq,
+      put.manifest.key_epoch,
+      put.manifest.latest_revision,
+      amended,
+    );
+    expect(put.manifest.digest).toBe(whole.digest);
+    expect(put.manifest.object_count).toBe(amended.length);
+  });
+
+  it("takes the collection's next revision on a vault with no manifest yet", async () => {
+    const owner = account();
+    const entries = held(600);
+    // A collection only a pre-manifest client has written. The bucket answer
+    // carries no revision for the entries it did not serve, so the next
+    // revision has to come from the whole set.
+    owner.session.manifestSeq = 0;
+    const { sent } = server({
+      ...manifestRoutes(() => ({ manifest: null, entries })),
+      "/roster": () => ({ rosters: [owner.roster] }),
+      "/objects": () => ({ revision: entries.length + 1 }),
+    });
+
+    await putContact(owner.session, {
+      ...emptyDraft(),
+      name: "Ada",
+      addressBookId: DEFAULT_ADDRESS_BOOK_ID,
+    });
+
+    const put = sent["/objects"] as SealedObject & { manifest: ManifestBody };
+    expect(put.revision).toBe(entries.length + 1);
+    expect(put.manifest.object_count).toBe(entries.length + 1);
+  });
+
+  it("refuses a bucket whose entries do not hash to its served digest", async () => {
+    const owner = account();
+    const entries = held(600);
+    const manifest = manifestSign(
+      owner.enrollment.mldsa_seed,
+      owner.enrollment.ed25519_sk,
+      owner.collectionId,
+      owner.enrollment.device_id,
+      2,
+      1,
+      entries.length,
+      entries,
+    );
+    server({
+      // The digests are the real ones, but the bucket is served an entry they do
+      // not cover: exactly what a server substituting an object looks like.
+      "/manifest/buckets": (url) => {
+        const query = url.searchParams.get("buckets") ?? "";
+        const served = [
+          ...new Set((query.match(/../gu) ?? []).map((pair) => parseInt(pair, 16))),
+        ].sort((a, b) => a - b);
+        const members = entries.filter((entry) => served.includes(manifestBucketOf(entry.id)));
+        return {
+          manifest,
+          buckets: manifestBucketsBlob(entries),
+          object_count: entries.length,
+          served,
+          entries: [
+            ...members,
+            {
+              id: idInBucket(served[0]!),
+              revision: 1,
+              tombstone: false,
+              content_digest: digestOf(4095),
+            },
+          ],
+        };
+      },
+      "/roster": () => ({ rosters: [owner.roster] }),
+      "/objects": () => ({ revision: entries.length + 1 }),
+    });
+
+    await expect(
+      putContact(owner.session, {
+        ...emptyDraft(),
+        name: "Ada",
+        addressBookId: DEFAULT_ADDRESS_BOOK_ID,
+      }),
+    ).rejects.toThrow(/do not match its digest/u);
+  });
+
+  it("refuses an answer for a bucket it did not ask for", async () => {
+    const owner = account();
+    const entries = held(600);
+    const manifest = manifestSign(
+      owner.enrollment.mldsa_seed,
+      owner.enrollment.ed25519_sk,
+      owner.collectionId,
+      owner.enrollment.device_id,
+      2,
+      1,
+      entries.length,
+      entries,
+    );
+    server({
+      "/manifest/buckets": () => ({
+        manifest,
+        buckets: manifestBucketsBlob(entries),
+        object_count: entries.length,
+        // A bucket list of its own choosing, which would let it answer for a
+        // bucket whose entries the write never checked.
+        served: [7, 9],
+        entries: entries.filter((entry) => [7, 9].includes(manifestBucketOf(entry.id))),
+      }),
+      "/roster": () => ({ rosters: [owner.roster] }),
+      "/objects": () => ({ revision: entries.length + 1 }),
+    });
+
+    await expect(
+      putContact(owner.session, {
+        ...emptyDraft(),
+        name: "Ada",
+        addressBookId: DEFAULT_ADDRESS_BOOK_ID,
+      }),
+    ).rejects.toThrow(/buckets other than the ones this write asked for/u);
+  });
+});
+
 describe("a write across a rotation it has not noticed", () => {
   it("re-seals under the refreshed key rather than the one it was holding", async () => {
     const owner = account();
@@ -1429,7 +1675,7 @@ describe("a write across a rotation it has not noticed", () => {
       [],
     );
     const { sent } = server({
-      "/manifest": () => ({ manifest, entries: [] }),
+      ...manifestRoutes(() => ({ manifest, entries: [] })),
       "/roster": () => ({ rosters: [owner.roster] }),
       "/keys": () => ({
         key_epoch: 2,
@@ -1499,7 +1745,7 @@ describe("a write across a rotation it has not noticed", () => {
     // claims, which is what a second rotation mid-write looks like.
     const wrap = wrapCkForDevice(newCollectionKey(), owner.enrollment.hpke_pk);
     server({
-      "/manifest": () => ({ manifest, entries: [] }),
+      ...manifestRoutes(() => ({ manifest, entries: [] })),
       "/roster": () => ({ rosters: [owner.roster] }),
       "/keys": () => ({
         key_epoch: 3,
@@ -1599,7 +1845,7 @@ describe("rotateAuthenticated", () => {
     owner.session.manifestSeq = 2;
     owner.session.state.manifest_seq = 2;
     const { sent } = server({
-      "/manifest": () => ({ manifest, entries }),
+      ...manifestRoutes(() => ({ manifest, entries })),
       "/changes": () => ({
         latest_revision: 4,
         key_epoch: 1,
@@ -1676,7 +1922,7 @@ describe("rotateAuthenticated", () => {
     owner.session.state.manifest_seq = 2;
     const pagesServed: number[] = [];
     const { sent } = server({
-      "/manifest": () => ({ manifest, entries }),
+      ...manifestRoutes(() => ({ manifest, entries })),
       "/changes": (url) => {
         const after = Number(url.searchParams.get("after") ?? 0);
         pagesServed.push(after);
@@ -1807,7 +2053,7 @@ describe("creating the default calendar on an account that predates the settings
         tombstone_floor: 1,
       }),
       "/roster": () => ({ rosters: [owner.roster] }),
-      "/manifest": () => ({ manifest: current, entries }),
+      ...manifestRoutes(() => ({ manifest: current, entries })),
       "/objects": (_url, body) => {
         const sent = body as (typeof writes)[number] & {
           revision: number;

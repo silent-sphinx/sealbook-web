@@ -16,9 +16,15 @@ import init, {
   opaque_register_finish,
   opaque_register_start,
   login_start_proof,
+  manifest_bucket_of_id,
+  manifest_buckets_apply,
+  manifest_buckets_blob,
+  manifest_buckets_root,
   manifest_digest_of,
   manifest_sign,
+  manifest_sign_root,
   manifest_verify,
+  manifest_verify_root,
   object_content_digest,
   open_object,
   pair_confirmation_code,
@@ -697,6 +703,109 @@ export function manifestVerify(
     BigInt(manifest.key_epoch),
     BigInt(manifest.latest_revision),
     JSON.stringify(entries),
+    manifest.digest,
+    manifest.signature.mldsa,
+    manifest.signature.ed25519,
+  );
+}
+
+/** The manifest bucket an object id falls in. */
+export function manifestBucketOf(id: string): number {
+  return manifest_bucket_of_id(id);
+}
+
+/**
+ * Checks a bucketed manifest answer and returns the root it commits to.
+ *
+ * The served entries of each bucket must hash to that bucket's digest, and the
+ * digests with the object count must produce the root. Together they are what
+ * the whole-collection digest check is, over a fraction of the entries.
+ */
+export function manifestBucketsRoot(
+  buckets: string,
+  objectCount: number,
+  served: number[],
+  entries: ManifestEntry[],
+): string {
+  return manifest_buckets_root(
+    buckets,
+    BigInt(objectCount),
+    JSON.stringify(served),
+    JSON.stringify(entries),
+  );
+}
+
+/** The 256 bucket digests of a whole entry set, concatenated and base64url. */
+export function manifestBucketsBlob(entries: ManifestEntry[]): string {
+  return manifest_buckets_blob(JSON.stringify(entries));
+}
+
+/** Folds written entries into a bucketed manifest, returning the next state. */
+export function manifestBucketsApply(
+  buckets: string,
+  objectCount: number,
+  held: number[],
+  entries: ManifestEntry[],
+  written: ManifestEntry[],
+): { object_count: number; root: string } {
+  return JSON.parse(
+    manifest_buckets_apply(
+      buckets,
+      BigInt(objectCount),
+      JSON.stringify(held),
+      JSON.stringify(entries),
+      JSON.stringify(written),
+    ),
+  ) as { object_count: number; root: string };
+}
+
+/** Signs a manifest for a root already derived from the bucket digests. */
+export function manifestSignRoot(
+  mldsaSeed: string,
+  ed25519Sk: string,
+  collectionId: string,
+  deviceId: string,
+  manifestSeq: number,
+  keyEpoch: number,
+  latestRevision: number,
+  objectCount: number,
+  root: string,
+): ManifestBody {
+  return JSON.parse(
+    manifest_sign_root(
+      mldsaSeed,
+      ed25519Sk,
+      collectionId,
+      deviceId,
+      BigInt(manifestSeq),
+      BigInt(keyEpoch),
+      BigInt(latestRevision),
+      BigInt(objectCount),
+      root,
+    ),
+  ) as ManifestBody;
+}
+
+/**
+ * Checks a served manifest's signature against a root derived from the bucket
+ * digests, the counterpart of `manifestVerify` for a bucketed read.
+ */
+export function manifestVerifyRoot(
+  signerMldsaPk: string,
+  signerEd25519Pk: string,
+  collectionId: string,
+  manifest: ManifestBody,
+  root: string,
+): void {
+  manifest_verify_root(
+    signerMldsaPk,
+    signerEd25519Pk,
+    collectionId,
+    BigInt(manifest.manifest_seq),
+    BigInt(manifest.key_epoch),
+    BigInt(manifest.latest_revision),
+    BigInt(manifest.object_count),
+    root,
     manifest.digest,
     manifest.signature.mldsa,
     manifest.signature.ed25519,

@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -11,6 +10,7 @@ import {
 } from "./accountExport";
 import { importBatches, type VaultExport } from "./client";
 import type { DeviceState } from "./types";
+import { readFixture } from "../test/fixtures";
 
 const state: DeviceState = {
   server: "https://vault.example",
@@ -250,11 +250,7 @@ describe("a backup from the v1.0.0 release", () => {
    * file `a_v1_release_export_parses_into_every_object_it_carries` reads in the
    * server repo, so both clients are held to one document.
    */
-  // Decoded rather than read as text: the `node:fs` shim in `src/node-fs.d.ts`
-  // is deliberately the one byte-returning overload the suite needs.
-  const fixture = new TextDecoder().decode(
-    readFileSync(new URL("../test/fixtures/v1.0.0-account-export.json", import.meta.url)),
-  );
+  const fixture = readFixture("v1.0.0-account-export.json");
 
   it("parses into every object it carries", () => {
     const { objects, source, unreadable } = parseAccountExport(fixture);
