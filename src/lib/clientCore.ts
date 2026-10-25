@@ -227,17 +227,20 @@ export async function manifestState(session: Session): Promise<{
  */
 export async function verifyManifest(
   session: Session,
-  manifest: ManifestBody,
+  manifestJson: string,
   entries: ManifestEntry[],
 ): Promise<void> {
   const context = manifestContext(session);
+  // Read rather than reassembled: the signature covers the bytes the server
+  // sent, and the manifest is what says which roster to check them against.
+  const manifest = JSON.parse(manifestJson) as ManifestBody;
   const devices = await devicesFor(session, {
     key_epoch: manifest.key_epoch,
     device_id: manifest.device_id,
   });
   let plan: ManifestPlan;
   try {
-    plan = coreManifestVerify(context, JSON.stringify(manifest), entries, devices);
+    plan = coreManifestVerify(context, manifestJson, entries, devices);
   } catch (err) {
     log.error("vault manifest refused", {
       seq: manifest.manifest_seq,

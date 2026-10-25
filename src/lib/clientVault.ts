@@ -1,6 +1,18 @@
 import type { AccountImportObject } from "./accountExport";
 import { bytesFromJson } from "./bytes";
-import { coreManifestSignRoot, newUuid, openObject, sealedContentType } from "./wasm";
+import {
+  coreChangesRequest,
+  coreErrorOf,
+  coreLatestRevisions,
+  coreManifestSignRoot,
+  coreOpenRow,
+  coreRequireKeyEpoch,
+  coreWalkPage,
+  coreWalkStart,
+  newUuid,
+  sealedContentType,
+} from "./wasm";
+import type { ChangesPage, WalkCursor, WalkOutcome, WalkStep } from "../pkg/sealbook_wasm.js";
 import {
   ACCOUNT_SETTINGS_CONTENT_TYPE,
   ACCOUNT_SETTINGS_ID,
@@ -40,7 +52,7 @@ import {
   sortNotes,
 } from "./note";
 import { parseContact, sortContacts } from "./contact";
-import { log, elapsed } from "./log";
+import { describeError, log, elapsed } from "./log";
 import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
 import { importBatches } from "./vaultImport";
 import {
@@ -81,17 +93,6 @@ import type {
   Task,
   TaskList,
 } from "./types";
-
-/** Most objects to ask for per `/changes` page; the server clamps above this. */
-const CHANGES_PAGE_LIMIT = 500;
-
-/**
- * How many times a full read restarts when the vault moves during it.
- *
- * Not a `ManifestError` when it runs out: a write between two pages is a race,
- * and reporting it as tampering is both wrong and unactionable.
- */
-const MAX_SYNC_RESTARTS = 3;
 
 /**
  * Signs the manifest for the state a write produces.
@@ -304,7 +305,12 @@ export type ChangesWalk = {
   objects: SealedObject[];
   keyEpoch: number;
   latestRevision: number;
-  manifest: ManifestBody | null;
+  /**
+   * The manifest to check the objects against, verbatim as it was served.
+   * Absent for a collection no manifest-writing client has written, where
+   * `requireManifestAbsenceOk` is the rule instead.
+   */
+  manifestJson?: string;
   tombstoneFloor: number;
 };
 
@@ -315,115 +321,95 @@ export type ChangesWalk = {
  * that needs the whole collection pages through it, rotation included: the
  * manifest commits to the collection rather than to any one page of it, and the
  * callers check their assembled set against it.
+ *
+ * Every rule the walk follows is core's: what to ask for, when the cursor
+ * advances, when a page means the walk has to start over, and when it is
+ * complete. This moves the bytes and keeps the rows.
  */
 export async function walkChanges(session: Session): Promise<ChangesWalk> {
   const { state, token } = session;
   const started = performance.now();
   let pages = 0;
-  let after = 0;
-  let keyEpoch = session.keyEpoch;
-  let latestRevision = session.latestRevision;
-  let manifest: ManifestBody | null = null;
-  let tombstoneFloor = 0;
-  let pageObjects: SealedObject[] = [];
-  // Superseded revisions are pruned after a retention window, so a walk can name
-  // a watermark whose successors no longer exist. The server answers `resync`
-  // rather than serving the remaining tail, which would silently skip the writes
-  // in between. A snapshot walk pages through live objects instead of the log, so
-  // it needs nothing retained; once is enough, and a second `resync` would mean
-  // the server is answering something other than what was asked.
-  let snapshot = false;
-  let restarted = false;
-  // Pages come from separate transactions, so a write landing between two of
-  // them leaves the accumulated set and the final manifest describing different
-  // states. The digest then disagrees and `verifyManifest` reports a withheld or
-  // substituted object, which is the loudest thing this app says and is wrong
-  // here. Every page carries the current manifest, so a walk that sees the
-  // sequence move restarts instead, bounded so a vault being written to
-  // continuously fails plainly rather than looping.
-  let expectedSeq: number | null | undefined;
-  let moved = 0;
-  for (;;) {
-    const page = await getJson<{
-      latest_revision: number;
-      key_epoch: number;
-      objects: SealedObject[];
-      has_more: boolean;
-      manifest: ManifestBody | null;
-      resync?: boolean;
-      tombstone_floor?: number;
-    }>(
-      `${apiRoot(state.server)}/v1/collections/${state.collection_id}/changes?after=${after}` +
-        `&limit=${CHANGES_PAGE_LIMIT}${snapshot ? "&snapshot=true" : ""}`,
-      token,
-    );
+  let cursor = coreWalkStart(0);
+  let rows: SealedObject[] = [];
+  let walk: WalkOutcome | undefined;
+  while (!walk) {
+    const request = coreChangesRequest(state.collection_id, cursor);
+    const page = await getJson<ChangesBody>(`${apiRoot(state.server)}${request.path}`, token);
     pages += 1;
-    if (page.resync && !snapshot) {
-      if (restarted) {
-        log.error("the server asked for a second resync in one walk", { pages });
-        throw new Error("The server keeps asking this device to restart its sync.");
-      }
-      log.warn("the revision log no longer reaches this device; reading a snapshot instead");
-      restarted = true;
-      snapshot = true;
-      after = 0;
-      pageObjects = [];
-      expectedSeq = undefined;
-      continue;
-    }
-    const pageSeq = page.manifest ? page.manifest.manifest_seq : null;
-    if (expectedSeq === undefined) {
-      expectedSeq = pageSeq;
-    } else if (pageSeq !== expectedSeq) {
-      if (moved >= MAX_SYNC_RESTARTS) {
-        log.warn("the vault was written to on every attempt to read it", {
-          attempts: moved,
-          pages,
-        });
-        throw new Error(
-          "The vault kept changing while it was being read. Another device may be writing to it; try again.",
-        );
-      }
-      moved += 1;
-      log.debug("vault changed mid-read, restarting the walk", { attempt: moved, pages });
-      expectedSeq = undefined;
-      after = 0;
-      pageObjects = [];
-      continue;
-    }
-    keyEpoch = page.key_epoch;
-    latestRevision = Math.max(latestRevision, page.latest_revision);
-    manifest = page.manifest;
-    tombstoneFloor = page.tombstone_floor ?? 0;
-    pageObjects.push(...page.objects);
-    const high = page.objects.reduce((top, object) => Math.max(top, object.revision), 0);
-    if (!page.has_more || high <= after) break;
-    after = high;
-  }
-  // Only the newest revision of each object is carried out of the walk.
-  const latestByObject = new Map<string, SealedObject>();
-  for (const object of pageObjects) {
-    const previous = latestByObject.get(object.id);
-    if (!previous || object.revision > previous.revision) {
-      latestByObject.set(object.id, object);
+    const step = walkPage(cursor, {
+      manifest_json: page.manifest ? JSON.stringify(page.manifest) : undefined,
+      key_epoch: page.key_epoch,
+      latest_revision: page.latest_revision,
+      tombstone_floor: page.tombstone_floor ?? 0,
+      has_more: page.has_more,
+      resync: page.resync ?? false,
+      highest_revision: page.objects.reduce((top, object) => Math.max(top, object.revision), 0),
+    });
+    if ("Next" in step) {
+      rows.push(...page.objects);
+      cursor = step.Next.cursor;
+    } else if ("Restart" in step) {
+      // The rows read so far and the manifest that would check them describe
+      // different states, so they go rather than being reported as tampering.
+      log.debug("restarting the walk", { pages, after: step.Restart.cursor.after });
+      rows = [];
+      cursor = step.Restart.cursor;
+    } else {
+      rows.push(...page.objects);
+      walk = step.Done.walk;
     }
   }
+
+  const keep = coreLatestRevisions(rows.map((row) => ({ id: row.id, revision: row.revision })));
+  const objects = keep.map((index) => rows[index]);
   log.debug("walked the change log", {
     pages,
-    rows: pageObjects.length,
-    objects: latestByObject.size,
-    key_epoch: keyEpoch,
-    snapshot,
+    rows: rows.length,
+    objects: objects.length,
+    key_epoch: walk.key_epoch,
+    snapshot: cursor.snapshot,
     ms: elapsed(started),
   });
   return {
-    objects: [...latestByObject.values()],
-    keyEpoch,
-    latestRevision,
-    manifest,
-    tombstoneFloor,
+    objects,
+    keyEpoch: walk.key_epoch,
+    latestRevision: walk.latest_revision,
+    manifestJson: walk.manifest_json,
+    tombstoneFloor: walk.tombstone_floor,
   };
 }
+
+/**
+ * What core says to do with a page, with its refusal turned into a sentence.
+ *
+ * Deliberately not a `ManifestError`: a write between two pages is a race, and
+ * reporting it as tampering is both wrong and unactionable.
+ */
+function walkPage(cursor: WalkCursor, page: ChangesPage): WalkStep {
+  try {
+    return coreWalkPage(cursor, page);
+  } catch (err) {
+    const core = coreErrorOf(err);
+    if (core?.kind === "CollectionBusy") {
+      throw new Error(
+        "The vault kept changing while it was being read. Another device may be writing to it; try again.",
+      );
+    }
+    throw new Error(core && "detail" in core ? core.detail : describeError(err));
+  }
+}
+
+/** A `/changes` page as the server sends it. */
+type ChangesBody = {
+  latest_revision: number;
+  key_epoch: number;
+  objects: SealedObject[];
+  has_more: boolean;
+  manifest: ManifestBody | null;
+  resync?: boolean;
+  tombstone_floor?: number;
+};
 
 type OpenedVaultObject = {
   object: SealedObject;
@@ -461,7 +447,7 @@ async function openVault(
   // re-encrypted. Pick up the new key before decrypting, otherwise every object
   // would fail to open and the vault would look empty.
   if (walk.keyEpoch !== session.keyEpoch) {
-    await refreshCollectionKey(session);
+    coreRequireKeyEpoch(walk.keyEpoch, await refreshCollectionKey(session));
   }
   const { collectionKey } = session;
   const opened: OpenedVaultObject[] = [];
@@ -469,36 +455,31 @@ async function openVault(
   // Check what was served against what a device signed for, before decrypting any
   // of it. A failure here means an object was withheld, rolled back or
   // substituted, and must not be presented as an empty or partial vault.
-  if (walk.manifest) {
+  if (walk.manifestJson) {
     onProgress?.({ stage: "verifying" });
-    await verifyManifest(session, walk.manifest, walk.objects.map(entryFor));
+    await verifyManifest(session, walk.manifestJson, walk.objects.map(entryFor));
   } else {
     requireManifestAbsenceOk(session);
   }
   if (onProgress && walk.objects.length > 0) {
     onProgress({ stage: "decrypting", count: walk.objects.length });
-    // `openObject` is synchronous and holds the main thread for the whole loop
+    // `coreOpenRow` is synchronous and holds the main thread for the whole loop
     // below, so the stage above would otherwise never be painted. Yielding to
     // the event loop rather than to a microtask is what lets that paint land.
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
   for (const obj of walk.objects) {
-    // A rotation never re-encrypts a tombstone (clientRotation.ts), so one that
-    // has outlived a rotation is still sealed under a key this device no longer
-    // holds. The row-level flag already says it is a delete with nothing to
-    // read, and the manifest above is what vouches for that flag, so there is
-    // nothing to decrypt and a failure here is not this device losing access.
-    if (obj.tombstone) continue;
-    try {
-      const result = openObject(collectionKey, obj.id, state.collection_id, obj.nonce, obj.ciphertext, obj.padded_size);
-      if (result.tombstone) continue;
-      opened.push({ object: obj, contentType: result.contentType, payload: result.payload });
-    } catch {
-      // The manifest already verified, so this row is one a device signed for
-      // and the server served faithfully: the failure is local, and dropping it
-      // silently is what made an unreadable vault look like an emptied one.
+    const result = coreOpenRow(collectionKey, state.collection_id, obj);
+    if (result === "Deleted") continue;
+    if ("Unreadable" in result) {
       unopened += 1;
+      continue;
     }
+    opened.push({
+      object: obj,
+      contentType: result.Object.content_type,
+      payload: result.Object.payload,
+    });
   }
   if (unopened > 0) {
     // The manifest verified, so these rows are genuine and the failure is local:

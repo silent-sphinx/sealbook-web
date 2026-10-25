@@ -1,6 +1,8 @@
 import init, {
   account_op_sign,
   core_accept_manifest_seq,
+  core_changes_request,
+  core_latest_revisions,
   core_manifest_absence_ok,
   core_manifest_accept,
   core_manifest_apply,
@@ -13,11 +15,15 @@ import init, {
   core_manifest_sign_root,
   core_manifest_signer,
   core_manifest_verify,
+  core_open_row,
   core_pin_roster,
   core_roster_accept,
   core_roster_accept_sealed,
   core_roster_answers_for,
   core_roster_request,
+  core_require_key_epoch,
+  core_walk_page,
+  core_walk_start,
   AttachmentHash,
   create_device,
   create_enrollment,
@@ -63,19 +69,25 @@ import type {
   AppliedManifest,
   BucketedManifest,
   BucketsOutcome,
+  ChangesPage,
   CoreDevice,
   CoreError,
   CoreManifestEntry,
   CoreRoster,
   CoreRosterPin,
+  CoreSealedRow,
   HttpRequest,
   ManifestContext,
   ManifestOutcome,
   ManifestPlan,
   ManifestSigner,
   RosterContext,
+  RowOutcome,
+  RowRef,
   SignedManifest,
   VerifiedRoster,
+  WalkCursor,
+  WalkStep,
 } from "../pkg/sealbook_wasm.js";
 import { log } from "./log";
 import { PAYLOAD_SCHEMA_VERSION } from "./payload";
@@ -869,6 +881,63 @@ export function coreManifestEntryFor(
 /** The sequence to persist once a manifest has been verified. */
 export function coreAcceptManifestSeq(current: number, seq: number): number {
   return Number(core_accept_manifest_seq(BigInt(current), BigInt(seq)));
+}
+
+// ── Core: the read path ──
+
+export type { ChangesPage, CoreSealedRow, RowOutcome, WalkCursor, WalkStep };
+
+/** A walk that starts after `after`, or from nothing when that is 0. */
+export function coreWalkStart(after: number): WalkCursor {
+  return core_walk_start(BigInt(after));
+}
+
+/**
+ * The request for the next page of a walk.
+ *
+ * `path` is server-relative: the caller prefixes its own API root and adds the
+ * bearer token, which core never sees.
+ */
+export function coreChangesRequest(collectionId: string, cursor: WalkCursor): HttpRequest {
+  return core_changes_request(collectionId, cursor);
+}
+
+/**
+ * What the walk does with the page it was just served: another page, a restart
+ * that drops the rows read so far, or the walk being complete.
+ */
+export function coreWalkPage(cursor: WalkCursor, page: ChangesPage): WalkStep {
+  return core_walk_page(cursor, page);
+}
+
+/**
+ * The rows to keep out of a walk, as indices into the rows walked.
+ *
+ * Indices rather than the rows, so a collection's ciphertexts do not cross this
+ * boundary again to be deduplicated.
+ */
+export function coreLatestRevisions(rows: RowRef[]): number[] {
+  return [...core_latest_revisions(rows)];
+}
+
+/**
+ * Decrypts one served row and opens its envelope.
+ *
+ * Only an unusable collection key throws: every other failure is one row's and
+ * comes back as `Unreadable`, so one object this device cannot read does not
+ * cost it the rest of the collection.
+ */
+export function coreOpenRow(
+  ck: string,
+  collectionId: string,
+  row: CoreSealedRow,
+): RowOutcome {
+  return core_open_row(ck, collectionId, row);
+}
+
+/** The rule for a collection key that moved while a read was in flight. */
+export function coreRequireKeyEpoch(expected: number, held: number): void {
+  core_require_key_epoch(BigInt(expected), BigInt(held));
 }
 
 // ── Core: roster ──
