@@ -1,3 +1,38 @@
+/**
+ * This client's wording for each rotation core refused.
+ *
+ * Core names the condition rather than carrying a sentence, so the three
+ * clients refuse the same rotations and each says it in its own words.
+ */
+const ROTATION_REFUSALS: Record<string, string> = {
+  RevokingSelf: "You can't revoke the device you're signed in on.",
+  NotInRoster: "That device has already been removed.",
+  LastDevice: "You can't revoke the last device.",
+  NotEnrolled: "This device isn't in the account's device list. Sign in again.",
+  // Counting the row would leave it sealed under the key the rotation retires,
+  // which drops the object from the vault for good, so nothing was written.
+  Unreadable:
+    "One object in this vault can't be re-encrypted, so the key wasn't rotated and nothing " +
+    "was changed. Sign in on a device that can read it.",
+};
+
+/**
+ * Parsed here rather than through the client's own `coreErrorOf`, which would
+ * pull the wasm module into every component that reports an error.
+ */
+function rotationRefusal(raw: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const error = parsed as { kind?: unknown; refusal?: { refusal?: unknown } };
+  if (error.kind !== "Rotation" || typeof error.refusal?.refusal !== "string") return null;
+  return ROTATION_REFUSALS[error.refusal.refusal] ?? null;
+}
+
 export function friendlyError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   const text = raw.toLowerCase();
@@ -10,6 +45,12 @@ export function friendlyError(err: unknown): string {
   }
   if (err instanceof Error && err.name === "RequestTimeoutError") {
     return "The server didn't answer in time. It may be starting up, or the address may point somewhere else.";
+  }
+  // Before the message branches below: core's error is JSON, so a refusal that
+  // names a device list would otherwise match the roster branch.
+  const refusal = rotationRefusal(raw);
+  if (refusal !== null) {
+    return refusal;
   }
   if (text.includes("username taken")) {
     return "That name is taken.";

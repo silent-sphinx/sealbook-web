@@ -21,7 +21,6 @@ import {
   rotateAuthenticated,
   RosterTooOldError,
   ServerUnreachableError,
-  splitForRotation,
   sweepOrphanedAttachments,
   syncRoster,
   uploadAttachment,
@@ -201,38 +200,6 @@ function manifestRoutes(
     "/manifest": () => state(),
   };
 }
-
-describe("splitForRotation", () => {
-  const object = (id: string, revision: number, tombstone: boolean): SealedObject => ({
-    id,
-    revision,
-    tombstone,
-    nonce: "",
-    ciphertext: "",
-    padded_size: 0,
-    content_type: sealedContentType(),
-  });
-
-  it("re-encrypts the live objects and carries the reachable tombstones", () => {
-    const split = splitForRotation(
-      [object("a", 9, false), object("b", 4, true), object("c", 7, true)],
-      5,
-    );
-    expect(split.live.map((entry) => entry.id)).toEqual(["a"]);
-    // Above the floor: a lagging device can still be told about this delete
-    // incrementally, so the manifest has to keep describing the row.
-    expect(split.tombstones.map((entry) => entry.id)).toEqual(["c"]);
-    // Below it: no incremental answer can carry the delete any more, so the row
-    // has done its job and this rotation is what retires it.
-    expect(split.retired).toEqual(["b"]);
-  });
-
-  it("retires nothing when the server reports no floor", () => {
-    const split = splitForRotation([object("a", 1, true)], 0);
-    expect(split.retired).toEqual([]);
-    expect(split.tombstones.map((entry) => entry.id)).toEqual(["a"]);
-  });
-});
 
 describe("the genesis roster", () => {
   it("is one device, signed by itself, that verifies under the collection key", () => {

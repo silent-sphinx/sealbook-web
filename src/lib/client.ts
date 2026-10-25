@@ -99,4 +99,4 @@ export {
   putSealed,
 } from "./clientVault";
 
-export { rotateAuthenticated, splitForRotation } from "./clientRotation";
+export { rotateAuthenticated } from "./clientRotation";

@@ -22,6 +22,10 @@ import init, {
   core_roster_answers_for,
   core_roster_request,
   core_require_key_epoch,
+  core_reseal_row,
+  core_rotation_entries,
+  core_rotation_plan,
+  core_rotation_recipients,
   core_walk_page,
   core_walk_start,
   AttachmentHash,
@@ -53,7 +57,6 @@ import init, {
   phrase_lookup_id_b64,
   phrase_recovery_json,
   phrase_recovery_proof_json,
-  reseal_object,
   roster_seal_device,
   roster_seal_phrase,
   roster_verify,
@@ -81,7 +84,10 @@ import type {
   ManifestOutcome,
   ManifestPlan,
   ManifestSigner,
+  ResealRow,
   RosterContext,
+  RotationPlan,
+  RotationState,
   RowOutcome,
   RowRef,
   SignedManifest,
@@ -520,27 +526,6 @@ export function openObject(
   return JSON.parse(
     open_object(ck, objectId, collectionId, nonce, ciphertext, paddedSize),
   ) as OpenedObject;
-}
-
-/**
- * Re-encrypts one stored object from the old collection key to the new one.
- *
- * The plaintext stays inside wasm: decoding it as a JavaScript string would
- * rewrite any payload that is not valid UTF-8, and a rotation touches the whole
- * vault at once.
- */
-export function resealObject(
-  oldCk: string,
-  newCk: string,
-  objectId: string,
-  collectionId: string,
-  nonce: string,
-  ciphertext: string,
-  paddedSize: number,
-): EncryptedOut {
-  return JSON.parse(
-    reseal_object(oldCk, newCk, objectId, collectionId, nonce, ciphertext, paddedSize),
-  ) as EncryptedOut;
 }
 
 export function newUuid(): string {
@@ -1015,4 +1000,62 @@ export function coreRosterAnswersFor(
     keyEpoch === undefined ? undefined : BigInt(keyEpoch),
     signer,
   );
+}
+
+// ── Core: rotation ──
+
+export type { ResealRow, RotationPlan, RotationState };
+
+/**
+ * What a rotation does with the collection it just read: which rows are
+ * re-sealed and at which revision, which tombstones the manifest carries, which
+ * rows it retires, and the sequence and epoch it advances to.
+ *
+ * Throws on a live row this device cannot open, which no other read does: a
+ * rotation re-encrypts each row from its plaintext, so counting one it cannot
+ * read would drop the object from the collection for good.
+ */
+export function coreRotationPlan(
+  ck: string,
+  collectionId: string,
+  state: RotationState,
+  rows: CoreSealedRow[],
+): RotationPlan {
+  return core_rotation_plan(ck, collectionId, state, rows);
+}
+
+/** The devices a rotation re-wraps the new key for, from the verified roster. */
+export function coreRotationRecipients(
+  selfDeviceId: string,
+  revokeDeviceId: string | null,
+  devices: CoreDevice[],
+): CoreDevice[] {
+  return core_rotation_recipients(selfDeviceId, revokeDeviceId, devices);
+}
+
+/**
+ * One planned row re-sealed under the new key, at the revision the plan gave it.
+ *
+ * The plaintext stays inside wasm: decoding it as a JavaScript string would
+ * rewrite any payload that is not valid UTF-8, and a rotation touches the whole
+ * vault at once.
+ */
+export function coreResealRow(
+  oldCk: string,
+  newCk: string,
+  collectionId: string,
+  row: ResealRow,
+): CoreSealedRow {
+  return core_reseal_row(oldCk, newCk, collectionId, row);
+}
+
+/**
+ * The manifest entry set for a rotation, from its plan and the rows just
+ * re-sealed.
+ */
+export function coreRotationEntries(
+  plan: RotationPlan,
+  resealed: CoreSealedRow[],
+): CoreManifestEntry[] {
+  return core_rotation_entries(plan, resealed);
 }

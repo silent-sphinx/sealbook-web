@@ -19,6 +19,28 @@ describe("friendlyError", () => {
     expect(text).toContain("signed for");
   });
 
+  // Core refuses a rotation by naming the condition. The sentence is this
+  // client's, and the condition must not fall through to the generic answer or
+  // to the roster branch, which the serialized error's own text would match.
+  it("words each rotation core refused", () => {
+    const refusal = (name: string) =>
+      friendlyError(new Error(JSON.stringify({ kind: "Rotation", refusal: { refusal: name } })));
+    expect(refusal("LastDevice")).toBe("You can't revoke the last device.");
+    expect(refusal("RevokingSelf")).toContain("signed in on");
+    expect(refusal("NotInRoster")).toContain("already been removed");
+    expect(refusal("NotEnrolled")).toContain("Sign in again");
+    expect(
+      friendlyError(
+        new Error(
+          JSON.stringify({
+            kind: "Rotation",
+            refusal: { refusal: "Unreadable", object: "a5a5a5a5", reason: "Key" },
+          }),
+        ),
+      ),
+    ).toContain("nothing was changed");
+  });
+
   it("gives a roster failure its own answer", () => {
     const text = friendlyError(new ManifestError("roster mac does not verify"));
     expect(text).toContain("device list");
