@@ -7,14 +7,14 @@ import {
   corePairPath,
   corePairPreview,
   corePairStatus,
-  createDevice,
+  coreNewDevice,
 } from "./wasm";
 import { pinSealedRoster, syncRoster, verifiedRosterCore } from "./roster";
 import { apiRoot, getJson, getTextStatus, postJson } from "./transport";
-import { checkProtocol, deviceFromKeys, type Session } from "./clientCore";
+import { checkProtocol, deviceFromSecrets, type Session } from "./clientCore";
 import { rotateVault } from "./clientAuth";
 import type { CoreDevice, CorePairPreview, PairStatus } from "./wasm";
-import type { Roster } from "./types";
+import type { DeviceState, Roster } from "./types";
 
 /**
  * A pairing request as this device checked it.
@@ -44,28 +44,20 @@ export async function pairJoin(
   confirm: string;
   rosterSeq: number;
   rosterTranscript: string;
-  state: ReturnType<typeof deviceFromKeys>;
+  state: DeviceState;
 }> {
   const root = apiRoot(server);
   await checkProtocol(root);
-  const device = createDevice();
-  const keys: CoreDevice = {
-    device_id: device.device_id,
-    mldsa_pk: device.mldsa_pk,
-    ed25519_pk: device.ed25519_pk,
-    xwing_hpke_pk: device.hpke_pk,
-  };
-  const body = corePairJoinBody(
-    username,
-    keys,
-    bytesFromJson(device.mldsa_seed),
-    bytesFromJson(device.ed25519_sk),
-  );
+  // One generator for every new device, whether it arrives by registering,
+  // recovering or pairing, so the three cannot drift apart again.
+  const device = coreNewDevice();
+  const keys: CoreDevice = device.device;
+  const body = corePairJoinBody(username, keys, device.mldsa_seed, device.ed25519_sk);
   const served = await postJson<unknown>(`${root}/v1/pair/join`, JSON.parse(body));
   // Core checks the anchor, computes the code this device shows, and refuses a
   // server copy that is not it.
   const joined = corePairJoinAccept(keys, JSON.stringify(served));
-  const state = deviceFromKeys(root, username, "", "", device);
+  const state = deviceFromSecrets(root, username, device);
   // The anchor the user is about to confirm by comparing codes. Pinning it here
   // means the roster this device is served after the approval has to be a signed
   // step from the one the code committed to.

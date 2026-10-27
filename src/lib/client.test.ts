@@ -6,7 +6,6 @@ import {
   downloadAttachment,
   ensureDefaultCalendar,
   exportVault,
-  genesisRoster,
   importBatches,
   importVault,
   paddedLength,
@@ -102,6 +101,32 @@ function deviceKeys(device: DeviceOut): DevicePublic {
     ed25519_pk: device.ed25519_pk,
     xwing_hpke_pk: device.hpke_pk,
   };
+}
+
+/**
+ * The roster an account starts life with. Core seals this one inside its
+ * register request now, so the shape is spelled out here for the fixture.
+ */
+function genesisRoster(collectionId: string, enrollment: Enrollment): Roster {
+  return rosterSealDevice(
+    collectionId,
+    1,
+    1,
+    [
+      {
+        device_id: enrollment.device_id,
+        mldsa_pk: enrollment.mldsa_pk,
+        ed25519_pk: enrollment.ed25519_pk,
+        xwing_hpke_pk: enrollment.hpke_pk,
+      },
+    ],
+    enrollment.phrase_mldsa_pk,
+    enrollment.phrase_ed25519_pk,
+    enrollment.device_id,
+    enrollment.mldsa_seed,
+    enrollment.ed25519_sk,
+    enrollment.collection_key,
+  );
 }
 
 /** A registered account, as it stands after `registerAccount` and a login. */

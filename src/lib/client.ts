@@ -70,7 +70,6 @@ export {
   changeUsername,
   completeRecoveryRotation,
   deleteAccount,
-  genesisRoster,
   loginAccount,
   recoverAccount,
   registerAccount,

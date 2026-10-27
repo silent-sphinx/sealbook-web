@@ -34,6 +34,20 @@ const PAIR_REFUSALS: Record<string, string> = {
   TypedCode: "That code doesn't match the one for this pairing.",
 };
 
+const AUTH_REFUSALS: Record<string, string> = {
+  Username:
+    "A name can be 3 to 64 characters of letters, digits, dot, dash or underscore, and " +
+    "nothing else.",
+  Phrase: "That isn't a 24-word recovery phrase. Check for a missing or misspelled word.",
+  PhraseMismatch:
+    "That recovery phrase doesn't open this account. Check the account name and the words.",
+  NoRoster:
+    "The server sent no device list for this account, so the devices this would restore " +
+    "access alongside can't be checked.",
+  Challenge: "The server's answer wasn't in the shape a recovery needs. Try again.",
+  NoKeyWrap: "This device no longer has access to the vault. It may have been removed.",
+};
+
 /**
  * Parsed here rather than through the client's own `coreErrorOf`, which would
  * pull the wasm module into every component that reports an error.
@@ -79,6 +93,20 @@ function pairingRefusal(raw: string): string | null {
   }
 }
 
+function authRefusal(raw: string): string | null {
+  const refusal = coreRefusal(raw, "Auth");
+  if (refusal === null) {
+    return null;
+  }
+  if (refusal.refusal === "CollectionMoved") {
+    return (
+      "The server answered with a different vault than the one this device just signed for. " +
+      "Nothing was saved."
+    );
+  }
+  return AUTH_REFUSALS[refusal.refusal as string] ?? null;
+}
+
 export function friendlyError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   const text = raw.toLowerCase();
@@ -94,7 +122,7 @@ export function friendlyError(err: unknown): string {
   }
   // Before the message branches below: core's error is JSON, so a refusal that
   // names a device list would otherwise match the roster branch.
-  const refusal = rotationRefusal(raw) ?? pairingRefusal(raw);
+  const refusal = rotationRefusal(raw) ?? pairingRefusal(raw) ?? authRefusal(raw);
   if (refusal !== null) {
     return refusal;
   }

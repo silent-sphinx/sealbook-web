@@ -1,7 +1,31 @@
 import init, {
-  account_op_sign,
   core_accept_manifest_seq,
+  core_account_challenge_request,
+  core_change_password_request,
+  core_change_username_request,
   core_changes_request,
+  core_delete_account_request,
+  core_login_accept,
+  core_login_challenge_request,
+  core_login_finish_request,
+  core_login_start_request,
+  core_new_device,
+  core_new_registration,
+  core_normalize_phrase,
+  core_normalize_username,
+  core_opaque_login_start,
+  core_opaque_register_start,
+  core_opaque_register_upload,
+  core_password_change_start_accept,
+  core_password_change_start_request,
+  core_recover_accept,
+  core_recover_finish_request,
+  core_recover_start_accept,
+  core_recover_start_request,
+  core_register_accept,
+  core_register_finish_request,
+  core_register_start_accept,
+  core_register_start_request,
   core_latest_revisions,
   core_manifest_absence_ok,
   core_manifest_accept,
@@ -49,11 +73,6 @@ import init, {
   new_uuid,
   open_attachment_chunk,
   seal_attachment_chunk,
-  opaque_login_finish,
-  opaque_login_start,
-  opaque_register_finish,
-  opaque_register_start,
-  login_start_proof,
   manifest_bucket_of_id,
   manifest_buckets_blob,
   manifest_digest_of,
@@ -63,26 +82,24 @@ import init, {
   pair_confirmation_code,
   payload_schema_version,
   protocol_version,
-  phrase_lookup_id_b64,
-  phrase_recovery_json,
-  phrase_recovery_proof_json,
   roster_seal_device,
-  roster_seal_phrase,
   roster_verify,
   rotation_sign,
   seal_object,
   sealed_content_type,
   unwrap_ck,
-  unwrap_phrase,
   wrap_ck_for_device,
   wrap_ck_for_password,
 } from "../pkg/sealbook_wasm.js";
 import type {
   AppliedManifest,
+  AuthRequest,
   BucketedManifest,
   BucketsOutcome,
   ChangesPage,
   CoreDevice,
+  CoreDeviceSecrets,
+  CoreDeviceState,
   CoreError,
   CoreManifestEntry,
   CorePairPreview,
@@ -90,6 +107,8 @@ import type {
   CoreRosterPin,
   CoreSealedRow,
   HttpRequest,
+  LoggedIn,
+  LoginStarting,
   ManifestContext,
   ManifestOutcome,
   ManifestPlan,
@@ -97,6 +116,12 @@ import type {
   PairApproval,
   PairJoined,
   PairStatus,
+  PasswordChange,
+  PasswordChangeStarted,
+  RecoverStarted,
+  Recovering,
+  RegisterIdentity,
+  Registering,
   ResealRow,
   RosterContext,
   RotationPlan,
@@ -117,15 +142,12 @@ import type {
   DualSignature,
   Enrollment,
   KeyWrap,
-  LoginProof,
-  LoginStartProof,
   ManifestBody,
   ManifestEntry,
   OpaqueStart,
   EncryptedOut,
   OpenedObject,
   PasswordWrapOut,
-  PhraseRecovery,
   PhraseWrapOut,
   Roster,
   RosterVerified,
@@ -193,14 +215,6 @@ export function generateNewPhrase(ck: string): PhraseWrapOut {
   return JSON.parse(generate_new_phrase(ck)) as PhraseWrapOut;
 }
 
-export function opaqueRegisterStart(password: string): OpaqueStart {
-  return JSON.parse(opaque_register_start(password)) as OpaqueStart;
-}
-
-export function opaqueRegisterFinish(state: string, password: string, response: string): string {
-  return opaque_register_finish(state, password, response);
-}
-
 export function createEnrollment(password: string): Enrollment {
   return JSON.parse(create_enrollment(password)) as Enrollment;
 }
@@ -218,66 +232,6 @@ export function wrapCkForDevice(
     wrapped_ck: string;
     ciphersuite: string;
   };
-}
-
-export function unwrapPhrase(phrase: string, nonce: string, wrappedCk: string): string {
-  return unwrap_phrase(phrase, nonce, wrappedCk);
-}
-
-/**
- * The opaque handle used to look up a phrase key wrap. Safe to send before a
- * recovery proof, unlike the verification keys.
- */
-export function phraseLookupId(phrase: string): string {
-  return phrase_lookup_id_b64(phrase);
-}
-
-/** The hybrid ML-DSA-65 + Ed25519 recovery material to register for a phrase. */
-export function phraseRecovery(phrase: string): PhraseRecovery {
-  return JSON.parse(phrase_recovery_json(phrase)) as PhraseRecovery;
-}
-
-/**
- * The phrase's proof for a recovery.
- *
- * It covers the replacement password as well as the enrolling device: a recovery
- * exists for the case where the password is what was lost, so it resets the
- * password rather than asking for it, and the new verifier, salt and
- * password-wrapped key are all signed so none of them can be substituted in
- * flight.
- */
-export function phraseRecoveryProof(
-  phrase: string,
-  username: string,
-  recoveryId: string,
-  challenge: string,
-  deviceId: string,
-  mldsaPk: string,
-  ed25519Pk: string,
-  hpkePk: string,
-  upload: string,
-  kdfSalt: string,
-  recoveryNonce: string,
-  recoveryWrappedCk: string,
-  recoveryCiphersuite: string,
-): DualSignature {
-  return JSON.parse(
-    phrase_recovery_proof_json(
-      phrase,
-      username,
-      recoveryId,
-      challenge,
-      deviceId,
-      mldsaPk,
-      ed25519Pk,
-      hpkePk,
-      upload,
-      kdfSalt,
-      recoveryNonce,
-      recoveryWrappedCk,
-      recoveryCiphersuite,
-    ),
-  ) as DualSignature;
 }
 
 /**
@@ -318,33 +272,6 @@ export function rosterSealDevice(
 }
 
 /**
- * Signs a device roster with the recovery phrase's key, for a recovery.
- *
- * A recovering device has no enrolled signing key of its own yet, so the phrase
- * is the only member of the previous roster available to sign the step that adds
- * it.
- */
-export function rosterSealPhrase(
-  collectionId: string,
-  rosterSeq: number,
-  keyEpoch: number,
-  devices: DevicePublic[],
-  phrase: string,
-  ck: string,
-): Roster {
-  return JSON.parse(
-    roster_seal_phrase(
-      collectionId,
-      BigInt(rosterSeq),
-      BigInt(keyEpoch),
-      JSON.stringify(devices),
-      phrase,
-      ck,
-    ),
-  ) as Roster;
-}
-
-/**
  * Verifies a served roster history from this device's pin, and returns the
  * newest roster with the pin to keep in place of the old one.
  *
@@ -373,71 +300,6 @@ export function rosterVerify(
       selfDeviceId,
     ),
   ) as RosterVerified;
-}
-
-export function opaqueLoginStart(password: string): OpaqueStart {
-  return JSON.parse(opaque_login_start(password)) as OpaqueStart;
-}
-
-/**
- * Step 2 of login: open the challenge sealed to this device and sign it
- * together with the OPAQUE request. The server releases no credential response
- * until this proof verifies.
- */
-export function loginStartProof(
-  hpkeSk: string,
-  challengeEnc: string,
-  challengeCt: string,
-  challengeId: string,
-  username: string,
-  deviceId: string,
-  request: string,
-  mldsaSeed: string,
-  ed25519Sk: string,
-): LoginStartProof {
-  return JSON.parse(
-    login_start_proof(
-      hpkeSk,
-      challengeEnc,
-      challengeCt,
-      challengeId,
-      username,
-      deviceId,
-      request,
-      mldsaSeed,
-      ed25519Sk,
-    ),
-  ) as LoginStartProof;
-}
-
-/**
- * Step 3 of login. `challenge` is the value returned by {@link loginStartProof},
- * so the sealed challenge is opened only once.
- */
-export function opaqueLoginFinish(
-  state: string,
-  password: string,
-  response: string,
-  challenge: string,
-  loginId: string,
-  username: string,
-  deviceId: string,
-  mldsaSeed: string,
-  ed25519Sk: string,
-): LoginProof {
-  return JSON.parse(
-    opaque_login_finish(
-      state,
-      password,
-      response,
-      challenge,
-      loginId,
-      username,
-      deviceId,
-      mldsaSeed,
-      ed25519Sk,
-    ),
-  ) as LoginProof;
 }
 
 export function unwrapCk(
@@ -707,31 +569,6 @@ export function manifestBucketsBlob(entries: ManifestEntry[]): string {
 }
 
 export type AccountOp = "username" | "password" | "delete";
-
-/** Signs an account mutation: `"username"`, `"password"` or `"delete"`. */
-export function accountOpSign(
-  mldsaSeed: string,
-  ed25519Sk: string,
-  op: AccountOp,
-  challengeId: string,
-  challenge: string,
-  accountId: string,
-  deviceId: string,
-  payload: Record<string, string>,
-): DualSignature {
-  return JSON.parse(
-    account_op_sign(
-      mldsaSeed,
-      ed25519Sk,
-      op,
-      challengeId,
-      challenge,
-      accountId,
-      deviceId,
-      JSON.stringify(payload),
-    ),
-  ) as DualSignature;
-}
 
 // ── Core: manifest ──
 
@@ -1144,4 +981,219 @@ export function coreConfirmationGroups(code: string): string[] {
 /** A confirmation code grouped for display. */
 export function coreFormatConfirmation(code: string): string {
   return core_format_confirmation(code);
+}
+
+export type {
+  AuthRequest,
+  CoreDeviceSecrets,
+  CoreDeviceState,
+  LoggedIn,
+  LoginStarting,
+  PasswordChange,
+  PasswordChangeStarted,
+  RecoverStarted,
+  Recovering,
+  RegisterIdentity,
+  Registering,
+};
+
+/**
+ * The username to send, which is the one the user typed without surrounding
+ * whitespace. The server rejects a username with a space in it.
+ */
+export function coreNormalizeUsername(raw: string): string {
+  return core_normalize_username(raw);
+}
+
+/**
+ * The phrase to derive from: lowercase and single-spaced, because BIP-39 words
+ * are lowercase and a pasted phrase often is not.
+ */
+export function coreNormalizePhrase(raw: string): string {
+  return core_normalize_phrase(raw);
+}
+
+/**
+ * Begins registering a password. Also the first round of a password change, a
+ * username change and a recovery.
+ */
+export function coreOpaqueRegisterStart(password: string): OpaqueStart {
+  return core_opaque_register_start(password);
+}
+
+/** Finishes a registration, giving the verifier upload the server stores. */
+export function coreOpaqueRegisterUpload(
+  state: string,
+  password: string,
+  response: string,
+): string {
+  return core_opaque_register_upload(state, password, response);
+}
+
+/** Begins a login. */
+export function coreOpaqueLoginStart(password: string): OpaqueStart {
+  return core_opaque_login_start(password);
+}
+
+/** A new device's keys, for this app to persist. */
+export function coreNewDevice(): CoreDeviceSecrets {
+  return core_new_device();
+}
+
+/**
+ * Everything a registration mints: a device, a collection, a collection key, a
+ * KDF salt and a recovery phrase.
+ */
+export function coreNewRegistration(): RegisterIdentity {
+  return core_new_registration();
+}
+
+export function coreRegisterStartRequest(username: string, opaqueRequest: string): AuthRequest {
+  return core_register_start_request(username, opaqueRequest);
+}
+
+export function coreRegisterStartAccept(body: string): string {
+  return core_register_start_accept(body);
+}
+
+/**
+ * The register finish request: the genesis roster, the first manifest and the
+ * three wraps of the collection key, with the anchor to pin.
+ */
+export function coreRegisterFinishRequest(
+  username: string,
+  password: string,
+  upload: string,
+  identity: RegisterIdentity,
+): Registering {
+  return core_register_finish_request(username, password, upload, identity);
+}
+
+/** Reads the register finish response into the state this device persists. */
+export function coreRegisterAccept(
+  server: string,
+  username: string,
+  identity: RegisterIdentity,
+  pin: CoreRosterPin,
+  body: string,
+): CoreDeviceState {
+  return core_register_accept(server, username, identity, pin, body);
+}
+
+export function coreLoginChallengeRequest(username: string, deviceId: string): AuthRequest {
+  return core_login_challenge_request(username, deviceId);
+}
+
+/** Login step 2: open the sealed challenge and sign it with the OPAQUE request. */
+export function coreLoginStartRequest(
+  state: CoreDeviceState,
+  opaqueRequest: string,
+  body: string,
+): LoginStarting {
+  return core_login_start_request(state, opaqueRequest, body);
+}
+
+/** Login step 3: complete OPAQUE and bind the finalization to this device. */
+export function coreLoginFinishRequest(
+  state: CoreDeviceState,
+  opaqueState: string,
+  password: string,
+  challenge: string,
+  body: string,
+): AuthRequest {
+  return core_login_finish_request(state, opaqueState, password, challenge, body);
+}
+
+/**
+ * Opens the collection key and returns the state to persist. The caller must
+ * sync the roster before anything reads or writes the vault.
+ */
+export function coreLoginAccept(
+  state: CoreDeviceState,
+  password: string,
+  body: string,
+): LoggedIn {
+  return core_login_accept(state, password, body);
+}
+
+export function coreRecoverStartRequest(
+  username: string,
+  phrase: string,
+  opaqueRequest: string,
+): AuthRequest {
+  return core_recover_start_request(username, phrase, opaqueRequest);
+}
+
+/**
+ * Opens the phrase wrap and checks the roster the account is on under the key
+ * it opened.
+ */
+export function coreRecoverStartAccept(phrase: string, body: string): RecoverStarted {
+  return core_recover_start_accept(phrase, body);
+}
+
+/** Enrols the recovering device and signs the roster step with the phrase. */
+export function coreRecoverFinishRequest(
+  username: string,
+  phrase: string,
+  password: string,
+  started: RecoverStarted,
+  device: CoreDeviceSecrets,
+  upload: string,
+): Recovering {
+  return core_recover_finish_request(username, phrase, password, started, device, upload);
+}
+
+export function coreRecoverAccept(
+  server: string,
+  username: string,
+  started: RecoverStarted,
+  device: CoreDeviceSecrets,
+  recovering: Recovering,
+  body: string,
+): CoreDeviceState {
+  return core_recover_accept(server, username, started, device, recovering, body);
+}
+
+/** The challenge a username change or a deletion is signed over. */
+export function coreAccountChallengeRequest(): AuthRequest {
+  return core_account_challenge_request();
+}
+
+export function coreChangeUsernameRequest(
+  state: CoreDeviceState,
+  newUsername: string,
+  upload: string,
+  challengeBody: string,
+): AuthRequest {
+  return core_change_username_request(state, newUsername, upload, challengeBody);
+}
+
+export function corePasswordChangeStartRequest(opaqueRequest: string): AuthRequest {
+  return core_password_change_start_request(opaqueRequest);
+}
+
+export function corePasswordChangeStartAccept(body: string): PasswordChangeStarted {
+  return core_password_change_start_accept(body);
+}
+
+/**
+ * The new verifier and the collection key re-wrapped under the new password,
+ * with a signature covering both.
+ */
+export function coreChangePasswordRequest(
+  state: CoreDeviceState,
+  ck: string,
+  newPassword: string,
+  upload: string,
+  started: PasswordChangeStarted,
+): PasswordChange {
+  return core_change_password_request(state, ck, newPassword, upload, started);
+}
+
+export function coreDeleteAccountRequest(
+  state: CoreDeviceState,
+  challengeBody: string,
+): AuthRequest {
+  return core_delete_account_request(state, challengeBody);
 }

@@ -163,6 +163,18 @@ export async function postJson<T>(url: string, body: unknown, token?: string): P
   return request<T>("POST", url, { method: "POST", headers, body: JSON.stringify(body) });
 }
 
+/**
+ * POSTs a body core already serialized and hands the answer back unparsed, for
+ * the flows where both shapes are core's.
+ */
+export async function postText(url: string, body: string, token?: string): Promise<string> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (token) {
+    headers.authorization = `Bearer ${token}`;
+  }
+  return requestText("POST", url, { method: "POST", headers, body });
+}
+
 export async function putJson<T>(url: string, body: unknown, token: string): Promise<T> {
   return request<T>("PUT", url, {
     method: "PUT",

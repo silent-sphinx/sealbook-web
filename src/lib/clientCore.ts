@@ -1,4 +1,4 @@
-import { b64ToByteArray, bytesFromJson } from "./bytes";
+import { b64encode, b64ToByteArray, bytesFromJson } from "./bytes";
 import {
   coreAcceptManifestSeq,
   coreManifestAbsenceOk,
@@ -11,7 +11,6 @@ import {
   coreManifestSigner,
   coreManifestVerify,
   coreErrorOf,
-  createEnrollment,
   objectContentDigest,
   sealObject,
   unwrapCk,
@@ -21,7 +20,6 @@ import { ManifestError, rosterDevices } from "./roster";
 import { apiRoot, getJson, getText } from "./transport";
 import { PROTOCOL_VERSION, speaksProtocol } from "./protocol";
 import type {
-  DeviceOut,
   DeviceState,
   KeyWrap,
   ManifestBody,
@@ -31,6 +29,8 @@ import type {
 import type {
   BucketedManifest,
   CoreDevice,
+  CoreDeviceSecrets,
+  CoreDeviceState,
   ManifestContext,
   ManifestPlan,
   ManifestSigner,
@@ -427,84 +427,72 @@ export async function checkProtocol(root: string): Promise<void> {
   }
 }
 
-function deviceFromSecrets(
+/**
+ * This device's state in the shape core takes it.
+ *
+ * Core holds the secrets as byte arrays and this app stores them either way
+ * round, so the conversion happens here rather than at every call site.
+ */
+export function toCoreState(state: DeviceState): CoreDeviceState {
+  return {
+    server: state.server,
+    username: state.username,
+    account_id: state.account_id,
+    collection_id: state.collection_id,
+    device_id: state.device_id,
+    session_token: state.session_token ?? undefined,
+    kdf_salt: b64ToByteArray(bytesFromJson(state.kdf_salt)),
+    hpke_sk: b64ToByteArray(bytesFromJson(state.hpke_sk)),
+    mldsa_seed: b64ToByteArray(bytesFromJson(state.mldsa_seed)),
+    ed25519_sk: b64ToByteArray(bytesFromJson(state.ed25519_sk)),
+    manifest_seq: state.manifest_seq ?? 0,
+    roster_seq: state.roster_seq ?? 0,
+    roster_transcript: b64ToByteArray(state.roster_transcript ?? ""),
+  };
+}
+
+/** Back from core's shape, in the form this app stores. */
+export function fromCoreState(state: CoreDeviceState): DeviceState {
+  return {
+    server: state.server,
+    username: state.username,
+    account_id: state.account_id,
+    collection_id: state.collection_id,
+    device_id: state.device_id,
+    session_token: state.session_token ?? null,
+    kdf_salt: state.kdf_salt,
+    hpke_sk: state.hpke_sk,
+    mldsa_seed: state.mldsa_seed,
+    ed25519_sk: state.ed25519_sk,
+    manifest_seq: state.manifest_seq,
+    roster_seq: state.roster_seq,
+    roster_transcript: b64encode(Uint8Array.from(state.roster_transcript ?? [])),
+  };
+}
+
+
+/**
+ * A freshly generated device's state, before it knows which account or
+ * collection it belongs to: a pairing learns both from the approval.
+ */
+export function deviceFromSecrets(
   server: string,
   username: string,
-  accountId: string,
-  collectionId: string,
-  deviceId: string,
-  kdfSalt: string,
-  hpkeSk: string,
-  mldsaSeed: string,
-  ed25519Sk: string,
+  device: CoreDeviceSecrets,
 ): DeviceState {
   return {
     server,
     username,
-    account_id: accountId,
-    collection_id: collectionId,
-    device_id: deviceId,
-    kdf_salt: b64ToByteArray(kdfSalt),
-    hpke_sk: b64ToByteArray(hpkeSk),
-    mldsa_seed: b64ToByteArray(mldsaSeed),
-    ed25519_sk: b64ToByteArray(ed25519Sk),
+    account_id: "",
+    collection_id: "",
+    device_id: device.device.device_id,
+    kdf_salt: [],
+    hpke_sk: b64ToByteArray(device.hpke_sk),
+    mldsa_seed: b64ToByteArray(device.mldsa_seed),
+    ed25519_sk: b64ToByteArray(device.ed25519_sk),
     roster_seq: 0,
     roster_transcript: "",
   };
 }
 
-export function deviceFromEnrollment(
-  server: string,
-  username: string,
-  accountId: string,
-  collectionId: string,
-  enrollment: ReturnType<typeof createEnrollment>,
-): DeviceState {
-  return deviceFromSecrets(
-    server,
-    username,
-    accountId,
-    collectionId,
-    enrollment.device_id,
-    enrollment.kdf_salt,
-    enrollment.hpke_sk,
-    enrollment.mldsa_seed,
-    enrollment.ed25519_sk,
-  );
-}
 
-export function deviceFromKeys(
-  server: string,
-  username: string,
-  accountId: string,
-  collectionId: string,
-  device: DeviceOut,
-): DeviceState {
-  return deviceFromSecrets(
-    server,
-    username,
-    accountId,
-    collectionId,
-    device.device_id,
-    "",
-    device.hpke_sk,
-    device.mldsa_seed,
-    device.ed25519_sk,
-  );
-}
-
-export function deviceBody(device: DeviceOut) {
-  return {
-    device_id: device.device_id,
-    mldsa_pk: device.mldsa_pk,
-    ed25519_pk: device.ed25519_pk,
-    xwing_hpke_pk: device.hpke_pk,
-  };
-}
-
-export function enrollSig(device: DeviceOut) {
-  return {
-    mldsa: device.enrollment_mldsa,
-    ed25519: device.enrollment_ed25519,
-  };
-}
