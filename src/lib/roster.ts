@@ -9,7 +9,12 @@ import {
   coreRosterAnswersFor,
   coreRosterRequest,
 } from "./wasm";
-import type { CoreError, CoreRoster, RosterContext } from "../pkg/sealbook_wasm.js";
+import type {
+  CoreError,
+  CoreRoster,
+  RosterContext,
+  VerifiedRoster,
+} from "../pkg/sealbook_wasm.js";
 import type {
   DevicePublic,
   DeviceState,
@@ -85,7 +90,11 @@ function rememberRosterPin(session: Session, seq: number, transcript: string): v
   session.state.roster_transcript = next.roster_transcript;
 }
 
-async function verifiedRosterChain(session: Session): Promise<RosterVerified> {
+/**
+ * The verified chain in core's own shape, for a caller that hands the same
+ * value back to core rather than reading it.
+ */
+async function verifiedRosterCore(session: Session): Promise<VerifiedRoster> {
   const { state, token } = session;
   const context = rosterContext(state);
   const request = coreRosterRequest(context);
@@ -100,7 +109,7 @@ async function verifiedRosterChain(session: Session): Promise<RosterVerified> {
       devices: roster.devices.length,
       key_epoch: roster.key_epoch,
     });
-    return { roster, pin_seq: verified.pin.roster_seq, pin_transcript: verified.pin.transcript };
+    return verified;
   } catch (err) {
     const failure = rosterFailure(err);
     log.error(
@@ -111,6 +120,15 @@ async function verifiedRosterChain(session: Session): Promise<RosterVerified> {
     );
     throw failure;
   }
+}
+
+async function verifiedRosterChain(session: Session): Promise<RosterVerified> {
+  const verified = await verifiedRosterCore(session);
+  return {
+    roster: JSON.parse(verified.roster_json) as Roster,
+    pin_seq: verified.pin.roster_seq,
+    pin_transcript: verified.pin.transcript,
+  };
 }
 
 export async function verifiedRoster(session: Session): Promise<Roster> {
@@ -151,4 +169,4 @@ export async function rosterDevices(
   return (await syncRoster(session)).devices;
 }
 
-export { verifiedRosterChain };
+export { rememberRosterPin, verifiedRosterChain, verifiedRosterCore };

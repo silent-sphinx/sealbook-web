@@ -41,6 +41,24 @@ describe("friendlyError", () => {
     ).toContain("nothing was changed");
   });
 
+  // As above for pairing: core names the refusal and this client words it. The
+  // two that carry numbers are worded from the refusal's own fields, so a
+  // mismatch tells the user which device list each side is on.
+  it("words each pairing core refused", () => {
+    const refusal = (fields: Record<string, unknown>) =>
+      friendlyError(new Error(JSON.stringify({ kind: "Pair", refusal: fields })));
+    expect(refusal({ refusal: "NoAnchor" })).toContain("nothing to pair against");
+    expect(refusal({ refusal: "ServerCode" })).toContain("don't agree on the account's devices");
+    expect(refusal({ refusal: "Expired" })).toContain("has expired");
+    expect(refusal({ refusal: "TypedCode" })).toContain("doesn't match");
+    expect(refusal({ refusal: "KeyRotated", held: 3, roster: 4 })).toContain("Sign in again");
+    expect(refusal({ refusal: "AlreadyEnrolled", device: "dddd" })).toContain("already enrolled");
+    expect(refusal({ refusal: "RosterMoved", joined_at: 2, now: 3 })).toBe(
+      "The new device started pairing against device list 2 but this account is now on 3. " +
+        "Start the pairing again.",
+    );
+  });
+
   it("gives a roster failure its own answer", () => {
     const text = friendlyError(new ManifestError("roster mac does not verify"));
     expect(text).toContain("device list");

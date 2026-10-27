@@ -394,7 +394,9 @@ describe("pairing approval", () => {
     // the attack the roster anchor closes: the code no longer recomputes.
     const intruder = createDevice();
     pairRoutes(approver, join, { device: deviceKeys(intruder) });
-    await expect(pairPreview(approver.session, "PAIRCODE")).rejects.toThrow(/mismatch/iu);
+    // Core's refusal, not a sentence: `friendlyError` is where this client
+    // words it, and the other two word the same refusal for themselves.
+    await expect(pairPreview(approver.session, "PAIRCODE")).rejects.toThrow(/ServerCode/u);
   });
 
   it("refuses when the account's roster moved on while the pairing waited", async () => {
@@ -403,7 +405,7 @@ describe("pairing approval", () => {
     // The joining device anchored on a roster that is no longer the current one,
     // so the two sides would fold different anchors into the code.
     pairRoutes(approver, join, { rosterSeq: join.anchor.seq + 1 });
-    await expect(pairPreview(approver.session, "PAIRCODE")).rejects.toThrow(/pairing again/iu);
+    await expect(pairPreview(approver.session, "PAIRCODE")).rejects.toThrow(/RosterMoved/u);
   });
 });
 

@@ -44,6 +44,27 @@ export async function request<T>(method: string, url: string, init: RequestInit)
  * parse here and an array of bytes there.
  */
 export async function requestText(method: string, url: string, init: RequestInit): Promise<string> {
+  const { status, statusText, text } = await requestStatus(method, url, init);
+  if (status < 200 || status >= 300) {
+    const message = errorMessage(text, statusText);
+    log.warn("server refused a request", { method, path: logPath(url), status, reason: message });
+    throw new ApiError(message);
+  }
+  return text;
+}
+
+/**
+ * As `requestText`, handing back the status rather than raising on it.
+ *
+ * For the one read whose answer is in the status rather than the body: a pairing
+ * that has timed out is a 404, and a poll that treated that as a failure would
+ * wait on a pairing that is gone.
+ */
+export async function requestStatus(
+  method: string,
+  url: string,
+  init: RequestInit,
+): Promise<{ status: number; statusText: string; text: string }> {
   const path = logPath(url);
   const started = performance.now();
   const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
@@ -81,13 +102,12 @@ export async function requestText(method: string, url: string, init: RequestInit
   } catch (err) {
     throw failure(err);
   }
-  if (!res.ok) {
-    const message = errorMessage(text, res.statusText);
-    log.warn("server refused a request", { method, path, status: res.status, ms, reason: message });
-    throw new ApiError(message);
+  if (res.ok) {
+    log.debug("request", { method, path, status: res.status, ms, bytes: text.length });
+  } else {
+    log.debug("request refused", { method, path, status: res.status, ms });
   }
-  log.debug("request", { method, path, status: res.status, ms, bytes: text.length });
-  return text;
+  return { status: res.status, statusText: res.statusText, text };
 }
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -160,6 +180,18 @@ export async function getJson<T>(url: string, token?: string): Promise<T> {
     headers.authorization = `Bearer ${token}`;
   }
   return request<T>("GET", url, { headers });
+}
+
+/** A GET whose status code reaches the caller instead of raising. */
+export async function getTextStatus(
+  url: string,
+  token?: string,
+): Promise<{ status: number; text: string }> {
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers.authorization = `Bearer ${token}`;
+  }
+  return requestStatus("GET", url, { headers });
 }
 
 export async function getText(url: string, token?: string): Promise<string> {

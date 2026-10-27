@@ -15,7 +15,17 @@ import init, {
   core_manifest_sign_root,
   core_manifest_signer,
   core_manifest_verify,
+  core_confirmation_groups,
+  core_format_confirmation,
+  core_normalize_confirmation,
   core_open_row,
+  core_pair_approve,
+  core_pair_approve_path,
+  core_pair_join_accept,
+  core_pair_join_body,
+  core_pair_path,
+  core_pair_preview,
+  core_pair_status,
   core_pin_roster,
   core_roster_accept,
   core_roster_accept_sealed,
@@ -53,7 +63,6 @@ import init, {
   pair_confirmation_code,
   payload_schema_version,
   protocol_version,
-  pair_grant_sign,
   phrase_lookup_id_b64,
   phrase_recovery_json,
   phrase_recovery_proof_json,
@@ -76,6 +85,7 @@ import type {
   CoreDevice,
   CoreError,
   CoreManifestEntry,
+  CorePairPreview,
   CoreRoster,
   CoreRosterPin,
   CoreSealedRow,
@@ -84,6 +94,9 @@ import type {
   ManifestOutcome,
   ManifestPlan,
   ManifestSigner,
+  PairApproval,
+  PairJoined,
+  PairStatus,
   ResealRow,
   RosterContext,
   RotationPlan,
@@ -360,32 +373,6 @@ export function rosterVerify(
       selfDeviceId,
     ),
   ) as RosterVerified;
-}
-
-export function pairGrantSign(
-  mldsaSeed: string,
-  ed25519Sk: string,
-  pairId: string,
-  approverDeviceId: string,
-  newDeviceId: string,
-  mldsaPk: string,
-  ed25519Pk: string,
-  hpkePk: string,
-  confirm: string,
-): { mldsa: string; ed25519: string } {
-  return JSON.parse(
-    pair_grant_sign(
-      mldsaSeed,
-      ed25519Sk,
-      pairId,
-      approverDeviceId,
-      newDeviceId,
-      mldsaPk,
-      ed25519Pk,
-      hpkePk,
-      confirm,
-    ),
-  ) as { mldsa: string; ed25519: string };
 }
 
 export function opaqueLoginStart(password: string): OpaqueStart {
@@ -1058,4 +1045,103 @@ export function coreRotationEntries(
   resealed: CoreSealedRow[],
 ): CoreManifestEntry[] {
   return core_rotation_entries(plan, resealed);
+}
+
+// ── Core: pairing ──
+
+export type { CoreDevice, CorePairPreview, PairApproval, PairJoined, PairStatus };
+
+/** The join request body, with the enrollment signature over the new keys. */
+export function corePairJoinBody(
+  username: string,
+  device: CoreDevice,
+  mldsaSeed: string,
+  ed25519Sk: string,
+): string {
+  return core_pair_join_body(username, device, mldsaSeed, ed25519Sk);
+}
+
+/**
+ * Checks the join response and computes the code the joining device shows.
+ *
+ * The code is this device's own, not the server's copy: a server that
+ * substituted the keys could show the real code and keep the ones it swapped
+ * in. Throws when the two do not agree.
+ */
+export function corePairJoinAccept(device: CoreDevice, body: string): PairJoined {
+  return core_pair_join_accept(device, body);
+}
+
+/**
+ * Where a poll says the pairing has got to.
+ *
+ * Takes the status code as well as the body: an expired code is a 404, so a
+ * poll that read only the body would wait on a pairing that is gone.
+ */
+export function corePairStatus(status: number, body: string): PairStatus {
+  return core_pair_status(status, body);
+}
+
+/** The server-relative path that looks a pairing up, from a code as typed. */
+export function corePairPath(pairKey: string): string {
+  return core_pair_path(pairKey);
+}
+
+/** The server-relative path an approval posts to. */
+export function corePairApprovePath(pairKey: string): string {
+  return core_pair_approve_path(pairKey);
+}
+
+/**
+ * Reads a pairing request and checks everything that does not need the typed
+ * code, against a roster this device verified from its own pin.
+ */
+export function corePairPreview(
+  ck: string,
+  keyEpoch: number,
+  verified: VerifiedRoster,
+  body: string,
+): CorePairPreview {
+  return core_pair_preview(ck, BigInt(keyEpoch), verified, body);
+}
+
+/**
+ * Approves a joining device: wraps the collection key for it, signs the grant,
+ * and signs the roster step that adds it.
+ */
+export function corePairApprove(
+  mldsaSeed: string,
+  ed25519Sk: string,
+  context: RosterContext,
+  ck: string,
+  keyEpoch: number,
+  verified: VerifiedRoster,
+  preview: CorePairPreview,
+  typed: string,
+): PairApproval {
+  return core_pair_approve(
+    mldsaSeed,
+    ed25519Sk,
+    context,
+    ck,
+    BigInt(keyEpoch),
+    verified,
+    preview,
+    typed,
+  );
+}
+
+/** Strips spacing and case differences from a typed confirmation code. */
+export function coreNormalizeConfirmation(entered: string): string {
+  return core_normalize_confirmation(entered);
+}
+
+/** A confirmation code split into display groups. */
+export function coreConfirmationGroups(code: string): string[] {
+  return core_confirmation_groups(code);
+}
+
+/** A confirmation code grouped for display. */
+export function coreFormatConfirmation(code: string): string {
+  return core_format_confirmation(code);
 }

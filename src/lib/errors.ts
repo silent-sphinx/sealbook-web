@@ -17,10 +17,28 @@ const ROTATION_REFUSALS: Record<string, string> = {
 };
 
 /**
+ * This client's wording for each pairing core refused.
+ *
+ * As above, core names the condition. A refusal whose sentence needs numbers
+ * out of the refusal itself is built in `pairingRefusal`.
+ */
+const PAIR_REFUSALS: Record<string, string> = {
+  NoAnchor:
+    "The server sent no device list for this account to anchor on, so there is nothing to " +
+    "pair against.",
+  // Either the device list moved under the pairing or the keys on offer are not
+  // the ones the other device is holding; neither is safe to approve.
+  ServerCode:
+    "This device and the new one don't agree on the account's devices. Start the pairing again.",
+  Expired: "That pairing code has expired. Start the pairing again on the new device.",
+  TypedCode: "That code doesn't match the one for this pairing.",
+};
+
+/**
  * Parsed here rather than through the client's own `coreErrorOf`, which would
  * pull the wasm module into every component that reports an error.
  */
-function rotationRefusal(raw: string): string | null {
+function coreRefusal(raw: string, kind: string): Record<string, unknown> | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -28,9 +46,37 @@ function rotationRefusal(raw: string): string | null {
     return null;
   }
   if (typeof parsed !== "object" || parsed === null) return null;
-  const error = parsed as { kind?: unknown; refusal?: { refusal?: unknown } };
-  if (error.kind !== "Rotation" || typeof error.refusal?.refusal !== "string") return null;
-  return ROTATION_REFUSALS[error.refusal.refusal] ?? null;
+  const error = parsed as { kind?: unknown; refusal?: Record<string, unknown> };
+  if (error.kind !== kind || typeof error.refusal?.refusal !== "string") return null;
+  return error.refusal;
+}
+
+function rotationRefusal(raw: string): string | null {
+  const refusal = coreRefusal(raw, "Rotation");
+  return refusal === null ? null : ROTATION_REFUSALS[refusal.refusal as string] ?? null;
+}
+
+function pairingRefusal(raw: string): string | null {
+  const refusal = coreRefusal(raw, "Pair");
+  if (refusal === null) {
+    return null;
+  }
+  switch (refusal.refusal) {
+    case "KeyRotated":
+      return (
+        "The vault key has been rotated since this device fetched it. Sign in again and " +
+        "approve the new device after that."
+      );
+    case "AlreadyEnrolled":
+      return "That device is already enrolled.";
+    case "RosterMoved":
+      return (
+        `The new device started pairing against device list ${String(refusal.joined_at)} but ` +
+        `this account is now on ${String(refusal.now)}. Start the pairing again.`
+      );
+    default:
+      return PAIR_REFUSALS[refusal.refusal as string] ?? null;
+  }
 }
 
 export function friendlyError(err: unknown): string {
@@ -48,7 +94,7 @@ export function friendlyError(err: unknown): string {
   }
   // Before the message branches below: core's error is JSON, so a refusal that
   // names a device list would otherwise match the roster branch.
-  const refusal = rotationRefusal(raw);
+  const refusal = rotationRefusal(raw) ?? pairingRefusal(raw);
   if (refusal !== null) {
     return refusal;
   }

@@ -86,6 +86,7 @@ export {
   pairJoin,
   pairPreview,
   pairReady,
+  pairStatus,
   revokeDevice,
 } from "./clientPairing";
 

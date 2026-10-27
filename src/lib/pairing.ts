@@ -1,10 +1,17 @@
 /**
- * Helpers for pairing confirmation codes.
+ * Display helpers for pairing confirmation codes.
  *
  * Protocol v2 raised these from 13 to 26 base-32 characters (65 to 130 bits),
  * so a malicious server cannot search for a second preimage that would let it
  * substitute its own device keys. At that length the code has to be grouped to
  * stay comparable by eye.
+ *
+ * Presentation only, and deliberately not through core: these run in components
+ * that otherwise never load the wasm module. The decision they used to serve --
+ * whether a typed code matches the one for a pairing -- is core's, which
+ * normalizes the code it is given. `pairingParity.test.ts` holds the grouping
+ * here to the same shared fixture core is held to, so what the user compares
+ * across two screens stays identical.
  */
 
 /** Characters per display group. Matches the Sealbook CLI. */
