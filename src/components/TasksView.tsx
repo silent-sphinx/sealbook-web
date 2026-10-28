@@ -29,6 +29,7 @@ import {
   reopenTask,
   resolveTaskListId,
   sortTasks,
+  taskDraft,
   taskListNameById,
   taskMatches,
 } from "../lib/task";
@@ -365,7 +366,7 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
       const written = [
         await putTask(
           session,
-          { ...task, parentId: parentId ?? undefined, taskListId: relisted ? listId : task.taskListId },
+          { ...taskDraft(task), parentId: parentId ?? undefined, taskListId: relisted ? listId : task.taskListId },
           id,
         ),
       ];
@@ -431,7 +432,7 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
       for (const task of tasks) {
         if (resolveTaskListId(task.taskListId) !== list.id) continue;
         savedTasks.push(
-          await putTask(session, { ...task, taskListId: parentId ?? DEFAULT_TASK_LIST_ID }, task.id),
+          await putTask(session, { ...taskDraft(task), taskListId: parentId ?? DEFAULT_TASK_LIST_ID }, task.id),
         );
       }
       await deleteTaskList(session, list.id);
@@ -463,7 +464,7 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     },
     onEdit: (task) => {
       setSelectedId(task.id);
-      openForm({ ...task }, task.id);
+      openForm(taskDraft(task), task.id);
     },
     onAddChild: (parentId) => startAdd(parentId),
     onDelete: (task) => setConfirmDelete(task),
@@ -650,7 +651,7 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
                   readOnly={readOnlyMode}
                   busy={disabled}
                   onToggleDone={(task) => void toggleDone(task)}
-                  onEdit={(task) => openForm({ ...task }, task.id)}
+                  onEdit={(task) => openForm(taskDraft(task), task.id)}
                   onAddChild={(parentId) => startAdd(parentId)}
                   onDelete={(task) => setConfirmDelete(task)}
                   onSelect={(task) => setSelectedId(task.id)}

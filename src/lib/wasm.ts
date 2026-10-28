@@ -27,6 +27,17 @@ import init, {
   core_bookmark_parse,
   core_bookmark_write,
   core_default_bookmark_collection_id,
+  core_default_task_list_id,
+  core_normalize_due_date,
+  core_resolve_task_list_id,
+  core_task_keys,
+  core_task_list_keys,
+  core_task_list_name_by_id,
+  core_task_list_parse,
+  core_task_list_tone,
+  core_task_list_write,
+  core_task_parse,
+  core_task_write,
   core_normalize_tags,
   core_normalize_url,
   core_resolve_collection_id,
@@ -178,6 +189,10 @@ import type {
   CoreNoteAttachment,
   CoreNoteDraft,
   CoreNotebook,
+  CoreTask,
+  CoreTaskDraft,
+  CoreTaskList,
+  CoreTaskListDraft,
   CoreRecurrence,
   CorePairPreview,
   CoreRoster,
@@ -1654,4 +1669,57 @@ export function coreBookmarkCollectionTone(
   id: string,
 ): string {
   return core_bookmark_collection_tone(collections, id);
+}
+
+export type { CoreTask, CoreTaskDraft, CoreTaskList, CoreTaskListDraft };
+
+/** Every key a task writer owns, and every key a task list writer owns. */
+export function coreTaskKeys(): string[] {
+  return [...core_task_keys()];
+}
+
+export function coreTaskListKeys(): string[] {
+  return [...core_task_list_keys()];
+}
+
+export function coreDefaultTaskListId(): string {
+  return core_default_task_list_id();
+}
+
+export function coreResolveTaskListId(taskListId?: string): string {
+  return core_resolve_task_list_id(taskListId);
+}
+
+/** A due value as it should be stored, or undefined where it names no moment. */
+export function coreNormalizeDueDate(value: string): string | undefined {
+  return core_normalize_due_date(value) ?? undefined;
+}
+
+/** Reads a stored task. Lenient: one that will not parse is still a row. */
+export function coreTaskParse(id: string, raw: string): CoreTask {
+  return core_task_parse(id, raw);
+}
+
+/**
+ * Serialises a task onto `draft.raw`. `now` is the caller's clock. Throws
+ * `PayloadSchema` for a task written by a newer client.
+ */
+export function coreTaskWrite(draft: CoreTaskDraft, now: string): string {
+  return core_task_write(draft, now);
+}
+
+export function coreTaskListParse(id: string, raw: string): CoreTaskList {
+  return core_task_list_parse(id, raw);
+}
+
+export function coreTaskListWrite(draft: CoreTaskListDraft): string {
+  return core_task_list_write(draft);
+}
+
+export function coreTaskListNameById(lists: CoreTaskList[], taskListId?: string): string {
+  return core_task_list_name_by_id(lists, taskListId);
+}
+
+export function coreTaskListTone(lists: CoreTaskList[], id: string): string {
+  return core_task_list_tone(lists, id);
 }

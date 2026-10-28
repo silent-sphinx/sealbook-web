@@ -115,7 +115,6 @@ describe("serializeTask and parseTask", () => {
   it("reads hostile payloads without throwing", () => {
     const hostile = [
       '{"done":"yes","tags":{"a":1},"priority":"high","completions":"nope","recurrence":7,"parentId":42,"dueDate":"soon"}',
-      "[1,2]",
       '{"recurrence":{"frequency":"hourly"}}',
     ];
     for (const raw of hostile) {
@@ -129,7 +128,7 @@ describe("serializeTask and parseTask", () => {
       expect(parsed.dueDate).toBeUndefined();
       expect(parsed.taskListId).toBe(DEFAULT_TASK_LIST_ID);
     }
-    for (const raw of ["}{", "null"]) expect(parseTask("t", raw).title).toBe("Unreadable task");
+    for (const raw of ["}{", "null", "[1,2]"]) expect(parseTask("t", raw).title).toBe("Unreadable task");
   });
 });
 

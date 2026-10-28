@@ -106,7 +106,7 @@ function eventFrom(event: CoreCalendarEvent): CalendarEvent {
 
 // Core's records are snake_case on the TypeScript boundary, as every core record
 // is, and this client's rule is camelCase and read all over the composer.
-function recurrenceFrom(rule: CoreRecurrence): RecurrenceRule {
+export function recurrenceFrom(rule: CoreRecurrence): RecurrenceRule {
   return {
     frequency: rule.frequency,
     interval: rule.interval,
@@ -120,7 +120,7 @@ function recurrenceFrom(rule: CoreRecurrence): RecurrenceRule {
   };
 }
 
-function recurrenceTo(rule: RecurrenceRule): CoreRecurrence {
+export function recurrenceTo(rule: RecurrenceRule): CoreRecurrence {
   return {
     frequency: rule.frequency,
     interval: rule.interval,

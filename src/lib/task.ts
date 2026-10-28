@@ -1,11 +1,19 @@
-import { collectionTone, ENVELOPE_OVERHEAD, MAX_PADDED_OBJECT_SIZE, normalizeTags } from "./bookmark";
+import { ENVELOPE_OVERHEAD, MAX_PADDED_OBJECT_SIZE } from "./bookmark";
+import { recurrenceFrom, recurrenceTo } from "./calendar";
 import { keyFor } from "./calendarModel";
-import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
 import { nextOccurrence } from "./recurrence";
 import { localInputToUtc, utcToLocalInput } from "./timezone";
 import { buildTree, canReparent, subtree } from "./tree";
 import type { TreeNode } from "./tree";
-import type { RecurrenceRule, Task, TaskDraft, TaskList } from "./types";
+import type { Task, TaskDraft, TaskList } from "./types";
+import {
+  coreTaskListParse,
+  coreTaskListTone,
+  coreTaskListWrite,
+  coreTaskParse,
+  coreTaskWrite,
+} from "./wasm";
+import type { CoreTask, CoreTaskDraft, CoreTaskList } from "./wasm";
 
 // Mirrors of the Rust constants in
 // `sealbook/crates/sealbook-protocol/src/lib.rs`, pinned by a test.
@@ -16,96 +24,85 @@ export const DEFAULT_TASK_LIST_ID = "00000000-0000-0000-0000-000000000006";
 export const ALL_TASK_LISTS = "all";
 export const MAX_TASK_COMPLETIONS = 50;
 
-const TASK_KEYS = [
-  "@type",
-  "version",
-  "title",
-  "notes",
-  "done",
-  "completedAt",
-  "completions",
-  "dueDate",
-  "priority",
-  "tags",
-  "taskListId",
-  "parentId",
-  "recurrence",
-  "recurrenceAnchor",
-  "createdAt",
-  "updatedAt",
-] as const;
+const DUE_DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DUE_TIMED =
+  /^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?$/;
 
-const TASK_LIST_KEYS = ["@type", "version", "name", "parentId", "color"] as const;
-
-const RECURRENCE_FREQUENCIES = ["daily", "weekly", "monthly", "yearly"];
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-
+/**
+ * Writes a task's plaintext through core, which is where the owned keys, the
+ * due-date check and the carried repeat rule live.
+ *
+ * A task parsed with no stored title carries `derivedTitle`; `taskDraft` hands
+ * the writer an empty title for it, so a save does not write the fallback onto
+ * the record.
+ */
 export function serializeTask(draft: TaskDraft): string {
-  const now = new Date().toISOString();
-  const notes = draft.notes?.trim();
-  const tags = normalizeTags(draft.tags);
-  const dueDate = normalizeDueDate(draft.dueDate);
-  const recurrence = normalizeRecurrence(draft.recurrence);
-  const recurrenceAnchor = normalizeDueDate(draft.recurrenceAnchor);
-  const completions = normalizeCompletions(draft.completions);
-  const priority = normalizePriority(draft.priority);
-  const parentId = draft.parentId?.trim();
-  return mergePayload(
-    draft.raw,
-    {
-      "@type": "Task",
-      version: PAYLOAD_SCHEMA_VERSION,
-      title: draft.title.trim(),
-      ...(notes ? { notes } : {}),
-      ...(draft.done ? { done: true } : {}),
-      ...(draft.done && draft.completedAt ? { completedAt: draft.completedAt } : {}),
-      ...(completions.length > 0 ? { completions } : {}),
-      ...(dueDate ? { dueDate } : {}),
-      ...(priority ? { priority } : {}),
-      ...(tags.length > 0 ? { tags } : {}),
-      taskListId: resolveTaskListId(draft.taskListId),
-      ...(parentId ? { parentId } : {}),
-      ...(recurrence ? { recurrence } : {}),
-      ...(recurrence && recurrenceAnchor ? { recurrenceAnchor } : {}),
-      createdAt: draft.createdAt ?? now,
-      updatedAt: now,
-    },
-    TASK_KEYS,
-  );
+  return coreTaskWrite(draftTo(draft), new Date().toISOString());
+}
+
+function draftTo(draft: TaskDraft): CoreTaskDraft {
+  return {
+    title: draft.title,
+    notes: draft.notes ?? "",
+    done: draft.done === true,
+    completed_at: draft.completedAt,
+    completions: draft.completions ?? [],
+    due_date: draft.dueDate,
+    priority:
+      draft.priority !== undefined && Number.isInteger(draft.priority) && draft.priority > 0
+        ? draft.priority
+        : undefined,
+    tags: draft.tags ?? [],
+    task_list_id: draft.taskListId,
+    parent_id: draft.parentId,
+    recurrence: draft.recurrence ? recurrenceTo(draft.recurrence) : undefined,
+    unreadable_recurrence: draft.unreadableRecurrence,
+    recurrence_anchor: draft.recurrenceAnchor,
+    created_at: draft.createdAt,
+    raw: draft.raw,
+  };
 }
 
 export function parseTask(id: string, raw: string): Task {
-  try {
-    const body = JSON.parse(raw) as Record<string, unknown>;
-    const title = typeof body.title === "string" ? body.title.trim() : "";
-    const done = body.done === true;
-    return {
-      id,
-      raw,
-      title: title || "Untitled task",
-      notes: typeof body.notes === "string" && body.notes ? body.notes : undefined,
-      done: done || undefined,
-      completedAt: done && typeof body.completedAt === "string" ? body.completedAt : undefined,
-      completions: normalizeCompletions(body.completions),
-      dueDate: normalizeDueDate(body.dueDate),
-      priority: normalizePriority(body.priority),
-      tags: normalizeTags(body.tags),
-      taskListId: resolveTaskListId(typeof body.taskListId === "string" ? body.taskListId : undefined),
-      parentId: typeof body.parentId === "string" && body.parentId ? body.parentId : undefined,
-      recurrence: normalizeRecurrence(body.recurrence),
-      recurrenceAnchor: normalizeDueDate(body.recurrenceAnchor),
-      createdAt: typeof body.createdAt === "string" ? body.createdAt : undefined,
-      updatedAt: typeof body.updatedAt === "string" ? body.updatedAt : undefined,
-    };
-  } catch {
-    return {
-      id,
-      raw,
-      title: "Unreadable task",
-      tags: [],
-      taskListId: DEFAULT_TASK_LIST_ID,
-    };
-  }
+  return taskFrom(coreTaskParse(id, raw));
+}
+
+function taskFrom(task: CoreTask): Task {
+  return {
+    id: task.id,
+    raw: task.raw,
+    title: task.title,
+    derivedTitle: task.derived_title,
+    notes: task.notes || undefined,
+    done: task.done || undefined,
+    completedAt: task.completed_at,
+    completions: task.completions,
+    dueDate: task.due_date,
+    priority: task.priority,
+    tags: task.tags,
+    taskListId: task.task_list_id,
+    parentId: task.parent_id,
+    recurrence: task.recurrence ? recurrenceFrom(task.recurrence) : undefined,
+    unreadableRecurrence: task.unreadable_recurrence,
+    recurrenceAnchor: task.recurrence_anchor,
+    createdAt: task.created_at,
+    updatedAt: task.updated_at,
+    readable: task.readable,
+  };
+}
+
+/** The draft an edit starts from: the stored title, never the listed fallback. */
+export function taskDraft(task: Task): TaskDraft {
+  const { id: _id, derivedTitle, readable: _readable, ...draft } = task;
+  return { ...draft, title: derivedTitle ? "" : task.title };
+}
+
+/**
+ * Whether this build may write over a stored task. False for one from a newer
+ * schema major, which core refuses and an editor should show read-only.
+ */
+export function taskWritable(draft: TaskDraft): boolean {
+  return !draft.raw || coreTaskParse("", draft.raw).readable;
 }
 
 export function serializeTaskList(
@@ -114,32 +111,33 @@ export function serializeTaskList(
   previousRaw?: string,
   color?: string,
 ): string {
-  return mergePayload(
-    previousRaw,
-    {
-      "@type": "TaskList",
-      version: PAYLOAD_SCHEMA_VERSION,
-      name: name.trim(),
-      ...(parentId ? { parentId } : {}),
-      ...(color ? { color } : {}),
-    },
-    TASK_LIST_KEYS,
-  );
+  return coreTaskListWrite({ name, parent_id: parentId, color, raw: previousRaw });
 }
 
 export function parseTaskList(id: string, raw: string): TaskList {
-  try {
-    const body = JSON.parse(raw) as { name?: string; parentId?: string; color?: string };
-    return {
-      id,
-      name: body.name?.trim() || "Untitled",
-      parentId: typeof body.parentId === "string" && body.parentId ? body.parentId : undefined,
-      color: typeof body.color === "string" && body.color ? body.color : undefined,
-      raw,
-    };
-  } catch {
-    return { id, name: raw, raw };
-  }
+  return listFrom(coreTaskListParse(id, raw));
+}
+
+function listFrom(list: CoreTaskList): TaskList {
+  return {
+    id: list.id,
+    name: list.name,
+    parentId: list.parent_id,
+    color: list.color,
+    raw: list.raw,
+    readable: list.readable,
+  };
+}
+
+function listTo(list: TaskList): CoreTaskList {
+  return {
+    id: list.id,
+    name: list.name,
+    parent_id: list.parentId,
+    color: list.color,
+    readable: list.readable ?? true,
+    raw: list.raw,
+  };
 }
 
 export function resolveTaskListId(taskListId?: string): string {
@@ -155,40 +153,39 @@ export function emptyTaskDraft(taskListId: string, parentId?: string): TaskDraft
   };
 }
 
+/**
+ * A due value as it should be stored, or undefined where it names no real
+ * moment. Core decides; this mirror runs per row, and `taskParity.test.ts` holds
+ * it to core's.
+ */
 export function normalizeDueDate(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
-  if (DATE_ONLY.test(trimmed)) {
-    return Number.isNaN(Date.parse(`${trimmed}T00:00`)) ? undefined : trimmed;
-  }
-  return trimmed.includes("T") && !Number.isNaN(Date.parse(trimmed)) ? trimmed : undefined;
+  const day = DUE_DAY.exec(trimmed);
+  if (day) return validDay(day[1], day[2], day[3]) ? trimmed : undefined;
+  const timed = DUE_TIMED.exec(trimmed);
+  if (!timed) return undefined;
+  const [year, month, date] = timed[1].split("-");
+  return validDay(year, month, date) ? trimmed : undefined;
+}
+
+function validDay(year: string, month: string, date: string): boolean {
+  const y = Number(year);
+  const m = Number(month);
+  const d = Number(date);
+  const leap = y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
+  const length = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
+  return length !== undefined && d >= 1 && d <= length;
 }
 
 export function isAllDayDue(dueDate?: string): boolean {
   return Boolean(dueDate) && !dueDate?.includes("T");
 }
 
-function normalizePriority(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
-}
-
 export function priorityLabel(priority?: number): string | null {
   if (!priority || priority <= 0) return null;
   if (priority >= 3) return "High";
   return priority >= 2 ? "Medium" : "Low";
-}
-
-function normalizeCompletions(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
-    .slice(0, MAX_TASK_COMPLETIONS);
-}
-
-function normalizeRecurrence(value: unknown): RecurrenceRule | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const rule = value as RecurrenceRule;
-  return RECURRENCE_FREQUENCIES.includes(rule.frequency) ? rule : undefined;
 }
 
 /** The calendar day of a due value in `timezone`, at local midnight. */
@@ -227,9 +224,9 @@ export function completeTask(task: Task, now: Date, timezone: string): TaskDraft
     ? [doneAt, ...(task.completions ?? [])].slice(0, MAX_TASK_COMPLETIONS)
     : task.completions;
   const rolled = rolledDueDate(task, now, timezone);
-  if (!rolled) return { ...task, done: true, completedAt: doneAt, completions };
+  if (!rolled) return { ...taskDraft(task), done: true, completedAt: doneAt, completions };
   return {
-    ...task,
+    ...taskDraft(task),
     done: undefined,
     completedAt: undefined,
     dueDate: rolled.dueDate,
@@ -239,7 +236,7 @@ export function completeTask(task: Task, now: Date, timezone: string): TaskDraft
 }
 
 export function reopenTask(task: Task): TaskDraft {
-  return { ...task, done: undefined, completedAt: undefined };
+  return { ...taskDraft(task), done: undefined, completedAt: undefined };
 }
 
 export type TaskScope = "today" | "overdue" | "all" | "completed";
@@ -347,7 +344,7 @@ export function canMoveTaskList(lists: TaskList[], id: string, parentId: string 
 }
 
 export function taskListTone(lists: TaskList[], id: string): string {
-  return collectionTone(lists, id);
+  return coreTaskListTone(lists.map(listTo), id);
 }
 
 export function dueLabel(task: Task, now: Date, timezone: string): string | null {

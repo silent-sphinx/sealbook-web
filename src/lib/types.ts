@@ -521,13 +521,22 @@ export type TaskDraft = {
    * which dates a rule with several weekdays and an interval lands on.
    */
   recurrenceAnchor?: string;
+  /** As `CalendarEvent.unreadableRecurrence`: a rule from a newer build, carried through a save. */
+  unreadableRecurrence?: string;
   createdAt?: string;
   updatedAt?: string;
   /** As `BookmarkDraft.raw`: what a save merges onto, so unknown fields survive. */
   raw?: string;
 };
 
-export type Task = TaskDraft & { id: string; raw: string };
+export type Task = TaskDraft & {
+  id: string;
+  raw: string;
+  /** The title is the listing's fallback and none is stored; see `taskDraft`. */
+  derivedTitle?: boolean;
+  /** False for a payload from a schema major this build may read but not write. */
+  readable?: boolean;
+};
 
 /**
  * What one task action wrote, for folding into a listing. Carried instead of a
@@ -547,6 +556,7 @@ export type TaskList = {
   parentId?: string;
   color?: string;
   raw: string;
+  readable?: boolean;
 };
 
 /**
