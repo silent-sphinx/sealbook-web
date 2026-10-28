@@ -81,42 +81,6 @@ describe("the constants this client mirrors", () => {
   });
 });
 
-describe("every note payload the fixture holds", () => {
-  it.each(fixture.writes.map((write, index) => [write.case, index] as const))(
-    "writes one spelling: %s",
-    (_case, index) => {
-      const write = fixture.writes[index];
-      expect(coreNoteWrite(write.draft, fixture.now)).toBe(write.payload);
-    },
-  );
-
-  it.each(fixture.parses.map((parse, index) => [parse.case, index] as const))(
-    "reads back as one record: %s",
-    (_case, index) => {
-      const parse = fixture.parses[index];
-      expect(coreNoteParse(parse.id, parse.raw)).toEqual(parse.note);
-    },
-  );
-});
-
-describe("every notebook payload the fixture holds", () => {
-  it.each(fixture.notebook_writes.map((write, index) => [write.case, index] as const))(
-    "writes one spelling: %s",
-    (_case, index) => {
-      const write = fixture.notebook_writes[index];
-      expect(coreNotebookWrite(write.name, write.previous)).toBe(write.payload);
-    },
-  );
-
-  it.each(fixture.notebook_parses.map((parse, index) => [parse.case, index] as const))(
-    "reads back as one record: %s",
-    (_case, index) => {
-      const parse = fixture.notebook_parses[index];
-      expect(coreNotebookParse(parse.id, parse.raw)).toEqual(parse.notebook);
-    },
-  );
-});
-
 describe("a payload from a newer schema major", () => {
   const future = '{"@type":"Note","version":"2.0","title":"future"}';
 

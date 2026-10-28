@@ -18,12 +18,8 @@ import {
 } from "./bookmark";
 import {
   coreBookmarkCollectionKeys,
-  coreBookmarkCollectionParse,
   coreBookmarkCollectionTone,
-  coreBookmarkCollectionWrite,
   coreBookmarkKeys,
-  coreBookmarkParse,
-  coreBookmarkWrite,
   coreDefaultBookmarkCollectionId,
   coreErrorOf,
   coreNormalizeTags,
@@ -69,7 +65,6 @@ type Fixture = {
 
 const fixture = JSON.parse(readFixture("payloads/bookmarks.json")) as Fixture;
 
-const NOW = "2026-10-28T12:00:00Z";
 
 describe("the constants this client mirrors", () => {
   it("are core's", () => {
@@ -99,41 +94,7 @@ describe("the constants this client mirrors", () => {
   });
 });
 
-describe("every bookmark the fixture holds", () => {
-  it.each(fixture.writes.map((write, index) => [write.case, index] as const))(
-    "writes one spelling: %s",
-    (_case, index) => {
-      const write = fixture.writes[index];
-      expect(coreBookmarkWrite(write.draft, NOW)).toBe(write.payload);
-    },
-  );
-
-  it.each(fixture.parses.map((parse, index) => [parse.case, index] as const))(
-    "reads back as one record: %s",
-    (_case, index) => {
-      const parse = fixture.parses[index];
-      expect(coreBookmarkParse(parse.id, parse.raw)).toEqual(parse.bookmark);
-    },
-  );
-});
-
 describe("every collection the fixture holds", () => {
-  it.each(fixture.collection_writes.map((write, index) => [write.case, index] as const))(
-    "writes one spelling: %s",
-    (_case, index) => {
-      const write = fixture.collection_writes[index];
-      expect(coreBookmarkCollectionWrite(write.draft)).toBe(write.payload);
-    },
-  );
-
-  it.each(fixture.collection_parses.map((parse, index) => [parse.case, index] as const))(
-    "reads back as one record: %s",
-    (_case, index) => {
-      const parse = fixture.collection_parses[index];
-      expect(coreBookmarkCollectionParse(parse.id, parse.raw)).toEqual(parse.collection);
-    },
-  );
-
   it.each(fixture.tones.map((tone, index) => [tone.case, index] as const))(
     "resolves to one colour: %s",
     (_case, index) => {

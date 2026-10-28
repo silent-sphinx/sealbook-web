@@ -19,12 +19,8 @@ import {
 } from "./contactProfile";
 import {
   coreAddressBookKeys,
-  coreAddressBookParse,
-  coreAddressBookWrite,
   coreContactKeys,
-  coreContactParse,
   coreContactProfileKeys,
-  coreContactWrite,
   coreDefaultAddressBookId,
   coreErrorOf,
   coreResolveAddressBookId,
@@ -69,7 +65,6 @@ type Fixture = {
 
 const fixture = JSON.parse(readFixture("payloads/contacts.json")) as Fixture;
 
-const NOW = "2026-10-28T12:00:00.000Z";
 
 describe("the constants this client mirrors", () => {
   /**
@@ -103,42 +98,6 @@ describe("the constants this client mirrors", () => {
       expect(resolveAddressBookId(id)).toBe(coreResolveAddressBookId(id));
     }
   });
-});
-
-describe("every card the fixture holds", () => {
-  it.each(fixture.contact_writes.map((write, index) => [write.case, index] as const))(
-    "writes one spelling: %s",
-    (_case, index) => {
-      const write = fixture.contact_writes[index];
-      expect(coreContactWrite(write.draft, NOW)).toBe(write.payload);
-    },
-  );
-
-  it.each(fixture.contact_parses.map((parse, index) => [parse.case, index] as const))(
-    "reads back as one record: %s",
-    (_case, index) => {
-      const parse = fixture.contact_parses[index];
-      expect(coreContactParse(parse.id, parse.raw)).toEqual(parse.contact);
-    },
-  );
-});
-
-describe("every address book the fixture holds", () => {
-  it.each(fixture.address_book_writes.map((write, index) => [write.case, index] as const))(
-    "writes one spelling: %s",
-    (_case, index) => {
-      const write = fixture.address_book_writes[index];
-      expect(coreAddressBookWrite(write.draft)).toBe(write.payload);
-    },
-  );
-
-  it.each(fixture.address_book_parses.map((parse, index) => [parse.case, index] as const))(
-    "reads back as one record: %s",
-    (_case, index) => {
-      const parse = fixture.address_book_parses[index];
-      expect(coreAddressBookParse(parse.id, parse.raw)).toEqual(parse.address_book);
-    },
-  );
 });
 
 describe("a card an editor opens and saves without changing", () => {

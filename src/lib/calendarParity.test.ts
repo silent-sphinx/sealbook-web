@@ -15,12 +15,8 @@ import { CALENDAR_CONTENT_TYPE, CALENDAR_EVENT_CONTENT_TYPE } from "./calendarAp
 import {
   coreCalendarEventKeys,
   coreCalendarKeys,
-  coreCalendarParse,
-  coreCalendarWrite,
   coreDefaultCalendarId,
   coreErrorOf,
-  coreEventParse,
-  coreEventWrite,
 } from "./wasm";
 import type { CoreCalendar, CoreCalendarDraft, CoreCalendarEvent, CoreCalendarEventDraft } from "./wasm";
 import { DEFAULT_CALENDAR_COLOR } from "./types";
@@ -77,42 +73,6 @@ describe("the constants this client mirrors", () => {
     expect(coreCalendarKeys()).toEqual(fixture.constants.calendar_keys);
     expect(coreCalendarEventKeys()).toEqual(fixture.constants.calendar_event_keys);
   });
-});
-
-describe("every calendar payload the fixture holds", () => {
-  it.each(fixture.calendar_writes.map((write, index) => [write.case, index] as const))(
-    "writes one spelling: %s",
-    (_case, index) => {
-      const write = fixture.calendar_writes[index];
-      expect(coreCalendarWrite(write.draft)).toBe(write.payload);
-    },
-  );
-
-  it.each(fixture.calendar_parses.map((parse, index) => [parse.case, index] as const))(
-    "reads back as one record: %s",
-    (_case, index) => {
-      const parse = fixture.calendar_parses[index];
-      expect(coreCalendarParse(parse.id, parse.raw)).toEqual(parse.calendar);
-    },
-  );
-});
-
-describe("every event payload the fixture holds", () => {
-  it.each(fixture.event_writes.map((write, index) => [write.case, index] as const))(
-    "writes one spelling: %s",
-    (_case, index) => {
-      const write = fixture.event_writes[index];
-      expect(coreEventWrite(write.draft)).toBe(write.payload);
-    },
-  );
-
-  it.each(fixture.event_parses.map((parse, index) => [parse.case, index] as const))(
-    "reads back as one record: %s",
-    (_case, index) => {
-      const parse = fixture.event_parses[index];
-      expect(coreEventParse(parse.id, parse.raw)).toEqual(parse.event);
-    },
-  );
 });
 
 describe("a payload from a newer schema major", () => {

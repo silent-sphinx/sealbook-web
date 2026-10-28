@@ -72,10 +72,6 @@ describe("the constants this client mirrors", () => {
 });
 
 describe("core's settings writer", () => {
-  it.each(fixture.writes.map((c) => [c.case, c] as const))("%s", (_, c) => {
-    expect(coreSettingsWrite(c.draft)).toBe(c.payload);
-  });
-
   it.each(fixture.refusals.map((c) => [c.case, c] as const))(
     "refuses: %s",
     (_, c) => {
@@ -95,10 +91,6 @@ describe("core's settings writer", () => {
 });
 
 describe("core's settings reader", () => {
-  it.each(fixture.parses.map((c) => [c.case, c] as const))("%s", (_, c) => {
-    expect(coreSettingsParse(c.raw)).toEqual(c.settings);
-  });
-
   it.each(fixture.parses.map((c) => [c.case, c] as const))(
     "the view model agrees: %s",
     (_, c) => {

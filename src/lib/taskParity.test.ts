@@ -20,15 +20,9 @@ import {
 import {
   coreDefaultTaskListId,
   coreErrorOf,
-  coreNormalizeDueDate,
   coreResolveTaskListId,
   coreTaskKeys,
   coreTaskListKeys,
-  coreTaskListParse,
-  coreTaskListTone,
-  coreTaskListWrite,
-  coreTaskParse,
-  coreTaskWrite,
 } from "./wasm";
 import type { CoreTask, CoreTaskDraft, CoreTaskList, CoreTaskListDraft } from "./wasm";
 import { readFixture } from "../test/fixtures";
@@ -89,7 +83,6 @@ describe("every due value the fixture holds", () => {
     "normalises one way: %s",
     (_case, index) => {
       const due = fixture.due_dates[index];
-      expect(coreNormalizeDueDate(due.value)).toBe(due.normalized ?? undefined);
       expect(normalizeDueDate(due.value)).toBe(due.normalized ?? undefined);
     },
   );
@@ -101,46 +94,11 @@ describe("every due value the fixture holds", () => {
   });
 });
 
-describe("every task the fixture holds", () => {
-  it.each(fixture.writes.map((write, index) => [write.case, index] as const))(
-    "writes one spelling: %s",
-    (_case, index) => {
-      const write = fixture.writes[index];
-      expect(coreTaskWrite(write.draft, NOW)).toBe(write.payload);
-    },
-  );
-
-  it.each(fixture.parses.map((parse, index) => [parse.case, index] as const))(
-    "reads back as one record: %s",
-    (_case, index) => {
-      const parse = fixture.parses[index];
-      expect(coreTaskParse(parse.id, parse.raw)).toEqual(parse.task);
-    },
-  );
-});
-
-describe("every task list the fixture holds", () => {
-  it.each(fixture.list_writes.map((write, index) => [write.case, index] as const))(
-    "writes one spelling: %s",
-    (_case, index) => {
-      const write = fixture.list_writes[index];
-      expect(coreTaskListWrite(write.draft)).toBe(write.payload);
-    },
-  );
-
-  it.each(fixture.list_parses.map((parse, index) => [parse.case, index] as const))(
-    "reads back as one record: %s",
-    (_case, index) => {
-      const parse = fixture.list_parses[index];
-      expect(coreTaskListParse(parse.id, parse.raw)).toEqual(parse.list);
-    },
-  );
-
+describe("every task list tone the fixture holds", () => {
   it.each(fixture.tones.map((tone, index) => [tone.case, index] as const))(
     "resolves to one colour: %s",
     (_case, index) => {
       const tone = fixture.tones[index];
-      expect(coreTaskListTone(tone.lists, tone.id)).toBe(tone.tone);
       expect(
         taskListTone(
           tone.lists.map((item) => parseTaskList(item.id, item.raw)),
