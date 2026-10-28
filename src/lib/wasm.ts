@@ -18,6 +18,18 @@ import init, {
   core_calendar_name_by_id,
   core_calendar_parse,
   core_calendar_write,
+  core_bookmark_collection_keys,
+  core_bookmark_collection_name_by_id,
+  core_bookmark_collection_parse,
+  core_bookmark_collection_tone,
+  core_bookmark_collection_write,
+  core_bookmark_keys,
+  core_bookmark_parse,
+  core_bookmark_write,
+  core_default_bookmark_collection_id,
+  core_normalize_tags,
+  core_normalize_url,
+  core_resolve_collection_id,
   core_contact_keys,
   core_contact_parse,
   core_contact_profile_keys,
@@ -153,6 +165,10 @@ import type {
   CoreCalendarDraft,
   CoreCalendarEvent,
   CoreCalendarEventDraft,
+  CoreBookmark,
+  CoreBookmarkCollection,
+  CoreBookmarkCollectionDraft,
+  CoreBookmarkDraft,
   CoreContact,
   CoreContactChannel,
   CoreContactDraft,
@@ -1571,4 +1587,71 @@ export function coreAddressBookWrite(draft: CoreAddressBookDraft): string {
 /** A book that is gone, or a card in none, shows the default book's name. */
 export function coreAddressBookNameById(books: CoreAddressBook[], addressBookId?: string): string {
   return core_address_book_name_by_id(books, addressBookId);
+}
+
+export type {
+  CoreBookmark,
+  CoreBookmarkCollection,
+  CoreBookmarkCollectionDraft,
+  CoreBookmarkDraft,
+};
+
+/** Every key a bookmark writer owns, and every key a collection writer owns. */
+export function coreBookmarkKeys(): string[] {
+  return [...core_bookmark_keys()];
+}
+
+export function coreBookmarkCollectionKeys(): string[] {
+  return [...core_bookmark_collection_keys()];
+}
+
+export function coreDefaultBookmarkCollectionId(): string {
+  return core_default_bookmark_collection_id();
+}
+
+export function coreResolveCollectionId(collectionId?: string): string {
+  return core_resolve_collection_id(collectionId);
+}
+
+export function coreNormalizeUrl(url: string): string {
+  return core_normalize_url(url);
+}
+
+export function coreNormalizeTags(tags: string[]): string[] {
+  return [...core_normalize_tags(tags)];
+}
+
+/** Reads a stored bookmark. Lenient: one that will not parse is still a row. */
+export function coreBookmarkParse(id: string, raw: string): CoreBookmark {
+  return core_bookmark_parse(id, raw);
+}
+
+/**
+ * Serialises a bookmark onto `draft.raw`. `now` is the caller's clock. Throws
+ * `PayloadSchema` for a bookmark written by a newer client.
+ */
+export function coreBookmarkWrite(draft: CoreBookmarkDraft, now: string): string {
+  return core_bookmark_write(draft, now);
+}
+
+export function coreBookmarkCollectionParse(id: string, raw: string): CoreBookmarkCollection {
+  return core_bookmark_collection_parse(id, raw);
+}
+
+export function coreBookmarkCollectionWrite(draft: CoreBookmarkCollectionDraft): string {
+  return core_bookmark_collection_write(draft);
+}
+
+export function coreBookmarkCollectionNameById(
+  collections: CoreBookmarkCollection[],
+  collectionId?: string,
+): string {
+  return core_bookmark_collection_name_by_id(collections, collectionId);
+}
+
+export function coreBookmarkCollectionTone(
+  collections: CoreBookmarkCollection[],
+  id: string,
+): string {
+  return core_bookmark_collection_tone(collections, id);
 }

@@ -1,7 +1,14 @@
-import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
 import { ancestorsOf, buildTree, canReparent, subtree } from "./tree";
 import type { TreeNode } from "./tree";
 import type { Bookmark, BookmarkCollection, BookmarkDraft } from "./types";
+import {
+  coreBookmarkCollectionParse,
+  coreBookmarkCollectionTone,
+  coreBookmarkCollectionWrite,
+  coreBookmarkParse,
+  coreBookmarkWrite,
+} from "./wasm";
+import type { CoreBookmark, CoreBookmarkCollection } from "./wasm";
 
 // Mirrors of the Rust constants in
 // `sealbook/crates/sealbook-protocol/src/lib.rs`. There is no codegen between the
@@ -12,82 +19,61 @@ export const DEFAULT_BOOKMARK_COLLECTION_NAME = "Default Collection";
 export const DEFAULT_BOOKMARK_COLLECTION_ID = "00000000-0000-0000-0000-000000000005";
 export const ALL_COLLECTIONS = "all";
 
-/** Every key this build writes for a bookmark. See `mergePayload`. */
-const BOOKMARK_KEYS = [
-  "@type",
-  "version",
-  "url",
-  "title",
-  "notes",
-  "tags",
-  "collectionId",
-  "createdAt",
-  "updatedAt",
-] as const;
-
+/**
+ * Writes a bookmark's plaintext through core, which every client now does.
+ *
+ * A bookmark parsed with no stored title carries `derivedTitle`, and is drafted
+ * with an empty one: its listed title is the address, and saving must not write
+ * that onto the record.
+ */
 export function serializeBookmark(draft: BookmarkDraft): string {
-  const now = new Date().toISOString();
-  const notes = draft.notes?.trim();
-  const tags = normalizeTags(draft.tags);
-  return mergePayload(
-    draft.raw,
+  return coreBookmarkWrite(
     {
-      "@type": "Bookmark",
-      version: PAYLOAD_SCHEMA_VERSION,
-      url: normalizeUrl(draft.url),
-      title: draft.title.trim(),
-      // Omitted rather than written empty, so a bookmark with neither looks the
-      // same to a reader that predates the fields.
-      ...(notes ? { notes } : {}),
-      ...(tags.length > 0 ? { tags } : {}),
-      collectionId: resolveCollectionId(draft.collectionId),
-      createdAt: draft.createdAt ?? now,
-      updatedAt: now,
+      url: draft.url,
+      title: draft.title,
+      notes: draft.notes ?? "",
+      tags: draft.tags ?? [],
+      collection_id: draft.collectionId,
+      created_at: draft.createdAt,
+      raw: draft.raw,
     },
-    BOOKMARK_KEYS,
+    new Date().toISOString(),
   );
 }
 
 export function parseBookmark(id: string, raw: string): Bookmark {
-  try {
-    const body = JSON.parse(raw) as {
-      url?: string;
-      title?: string;
-      notes?: string;
-      tags?: unknown;
-      collectionId?: string;
-      createdAt?: string;
-      updatedAt?: string;
-    };
-    const url = typeof body.url === "string" ? body.url.trim() : "";
-    return {
-      id,
-      raw,
-      url,
-      // A bookmark saved without a title is listed by its URL: it is what the
-      // user would recognise, and an empty row is not findable.
-      title: body.title?.trim() || url || "Untitled bookmark",
-      notes: typeof body.notes === "string" && body.notes ? body.notes : undefined,
-      tags: normalizeTags(body.tags),
-      collectionId: resolveCollectionId(body.collectionId),
-      createdAt: typeof body.createdAt === "string" ? body.createdAt : undefined,
-      updatedAt: typeof body.updatedAt === "string" ? body.updatedAt : undefined,
-    };
-  } catch {
-    // A payload that will not parse still has to render as something the user can
-    // find and delete, rather than taking the whole list down.
-    return {
-      id,
-      raw,
-      url: "",
-      title: "Unreadable bookmark",
-      tags: [],
-      collectionId: DEFAULT_BOOKMARK_COLLECTION_ID,
-    };
-  }
+  return bookmarkFrom(coreBookmarkParse(id, raw));
 }
 
-const BOOKMARK_COLLECTION_KEYS = ["@type", "version", "name", "parentId", "color"] as const;
+function bookmarkFrom(bookmark: CoreBookmark): Bookmark {
+  return {
+    id: bookmark.id,
+    raw: bookmark.raw,
+    url: bookmark.url,
+    title: bookmark.title,
+    derivedTitle: bookmark.derived_title,
+    notes: bookmark.notes || undefined,
+    tags: bookmark.tags,
+    collectionId: bookmark.collection_id,
+    createdAt: bookmark.created_at,
+    updatedAt: bookmark.updated_at,
+    readable: bookmark.readable,
+  };
+}
+
+/** The draft an edit starts from: the stored title, never the listed fallback. */
+export function bookmarkDraft(bookmark: Bookmark): BookmarkDraft {
+  return {
+    url: bookmark.url,
+    title: bookmark.derivedTitle ? "" : bookmark.title,
+    notes: bookmark.notes,
+    tags: bookmark.tags,
+    collectionId: bookmark.collectionId,
+    createdAt: bookmark.createdAt,
+    updatedAt: bookmark.updatedAt,
+    raw: bookmark.raw,
+  };
+}
 
 export function serializeBookmarkCollection(
   name: string,
@@ -95,32 +81,46 @@ export function serializeBookmarkCollection(
   previousRaw?: string,
   color?: string,
 ): string {
-  return mergePayload(
-    previousRaw,
-    {
-      "@type": "BookmarkCollection",
-      version: PAYLOAD_SCHEMA_VERSION,
-      name: name.trim(),
-      ...(parentId ? { parentId } : {}),
-      ...(color ? { color } : {}),
-    },
-    BOOKMARK_COLLECTION_KEYS,
-  );
+  return coreBookmarkCollectionWrite({
+    name,
+    parent_id: parentId,
+    color,
+    raw: previousRaw,
+  });
 }
 
 export function parseBookmarkCollection(id: string, raw: string): BookmarkCollection {
-  try {
-    const body = JSON.parse(raw) as { name?: string; parentId?: string; color?: string };
-    return {
-      id,
-      name: body.name?.trim() || "Untitled",
-      parentId: typeof body.parentId === "string" && body.parentId ? body.parentId : undefined,
-      color: typeof body.color === "string" && body.color ? body.color : undefined,
-      raw,
-    };
-  } catch {
-    return { id, name: raw, raw };
-  }
+  return collectionFrom(coreBookmarkCollectionParse(id, raw));
+}
+
+function collectionFrom(collection: CoreBookmarkCollection): BookmarkCollection {
+  return {
+    id: collection.id,
+    name: collection.name,
+    parentId: collection.parent_id,
+    color: collection.color,
+    raw: collection.raw,
+    readable: collection.readable,
+  };
+}
+
+function collectionTo(collection: BookmarkCollection): CoreBookmarkCollection {
+  return {
+    id: collection.id,
+    name: collection.name,
+    parent_id: collection.parentId,
+    color: collection.color,
+    readable: collection.readable ?? true,
+    raw: collection.raw,
+  };
+}
+
+/**
+ * Whether this build may write over a stored bookmark. False for one from a newer
+ * schema major, which core refuses and an editor should show read-only.
+ */
+export function bookmarkWritable(draft: BookmarkDraft): boolean {
+  return !draft.raw || coreBookmarkParse("", draft.raw).readable;
 }
 
 export function resolveCollectionId(collectionId?: string): string {
@@ -289,37 +289,14 @@ export function collectionRootId(collections: BookmarkCollection[], id: string):
 }
 
 /**
- * Stable, distinct colours for a collection that has never been given one.
- * Hashed from the id rather than assigned in storage order, so the same
- * uncoloured collection lands on the same tone on every device.
- */
-const COLLECTION_TONES = [
-  "#7aa2f7",
-  "#9ece6a",
-  "#bb9af7",
-  "#e0af68",
-  "#7dcfff",
-  "#f7768e",
-  "#ff9e64",
-  "#73daca",
-];
-
-function hashedTone(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i += 1) {
-    hash = (Math.imul(hash, 31) + id.charCodeAt(i)) >>> 0;
-  }
-  return COLLECTION_TONES[hash % COLLECTION_TONES.length];
-}
-
-/**
  * A collection's colour: its root's explicit colour, or one hashed from the
- * root's id when none is set. Only a top-level collection carries an explicit
- * colour, so every collection nested under it resolves to the same value —
- * that is what "adopts the parent's colour" means here.
+ * root's id when none is set. Core decides, so every client lands an uncoloured
+ * collection on the same tone; only a top-level collection carries an explicit
+ * colour, and everything nested under it adopts its root's.
  */
-export function collectionTone(collections: BookmarkCollection[], id: string): string {
-  const rootId = collectionRootId(collections, id);
-  const explicit = collections.find((item) => item.id === rootId)?.color?.trim();
-  return explicit || hashedTone(rootId);
+export function collectionTone(
+  collections: Pick<BookmarkCollection, "id" | "name" | "parentId" | "color" | "raw">[],
+  id: string,
+): string {
+  return coreBookmarkCollectionTone(collections.map(collectionTo), id);
 }

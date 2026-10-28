@@ -9,6 +9,7 @@ import {
   buildCollectionTree,
   canMoveCollection,
   collectionRootId,
+  bookmarkDraft,
   collectionTone,
   DEFAULT_BOOKMARK_COLLECTION_ID,
   emptyBookmarkDraft,
@@ -228,7 +229,7 @@ export function BookmarksView({
   }
 
   function startEdit(bookmark: Bookmark) {
-    setDraft({ ...bookmark });
+    setDraft(bookmarkDraft(bookmark));
     setTagText((bookmark.tags ?? []).join(", "));
     setEditingId(bookmark.id);
     setError(null);
@@ -249,9 +250,7 @@ export function BookmarksView({
     const payload: BookmarkDraft = {
       ...draft,
       url: normalizeUrl(draft.url),
-      // A bookmark saved without a title lists by its URL, so an empty field is
-      // not an error worth stopping on.
-      title: draft.title.trim() || normalizeUrl(draft.url),
+      title: draft.title.trim(),
       tags: normalizeTags(tagText.split(",")),
     };
     if (!bookmarkFitsObjectLimit(payload)) {
@@ -317,7 +316,7 @@ export function BookmarksView({
         await putBookmark(
           session,
           {
-            ...bookmark,
+            ...bookmarkDraft(bookmark),
             collectionId: parentId ?? DEFAULT_BOOKMARK_COLLECTION_ID,
           },
           bookmark.id,
@@ -527,7 +526,7 @@ export function BookmarksView({
     setSaving(true);
     setError(null);
     try {
-      await putBookmark(session, { ...bookmark, collectionId }, bookmark.id);
+      await putBookmark(session, { ...bookmarkDraft(bookmark), collectionId }, bookmark.id);
       await onRefresh();
     } catch (err) {
       setError(friendlyError(err));

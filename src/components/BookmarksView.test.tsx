@@ -254,7 +254,7 @@ describe("BookmarksView, saving a bookmark", () => {
     expect(writes[0]!.id).toBeUndefined();
   });
 
-  it("falls back to the address when no title was given", async () => {
+  it("does not title a bookmark with its address when no title was given", async () => {
     mount();
 
     openForm();
@@ -262,7 +262,7 @@ describe("BookmarksView, saving a bookmark", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
 
     await waitFor(() => expect(writes).toHaveLength(1));
-    expect(writes[0]!.draft.title).toBe("https://example.com/page");
+    expect(writes[0]!.draft.title).toBe("");
   });
 
   it("splits the tags on commas and drops the empties", async () => {

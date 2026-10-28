@@ -457,7 +457,17 @@ export type BookmarkDraft = {
   raw?: string;
 };
 
-export type Bookmark = BookmarkDraft & { id: string; raw: string };
+export type Bookmark = BookmarkDraft & {
+  id: string;
+  raw: string;
+  /**
+   * True when `title` is the address, listed in place of a title the payload
+   * does not store. A draft of this bookmark starts from an empty title.
+   */
+  derivedTitle?: boolean;
+  /** False for a payload from a newer schema major, which is not written over. */
+  readable?: boolean;
+};
 
 /**
  * Collections nest: `parentId` points at the collection this one sits inside,
@@ -476,6 +486,7 @@ export type BookmarkCollection = {
    */
   color?: string;
   raw: string;
+  readable?: boolean;
 };
 
 export type TaskDraft = {
