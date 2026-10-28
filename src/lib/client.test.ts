@@ -26,6 +26,7 @@ import {
   verifiedRoster,
   type Session,
 } from "./client";
+import { ATTACHMENT_NONCE_LEN } from "./attachments";
 import { b64ToByteArray } from "./bytes";
 import {
   createDevice,
@@ -37,7 +38,6 @@ import {
   newUuid,
   objectContentDigest,
   openObject,
-  ATTACHMENT_NONCE_LEN,
   pairConfirmationCode,
   rosterSealDevice,
   rosterVerify,
@@ -2391,7 +2391,9 @@ describe("attachments", () => {
     const nowSec = Math.floor(Date.now() / 1000);
     const old = "11111111-1111-1111-1111-111111111111";
     store.addOrphan(old, nowSec - 72 * 60 * 60);
-    store.stickCursorAt("always-the-same");
+    // A uuid, because that is what the listing's cursor is: core types it as
+    // one, where this client used to carry whatever string arrived.
+    store.stickCursorAt("99999999-9999-9999-9999-999999999999");
 
     // One page, then one that repeats the cursor and ends the walk, rather than
     // a loop that never returns.

@@ -175,6 +175,48 @@ export async function postText(url: string, body: string, token?: string): Promi
   return requestText("POST", url, { method: "POST", headers, body });
 }
 
+/**
+ * Sends a request core built, exactly as core built it, and hands the answer
+ * back unparsed for core to read.
+ *
+ * The method, path, headers and body are all core's, so nothing here can drift
+ * from what the other clients send.
+ *
+ * For the small JSON bodies only, which is why the body is decoded as text:
+ * core's `body` crosses the wasm boundary as `number[]`, so a multi-megabyte
+ * one would cross element by element. A sealed attachment chunk is PUT
+ * directly instead.
+ */
+export async function sendCore(
+  root: string,
+  request: {
+    method: string;
+    path: string;
+    headers: { name: string; value: string }[];
+    // Optional because core defaults it, so an empty body is absent rather
+    // than a zero-length array.
+    body?: number[];
+  },
+  token?: string,
+): Promise<string> {
+  const headers: Record<string, string> = {};
+  for (const header of request.headers) {
+    headers[header.name] = header.value;
+  }
+  if (token) {
+    headers.authorization = `Bearer ${token}`;
+  }
+  const body =
+    request.body && request.body.length > 0
+      ? new TextDecoder().decode(new Uint8Array(request.body))
+      : undefined;
+  return requestText(request.method, `${root}${request.path}`, {
+    method: request.method,
+    headers,
+    body,
+  });
+}
+
 export async function putJson<T>(url: string, body: unknown, token: string): Promise<T> {
   return request<T>("PUT", url, {
     method: "PUT",

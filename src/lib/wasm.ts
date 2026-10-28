@@ -52,6 +52,27 @@ import init, {
   core_pair_status,
   core_pin_roster,
   core_roster_accept,
+  core_attachment_chunk_digest,
+  core_attachment_chunk_nonce,
+  core_attachment_chunk_path,
+  core_attachment_commit_accept,
+  core_attachment_commit_request,
+  core_attachment_content_hash,
+  core_attachment_create_accept,
+  core_attachment_create_request,
+  core_attachment_delete_request,
+  core_attachment_limits,
+  core_attachment_meta_accept,
+  core_attachment_meta_request,
+  core_attachment_plan,
+  core_attachment_ranges,
+  core_attachment_sweep_orphans,
+  core_attachment_sweep_page,
+  core_attachment_sweep_request,
+  core_attachment_sweep_start,
+  core_attachment_verify,
+  core_open_attachment_chunk,
+  core_seal_attachment_chunk,
   core_roster_accept_sealed,
   core_roster_answers_for,
   core_roster_request,
@@ -62,17 +83,13 @@ import init, {
   core_rotation_recipients,
   core_walk_page,
   core_walk_start,
-  AttachmentHash,
   create_device,
   create_enrollment,
   decrypt_contact,
   encrypt_contact,
   generate_new_phrase,
-  new_attachment_key,
   new_collection_key,
   new_uuid,
-  open_attachment_chunk,
-  seal_attachment_chunk,
   manifest_bucket_of_id,
   manifest_buckets_blob,
   manifest_digest_of,
@@ -125,6 +142,12 @@ import type {
   ResealRow,
   RosterContext,
   RotationPlan,
+  AttachmentLimits,
+  AttachmentPlan,
+  AttachmentRow,
+  ChunkRange,
+  SweepCursor,
+  SweepPage,
   RotationState,
   RowOutcome,
   RowRef,
@@ -384,93 +407,6 @@ export function newUuid(): string {
 /** A fresh collection key, base64. Used when rotating after a device revocation. */
 export function newCollectionKey(): string {
   return new_collection_key();
-}
-
-/** A fresh attachment data key, base64url, to store in the owning note. */
-export function newAttachmentKey(): string {
-  return new_attachment_key();
-}
-
-/**
- * Seals one attachment chunk. Returns the 24-byte nonce prepended to the
- * ciphertext; callers split the nonce off with `ATTACHMENT_NONCE_LEN`.
- */
-export function sealAttachmentChunk(
-  adk: string,
-  attachmentId: string,
-  collectionId: string,
-  chunkIndex: number,
-  chunkCount: number,
-  plaintext: Uint8Array,
-): Uint8Array<ArrayBuffer> {
-  // wasm-bindgen copies its return into a fresh, non-shared buffer.
-  return seal_attachment_chunk(
-    adk,
-    attachmentId,
-    collectionId,
-    chunkIndex,
-    chunkCount,
-    plaintext,
-  ) as Uint8Array<ArrayBuffer>;
-}
-
-/** The nonce length `sealAttachmentChunk` prepends to its ciphertext. */
-export const ATTACHMENT_NONCE_LEN = 24;
-
-/** Opens one attachment chunk, returning its plaintext bytes. */
-export function openAttachmentChunk(
-  adk: string,
-  attachmentId: string,
-  collectionId: string,
-  chunkIndex: number,
-  chunkCount: number,
-  nonce: string,
-  ciphertext: Uint8Array,
-): Uint8Array<ArrayBuffer> {
-  return open_attachment_chunk(
-    adk,
-    attachmentId,
-    collectionId,
-    chunkIndex,
-    chunkCount,
-    nonce,
-    ciphertext,
-  ) as Uint8Array<ArrayBuffer>;
-}
-
-/**
- * Rolls per-chunk plaintext hashes into one attachment content hash. Fed chunk
- * by chunk on both upload and download, so the two paths produce the identical
- * hash the Rust server-side client also computes.
- */
-export class AttachmentHasher {
-  // Null once the wasm handle has gone, so `free` after a `finalize` that
-  // already consumed the pointer cannot hand the same pointer back to Rust.
-  private inner: AttachmentHash | null;
-  constructor() {
-    this.inner = new AttachmentHash();
-  }
-  update(chunkPlaintext: Uint8Array): void {
-    if (!this.inner) {
-      throw new Error("attachment hasher used after it was finalized");
-    }
-    this.inner.update(chunkPlaintext);
-  }
-  /** Consumes the hasher; it must not be used again afterward. */
-  finalize(): string {
-    if (!this.inner) {
-      throw new Error("attachment hasher used after it was finalized");
-    }
-    const inner = this.inner;
-    this.inner = null;
-    return inner.finalize();
-  }
-  /** Releases the handle unless `finalize` already took it. Idempotent. */
-  free(): void {
-    const inner = this.inner;
-    this.inner = null;
-    inner?.free();
-  }
 }
 
 /**
@@ -1196,4 +1132,192 @@ export function coreDeleteAccountRequest(
   challengeBody: string,
 ): AuthRequest {
   return core_delete_account_request(state, challengeBody);
+}
+
+// ── Core: attachments ──
+
+export type { AttachmentLimits, AttachmentPlan, AttachmentRow, ChunkRange, SweepCursor, SweepPage };
+
+/**
+ * The protocol's ceiling, the chunk size, the nonce header and the sweep's
+ * grace period. This client's own lower ceiling is `MAX_ATTACHMENT_SIZE`.
+ */
+export function coreAttachmentLimits(): AttachmentLimits {
+  return core_attachment_limits();
+}
+
+/**
+ * Decides an upload: a fresh id and key, and how the plaintext is cut up.
+ *
+ * Throws on an empty file and on one over the protocol ceiling, so neither
+ * becomes a server error with nothing the user can do about it.
+ */
+export function coreAttachmentPlan(totalPlaintextSize: number): AttachmentPlan {
+  return core_attachment_plan(BigInt(totalPlaintextSize));
+}
+
+/** The slices of plaintext the plan's chunks are taken from, in order. */
+export function coreAttachmentRanges(plan: AttachmentPlan): ChunkRange[] {
+  return core_attachment_ranges(plan);
+}
+
+export function coreAttachmentCreateRequest(
+  collectionId: string,
+  plan: AttachmentPlan,
+): HttpRequest {
+  return core_attachment_create_request(collectionId, plan);
+}
+
+export function coreAttachmentCreateAccept(plan: AttachmentPlan, body: string): void {
+  core_attachment_create_accept(plan, body);
+}
+
+export function coreAttachmentChunkPath(
+  collectionId: string,
+  attachmentId: string,
+  index: number,
+): string {
+  return core_attachment_chunk_path(collectionId, attachmentId, index);
+}
+
+/**
+ * Seals one chunk, returning its nonce prepended to its ciphertext. The caller
+ * splits the first `nonce_len` bytes off: the two travel apart on the wire, and
+ * a second call would seal under a second nonce.
+ */
+export function coreSealAttachmentChunk(
+  key: string,
+  attachmentId: string,
+  collectionId: string,
+  index: number,
+  chunkCount: number,
+  plaintext: Uint8Array,
+): Uint8Array<ArrayBuffer> {
+  // wasm-bindgen copies its return into a fresh, non-shared buffer.
+  return core_seal_attachment_chunk(
+    key,
+    attachmentId,
+    collectionId,
+    index,
+    chunkCount,
+    plaintext,
+  ) as Uint8Array<ArrayBuffer>;
+}
+
+/** Opens one chunk. A chunk that will not open is a tampered or corrupt download. */
+export function coreOpenAttachmentChunk(
+  key: string,
+  attachmentId: string,
+  collectionId: string,
+  index: number,
+  chunkCount: number,
+  nonce: string,
+  ciphertext: Uint8Array,
+): Uint8Array<ArrayBuffer> {
+  return core_open_attachment_chunk(
+    key,
+    attachmentId,
+    collectionId,
+    index,
+    chunkCount,
+    nonce,
+    ciphertext,
+  ) as Uint8Array<ArrayBuffer>;
+}
+
+/** The nonce a chunk response carried, or a refusal for one that carried none. */
+export function coreAttachmentChunkNonce(header: string | null): string {
+  return core_attachment_chunk_nonce(header ?? undefined);
+}
+
+export function coreAttachmentCommitRequest(
+  collectionId: string,
+  attachmentId: string,
+): HttpRequest {
+  return core_attachment_commit_request(collectionId, attachmentId);
+}
+
+export function coreAttachmentCommitAccept(attachmentId: string, body: string): void {
+  core_attachment_commit_accept(attachmentId, body);
+}
+
+export function coreAttachmentMetaRequest(
+  collectionId: string,
+  attachmentId: string,
+): HttpRequest {
+  return core_attachment_meta_request(collectionId, attachmentId);
+}
+
+/**
+ * Whether the server is holding the attachment this note references, checked
+ * against the chunk count the note carries rather than the server's own.
+ */
+export function coreAttachmentMetaAccept(
+  attachmentId: string,
+  chunkCount: number,
+  body: string,
+): void {
+  core_attachment_meta_accept(attachmentId, chunkCount, body);
+}
+
+export function coreAttachmentDeleteRequest(
+  collectionId: string,
+  attachmentId: string,
+): HttpRequest {
+  return core_attachment_delete_request(collectionId, attachmentId);
+}
+
+/**
+ * One chunk's plaintext digest, rolled up later by `coreAttachmentContentHash`.
+ *
+ * Replaces the hasher object this module used to construct and free: the
+ * digests are values, so a download that throws part way leaks nothing.
+ */
+export function coreAttachmentChunkDigest(plaintext: Uint8Array): string {
+  return core_attachment_chunk_digest(plaintext);
+}
+
+/** The hash the owning note commits to, rolled from every chunk's digest. */
+export function coreAttachmentContentHash(digests: string[]): string {
+  return core_attachment_content_hash(digests);
+}
+
+/** Checks a download reproduced what the note committed to. */
+export function coreAttachmentVerify(
+  attachmentId: string,
+  expectedHash: string,
+  digests: string[],
+): void {
+  core_attachment_verify(attachmentId, expectedHash, digests);
+}
+
+export function coreAttachmentSweepStart(): SweepCursor {
+  return core_attachment_sweep_start();
+}
+
+export function coreAttachmentSweepRequest(
+  collectionId: string,
+  cursor: SweepCursor,
+): HttpRequest {
+  return core_attachment_sweep_request(collectionId, cursor);
+}
+
+/**
+ * One page of the listing, and where to ask next. `next` is absent once the
+ * listing is exhausted, which includes a cursor the sweep already followed.
+ */
+export function coreAttachmentSweepPage(cursor: SweepCursor, body: string): SweepPage {
+  return core_attachment_sweep_page(cursor, body);
+}
+
+/**
+ * Which listed attachments are safe to delete. `nowSecs` is the caller's clock:
+ * core has none.
+ */
+export function coreAttachmentSweepOrphans(
+  rows: AttachmentRow[],
+  referenced: string[],
+  nowSecs: number,
+): string[] {
+  return [...core_attachment_sweep_orphans(rows, referenced, BigInt(nowSecs))];
 }

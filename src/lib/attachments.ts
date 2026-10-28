@@ -5,25 +5,32 @@ import {
   writeCachedAttachment,
 } from "./attachmentCache";
 import {
-  ATTACHMENT_NONCE_LEN,
-  AttachmentHasher,
-  newAttachmentKey,
-  newUuid,
-  openAttachmentChunk,
-  sealAttachmentChunk,
+  coreAttachmentChunkDigest,
+  coreAttachmentChunkNonce,
+  coreAttachmentChunkPath,
+  coreAttachmentCommitAccept,
+  coreAttachmentCommitRequest,
+  coreAttachmentContentHash,
+  coreAttachmentCreateAccept,
+  coreAttachmentCreateRequest,
+  coreAttachmentDeleteRequest,
+  coreAttachmentLimits,
+  coreAttachmentPlan,
+  coreAttachmentRanges,
+  coreAttachmentSweepOrphans,
+  coreAttachmentSweepPage,
+  coreAttachmentSweepRequest,
+  coreAttachmentSweepStart,
+  coreAttachmentVerify,
+  coreErrorOf,
+  coreOpenAttachmentChunk,
+  coreSealAttachmentChunk,
 } from "./wasm";
+import type { AttachmentPlan, AttachmentRow } from "./wasm";
 import type { NoteAttachment } from "./types";
 import type { Session } from "./client";
-import {
-  ApiError,
-  apiRoot,
-  errorMessage,
-  getJson,
-  REQUEST_TIMEOUT_MS,
-  postJson,
-} from "./transport";
+import { ApiError, apiRoot, errorMessage, sendCore } from "./transport";
 
-const ATTACHMENT_NONCE_HEADER = "x-sealbook-nonce";
 const ATTACHMENT_TIMEOUT_MS = 120_000;
 
 async function putAttachmentChunk(
@@ -37,7 +44,7 @@ async function putAttachmentChunk(
     method: "PUT",
     headers: {
       "content-type": "application/octet-stream",
-      [ATTACHMENT_NONCE_HEADER]: nonceB64,
+      [coreAttachmentLimits().nonce_header]: nonceB64,
       authorization: `Bearer ${token}`,
     },
     // `fetch` sends a view's own bytes, so the subarray of the sealed chunk
@@ -63,127 +70,149 @@ async function getAttachmentChunk(
   if (!res.ok) {
     throw new ApiError(errorMessage(await res.text(), res.statusText));
   }
-  const nonce = res.headers.get(ATTACHMENT_NONCE_HEADER);
-  if (!nonce) {
-    throw new ApiError("attachment chunk response is missing its nonce");
-  }
-  return { nonce, bytes: new Uint8Array(await res.arrayBuffer()) };
+  return {
+    nonce: coreAttachmentChunkNonce(res.headers.get(coreAttachmentLimits().nonce_header)),
+    bytes: new Uint8Array(await res.arrayBuffer()),
+  };
 }
 
-export const ATTACHMENT_CHUNK_SIZE = 4 * 1024 * 1024;
 /**
- * The largest attachment this client uploads, held below the protocol's 200 MB
- * ceiling on purpose: a download is assembled in memory before the viewer sees
- * it, and nothing a browser displays comes near this size.
+ * Literals rather than reads of `coreAttachmentLimits()`, because module scope
+ * runs before `initWasm`. `attachmentParity.test.ts` asserts both against core,
+ * so they cannot drift from it unnoticed.
+ */
+export const ATTACHMENT_CHUNK_SIZE = 4 * 1024 * 1024;
+/** The nonce length a sealed chunk carries before its ciphertext. */
+export const ATTACHMENT_NONCE_LEN = 24;
+/**
+ * The largest attachment this client uploads, held below the protocol's ceiling
+ * on purpose: a download is assembled in memory before the viewer sees it, and
+ * nothing a browser displays comes near this size. Core enforces the protocol
+ * limit; this one is this client's policy.
  */
 export const MAX_ATTACHMENT_SIZE = 64 * 1024 * 1024;
-
-function attachmentBase(session: Session): string {
-  return `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/attachments`;
-}
 
 export async function uploadAttachment(
   session: Session,
   file: { name: string; type: string; bytes: Uint8Array },
 ): Promise<NoteAttachment> {
-  const attachmentId = newUuid();
-  const adk = newAttachmentKey();
+  const root = apiRoot(session.state.server);
   const collectionId = session.state.collection_id;
-  const total = file.bytes.length;
-  const chunkCount = Math.max(1, Math.ceil(total / ATTACHMENT_CHUNK_SIZE));
-  const base = attachmentBase(session);
+  const plan = coreAttachmentPlan(file.bytes.length);
 
-  await postJson(
-    base,
-    {
-      attachment_id: attachmentId,
-      total_plaintext_size: total,
-      chunk_size: ATTACHMENT_CHUNK_SIZE,
-      chunk_count: chunkCount,
-    },
+  const created = await sendCore(
+    root,
+    coreAttachmentCreateRequest(collectionId, plan),
     session.token,
   );
+  coreAttachmentCreateAccept(plan, created);
 
-  const hasher = new AttachmentHasher();
   try {
-    for (let index = 0; index < chunkCount; index += 1) {
-      const start = index * ATTACHMENT_CHUNK_SIZE;
-      const plaintext = file.bytes.subarray(start, Math.min(start + ATTACHMENT_CHUNK_SIZE, total));
-      hasher.update(plaintext);
-      const sealed = sealAttachmentChunk(adk, attachmentId, collectionId, index, chunkCount, plaintext);
-      const nonce = b64encode(sealed.subarray(0, ATTACHMENT_NONCE_LEN));
-      const ciphertext = sealed.subarray(ATTACHMENT_NONCE_LEN);
-      await putAttachmentChunk(
-        `${base}/${attachmentId}/chunks/${index}`,
-        nonce,
-        ciphertext,
-        session.token,
-      );
-    }
-    const contentHash = hasher.finalize();
-    await postJson(`${base}/${attachmentId}/commit`, {}, session.token);
+    const contentHash = await uploadChunks(root, collectionId, plan, file.bytes, session.token);
     return {
-      id: attachmentId,
+      id: plan.attachment_id,
       filename: file.name,
       mimeType: file.type || "application/octet-stream",
-      byteSize: total,
-      adk,
+      byteSize: file.bytes.length,
+      adk: plan.key,
       contentHash,
-      chunkSize: ATTACHMENT_CHUNK_SIZE,
-      chunkCount,
+      chunkSize: plan.chunk_size,
+      chunkCount: plan.chunk_count,
     };
   } catch (error) {
     try {
-      await deleteAttachment(session, attachmentId);
+      await deleteAttachment(session, plan.attachment_id);
     } catch {
-      // The pending-attachment sweep is the backstop if cleanup also fails.
+      // The orphan sweep is the backstop if cleanup also fails.
     }
     throw error;
-  } finally {
-    hasher.free();
   }
+}
+
+async function uploadChunks(
+  root: string,
+  collectionId: string,
+  plan: AttachmentPlan,
+  bytes: Uint8Array,
+  token: string,
+): Promise<string> {
+  const nonceLen = coreAttachmentLimits().nonce_len;
+  const digests: string[] = [];
+  for (const range of coreAttachmentRanges(plan)) {
+    const plaintext = bytes.subarray(Number(range.start), Number(range.end));
+    digests.push(coreAttachmentChunkDigest(plaintext));
+    const sealed = coreSealAttachmentChunk(
+      plan.key,
+      plan.attachment_id,
+      collectionId,
+      range.index,
+      plan.chunk_count,
+      plaintext,
+    );
+    await putAttachmentChunk(
+      `${root}${coreAttachmentChunkPath(collectionId, plan.attachment_id, range.index)}`,
+      b64encode(sealed.subarray(0, nonceLen)),
+      sealed.subarray(nonceLen),
+      token,
+    );
+  }
+  const committed = await sendCore(
+    root,
+    coreAttachmentCommitRequest(collectionId, plan.attachment_id),
+    token,
+  );
+  coreAttachmentCommitAccept(plan.attachment_id, committed);
+  return coreAttachmentContentHash(digests);
 }
 
 export async function downloadAttachment(
   session: Session,
   attachment: NoteAttachment,
 ): Promise<Blob> {
+  const root = apiRoot(session.state.server);
   const collectionId = session.state.collection_id;
-  const base = attachmentBase(session);
-  const hasher = new AttachmentHasher();
+  // One Blob per chunk, so each plaintext is collectable as the loop advances
+  // and the assembled Blob references the parts instead of copying them: the
+  // file is held once rather than twice.
+  const parts: Blob[] = [];
+  const digests: string[] = [];
+  for (let index = 0; index < attachment.chunkCount; index += 1) {
+    const { nonce, bytes } = await getAttachmentChunk(
+      `${root}${coreAttachmentChunkPath(collectionId, attachment.id, index)}`,
+      session.token,
+    );
+    const plaintext = asIntegrityError(attachment.id, () =>
+      coreOpenAttachmentChunk(
+        attachment.adk,
+        attachment.id,
+        collectionId,
+        index,
+        attachment.chunkCount,
+        nonce,
+        bytes,
+      ),
+    );
+    digests.push(coreAttachmentChunkDigest(plaintext));
+    parts.push(new Blob([plaintext]));
+  }
+  asIntegrityError(attachment.id, () =>
+    coreAttachmentVerify(attachment.id, attachment.contentHash, digests),
+  );
+  return new Blob(parts, { type: attachment.mimeType });
+}
+
+/**
+ * Core's integrity refusal as this client's own class, which the viewer already
+ * tells apart from a transport failure.
+ */
+function asIntegrityError<T>(attachmentId: string, run: () => T): T {
   try {
-    // One Blob per chunk, so each plaintext is collectable as the loop advances
-    // and the assembled Blob references the parts instead of copying them: the
-    // file is held once rather than twice.
-    const parts: Blob[] = [];
-    for (let index = 0; index < attachment.chunkCount; index += 1) {
-      const { nonce, bytes } = await getAttachmentChunk(
-        `${base}/${attachment.id}/chunks/${index}`,
-        session.token,
-      );
-      let plaintext: Uint8Array<ArrayBuffer>;
-      try {
-        plaintext = openAttachmentChunk(
-          attachment.adk,
-          attachment.id,
-          collectionId,
-          index,
-          attachment.chunkCount,
-          nonce,
-          bytes,
-        );
-      } catch {
-        throw new AttachmentIntegrityError(attachment.id);
-      }
-      hasher.update(plaintext);
-      parts.push(new Blob([plaintext]));
+    return run();
+  } catch (error) {
+    if (coreErrorOf(error)?.kind === "AttachmentIntegrity") {
+      throw new AttachmentIntegrityError(attachmentId);
     }
-    if (hasher.finalize() !== attachment.contentHash) {
-      throw new AttachmentIntegrityError(attachment.id);
-    }
-    return new Blob(parts, { type: attachment.mimeType });
-  } finally {
-    hasher.free();
+    throw error;
   }
 }
 
@@ -200,14 +229,11 @@ export async function loadAttachment(
 
 export async function deleteAttachment(session: Session, attachmentId: string): Promise<void> {
   await forgetCachedAttachment(attachmentId);
-  const res = await fetch(`${attachmentBase(session)}/${attachmentId}`, {
-    method: "DELETE",
-    headers: { authorization: `Bearer ${session.token}` },
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    throw new ApiError(errorMessage(await res.text(), res.statusText));
-  }
+  await sendCore(
+    apiRoot(session.state.server),
+    coreAttachmentDeleteRequest(session.state.collection_id, attachmentId),
+    session.token,
+  );
 }
 
 export async function sweepOrphanedAttachments(
@@ -215,40 +241,33 @@ export async function sweepOrphanedAttachments(
   referencedIds: Set<string>,
   now = Date.now(),
 ): Promise<number> {
-  const base = attachmentBase(session);
-  const listed: AttachmentPage = await getJson(base, session.token);
-  const all: AttachmentListRow[] = [...listed.attachments];
-  // A server whose cursor does not advance would otherwise page forever, so a
-  // repeated cursor ends the walk and the sweep runs on what it has.
-  const seen = new Set<string>();
-  let cursor = listed.next_after;
-  while (cursor && !seen.has(cursor)) {
-    seen.add(cursor);
-    const page: AttachmentPage = await getJson(
-      `${base}?after=${encodeURIComponent(cursor)}`,
+  const root = apiRoot(session.state.server);
+  const collectionId = session.state.collection_id;
+  const rows: AttachmentRow[] = [];
+  let cursor = coreAttachmentSweepStart();
+  for (;;) {
+    const body = await sendCore(
+      root,
+      coreAttachmentSweepRequest(collectionId, cursor),
       session.token,
     );
-    all.push(...page.attachments);
-    cursor = page.next_after;
+    const page = coreAttachmentSweepPage(cursor, body);
+    rows.push(...page.rows);
+    if (!page.next) break;
+    cursor = page.next;
   }
+
   let removed = 0;
-  for (const row of all) {
-    const ageMs = now - row.created_at * 1000;
-    if (!referencedIds.has(row.attachment_id) && ageMs > ORPHAN_GRACE_MS) {
-      try {
-        await deleteAttachment(session, row.attachment_id);
-        removed += 1;
-      } catch {
-        // Leave it for the next sweep rather than failing the whole pass.
-      }
+  for (const id of coreAttachmentSweepOrphans(rows, [...referencedIds], Math.floor(now / 1000))) {
+    try {
+      await deleteAttachment(session, id);
+      removed += 1;
+    } catch {
+      // Leave it for the next sweep rather than failing the whole pass.
     }
   }
   return removed;
 }
-
-type AttachmentListRow = { attachment_id: string; state: string; created_at: number };
-type AttachmentPage = { attachments: AttachmentListRow[]; next_after?: string | null };
-const ORPHAN_GRACE_MS = 48 * 60 * 60 * 1000;
 
 export class AttachmentIntegrityError extends Error {
   constructor(attachmentId: string) {
