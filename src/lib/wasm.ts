@@ -58,6 +58,9 @@ import init, {
   core_default_notebook_id,
   core_resolve_address_book_id,
   core_event_parse,
+  core_is_calendar_day,
+  core_recurrence_days,
+  core_recurrence_next,
   core_event_write,
   core_new_device,
   core_new_registration,
@@ -1514,6 +1517,21 @@ export function coreCalendarParse(id: string, raw: string): CoreCalendar {
  */
 export function coreCalendarWrite(draft: CoreCalendarDraft): string {
   return core_calendar_write(draft);
+}
+
+/** The days a rule lands on from `from` to `to` inclusive, as `YYYY-MM-DD`. */
+export function coreRecurrenceDays(anchor: string, rule: CoreRecurrence, from: string, to: string): string[] {
+  return core_recurrence_days(anchor, rule, from, to);
+}
+
+/** The first day of a rule after `after`, or null once the rule is spent. */
+export function coreRecurrenceNext(anchor: string, rule: CoreRecurrence, after: string): string | null {
+  return core_recurrence_next(anchor, rule, after) ?? null;
+}
+
+/** Whether the text is a real calendar day; `Date.parse` accepts `2026-02-30`. */
+export function coreIsCalendarDay(text: string): boolean {
+  return core_is_calendar_day(text);
 }
 
 export function coreEventParse(id: string, raw: string): CoreCalendarEvent {
