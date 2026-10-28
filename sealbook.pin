@@ -1,3 +1,3 @@
 # The sealbook commit this repo builds its wasm module and shared fixtures from.
 # Checked by scripts/check-sealbook-pin.sh; moved by scripts/update-sealbook-pin.sh.
-80797b8c8d13407a8a9c72ec49da28dd25e0fa7f
+f5f2ab6268876d887c6256cda9f913149bd813cd

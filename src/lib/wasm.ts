@@ -35,6 +35,12 @@ import init, {
   core_task_list_name_by_id,
   core_task_list_parse,
   core_task_list_tone,
+  core_account_settings_keys,
+  core_can_disable_feature,
+  core_default_account_settings,
+  core_settings_parse,
+  core_settings_with_feature,
+  core_settings_write,
   core_task_list_write,
   core_task_parse,
   core_task_write,
@@ -193,6 +199,9 @@ import type {
   CoreTaskDraft,
   CoreTaskList,
   CoreTaskListDraft,
+  CoreAccountSettings,
+  CoreAccountSettingsDraft,
+  CoreFeatureFlag,
   CoreRecurrence,
   CorePairPreview,
   CoreRoster,
@@ -1722,4 +1731,40 @@ export function coreTaskListNameById(lists: CoreTaskList[], taskListId?: string)
 
 export function coreTaskListTone(lists: CoreTaskList[], id: string): string {
   return core_task_list_tone(lists, id);
+}
+
+export type { CoreAccountSettings, CoreAccountSettingsDraft, CoreFeatureFlag };
+
+/** Every key the account settings writer owns. */
+export function coreAccountSettingsKeys(): string[] {
+  return [...core_account_settings_keys()];
+}
+
+export function coreDefaultAccountSettings(): CoreAccountSettings {
+  return core_default_account_settings();
+}
+
+/** Reads a stored settings payload. Lenient: one that will not parse is the defaults. */
+export function coreSettingsParse(raw: string): CoreAccountSettings {
+  return core_settings_parse(raw);
+}
+
+/**
+ * Serialises settings onto `draft.raw`. Throws `PayloadSchema` over a payload
+ * from a newer schema major.
+ */
+export function coreSettingsWrite(draft: CoreAccountSettingsDraft): string {
+  return core_settings_write(draft);
+}
+
+export function coreSettingsWithFeature(
+  settings: CoreAccountSettings,
+  feature: string,
+  enabled: boolean,
+): CoreAccountSettings {
+  return core_settings_with_feature(settings, feature, enabled);
+}
+
+export function coreCanDisableFeature(settings: CoreAccountSettings, feature: string): boolean {
+  return core_can_disable_feature(settings, feature);
 }

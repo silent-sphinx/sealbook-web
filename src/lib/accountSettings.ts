@@ -1,5 +1,16 @@
-import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
-import type { AccentKey, AccountSettings, ContactMode, FeatureKey } from "./types";
+import {
+  coreCanDisableFeature,
+  coreSettingsParse,
+  coreSettingsWithFeature,
+  coreSettingsWrite,
+} from "./wasm";
+import type { CoreAccountSettings, CoreFeatureFlag } from "./wasm";
+import type {
+  AccentKey,
+  AccountSettings,
+  ContactMode,
+  FeatureKey,
+} from "./types";
 
 /**
  * Account settings live in the vault as one sealed object, not as a server
@@ -8,7 +19,8 @@ import type { AccentKey, AccountSettings, ContactMode, FeatureKey } from "./type
  * ignores the object, so the toggles degrade to "everything enabled" there
  * rather than breaking that client's sync.
  */
-export const ACCOUNT_SETTINGS_CONTENT_TYPE = "application/sealbook.settings+json";
+export const ACCOUNT_SETTINGS_CONTENT_TYPE =
+  "application/sealbook.settings+json";
 
 /**
  * Fixed id, continuing the well-known ids in
@@ -24,10 +36,17 @@ export const ACCOUNT_SETTINGS_CONTENT_TYPE = "application/sealbook.settings+json
 export const ACCOUNT_SETTINGS_ID = "00000000-0000-0000-0000-000000000004";
 
 /** Where these settings used to live, read only to migrate them off it. */
-export const LEGACY_ACCOUNT_SETTINGS_ID = "00000000-0000-0000-0000-000000000003";
+export const LEGACY_ACCOUNT_SETTINGS_ID =
+  "00000000-0000-0000-0000-000000000003";
 
 /** Also the order the features appear in the UI. */
-export const FEATURES: FeatureKey[] = ["contacts", "calendar", "notes", "bookmarks", "tasks"];
+export const FEATURES: FeatureKey[] = [
+  "contacts",
+  "calendar",
+  "notes",
+  "bookmarks",
+  "tasks",
+];
 
 export const FEATURE_LABELS: Record<FeatureKey, string> = {
   contacts: "Contacts",
@@ -56,7 +75,14 @@ export const CONTACT_MODE_LABELS: Record<ContactMode, string> = {
 export const DEFAULT_CONTACT_MODE: ContactMode = "basic";
 
 /** Also the order the swatches appear in the UI. */
-export const ACCENTS: AccentKey[] = ["blue", "cyan", "green", "amber", "rose", "purple"];
+export const ACCENTS: AccentKey[] = [
+  "blue",
+  "cyan",
+  "green",
+  "amber",
+  "rose",
+  "purple",
+];
 
 export const ACCENT_LABELS: Record<AccentKey, string> = {
   blue: "Blue",
@@ -86,7 +112,13 @@ export const ACCENT_COLORS: Record<AccentKey, { base: string; dim: string }> = {
 export const DEFAULT_ACCENT: AccentKey = "blue";
 
 export const DEFAULT_ACCOUNT_SETTINGS: AccountSettings = {
-  features: { contacts: true, calendar: true, notes: true, bookmarks: true, tasks: true },
+  features: {
+    contacts: true,
+    calendar: true,
+    notes: true,
+    bookmarks: true,
+    tasks: true,
+  },
   contactMode: DEFAULT_CONTACT_MODE,
   accent: DEFAULT_ACCENT,
 };
@@ -108,42 +140,62 @@ export function accentVariables(accent: unknown): Record<string, string> {
   };
 }
 
-const ACCOUNT_SETTINGS_KEYS = [
-  "@type",
-  "version",
-  "features",
-  "contactMode",
-  "accent",
-] as const;
+/**
+ * The view model core's record maps to. `unknownFeatures` is the flags this build
+ * does not know, which a save writes back untouched.
+ */
+function settingsFrom(core: CoreAccountSettings): AccountSettings {
+  const features = {} as Record<FeatureKey, boolean>;
+  for (const flag of core.features)
+    features[flag.key as FeatureKey] = flag.enabled;
+  const unknownFeatures = Object.fromEntries(
+    core.unknown_features.map((flag) => [flag.key, flag.enabled]),
+  );
+  return {
+    features,
+    ...(core.unknown_features.length > 0 ? { unknownFeatures } : {}),
+    contactMode: core.contact_mode as ContactMode,
+    accent: core.accent as AccentKey,
+  };
+}
 
+function flagsOf(flags: Record<string, boolean>): CoreFeatureFlag[] {
+  return Object.entries(flags).map(([key, enabled]) => ({ key, enabled }));
+}
+
+function settingsTo(settings: AccountSettings): CoreAccountSettings {
+  return {
+    features: flagsOf(settings.features),
+    unknown_features: flagsOf(settings.unknownFeatures ?? {}),
+    contact_mode: settings.contactMode,
+    accent: settings.accent,
+    readable: true,
+    raw: "",
+  };
+}
+
+/**
+ * Writes the settings through core, which is where the owned keys, the
+ * at-least-one-on rule and the carrying of a newer build's flags live. Throws
+ * `PayloadSchema` over a payload from a newer schema major.
+ */
 export function serializeAccountSettings(
   settings: AccountSettings,
   previousRaw?: string,
 ): string {
   const normalized = normalizeAccountSettings(settings);
-  return mergePayload(
-    previousRaw,
-    {
-      "@type": "AccountSettings",
-      version: PAYLOAD_SCHEMA_VERSION,
-      // The flags this build does not know go in first, so a known one always
-      // wins if both somehow carry the same key.
-      features: { ...normalized.unknownFeatures, ...normalized.features },
-      contactMode: normalized.contactMode,
-      accent: normalized.accent,
-    },
-    ACCOUNT_SETTINGS_KEYS,
-  );
+  return coreSettingsWrite({
+    features: flagsOf(normalized.features),
+    unknown_features: flagsOf(normalized.unknownFeatures ?? {}),
+    contact_mode: normalized.contactMode,
+    accent: normalized.accent,
+    raw: previousRaw,
+  });
 }
 
+/** An unreadable payload reads as the default: everything enabled. */
 export function parseAccountSettings(raw: string): AccountSettings {
-  try {
-    return normalizeAccountSettings(JSON.parse(raw));
-  } catch {
-    // An unreadable payload must not take the vault down or hide a feature the
-    // user still has data in, so it reads as the default: everything enabled.
-    return DEFAULT_ACCOUNT_SETTINGS;
-  }
+  return settingsFrom(coreSettingsParse(raw));
 }
 
 /**
@@ -151,12 +203,15 @@ export function parseAccountSettings(raw: string): AccountSettings {
  * the fields apart. Every caller holding a settings-shaped value should use this
  * one: picking fields off by hand is how a preference a build does not care
  * about gets dropped on the way through.
+ *
+ * Takes a stored payload, whose unknown flags sit in `features`, or an
+ * `AccountSettings` already taken apart, whose unknown flags sit beside it.
  */
 export function normalizeAccountSettings(value: unknown): AccountSettings {
-  const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
-  // Takes a stored payload, whose unknown flags sit in `features`, or an
-  // `AccountSettings` already taken apart, whose unknown flags sit beside it.
-  // Folding both back together is what stops a re-normalization dropping them.
+  const raw = (value && typeof value === "object" ? value : {}) as Record<
+    string,
+    unknown
+  >;
   const flags = {
     ...(raw.unknownFeatures as Record<string, unknown> | undefined),
     ...(raw.features as Record<string, unknown> | undefined),
@@ -166,7 +221,9 @@ export function normalizeAccountSettings(value: unknown): AccountSettings {
 
 /** Anything other than a known accent is the default, as for the contact mode. */
 export function normalizeAccent(value: unknown): AccentKey {
-  return ACCENTS.includes(value as AccentKey) ? (value as AccentKey) : DEFAULT_ACCENT;
+  return ACCENTS.includes(value as AccentKey)
+    ? (value as AccentKey)
+    : DEFAULT_ACCENT;
 }
 
 /**
@@ -179,44 +236,25 @@ export function normalizeContactMode(value: unknown): ContactMode {
 
 /**
  * Coerces any stored shape into the known flags, keeping the "at least one on"
- * rule, and sets aside the flags this build does not know.
- *
- * A missing or non-boolean flag is enabled: a build that predates a feature
- * writes no flag for it, and that must not read back as the user having turned
- * it off. An all-off payload is a client that ignored the rule, and is repaired
- * to the first feature rather than left as a vault with nothing in it.
- *
- * `features` is a single key as far as `mergePayload` is concerned, so rebuilding
- * it from `FEATURES` alone would drop a newer client's flag on every save. The
- * leftovers are kept in `unknownFeatures` and written back untouched.
+ * rule, and sets aside the flags this build does not know. Core's reader does
+ * it, so a view model and a stored payload cannot disagree on a missing or
+ * non-boolean flag.
  */
 export function normalizeFeatures(
   value: unknown,
   mode?: unknown,
   accent?: unknown,
 ): AccountSettings {
-  const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
-  const features = {} as Record<FeatureKey, boolean>;
-  for (const feature of FEATURES) {
-    features[feature] = raw[feature] !== false;
-  }
-  if (!FEATURES.some((feature) => features[feature])) {
-    features[FEATURES[0]] = true;
-  }
-  const unknownFeatures: Record<string, boolean> = {};
-  for (const [key, flag] of Object.entries(raw)) {
-    if (FEATURES.includes(key as FeatureKey)) continue;
-    if (typeof flag === "boolean") unknownFeatures[key] = flag;
-  }
-  return {
-    features,
-    ...(Object.keys(unknownFeatures).length > 0 ? { unknownFeatures } : {}),
-    contactMode: normalizeContactMode(mode),
-    accent: normalizeAccent(accent),
-  };
+  const features = value && typeof value === "object" ? value : {};
+  return parseAccountSettings(
+    JSON.stringify({ features, contactMode: mode, accent }),
+  );
 }
 
-export function isFeatureEnabled(settings: AccountSettings, feature: FeatureKey): boolean {
+export function isFeatureEnabled(
+  settings: AccountSettings,
+  feature: FeatureKey,
+): boolean {
   return settings.features[feature] !== false;
 }
 
@@ -225,9 +263,14 @@ export function enabledFeatures(settings: AccountSettings): FeatureKey[] {
 }
 
 /** False for the last enabled feature, which is the one the rule protects. */
-export function canDisableFeature(settings: AccountSettings, feature: FeatureKey): boolean {
-  if (!isFeatureEnabled(settings, feature)) return false;
-  return enabledFeatures(settings).length > 1;
+export function canDisableFeature(
+  settings: AccountSettings,
+  feature: FeatureKey,
+): boolean {
+  return coreCanDisableFeature(
+    settingsTo(normalizeAccountSettings(settings)),
+    feature,
+  );
 }
 
 /**
@@ -242,13 +285,11 @@ export function withFeature(
   feature: FeatureKey,
   enabled: boolean,
 ): AccountSettings {
-  if (!enabled && !canDisableFeature(settings, feature)) {
+  const current = normalizeAccountSettings(settings);
+  if (!enabled && !coreCanDisableFeature(settingsTo(current), feature))
     return settings;
-  }
-  return normalizeFeatures(
-    { ...settings.unknownFeatures, ...settings.features, [feature]: enabled },
-    settings.contactMode,
-    settings.accent,
+  return settingsFrom(
+    coreSettingsWithFeature(settingsTo(current), feature, enabled),
   );
 }
 
@@ -256,11 +297,17 @@ export function isDetailedContacts(settings: AccountSettings): boolean {
   return normalizeContactMode(settings.contactMode) === "detailed";
 }
 
-export function withContactMode(settings: AccountSettings, mode: ContactMode): AccountSettings {
+export function withContactMode(
+  settings: AccountSettings,
+  mode: ContactMode,
+): AccountSettings {
   return normalizeFeatures(allFlags(settings), mode, settings.accent);
 }
 
-export function withAccent(settings: AccountSettings, accent: AccentKey): AccountSettings {
+export function withAccent(
+  settings: AccountSettings,
+  accent: AccentKey,
+): AccountSettings {
   return normalizeFeatures(allFlags(settings), settings.contactMode, accent);
 }
 
