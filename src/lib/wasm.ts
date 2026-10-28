@@ -59,6 +59,9 @@ import init, {
   core_resolve_address_book_id,
   core_event_parse,
   core_is_calendar_day,
+  core_account_export_filename,
+  core_account_export_parse,
+  core_account_export_write,
   core_recurrence_days,
   core_recurrence_next,
   core_event_write,
@@ -205,6 +208,9 @@ import type {
   CoreAccountSettings,
   CoreAccountSettingsDraft,
   CoreFeatureFlag,
+  CoreAccountImport,
+  CoreExportAccount,
+  CoreExportObject,
   CoreRecurrence,
   CorePairPreview,
   CoreRoster,
@@ -1785,4 +1791,26 @@ export function coreSettingsWithFeature(
 
 export function coreCanDisableFeature(settings: CoreAccountSettings, feature: string): boolean {
   return core_can_disable_feature(settings, feature);
+}
+
+// ── Core: the account export document ──
+
+export type { CoreAccountImport, CoreExportAccount, CoreExportObject };
+
+export function coreAccountExportWrite(
+  account: CoreExportAccount,
+  objects: CoreExportObject[],
+  unreadable: number,
+  exportedAt: string,
+): string {
+  return core_account_export_write(account, objects, unreadable, exportedAt);
+}
+
+/** Throws the core error, whose `detail` is a sentence fit to show the user. */
+export function coreAccountExportParse(document: string): CoreAccountImport {
+  return core_account_export_parse(document);
+}
+
+export function coreAccountExportFilename(username: string, day: string): string {
+  return core_account_export_filename(username, day);
 }

@@ -1,16 +1,34 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  ACCOUNT_EXPORT_TYPE,
-  ACCOUNT_EXPORT_VERSION,
   accountExportFilename,
-  buildAccountExport,
   generateAccountExportData,
   parseAccountExport,
 } from "./accountExport";
-import { importBatches, type VaultExport } from "./client";
+import type { VaultExport } from "./client";
 import type { DeviceState } from "./types";
+import { coreAccountExportFilename, coreAccountExportParse, coreAccountExportWrite } from "./wasm";
 import { readFixture } from "../test/fixtures";
+
+type Fixture = {
+  writes: {
+    name: string;
+    account: Parameters<typeof coreAccountExportWrite>[0];
+    objects: Parameters<typeof coreAccountExportWrite>[1];
+    unreadable: number;
+    exported_at: string;
+    document: string;
+  }[];
+  reads: {
+    name: string;
+    document: string;
+    imported: ReturnType<typeof coreAccountExportParse> | null;
+    error: string | null;
+  }[];
+  filenames: { username: string; day: string; filename: string }[];
+};
+
+const fixture = JSON.parse(readFixture("payloads/account_export.json")) as Fixture;
 
 const state: DeviceState = {
   server: "https://vault.example",
@@ -38,105 +56,70 @@ const vault: VaultExport = {
     },
     {
       id: "00000000-0000-0000-0000-000000000003",
-      contentType: "application/sealbook.future+json",
-      payload: '{"keep":"me"}',
+      contentType: "application/octet-stream",
+      payload: "not json at all",
     },
   ],
-  unreadable: 0,
+  unreadable: 2,
 };
 
-describe("buildAccountExport", () => {
-  it("carries every object, including a content type this build cannot read", () => {
-    const bundle = buildAccountExport(state, vault, "2026-10-10T00:00:00.000Z");
-
-    expect(bundle["@type"]).toBe(ACCOUNT_EXPORT_TYPE);
-    expect(bundle.version).toBe(ACCOUNT_EXPORT_VERSION);
-    expect(bundle.exportedAt).toBe("2026-10-10T00:00:00.000Z");
-    expect(bundle.account).toEqual({
-      server: "https://vault.example",
-      username: "Ada Lovelace",
-      accountId: state.account_id,
-      collectionId: state.collection_id,
-      deviceId: state.device_id,
-    });
-    expect(bundle.objectCount).toBe(3);
-    expect(bundle.objects.map((object) => object.contentType)).toEqual([
-      "application/jscontact+json",
-      "application/sealbook.future+json",
-      "application/sealbook.note+json",
-    ]);
-    const future = bundle.objects[1];
-    expect(future.payload).toEqual({ keep: "me" });
-  });
-
-  it("keeps the fields no view of a note reads", () => {
-    const bundle = buildAccountExport(state, vault);
-    const note = bundle.objects.find(
-      (object) => object.contentType === "application/sealbook.note+json",
+describe("the shared account export fixture", () => {
+  it.each(fixture.writes)("writes: $name", (c) => {
+    expect(coreAccountExportWrite(c.account, c.objects, c.unreadable, c.exported_at)).toBe(
+      c.document,
     );
-    expect(note?.payload).toEqual({
-      "@type": "Note",
-      title: "Plan",
-      pinned: true,
-      parentId: "x",
-    });
   });
 
-  it("sorts by content type then id, so an unchanged vault exports the same bytes", () => {
-    const first = buildAccountExport(state, vault, "fixed");
-    const shuffled = { ...vault, objects: [...vault.objects].reverse() };
-    const second = buildAccountExport(state, shuffled, "fixed");
-    expect(JSON.stringify(second)).toBe(JSON.stringify(first));
+  it.each(fixture.reads)("reads: $name", (c) => {
+    if (c.error !== null) {
+      expect(() => parseAccountExport(c.document)).toThrow(c.error);
+      return;
+    }
+    expect(coreAccountExportParse(c.document)).toEqual(c.imported);
   });
 
-  it("keeps a payload that is not JSON rather than dropping it", () => {
-    const bundle = buildAccountExport(state, {
-      objects: [{ id: "x", contentType: "application/octet-stream", payload: "not json" }],
-      unreadable: 0,
-    });
-    expect(bundle.objects[0].text).toBe("not json");
-    expect(bundle.objects[0].payload).toBeUndefined();
-  });
-
-  it("states how many objects this device could not open, and nothing when none", () => {
-    expect(buildAccountExport(state, vault).unreadable).toBeUndefined();
-    expect(buildAccountExport(state, { ...vault, unreadable: 2 }).unreadable).toBe(2);
-  });
-});
-
-describe("accountExportFilename", () => {
-  it("slugs the username and dates the file", () => {
-    expect(accountExportFilename("Ada Lovelace", new Date("2026-10-10T12:00:00Z"))).toBe(
-      "sealbook-account-ada-lovelace-2026-10-10.json",
-    );
-    expect(accountExportFilename("..", new Date("2026-10-10T12:00:00Z"))).toBe(
-      "sealbook-account-export-2026-10-10.json",
-    );
+  it.each(fixture.filenames)("names the file for $username", (c) => {
+    expect(coreAccountExportFilename(c.username, c.day)).toBe(c.filename);
   });
 });
 
 describe("generateAccountExportData", () => {
-  it("serializes the bundle as readable JSON", () => {
-    const { filename, mime, data } = generateAccountExportData(state, vault);
+  it("writes the vault through core and names the file for the account", () => {
+    const { filename, mime, data } = generateAccountExportData(state, vault, "fixed");
     expect(filename).toMatch(/^sealbook-account-ada-lovelace-\d{4}-\d{2}-\d{2}\.json$/u);
     expect(mime).toBe("application/json;charset=utf-8");
-    const parsed = JSON.parse(data) as { objects: unknown[] };
-    expect(parsed.objects).toHaveLength(3);
-    expect(data).toContain("\n  ");
+    const document = JSON.parse(data) as {
+      exportedAt: string;
+      unreadable: number;
+      account: { accountId: string };
+      objects: { contentType: string }[];
+    };
+    expect(document.exportedAt).toBe("fixed");
+    expect(document.unreadable).toBe(2);
+    expect(document.account.accountId).toBe(state.account_id);
+    expect(document.objects.map((object) => object.contentType)).toEqual([
+      "application/jscontact+json",
+      "application/octet-stream",
+      "application/sealbook.note+json",
+    ]);
   });
 });
 
-const bundleOf = (objects: unknown[]) =>
-  `{"@type":"${ACCOUNT_EXPORT_TYPE}","version":"${ACCOUNT_EXPORT_VERSION}",` +
-  `"objects":${JSON.stringify(objects)}}`;
+describe("accountExportFilename", () => {
+  it("dates the file with the given day", () => {
+    expect(accountExportFilename("Ada Lovelace", new Date("2026-10-10T12:00:00Z"))).toBe(
+      "sealbook-account-ada-lovelace-2026-10-10.json",
+    );
+  });
+});
 
 describe("parseAccountExport", () => {
   it("reads an export back as the objects it was written from", () => {
     const { data } = generateAccountExportData(state, vault);
-    const { objects, source } = parseAccountExport(data);
+    const { objects, source, unreadable } = parseAccountExport(data);
 
     expect(source).toBe("Ada Lovelace at https://vault.example");
-    // Sorted as the export sorts, and the payloads are the stored text.
+    expect(unreadable).toBe(2);
     expect(objects).toEqual([
       {
         id: "00000000-0000-0000-0000-000000000001",
@@ -145,138 +128,18 @@ describe("parseAccountExport", () => {
       },
       {
         id: "00000000-0000-0000-0000-000000000003",
-        contentType: "application/sealbook.future+json",
-        payload: '{"keep":"me"}',
+        contentType: "application/octet-stream",
+        payload: "not json at all",
       },
       {
         id: "00000000-0000-0000-0000-000000000002",
         contentType: "application/sealbook.note+json",
-        payload: '{"@type":"Note","title":"Plan","pinned":true,"parentId":"x"}',
+        payload: '{"@type":"Note","parentId":"x","pinned":true,"title":"Plan"}',
       },
     ]);
   });
 
-  it("restores a payload that was not JSON as those same bytes", () => {
-    const { data } = generateAccountExportData(state, {
-      objects: [
-        {
-          id: "00000000-0000-0000-0000-000000000001",
-          contentType: "application/octet-stream",
-          payload: "not json at all",
-        },
-      ],
-      unreadable: 0,
-    });
-    expect(parseAccountExport(data).objects[0]?.payload).toBe("not json at all");
-  });
-
-  it("refuses a file it cannot restore", () => {
-    expect(() => parseAccountExport("}{")).toThrow(/not a JSON document/iu);
-    expect(() => parseAccountExport('"a string"')).toThrow(/not a JSON document/iu);
-    expect(() => parseAccountExport('{"@type":"SomethingElse"}')).toThrow(
-      /not a Sealbook account export/iu,
-    );
-    expect(() => parseAccountExport(`{"@type":"${ACCOUNT_EXPORT_TYPE}"}`)).toThrow(/no version/iu);
-    // A version whose major this build does not read.
-    expect(() =>
-      parseAccountExport(`{"@type":"${ACCOUNT_EXPORT_TYPE}","version":"2.0","objects":[]}`),
-    ).toThrow(/version 2\.0/u);
-    expect(() =>
-      parseAccountExport(`{"@type":"${ACCOUNT_EXPORT_TYPE}","version":"1.0"}`),
-    ).toThrow(/no objects/iu);
-    expect(() =>
-      parseAccountExport(
-        `{"@type":"${ACCOUNT_EXPORT_TYPE}","version":"1.0","objects":[{"contentType":"a"}]}`,
-      ),
-    ).toThrow(/not a UUID/iu);
-    expect(() =>
-      parseAccountExport(
-        `{"@type":"${ACCOUNT_EXPORT_TYPE}","version":"1.0","objects":[` +
-          `{"id":"00000000-0000-0000-0000-000000000001","payload":{}}]}`,
-      ),
-    ).toThrow(/no contentType/iu);
-    expect(() =>
-      parseAccountExport(
-        `{"@type":"${ACCOUNT_EXPORT_TYPE}","version":"1.0","objects":[` +
-          `{"id":"00000000-0000-0000-0000-000000000001","contentType":"a"}]}`,
-      ),
-    ).toThrow(/neither a payload nor text/iu);
-    // Two objects at one id: the batch write would refuse it later, and the file
-    // is wrong either way.
-    expect(() =>
-      parseAccountExport(
-        `{"@type":"${ACCOUNT_EXPORT_TYPE}","version":"1.0","objects":[` +
-          `{"id":"00000000-0000-0000-0000-000000000001","contentType":"a","payload":{}},` +
-          `{"id":"00000000-0000-0000-0000-000000000001","contentType":"a","payload":{}}]}`,
-      ),
-    ).toThrow(/repeats id/iu);
-  });
-
-  it("reads a newer minor version, fields it does not know included", () => {
-    const { objects } = parseAccountExport(
-      `{"@type":"${ACCOUNT_EXPORT_TYPE}","version":"1.7","objects":[` +
-        `{"id":"00000000-0000-0000-0000-000000000001","contentType":"a",` +
-        `"payload":{"writtenByANewerClient":true}}]}`,
-    );
-    expect(objects).toHaveLength(1);
-    expect(objects[0]?.payload).toBe('{"writtenByANewerClient":true}');
-  });
-
-  it("carries the count of what the exporting device could not open", () => {
-    // A web export writes `unreadable` when it was short of the vault, so an
-    // import of that file cannot be a complete restore.
-    expect(
-      parseAccountExport(
-        `{"@type":"${ACCOUNT_EXPORT_TYPE}","version":"1.0","unreadable":3,"objects":[]}`,
-      ).unreadable,
-    ).toBe(3);
-    const { data } = generateAccountExportData(state, { ...vault, unreadable: 2 });
-    expect(parseAccountExport(data).unreadable).toBe(2);
-    // Absent when the export was whole, which is the common case.
-    expect(parseAccountExport(bundleOf([])).unreadable).toBe(0);
-  });
-
-  it("names the file's account even when it has no account block", () => {
-    const { source } = parseAccountExport(
-      `{"@type":"${ACCOUNT_EXPORT_TYPE}","version":"1.0","objects":[]}`,
-    );
-    expect(source).toBe("an export with no account block");
-  });
-});
-
-describe("a backup from the v1.0.0 release", () => {
-  /**
-   * That release's own output, generated by it and kept as a fixture. The same
-   * file `a_v1_release_export_parses_into_every_object_it_carries` reads in the
-   * server repo, so both clients are held to one document.
-   */
-  const fixture = readFixture("v1.0.0-account-export.json");
-
-  it("parses into every object it carries", () => {
-    const { objects, source, unreadable } = parseAccountExport(fixture);
-
-    expect(source).toBe("alice at https://vault.example");
-    expect(unreadable).toBe(0);
-    expect(objects.map((object) => object.contentType)).toEqual([
-      "application/jscontact+json",
-      "application/sealbook.addressbook+json",
-      "application/sealbook.note+json",
-      "application/sealbook.calendarevent+json",
-      "application/sealbook.future+json",
-      "application/octet-stream",
-    ]);
-    expect(objects[0]?.id).toBe("00000000-0000-0000-0000-000000000001");
-    // Fields no view of a note reads are still in what goes back.
-    expect(JSON.parse(objects[2]!.payload)).toMatchObject({
-      title: "Weekly plan",
-      pinned: true,
-    });
-    // The type this build has no parser for, and the non-JSON escape hatch.
-    expect(JSON.parse(objects[4]!.payload)).toEqual({ keep: "me" });
-    expect(objects[5]?.payload).toBe("not json at all");
-  });
-
-  it("batches into one request, since it is small", () => {
-    expect(importBatches(parseAccountExport(fixture).objects)).toHaveLength(1);
+  it("throws an Error carrying the sentence, not the serialised core error", () => {
+    expect(() => parseAccountExport("}{")).toThrow(new Error("This is not a JSON document."));
   });
 });

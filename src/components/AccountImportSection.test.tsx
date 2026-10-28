@@ -3,8 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "../test/dom";
 import { AccountImportSection } from "./AccountImportSection";
-import { ACCOUNT_EXPORT_TYPE, ACCOUNT_EXPORT_VERSION } from "../lib/accountExport";
 import type { Session } from "../lib/client";
+
+const ACCOUNT_EXPORT_TYPE = "SealbookAccountExport";
+const ACCOUNT_EXPORT_VERSION = "1.0";
 
 const importVault = vi.hoisted(() =>
   vi.fn<() => Promise<{ imported: number; skipped: number }>>(),
