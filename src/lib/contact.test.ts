@@ -184,6 +184,25 @@ describe("parsing a card another client wrote", () => {
   });
 });
 
+describe("keys the editor does not show", () => {
+  it("survive an edit of the entry that carries them", () => {
+    const raw = JSON.stringify({
+      "@type": "Card",
+      name: { full: "Ada" },
+      emails: { e1: { address: "a@b.c", pref: 1 } },
+      organizations: { o1: { name: "Acme", sortName: "ACME" } },
+      onlineServices: { os1: { service: "mastodon", user: "ada", vendorName: "x" } },
+    });
+    const draft = parseDraft(raw);
+    draft.emails[0]!.value = "b@b.c";
+    draft.work[0]!.organization = "Acme Ltd";
+    const written = JSON.parse(serializeCard({ ...draft, raw }));
+    expect(written.emails.e1).toMatchObject({ address: "b@b.c", pref: 1 });
+    expect(written.organizations.o1).toMatchObject({ name: "Acme Ltd", sortName: "ACME" });
+    expect(written.onlineServices.os1.vendorName).toBe("x");
+  });
+});
+
 describe("the archive flag", () => {
   it("is left out of a card that is not archived", () => {
     const body = JSON.parse(serializeCard(fullDraft())) as Record<string, unknown>;

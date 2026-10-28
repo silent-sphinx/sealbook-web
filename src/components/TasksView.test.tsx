@@ -264,6 +264,23 @@ describe("TasksView, ticking a task", () => {
     expect(writes[1]!.draft.dueDate).toBe(day(0));
     expect(writes[1]!.draft.completions ?? []).toEqual([]);
   });
+
+  it("reopens done subtasks when a recurring task rolls forward, and undo restores them", async () => {
+    mount({
+      tasks: [
+        aTask("water", { dueDate: day(0), recurrence: { frequency: "daily" } }),
+        aTask("fill", { parentId: "water", done: true }),
+      ],
+    });
+    tick("water");
+    await waitFor(() => expect(writes).toHaveLength(2));
+    expect(writes[1]!.draft.title).toBe("fill");
+    expect(writes[1]!.draft.done).toBeUndefined();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(writes).toHaveLength(4));
+    expect(writes[3]!.draft.done).toBe(true);
+  });
 });
 
 describe("TasksView, the form", () => {

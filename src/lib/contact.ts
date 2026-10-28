@@ -227,9 +227,9 @@ export function serializeCard(draft: ContactDraft): string {
       emails: draft.emails.map(channelTo),
       phones: draft.phones.map(channelTo),
       address: draft.address,
-      work: draft.work.map(({ organization, title }) => ({ organization, title })),
-      dates: draft.dates.map(({ kind, label, date }) => ({ kind, label, date })),
-      socials: draft.socials.map(({ platform, handle }) => ({ platform, handle })),
+      work: draft.work.map(({ organization, title, extra }) => ({ organization, title, extra })),
+      dates: draft.dates.map(({ kind, label, date, extra }) => ({ kind, label, date, extra })),
+      socials: draft.socials.map(({ platform, handle, extra }) => ({ platform, handle, extra })),
       notes: draft.notes,
       avatar: draft.avatar,
       profile: draft.profile ? profileTo(draft.profile) : undefined,
@@ -243,8 +243,8 @@ export function serializeCard(draft: ContactDraft): string {
   );
 }
 
-function channelTo({ kind, label, value }: ContactChannel): CoreContactChannel {
-  return { kind, label, value };
+function channelTo({ kind, label, value, extra }: ContactChannel): CoreContactChannel {
+  return { kind, label, value, extra };
 }
 
 function channelFrom(prefix: string, index: number, channel: CoreContactChannel): ContactChannel {
@@ -253,6 +253,7 @@ function channelFrom(prefix: string, index: number, channel: CoreContactChannel)
     kind: channel.kind,
     label: channel.label,
     value: channel.value,
+    extra: channel.extra,
   };
 }
 

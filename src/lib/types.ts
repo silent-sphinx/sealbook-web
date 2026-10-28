@@ -104,6 +104,7 @@ export type ContactChannel = {
   kind: ContactChannelKind;
   label?: string;
   value: string;
+  extra?: string;
 };
 
 export type ContactAddress = {
@@ -119,6 +120,7 @@ export type ContactWork = {
   id: string;
   organization: string;
   title?: string;
+  extra?: string;
 };
 
 export type ContactDateKind = "birthday" | "anniversary" | "custom";
@@ -128,12 +130,14 @@ export type ContactDate = {
   kind: ContactDateKind;
   label?: string;
   date: string;
+  extra?: string;
 };
 
 export type ContactSocial = {
   id: string;
   platform: string;
   handle: string;
+  extra?: string;
 };
 
 /**

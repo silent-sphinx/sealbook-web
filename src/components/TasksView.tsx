@@ -68,7 +68,7 @@ type Props = {
 };
 
 type FormState = { initial: TaskDraft; editingId: string | null; key: number };
-type Notice = { message: string; previous: Task };
+type Notice = { message: string; previous: Task; reopened: Task[] };
 
 /** Idle time after the last write before the vault is re-read in the background. */
 const REFRESH_IDLE_MS = 10_000;
@@ -313,16 +313,31 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     setNotice(null);
     const finishing = !task.done;
     const draft = finishing ? completeTask(task, new Date(), timezone) : reopenTask(task);
-    const ok = await run(async () => ({ tasks: [await putTask(session, draft, task.id)] }));
-    if (ok && finishing && task.recurrence && !draft.done) {
+    const rolls = finishing && Boolean(task.recurrence) && !draft.done;
+    const reopened = rolls
+      ? taskSubtree(tasks, task.id)
+          .slice(1)
+          .map((id) => tasks.find((candidate) => candidate.id === id))
+          .filter((child): child is Task => Boolean(child?.done))
+      : [];
+    const ok = await run(async () => {
+      const saved = [await putTask(session, draft, task.id)];
+      for (const child of reopened) saved.push(await putTask(session, reopenTask(child), child.id));
+      return { tasks: saved };
+    });
+    if (ok && rolls) {
       const label = dueLabel({ ...task, dueDate: draft.dueDate }, new Date(), timezone);
-      setNotice({ message: `"${task.title}" is next due ${label ?? "later"}.`, previous: task });
+      setNotice({ message: `"${task.title}" is next due ${label ?? "later"}.`, previous: task, reopened });
     }
   }
 
-  async function undo(previous: Task) {
+  async function undo(previous: Task, reopened: Task[]) {
     setNotice(null);
-    await run(async () => ({ tasks: [await putTask(session, previous, previous.id)] }));
+    await run(async () => {
+      const saved = [await putTask(session, previous, previous.id)];
+      for (const child of reopened) saved.push(await putTask(session, child, child.id));
+      return { tasks: saved };
+    });
   }
 
   async function removeTask(task: Task) {
@@ -490,7 +505,7 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
           <span>{notice.message}</span>
           <button
             type="button"
-            onClick={() => void undo(notice.previous)}
+            onClick={() => void undo(notice.previous, notice.reopened)}
             className={`rounded-md px-1.5 font-semibold text-accent hover:underline ${focusRing}`}
           >
             Undo
