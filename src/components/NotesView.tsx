@@ -19,6 +19,7 @@ import { triggerDownload } from "../lib/importExport";
 import {
   DEFAULT_NOTEBOOK_ID,
   emptyNoteDraft,
+  noteDraftWritable,
   noteFitsObjectLimit,
   noteMatches,
   notePreview,
@@ -212,6 +213,13 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     const created = !notes.some((note) => note.id === id);
     // An untouched new note is not worth an object in the vault.
     if (created && !payload.title.trim() && !payload.body.trim()) return;
+    if (!noteDraftWritable(payload)) {
+      setError(
+        "This note was written by a newer version of Sealbook. Update this client before editing it.",
+      );
+      setSaveState("failed");
+      return;
+    }
     if (!noteFitsObjectLimit(payload)) {
       setError("This note is too large to store. One note can hold about 8 MB.");
       setSaveState("failed");

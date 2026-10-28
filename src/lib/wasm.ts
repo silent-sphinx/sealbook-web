@@ -9,8 +9,16 @@ import init, {
   core_login_challenge_request,
   core_login_finish_request,
   core_login_start_request,
+  core_default_notebook_id,
   core_new_device,
   core_new_registration,
+  core_note_keys,
+  core_note_parse,
+  core_note_write,
+  core_notebook_keys,
+  core_notebook_name_by_id,
+  core_notebook_parse,
+  core_notebook_write,
   core_normalize_phrase,
   core_normalize_username,
   core_opaque_login_start,
@@ -77,6 +85,7 @@ import init, {
   core_roster_answers_for,
   core_roster_request,
   core_require_key_epoch,
+  core_resolve_notebook_id,
   core_reseal_row,
   core_rotation_entries,
   core_rotation_plan,
@@ -119,6 +128,10 @@ import type {
   CoreDeviceState,
   CoreError,
   CoreManifestEntry,
+  CoreNote,
+  CoreNoteAttachment,
+  CoreNoteDraft,
+  CoreNotebook,
   CorePairPreview,
   CoreRoster,
   CoreRosterPin,
@@ -1320,4 +1333,70 @@ export function coreAttachmentSweepOrphans(
   nowSecs: number,
 ): string[] {
   return [...core_attachment_sweep_orphans(rows, referenced, BigInt(nowSecs))];
+}
+
+// ── Core: payload schemas ──
+//
+// The one layer with no server check behind it: objects are sealed before they
+// leave, so the content type string is all the server ever sees. Core owns the
+// key list, the writer and the lenient reader; this client keeps its own view
+// models and maps to and from the core record.
+
+export type { CoreNote, CoreNoteAttachment, CoreNoteDraft, CoreNotebook };
+
+/**
+ * Every key a note writer owns: the union across all four clients, not the
+ * subset this one's editor can show. `notePayloadKeys` in `note.ts` is held to
+ * this list by `noteParity.test.ts`.
+ */
+export function coreNoteKeys(): string[] {
+  return [...core_note_keys()];
+}
+
+export function coreNotebookKeys(): string[] {
+  return [...core_notebook_keys()];
+}
+
+export function coreDefaultNotebookId(): string {
+  return core_default_notebook_id();
+}
+
+export function coreResolveNotebookId(notebookId?: string): string {
+  return core_resolve_notebook_id(notebookId);
+}
+
+/**
+ * Reads a stored note payload. Lenient throughout: one that will not parse comes
+ * back under a title the user can still find and delete the note by.
+ */
+export function coreNoteParse(id: string, raw: string): CoreNote {
+  return core_note_parse(id, raw);
+}
+
+/**
+ * Serialises a note onto `draft.raw`, so a field this build does not manage
+ * survives the save. `now` is the caller's clock: core has none.
+ *
+ * Throws `PayloadSchema` for a note written by a newer client, which this build
+ * may read but must not write over.
+ */
+export function coreNoteWrite(draft: CoreNoteDraft, now: string): string {
+  return core_note_write(draft, now);
+}
+
+export function coreNotebookParse(id: string, raw: string): CoreNotebook {
+  return core_notebook_parse(id, raw);
+}
+
+export function coreNotebookWrite(name: string, previousRaw?: string): string {
+  return core_notebook_write(name, previousRaw);
+}
+
+/**
+ * The name to show for a note's notebook. A notebook that is gone shows the
+ * default notebook's name rather than nothing, since a missing notebook and a
+ * blank one look the same to the user.
+ */
+export function coreNotebookNameById(notebooks: CoreNotebook[], notebookId?: string): string {
+  return core_notebook_name_by_id(notebooks, notebookId);
 }

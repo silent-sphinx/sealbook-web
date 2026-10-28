@@ -1,153 +1,146 @@
 import { stripMarkdown } from "./markdown";
-import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
 import type { Note, NoteAttachment, NoteDraft, Notebook } from "./types";
+import {
+  coreNoteParse,
+  coreNoteWrite,
+  coreNotebookNameById,
+  coreNotebookParse,
+  coreNotebookWrite,
+  coreResolveNotebookId,
+} from "./wasm";
+import type { CoreNote, CoreNoteAttachment, CoreNotebook } from "./wasm";
 
-// Mirrors of the Rust constants in
-// `sealbook/crates/sealbook-protocol/src/lib.rs`. There is no codegen between the
-// two, so the pairing is covered by a test rather than by the compiler.
+// Mirrors of the Rust constants in `sealbook-core`'s `notes` module. They stay
+// literals here because module scope runs before `initWasm`, and
+// `noteParity.test.ts` asserts every one of them against core so they cannot
+// drift. Same arrangement as `ATTACHMENT_CHUNK_SIZE` in `attachments.ts`.
 export const NOTE_CONTENT_TYPE = "application/sealbook.note+json";
 export const NOTEBOOK_CONTENT_TYPE = "application/sealbook.notebook+json";
 export const DEFAULT_NOTEBOOK_NAME = "Default Notebook";
 export const DEFAULT_NOTEBOOK_ID = "00000000-0000-0000-0000-000000000002";
 export const ALL_NOTEBOOKS = "all";
-
-/** Every key this build writes for a note. See `mergePayload`. */
-const NOTE_KEYS = [
-  "@type",
-  "version",
-  "title",
-  "body",
-  "notebookId",
-  "parentId",
-  "createdAt",
-  "updatedAt",
-  "attachments",
-] as const;
-
-export function serializeNote(draft: NoteDraft): string {
-  const now = new Date().toISOString();
-  return mergePayload(
-    draft.raw,
-    {
-      "@type": "Note",
-      version: PAYLOAD_SCHEMA_VERSION,
-      title: draft.title.trim(),
-      body: draft.body,
-      notebookId: resolveNotebookId(draft.notebookId),
-      // Omitted rather than written null, so a note at the top level looks the
-      // same to a reader that predates the field.
-      ...(draft.parentId ? { parentId: draft.parentId } : {}),
-      // Same rule for attachments: a note with none carries no key at all.
-      ...(draft.attachments?.length ? { attachments: draft.attachments } : {}),
-      createdAt: draft.createdAt ?? now,
-      updatedAt: now,
-    },
-    NOTE_KEYS,
-  );
-}
+export const UNTITLED_NOTE_TITLE = "Untitled note";
+export const UNREADABLE_NOTE_TITLE = "Unreadable note";
+export const UNTITLED_NOTEBOOK_NAME = "Untitled";
 
 /**
- * Validates one entry of a note's `attachments` array, dropping a malformed or
- * partially-future-shaped one rather than letting it break the whole note. Only
- * the fields this build needs to fetch and verify a photo are required.
+ * This client's view of an attachment entry, from core's.
+ *
+ * `extra` is whatever the stored entry carried that core does not name, and it
+ * rides along unread so a write puts it back: `displayWidth` was added after
+ * `thumbnail`, and a build that rebuilt each entry from its own fields dropped
+ * it from every photo it touched.
  */
-function parseAttachment(value: unknown): NoteAttachment | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const entry = value as Record<string, unknown>;
-  const str = (key: string) => (typeof entry[key] === "string" ? (entry[key] as string) : undefined);
-  const num = (key: string) => (typeof entry[key] === "number" ? (entry[key] as number) : undefined);
-  const id = str("id");
-  const adk = str("adk");
-  const contentHash = str("contentHash");
-  const chunkSize = num("chunkSize");
-  const chunkCount = num("chunkCount");
-  if (!id || !adk || !contentHash || chunkSize === undefined || chunkCount === undefined) {
-    return undefined;
-  }
+function attachmentFrom(entry: CoreNoteAttachment): NoteAttachment {
   return {
-    id,
-    filename: str("filename") ?? "attachment",
-    mimeType: str("mimeType") ?? "application/octet-stream",
-    byteSize: num("byteSize") ?? 0,
-    width: num("width"),
-    height: num("height"),
-    adk,
-    contentHash,
-    chunkSize,
-    chunkCount,
-    displayWidth: num("displayWidth"),
-    thumbnail: str("thumbnail"),
+    id: entry.id,
+    filename: entry.filename,
+    mimeType: entry.mime_type,
+    byteSize: entry.byte_size,
+    width: entry.width,
+    height: entry.height,
+    adk: entry.adk,
+    contentHash: entry.content_hash,
+    chunkSize: entry.chunk_size,
+    chunkCount: entry.chunk_count,
+    displayWidth: entry.display_width,
+    thumbnail: entry.thumbnail,
+    extra: entry.extra,
   };
 }
 
-function parseAttachments(value: unknown): NoteAttachment[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const parsed = value
-    .map(parseAttachment)
-    .filter((entry): entry is NoteAttachment => entry !== undefined);
-  return parsed.length ? parsed : undefined;
+function attachmentTo(entry: NoteAttachment): CoreNoteAttachment {
+  return {
+    id: entry.id,
+    filename: entry.filename,
+    mime_type: entry.mimeType,
+    byte_size: entry.byteSize,
+    width: entry.width,
+    height: entry.height,
+    adk: entry.adk,
+    content_hash: entry.contentHash,
+    chunk_size: entry.chunkSize,
+    chunk_count: entry.chunkCount,
+    display_width: entry.displayWidth,
+    thumbnail: entry.thumbnail,
+    extra: entry.extra ?? "{}",
+  };
 }
 
-export function parseNote(id: string, raw: string): Note {
-  try {
-    const body = JSON.parse(raw) as {
-      title?: string;
-      body?: string;
-      notebookId?: string;
-      parentId?: string;
-      createdAt?: string;
-      updatedAt?: string;
-      attachments?: unknown;
-    };
-    return {
-      id,
-      raw,
-      title: body.title?.trim() || "Untitled note",
-      body: typeof body.body === "string" ? body.body : "",
-      notebookId: resolveNotebookId(body.notebookId),
-      parentId: typeof body.parentId === "string" && body.parentId ? body.parentId : undefined,
-      attachments: parseAttachments(body.attachments),
-      createdAt: typeof body.createdAt === "string" ? body.createdAt : undefined,
-      updatedAt: typeof body.updatedAt === "string" ? body.updatedAt : undefined,
-    };
-  } catch {
-    // A payload that will not parse still has to render as something the user can
-    // find and delete, rather than taking the whole list down.
-    return {
-      id,
-      raw,
-      title: "Unreadable note",
-      body: raw,
-      notebookId: DEFAULT_NOTEBOOK_ID,
-    };
-  }
-}
-
-const NOTEBOOK_KEYS = ["@type", "version", "name"] as const;
-
-export function serializeNotebook(name: string, previousRaw?: string): string {
-  return mergePayload(
-    previousRaw,
+/**
+ * Writes a note's plaintext through core, which every client now does.
+ *
+ * `pinned` is passed as `undefined` on purpose rather than left off: this client
+ * removed favouriting, so it must neither write the key nor strip the values
+ * Android wrote, and `undefined` is what tells core to leave it as stored.
+ */
+export function serializeNote(draft: NoteDraft): string {
+  return coreNoteWrite(
     {
-      "@type": "Notebook",
-      version: PAYLOAD_SCHEMA_VERSION,
-      name: name.trim(),
+      title: draft.title,
+      body: draft.body,
+      notebook_id: draft.notebookId,
+      parent_id: draft.parentId,
+      attachments: (draft.attachments ?? []).map(attachmentTo),
+      created_at: draft.createdAt,
+      pinned: undefined,
+      raw: draft.raw,
     },
-    NOTEBOOK_KEYS,
+    new Date().toISOString(),
   );
 }
 
+export function parseNote(id: string, raw: string): Note {
+  return noteFrom(coreNoteParse(id, raw));
+}
+
+function noteFrom(note: CoreNote): Note {
+  return {
+    id: note.id,
+    raw: note.raw,
+    title: note.title,
+    body: note.body,
+    notebookId: note.notebook_id,
+    parentId: note.parent_id,
+    attachments: note.attachments.length ? note.attachments.map(attachmentFrom) : undefined,
+    createdAt: note.created_at,
+    updatedAt: note.updated_at,
+    readable: note.readable,
+  };
+}
+
+export function serializeNotebook(name: string, previousRaw?: string): string {
+  return coreNotebookWrite(name, previousRaw);
+}
+
 export function parseNotebook(id: string, raw: string): Notebook {
-  try {
-    const body = JSON.parse(raw) as { name?: string };
-    return { id, name: body.name?.trim() || "Untitled", raw };
-  } catch {
-    return { id, name: raw, raw };
-  }
+  return notebookFrom(coreNotebookParse(id, raw));
+}
+
+function notebookFrom(notebook: CoreNotebook): Notebook {
+  return {
+    id: notebook.id,
+    name: notebook.name,
+    raw: notebook.raw,
+    readable: notebook.readable,
+  };
 }
 
 export function resolveNotebookId(notebookId?: string): string {
-  return notebookId?.trim() || DEFAULT_NOTEBOOK_ID;
+  return coreResolveNotebookId(notebookId);
+}
+
+/**
+ * Whether a save may write over what this draft was read from.
+ *
+ * `serializeNote` refuses a payload declaring a schema major this build does not
+ * read, because carrying unknown keys through covers a field that was added and
+ * not one whose meaning changed. Asking first turns that into a message rather
+ * than an exception out of the autosaver. A draft with nothing behind it is
+ * always writable.
+ */
+export function noteDraftWritable(draft: NoteDraft): boolean {
+  return !draft.raw || coreNoteParse("", draft.raw).readable;
 }
 
 export function sortNotebooks(notebooks: Notebook[]): Notebook[] {
@@ -159,8 +152,15 @@ export function sortNotebooks(notebooks: Notebook[]): Notebook[] {
 }
 
 export function notebookNameById(notebooks: Notebook[], notebookId?: string): string {
-  const id = resolveNotebookId(notebookId);
-  return notebooks.find((notebook) => notebook.id === id)?.name ?? DEFAULT_NOTEBOOK_NAME;
+  return coreNotebookNameById(
+    notebooks.map((notebook) => ({
+      id: notebook.id,
+      name: notebook.name,
+      readable: notebook.readable ?? true,
+      raw: notebook.raw,
+    })),
+    notebookId,
+  );
 }
 
 /** Most recently edited first, then by title so the order is total. */

@@ -357,6 +357,12 @@ export type NoteAttachment = {
    * for a non-image attachment.
    */
   thumbnail?: string;
+  /**
+   * Whatever else the stored entry carried, as a JSON object. Nothing here reads
+   * it; it rides along so a save puts back a key a newer build added, the same
+   * rule `raw` serves for the note as a whole.
+   */
+  extra?: string;
 };
 
 export type NoteDraft = {
@@ -391,12 +397,20 @@ export type NoteDraft = {
   raw?: string;
 };
 
-export type Note = NoteDraft & { id: string; raw: string };
+/**
+ * `readable` is whether this build reads the payload schema major the note
+ * declares. False means it was still parsed, because a lenient read beats a
+ * blank row, but a field this build understands may have changed meaning and
+ * `serializeNote` will refuse to write over it.
+ */
+export type Note = NoteDraft & { id: string; raw: string; readable?: boolean };
 
 export type Notebook = {
   id: string;
   name: string;
   raw: string;
+  /** As `Note.readable`. */
+  readable?: boolean;
 };
 
 export type BookmarkDraft = {

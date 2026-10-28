@@ -7,6 +7,9 @@ export default defineConfig({
   },
   test: {
     include: ["src/**/*.test.{ts,tsx}"],
+    // Core is behind the note payload layer as of phase 8, so wasm has to be up
+    // before any suite imports `note.ts`. See `src/test/wasm.ts`.
+    setupFiles: ["src/test/wasm.ts"],
     // No global `environment`: the lib suites run under node, and the
     // component suites opt into jsdom with a `@vitest-environment` docblock.
     // Making jsdom global would put every pure-logic suite behind a DOM it
