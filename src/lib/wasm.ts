@@ -9,7 +9,27 @@ import init, {
   core_login_challenge_request,
   core_login_finish_request,
   core_login_start_request,
+  core_address_book_keys,
+  core_address_book_name_by_id,
+  core_address_book_parse,
+  core_address_book_write,
+  core_calendar_event_keys,
+  core_calendar_keys,
+  core_calendar_name_by_id,
+  core_calendar_parse,
+  core_calendar_write,
+  core_contact_keys,
+  core_contact_parse,
+  core_contact_profile_keys,
+  core_contact_profile_parse,
+  core_contact_profile_write,
+  core_contact_write,
+  core_default_address_book_id,
+  core_default_calendar_id,
   core_default_notebook_id,
+  core_resolve_address_book_id,
+  core_event_parse,
+  core_event_write,
   core_new_device,
   core_new_registration,
   core_note_keys,
@@ -127,11 +147,22 @@ import type {
   CoreDeviceSecrets,
   CoreDeviceState,
   CoreError,
+  CoreAddressBook,
+  CoreAddressBookDraft,
+  CoreCalendar,
+  CoreCalendarDraft,
+  CoreCalendarEvent,
+  CoreCalendarEventDraft,
+  CoreContact,
+  CoreContactChannel,
+  CoreContactDraft,
+  CoreContactProfile,
   CoreManifestEntry,
   CoreNote,
   CoreNoteAttachment,
   CoreNoteDraft,
   CoreNotebook,
+  CoreRecurrence,
   CorePairPreview,
   CoreRoster,
   CoreRosterPin,
@@ -1399,4 +1430,145 @@ export function coreNotebookWrite(name: string, previousRaw?: string): string {
  */
 export function coreNotebookNameById(notebooks: CoreNotebook[], notebookId?: string): string {
   return core_notebook_name_by_id(notebooks, notebookId);
+}
+
+export type {
+  CoreCalendar,
+  CoreCalendarDraft,
+  CoreCalendarEvent,
+  CoreCalendarEventDraft,
+  CoreRecurrence,
+};
+
+/**
+ * Every key a calendar writer owns, and every key an event writer owns. Both
+ * are the union across every client; `calendarParity.test.ts` holds this
+ * client's view models to them.
+ */
+export function coreCalendarKeys(): string[] {
+  return [...core_calendar_keys()];
+}
+
+export function coreCalendarEventKeys(): string[] {
+  return [...core_calendar_event_keys()];
+}
+
+export function coreDefaultCalendarId(): string {
+  return core_default_calendar_id();
+}
+
+/**
+ * Reads a stored calendar payload. Lenient throughout: one that will not parse
+ * comes back as a named row the user can still find and delete.
+ */
+export function coreCalendarParse(id: string, raw: string): CoreCalendar {
+  return core_calendar_parse(id, raw);
+}
+
+/**
+ * Serialises a calendar onto `draft.raw`, so the colour and the flags this write
+ * does not change survive it.
+ *
+ * Throws `PayloadSchema` for a calendar written by a newer client, which this
+ * build may read but must not write over.
+ */
+export function coreCalendarWrite(draft: CoreCalendarDraft): string {
+  return core_calendar_write(draft);
+}
+
+export function coreEventParse(id: string, raw: string): CoreCalendarEvent {
+  return core_event_parse(id, raw);
+}
+
+/**
+ * Serialises an event onto `draft.raw`. A repeat rule core cannot name rides
+ * through in `unreadable_recurrence` rather than being dropped.
+ */
+export function coreEventWrite(draft: CoreCalendarEventDraft): string {
+  return core_event_write(draft);
+}
+
+/**
+ * The name to show for an event's calendar. A calendar that is gone shows the
+ * default calendar's name; an event in no calendar at all has no name to show.
+ */
+export function coreCalendarNameById(calendars: CoreCalendar[], calendarId?: string): string | undefined {
+  return core_calendar_name_by_id(calendars, calendarId);
+}
+
+export type {
+  CoreAddressBook,
+  CoreAddressBookDraft,
+  CoreContact,
+  CoreContactChannel,
+  CoreContactDraft,
+  CoreContactProfile,
+};
+
+/**
+ * Every key a card writer owns: the union across every client, legacy spellings
+ * included. `contactParity.test.ts` holds this client's constants to it.
+ */
+export function coreContactKeys(): string[] {
+  return [...core_contact_keys()];
+}
+
+export function coreAddressBookKeys(): string[] {
+  return [...core_address_book_keys()];
+}
+
+export function coreContactProfileKeys(): string[] {
+  return [...core_contact_profile_keys()];
+}
+
+export function coreDefaultAddressBookId(): string {
+  return core_default_address_book_id();
+}
+
+/** A blank id, or the sidebar's `all`, is the default address book. */
+export function coreResolveAddressBookId(id?: string): string {
+  return core_resolve_address_book_id(id);
+}
+
+/**
+ * Reads a stored card. Lenient throughout: one that will not parse comes back as
+ * a named row the user can still find and delete.
+ */
+export function coreContactParse(id: string, raw: string): CoreContact {
+  return core_contact_parse(id, raw);
+}
+
+/**
+ * Serialises a card onto `draft.raw`, so the entries the editor does not show
+ * (a second address, a second note, a key from a later build) survive the write.
+ * `now` is this client's clock.
+ *
+ * Throws `PayloadSchema` for a card written by a newer client, which this build
+ * may read but must not write over.
+ */
+export function coreContactWrite(draft: CoreContactDraft, now: string): string {
+  return core_contact_write(draft, now);
+}
+
+/** A profile off its JSON text, for the importers. Undefined if it is not one. */
+export function coreContactProfileParse(raw: string): CoreContactProfile | undefined {
+  return core_contact_profile_parse(raw);
+}
+
+/** A profile as JSON text, or undefined when nothing in it would be written. */
+export function coreContactProfileWrite(profile: CoreContactProfile): string | undefined {
+  return core_contact_profile_write(profile);
+}
+
+export function coreAddressBookParse(id: string, raw: string): CoreAddressBook {
+  return core_address_book_parse(id, raw);
+}
+
+export function coreAddressBookWrite(draft: CoreAddressBookDraft): string {
+  return core_address_book_write(draft);
+}
+
+/** A book that is gone, or a card in none, shows the default book's name. */
+export function coreAddressBookNameById(books: CoreAddressBook[], addressBookId?: string): string {
+  return core_address_book_name_by_id(books, addressBookId);
 }

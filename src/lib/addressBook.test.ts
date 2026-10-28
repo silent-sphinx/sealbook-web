@@ -52,13 +52,15 @@ describe("parseAddressBook", () => {
   });
 
   it("names a book that arrived without one", () => {
-    expect(parseAddressBook("b1", JSON.stringify({})).name).toBe("Untitled");
-    expect(parseAddressBook("b1", JSON.stringify({ name: "   " })).name).toBe("Untitled");
+    expect(parseAddressBook("b1", JSON.stringify({})).name).toBe("Untitled Address Book");
+    expect(parseAddressBook("b1", JSON.stringify({ name: "   " })).name).toBe(
+      "Untitled Address Book",
+    );
   });
 
   it("keeps a body it cannot read visible rather than throwing", () => {
     const parsed = parseAddressBook("b1", "not json");
-    expect(parsed.name).toBe("not json");
+    expect(parsed.name).toBe("Untitled Address Book");
     expect(parsed.raw).toBe("not json");
   });
 });

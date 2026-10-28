@@ -579,6 +579,10 @@ export function CalendarView({
           timezone,
           calendarId: eventCalendarId || undefined,
           recurrence,
+          // Neither is shown or edited: the composer rebuilds the event from
+          // its fields, so without these a save drops every key this build does
+          // not own and any stored rule core could not name.
+          unreadableRecurrence: recurrence ? undefined : editingEvent?.unreadableRecurrence,
           raw: editingEvent?.raw,
         },
         editingEvent?.id,

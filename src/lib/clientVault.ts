@@ -25,7 +25,7 @@ import {
   parseAddressBook,
   sortAddressBooks,
 } from "./addressBook";
-import { parseCalendar, sortCalendars } from "./calendar";
+import { parseCalendar, parseEvent, serializeEvent, sortCalendars } from "./calendar";
 import { CALENDAR_CONTENT_TYPE, CALENDAR_EVENT_CONTENT_TYPE } from "./calendarApi";
 import {
   BOOKMARK_COLLECTION_CONTENT_TYPE,
@@ -53,7 +53,6 @@ import {
 } from "./note";
 import { parseContact, sortContacts } from "./contact";
 import { describeError, log, elapsed } from "./log";
-import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
 import { importBatches } from "./vaultImport";
 import {
   isAddressBookPayload,
@@ -194,16 +193,12 @@ export async function putCalendarEvents(
         state.plan;
       await alignKeyEpoch(session, keyEpoch);
       const writes = batch.map((event, index) => {
-        const { raw, ...fields } = event;
         const revision = latestRevision + index + 1;
         const sealed = sealPayload(
           session,
           batchIds[index],
           CALENDAR_EVENT_CONTENT_TYPE,
-          mergePayload(raw, { "@type": "CalendarEvent", version: PAYLOAD_SCHEMA_VERSION, ...fields }, [
-            "@type", "version", "title", "start", "end", "notes", "location",
-            "participants", "timezone", "calendarId", "recurrence",
-          ]),
+          serializeEvent(event),
           revision,
         );
         return { id: batchIds[index], revision, sealed };
@@ -639,8 +634,7 @@ async function listVaultInner(
     try {
       sealed.push(obj);
       if (contentType === CALENDAR_EVENT_CONTENT_TYPE || isCalendarEventPayload(raw)) {
-        const value = JSON.parse(raw) as { title?: string; start?: string; end?: string; notes?: string; location?: string; participants?: string[]; timezone?: string; calendarId?: string; recurrence?: CalendarEvent["recurrence"] };
-        calendarEvents.push({ id: obj.id, title: value.title?.trim() || "Untitled event", start: value.start ?? "", end: value.end, notes: value.notes, location: value.location, participants: value.participants, timezone: value.timezone, calendarId: value.calendarId, recurrence: value.recurrence, raw });
+        calendarEvents.push(parseEvent(obj.id, raw));
       } else if (contentType === CALENDAR_CONTENT_TYPE || isCalendarPayload(raw)) {
         calendars.push(parseCalendar(obj.id, raw));
       } else if (contentType === ADDRESS_BOOK_CONTENT_TYPE || isAddressBookPayload(raw)) {

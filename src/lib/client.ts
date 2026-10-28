@@ -28,7 +28,6 @@ export {
 export {
   CALENDAR_CONTENT_TYPE,
   CALENDAR_EVENT_CONTENT_TYPE,
-  CALENDAR_EVENT_KEYS,
   deleteCalendar,
   deleteCalendarEvent,
   ensureDefaultCalendar,

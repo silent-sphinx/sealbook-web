@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "./test/dom";
 import { aDeviceState } from "./test/vault";
-import { DEFAULT_CALENDAR_ID } from "./lib/calendar";
+import { DEFAULT_CALENDAR_ID, parseEvent } from "./lib/calendar";
 import { DEFAULT_CALENDAR_COLOR } from "./lib/types";
 import type { Calendar, CalendarEvent } from "./lib/types";
 import type { Session } from "./lib/client";
@@ -134,6 +134,30 @@ describe("saving an event that was opened for editing", () => {
     const payload = JSON.parse(write.payload) as Record<string, unknown>;
     expect(payload.title).toBe("Standup, moved");
     expect(payload.attendeeStatus).toEqual({ ada: "accepted" });
+  });
+
+  /**
+   * A rule naming a frequency core cannot expand reads as no rule, so the
+   * composer opens on "Does not repeat" and rebuilds the event without one.
+   * Only the carry keeps it, and without it one edit here turned a series
+   * written by a newer client into a single event on every device.
+   */
+  it("carries a repeat rule core cannot name", async () => {
+    const event = anEvent();
+    const raw = JSON.stringify({
+      ...(JSON.parse(event.raw!) as Record<string, unknown>),
+      recurrence: { frequency: "hourly", interval: 3 },
+    });
+    mount([{ ...parseEvent("event-1", raw), id: "event-1" }]);
+
+    fireEvent.click(screen.getByText("Standup"));
+    fireEvent.change(await screen.findByPlaceholderText("Event title"), { target: { value: "Standup, moved" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(writes.length).toBe(1));
+    const payload = JSON.parse(writes[0]!.payload) as Record<string, unknown>;
+    expect(payload.title).toBe("Standup, moved");
+    expect(payload.recurrence).toEqual({ frequency: "hourly", interval: 3 });
   });
 });
 

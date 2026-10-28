@@ -164,7 +164,7 @@ describe("parsing a card another client wrote", () => {
 
   it("names a card that arrived without one", () => {
     // Better than an empty row in the list, which looks like a rendering fault.
-    expect(parseDraft(JSON.stringify({ "@type": "Card" })).name).toBe("Untitled");
+    expect(parseDraft(JSON.stringify({ "@type": "Card" })).name).toBe("Unnamed contact");
   });
 
   it("falls back to the default address book when the card names none", () => {
@@ -218,11 +218,11 @@ describe("the archive flag", () => {
 
 describe("parseContact", () => {
   it("keeps a row that will not parse visible instead of throwing", () => {
-    // A card this build cannot read must not take out the list it is in; the
-    // raw text is shown so the row can still be found and repaired.
+    // A card this build cannot read must not take out the list it is in; it
+    // is listed under a name so the row can still be found and deleted.
     const contact = parseContact("id-1", "not json at all", "cipher", 1024);
     expect(contact.id).toBe("id-1");
-    expect(contact.name).toBe("not json at all");
+    expect(contact.name).toBe("Unnamed contact");
     expect(contact.emails).toEqual([]);
     expect(contact.addressBookId).toBe(DEFAULT_ADDRESS_BOOK_ID);
     expect(contact.raw).toBe("not json at all");

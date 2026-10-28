@@ -1,5 +1,5 @@
-import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
 import type { AddressBook } from "./types";
+import { coreAddressBookParse, coreAddressBookWrite } from "./wasm";
 
 export const JSCONTACT_CONTENT_TYPE = "application/jscontact+json";
 export const ADDRESS_BOOK_CONTENT_TYPE = "application/sealbook.addressbook+json";
@@ -16,33 +16,33 @@ export const ALL_ADDRESS_BOOKS = "all";
 export const ARCHIVE_VIEW = "archive";
 export const ARCHIVE_VIEW_NAME = "Archived Contacts";
 
-const ADDRESS_BOOK_KEYS = ["@type", "version", "name"] as const;
+/** Mirror of core's `UNTITLED_ADDRESS_BOOK_NAME`; `contactParity.test.ts` asserts it. */
+export const UNTITLED_ADDRESS_BOOK_NAME = "Untitled Address Book";
 
+/**
+ * The wire form of an address book, which is core's as of the client
+ * unification's phase 8: the owned keys, the trim, and the fallback names are
+ * one implementation. Throws `PayloadSchema` for a book written by a newer
+ * client, which this build may read but must not write over.
+ */
 export function serializeAddressBook(name: string, previousRaw?: string): string {
-  return mergePayload(
-    previousRaw,
-    {
-      "@type": "AddressBook",
-      version: PAYLOAD_SCHEMA_VERSION,
-      name: name.trim(),
-    },
-    ADDRESS_BOOK_KEYS,
-  );
+  return coreAddressBookWrite({ name, raw: previousRaw });
 }
 
 export function parseAddressBook(id: string, raw: string): AddressBook {
-  try {
-    const body = JSON.parse(raw) as { name?: string };
-    const name = body.name?.trim() || "Untitled";
-    return { id, name, raw };
-  } catch {
-    return { id, name: raw, raw };
-  }
+  const book = coreAddressBookParse(id, raw);
+  return { id: book.id, name: book.name, raw: book.raw };
 }
 
+/**
+ * A blank id, or the sidebar's `all`, is the default book. A mirror of core's
+ * `resolve_address_book_id` rather than a call to it, because this runs once per
+ * contact when the search text is built; `contactParity.test.ts` holds them
+ * together.
+ */
 export function resolveAddressBookId(addressBookId?: string): string {
   const trimmed = addressBookId?.trim();
-  return trimmed || DEFAULT_ADDRESS_BOOK_ID;
+  return trimmed && trimmed !== ALL_ADDRESS_BOOKS ? trimmed : DEFAULT_ADDRESS_BOOK_ID;
 }
 
 export function sortAddressBooks(books: AddressBook[]): AddressBook[] {

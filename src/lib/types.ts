@@ -232,6 +232,11 @@ export type ContactProfile = {
   friends: ContactPerson[];
   colleagues: ContactPerson[];
   custom: ContactCustomSection[];
+  /**
+   * Sections a later build added, as a JSON object. Nothing here reads it; it
+   * rides through a save so the writer puts it back.
+   */
+  extra?: string;
 };
 
 export type ContactDraft = {
@@ -260,6 +265,14 @@ export type ContactDraft = {
   archived?: boolean;
   createdAt?: string;
   updatedAt?: string;
+  /**
+   * Set on a card that stores no name, to the name the list showed for it. A
+   * save that finds `name` unchanged writes no name rather than the derived one:
+   * this client used to write the literal `Untitled` onto the card.
+   */
+  derivedName?: string;
+  /** False for a payload from a schema major this build may read but not write. */
+  readable?: boolean;
   /** As `NoteDraft.raw`: what a save merges onto, so unknown fields survive. */
   raw?: string;
 };
@@ -289,6 +302,14 @@ export type CalendarEvent = {
   timezone?: string;
   calendarId?: string;
   recurrence?: RecurrenceRule;
+  /**
+   * The stored repeat rule core could not name, as JSON. Nothing here reads it;
+   * it rides through a save so the writer puts it back, which is the
+   * degrade-invisibly rule one level in from the payload.
+   */
+  unreadableRecurrence?: string;
+  /** False for a payload from a schema major this build may read but not write. */
+  readable?: boolean;
   /** As `NoteDraft.raw`: what a save merges onto, so unknown fields survive. */
   raw?: string;
 };
@@ -320,6 +341,8 @@ export type Calendar = {
    * archived.
    */
   archived?: boolean;
+  /** False for a payload from a schema major this build may read but not write. */
+  readable?: boolean;
   /** As `NoteDraft.raw`: what a save merges onto, so unknown fields survive. */
   raw?: string;
 };

@@ -1,20 +1,14 @@
+import { DEFAULT_ADDRESS_BOOK_ID, bookNameById, resolveAddressBookId } from "./addressBook";
 import {
-  ADDRESS_BOOK_ID_PROP,
-  DEFAULT_ADDRESS_BOOK_ID,
-  bookNameById,
-  resolveAddressBookId,
-} from "./addressBook";
-import {
-  CONTACT_PROFILE_PROP,
   MAX_PROFILE_ENTRIES,
   MAX_PROFILE_TEXT_CHARS,
   PROFILE_SECTIONS,
-  parseProfile,
+  profileFrom,
   profileOf,
   profileSearchText,
-  serializeProfile,
+  profileTo,
 } from "./contactProfile";
-import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
+import { attachmentFrom, attachmentTo } from "./note";
 import type {
   AddressBook,
   Contact,
@@ -26,8 +20,9 @@ import type {
   ContactDraft,
   ContactSocial,
   ContactWork,
-  NoteAttachment,
 } from "./types";
+import { coreContactParse, coreContactWrite } from "./wasm";
+import type { CoreContact, CoreContactChannel } from "./wasm";
 
 export const CHANNEL_KINDS: ContactChannelKind[] = ["work", "home", "mobile", "custom"];
 
@@ -198,10 +193,6 @@ function trim(value?: string): string {
   return value?.trim() ?? "";
 }
 
-function isFilled(value?: string): boolean {
-  return trim(value).length > 0;
-}
-
 export function addressLines(address?: ContactAddress): string[] {
   if (!address) {
     return [];
@@ -218,536 +209,79 @@ export function addressLines(address?: ContactAddress): string[] {
     .filter(Boolean);
 }
 
-function contextsForKind(kind: ContactChannelKind): Record<string, boolean> | undefined {
-  if (kind === "work") {
-    return { work: true };
-  }
-  if (kind === "home") {
-    return { private: true };
-  }
-  return undefined;
-}
-
-function channelKindFromEntry(
-  entry: {
-    contexts?: Record<string, boolean>;
-    features?: Record<string, boolean>;
-    label?: string;
-  },
-  fallback: ContactChannelKind,
-): ContactChannelKind {
-  if (entry.features?.mobile) {
-    return "mobile";
-  }
-  const label = trim(entry.label);
-  if (label.toLowerCase() === "mobile") {
-    return "mobile";
-  }
-  if (entry.contexts?.work) {
-    return "work";
-  }
-  if (entry.contexts?.private) {
-    return "home";
-  }
-  if (label) {
-    return "custom";
-  }
-  return fallback;
-}
-
-function serializeChannels(
-  channels: ContactChannel[],
-  prefix: string,
-  build: (channel: ContactChannel) => Record<string, unknown>,
-): Record<string, Record<string, unknown>> | undefined {
-  const filled = channels.filter((channel) => isFilled(channel.value));
-  if (filled.length === 0) {
-    return undefined;
-  }
-  const out: Record<string, Record<string, unknown>> = {};
-  filled.forEach((channel, index) => {
-    out[`${prefix}${index + 1}`] = build(channel);
-  });
-  return out;
-}
-
-function emailBody(channel: ContactChannel): Record<string, unknown> {
-  const entry: Record<string, unknown> = { address: channel.value.trim() };
-  const contexts = contextsForKind(channel.kind);
-  if (contexts) {
-    entry.contexts = contexts;
-  }
-  if (channel.kind === "mobile") {
-    entry.label = "Mobile";
-  } else if (channel.kind === "custom" && isFilled(channel.label)) {
-    entry.label = channel.label!.trim();
-  }
-  return entry;
-}
-
-function phoneBody(channel: ContactChannel): Record<string, unknown> {
-  const entry: Record<string, unknown> = { number: channel.value.trim() };
-  const contexts = contextsForKind(channel.kind);
-  if (contexts) {
-    entry.contexts = contexts;
-  }
-  if (channel.kind === "mobile") {
-    entry.features = { mobile: true };
-  } else if (channel.kind === "custom" && isFilled(channel.label)) {
-    entry.label = channel.label!.trim();
-  }
-  return entry;
-}
-
-function serializeAddress(address?: ContactAddress): Record<string, unknown> | undefined {
-  if (!address || addressLines(address).length === 0) {
-    return undefined;
-  }
-  const street = [address.street1, address.street2].map(trim).filter(Boolean);
-  const body: Record<string, unknown> = {};
-  if (street.length > 0) {
-    body.street = street;
-  }
-  if (isFilled(address.locality)) {
-    body.locality = address.locality!.trim();
-  }
-  if (isFilled(address.region)) {
-    body.region = address.region!.trim();
-  }
-  if (isFilled(address.postcode)) {
-    body.postCode = address.postcode!.trim();
-  }
-  if (isFilled(address.country)) {
-    body.country = address.country!.trim();
-  }
-  return { a1: body };
-}
-
 /**
- * Every key this build writes for a card, including the ones it only writes
- * when the field is non-empty. See `mergePayload`.
+ * The wire form of a card.
+ *
+ * Both the writer and the reader are core's as of the client unification's
+ * phase 8, so the owned key set, the trimming, the kind of an unmarked channel
+ * and the omit-rather-than-null rule are one implementation rather than three.
+ * What stays here is this client's view model, whose rows carry editor ids that
+ * the payload does not.
  */
-const CARD_KEYS = [
-  "@type",
-  "version",
-  "name",
-  ADDRESS_BOOK_ID_PROP,
-  CONTACT_ARCHIVED_PROP,
-  CONTACT_ATTACHMENTS_PROP,
-  "nickNames",
-  "emails",
-  "phones",
-  "addresses",
-  "organizations",
-  "titles",
-  "speakToAs",
-  "anniversaries",
-  "onlineServices",
-  "notes",
-  CONTACT_PROFILE_PROP,
-  "media",
-  "created",
-  "updated",
-] as const;
-
 export function serializeCard(draft: ContactDraft): string {
-  const body: Record<string, unknown> = {
-    "@type": "Card",
-    version: PAYLOAD_SCHEMA_VERSION,
-    name: { full: draft.name.trim() },
-    [ADDRESS_BOOK_ID_PROP]: resolveAddressBookId(draft.addressBookId),
+  return coreContactWrite(
+    {
+      name: draft.derivedName !== undefined && draft.name === draft.derivedName ? "" : draft.name,
+      nickname: draft.nickname,
+      pronouns: draft.pronouns,
+      emails: draft.emails.map(channelTo),
+      phones: draft.phones.map(channelTo),
+      address: draft.address,
+      work: draft.work.map(({ organization, title }) => ({ organization, title })),
+      dates: draft.dates.map(({ kind, label, date }) => ({ kind, label, date })),
+      socials: draft.socials.map(({ platform, handle }) => ({ platform, handle })),
+      notes: draft.notes,
+      avatar: draft.avatar,
+      profile: draft.profile ? profileTo(draft.profile) : undefined,
+      attachments: (draft.attachments ?? []).map(attachmentTo),
+      address_book_id: draft.addressBookId,
+      archived: draft.archived === true,
+      created_at: draft.createdAt,
+      raw: draft.raw,
+    },
+    new Date().toISOString(),
+  );
+}
+
+function channelTo({ kind, label, value }: ContactChannel): CoreContactChannel {
+  return { kind, label, value };
+}
+
+function channelFrom(prefix: string, index: number, channel: CoreContactChannel): ContactChannel {
+  return {
+    id: `${prefix}${index + 1}`,
+    kind: channel.kind,
+    label: channel.label,
+    value: channel.value,
   };
-  if (draft.archived) {
-    body[CONTACT_ARCHIVED_PROP] = true;
-  }
-  const nickname = trim(draft.nickname);
-  if (nickname) {
-    body.nickNames = { n1: { name: nickname } };
-  }
-  const emails = serializeChannels(draft.emails, "e", emailBody);
-  if (emails) {
-    body.emails = emails;
-  }
-  const phones = serializeChannels(draft.phones, "p", phoneBody);
-  if (phones) {
-    body.phones = phones;
-  }
-  const addresses = serializeAddress(draft.address);
-  if (addresses) {
-    body.addresses = addresses;
-  }
-
-  const organizations: Record<string, { name: string }> = {};
-  const titles: Record<string, { name: string; kind: string; organization: string }> = {};
-  let orgIndex = 0;
-  let titleIndex = 0;
-  for (const row of draft.work) {
-    const organization = trim(row.organization);
-    if (!organization) {
-      continue;
-    }
-    orgIndex += 1;
-    const orgId = `o${orgIndex}`;
-    organizations[orgId] = { name: organization };
-    const title = trim(row.title);
-    if (title) {
-      titleIndex += 1;
-      titles[`t${titleIndex}`] = { name: title, kind: "title", organization: orgId };
-    }
-  }
-  if (orgIndex > 0) {
-    body.organizations = organizations;
-  }
-  if (titleIndex > 0) {
-    body.titles = titles;
-  }
-
-  const pronouns = trim(draft.pronouns);
-  if (pronouns) {
-    body.speakToAs = { pronouns };
-  }
-
-  if (draft.dates && draft.dates.length > 0) {
-    const anniversaries: Record<string, { kind: string; date: string; label?: string }> = {};
-    let dIdx = 0;
-    for (const d of draft.dates) {
-      const dVal = trim(d.date);
-      if (!dVal) continue;
-      dIdx++;
-      anniversaries[`a${dIdx}`] = {
-        kind: d.kind === "birthday" ? "birth" : d.kind === "anniversary" ? "wedding" : "other",
-        date: dVal,
-        label: d.kind === "custom" && d.label?.trim() ? d.label.trim() : undefined,
-      };
-    }
-    if (dIdx > 0) {
-      body.anniversaries = anniversaries;
-    }
-  }
-
-  if (draft.socials && draft.socials.length > 0) {
-    const onlineServices: Record<string, { service: string; user: string }> = {};
-    let sIdx = 0;
-    for (const s of draft.socials) {
-      const handle = trim(s.handle);
-      if (!handle) continue;
-      sIdx++;
-      onlineServices[`os${sIdx}`] = {
-        service: trim(s.platform) || "custom",
-        user: handle,
-      };
-    }
-    if (sIdx > 0) {
-      body.onlineServices = onlineServices;
-    }
-  }
-
-  const notes = trim(draft.notes);
-  if (notes) {
-    body.notes = { n1: { note: notes } };
-  }
-
-  const profile = serializeProfile(draft.profile);
-  if (profile) {
-    body[CONTACT_PROFILE_PROP] = profile;
-  }
-
-  if (draft.attachments && draft.attachments.length > 0) {
-    body[CONTACT_ATTACHMENTS_PROP] = draft.attachments;
-  }
-
-  if (draft.avatar) {
-    body.media = {
-      avatar: {
-        kind: "photo",
-        uri: draft.avatar,
-      },
-    };
-  }
-
-  const nowIso = new Date().toISOString();
-  body.created = draft.createdAt || nowIso;
-  body.updated = nowIso;
-
-  return mergePayload(draft.raw, body, CARD_KEYS);
 }
 
-type RawCard = {
-  name?: { full?: string };
-  nickNames?: Record<string, { name?: string }>;
-  nicknames?: Record<string, { name?: string }>;
-  speakToAs?: { pronouns?: string };
-  pronouns?: string;
-  emails?: Record<string, { address?: string; contexts?: Record<string, boolean>; label?: string }>;
-  phones?: Record<
-    string,
-    {
-      number?: string;
-      phoneNumber?: string;
-      contexts?: Record<string, boolean>;
-      features?: Record<string, boolean>;
-      label?: string;
-    }
-  >;
-  addresses?: Record<
-    string,
-    {
-      street?: string | string[];
-      locality?: string;
-      region?: string;
-      postCode?: string;
-      postcode?: string;
-      country?: string;
-    }
-  >;
-  organizations?: Record<string, { name?: string }>;
-  titles?: Record<string, { name?: string; organization?: string }>;
-  anniversaries?: Record<
-    string,
-    {
-      kind?: string;
-      date?: string;
-      label?: string;
-    }
-  >;
-  onlineServices?: Record<
-    string,
-    {
-      service?: string;
-      user?: string;
-      uri?: string;
-      label?: string;
-    }
-  >;
-  notes?: Record<string, { note?: string }> | string;
-  media?: Record<string, { kind?: string; uri?: string; href?: string }>;
-  photos?: Record<string, { href?: string; uri?: string }>;
-  photo?: { href?: string; uri?: string } | string;
-  avatar?: string;
-  created?: string;
-  createdAt?: string;
-  updated?: string;
-  updatedAt?: string;
-  [ADDRESS_BOOK_ID_PROP]?: string;
-  [CONTACT_ARCHIVED_PROP]?: boolean;
-  [CONTACT_ATTACHMENTS_PROP]?: unknown;
-  [CONTACT_PROFILE_PROP]?: unknown;
-};
-
-function parseChannels<T extends { label?: string; contexts?: Record<string, boolean> }>(
-  map: Record<string, T> | undefined,
-  valueOf: (entry: T) => string | undefined,
-  fallback: ContactChannelKind,
-  extraKind?: (entry: T) => ContactChannelKind | undefined,
-): ContactChannel[] {
-  if (!map) {
-    return [];
-  }
-  const channels: ContactChannel[] = [];
-  for (const [id, entry] of Object.entries(map)) {
-    const value = trim(valueOf(entry));
-    if (!value) {
-      continue;
-    }
-    const kind = extraKind?.(entry) ?? channelKindFromEntry(entry, fallback);
-    channels.push({
-      id,
-      kind,
-      value,
-      label: kind === "custom" ? trim(entry.label) || undefined : undefined,
-    });
-  }
-  return channels;
-}
-
-function parseAddress(
-  addresses?: RawCard["addresses"],
-): ContactAddress | undefined {
-  if (!addresses) {
-    return undefined;
-  }
-  const first = Object.values(addresses)[0];
-  if (!first) {
-    return undefined;
-  }
-  const street = Array.isArray(first.street)
-    ? first.street
-    : first.street
-      ? [first.street]
-      : [];
-  const address: ContactAddress = {
-    street1: trim(street[0]) || undefined,
-    street2: trim(street[1]) || undefined,
-    locality: trim(first.locality) || undefined,
-    region: trim(first.region) || undefined,
-    postcode: trim(first.postCode ?? first.postcode) || undefined,
-    country: trim(first.country) || undefined,
+function draftFrom(card: CoreContact): ContactDraft {
+  return {
+    name: card.display_name,
+    derivedName: card.name === "" ? card.display_name : undefined,
+    nickname: card.nickname,
+    pronouns: card.pronouns,
+    emails: card.emails.map((channel, index) => channelFrom("e", index, channel)),
+    phones: card.phones.map((channel, index) => channelFrom("p", index, channel)),
+    address: card.address,
+    work: card.work.map((row, index) => ({ id: `w${index + 1}`, ...row })),
+    dates: card.dates.map((row, index) => ({ id: `d${index + 1}`, ...row })),
+    socials: card.socials.map((row, index) => ({ id: `s${index + 1}`, ...row })),
+    notes: card.notes,
+    avatar: card.avatar,
+    profile: card.profile ? profileFrom(card.profile) : undefined,
+    attachments: card.attachments.length ? card.attachments.map(attachmentFrom) : undefined,
+    addressBookId: card.address_book_id,
+    archived: card.archived ? true : undefined,
+    createdAt: card.created_at,
+    updatedAt: card.updated_at,
+    readable: card.readable,
   };
-  return addressLines(address).length > 0 ? address : undefined;
-}
-
-function parseWork(card: RawCard): ContactWork[] {
-  const organizations = card.organizations ?? {};
-  const titles = card.titles ?? {};
-  const usedTitles = new Set<string>();
-  const work: ContactWork[] = [];
-
-  for (const [orgId, org] of Object.entries(organizations)) {
-    const organization = trim(org.name);
-    if (!organization) {
-      continue;
-    }
-    const linked = Object.entries(titles).filter(
-      ([, title]) => title.organization === orgId && isFilled(title.name),
-    );
-    if (linked.length === 0) {
-      work.push({ id: orgId, organization });
-      continue;
-    }
-    for (const [titleId, title] of linked) {
-      usedTitles.add(titleId);
-      work.push({ id: `${orgId}:${titleId}`, organization, title: title.name!.trim() });
-    }
-  }
-  return work;
-}
-
-function parseNickname(card: RawCard): string | undefined {
-  const nickMap = card.nickNames ?? card.nicknames;
-  if (!nickMap) {
-    return undefined;
-  }
-  for (const entry of Object.values(nickMap)) {
-    const name = trim(entry.name);
-    if (name) {
-      return name;
-    }
-  }
-  return undefined;
-}
-
-function parsePronouns(card: RawCard): string | undefined {
-  const p = card.speakToAs?.pronouns ?? card.pronouns;
-  return trim(p) || undefined;
-}
-
-function parseDates(card: RawCard): ContactDate[] {
-  if (!card.anniversaries) return [];
-  const dates: ContactDate[] = [];
-  for (const [id, entry] of Object.entries(card.anniversaries)) {
-    const dateVal = trim(entry.date);
-    if (!dateVal) continue;
-    const kind: ContactDateKind =
-      entry.kind === "birth" ? "birthday" : entry.kind === "wedding" ? "anniversary" : "custom";
-    dates.push({
-      id,
-      kind,
-      label: trim(entry.label) || undefined,
-      date: dateVal,
-    });
-  }
-  return dates;
-}
-
-function parseSocials(card: RawCard): ContactSocial[] {
-  if (!card.onlineServices) return [];
-  const socials: ContactSocial[] = [];
-  for (const [id, entry] of Object.entries(card.onlineServices)) {
-    const handle = trim(entry.user ?? entry.uri);
-    if (!handle) continue;
-    socials.push({
-      id,
-      platform: trim(entry.service) || "custom",
-      handle,
-    });
-  }
-  return socials;
-}
-
-function parseNotes(card: RawCard): string | undefined {
-  if (typeof card.notes === "string") {
-    return card.notes.trim() || undefined;
-  }
-  if (card.notes && typeof card.notes === "object") {
-    const first = Object.values(card.notes)[0]?.note;
-    return trim(first) || undefined;
-  }
-  return undefined;
-}
-
-function parseAvatar(card: RawCard): string | undefined {
-  if (card.media) {
-    for (const item of Object.values(card.media)) {
-      const uri = trim(item.uri ?? item.href);
-      if (uri) return uri;
-    }
-  }
-  if (card.photos) {
-    for (const item of Object.values(card.photos)) {
-      const uri = trim(item.href ?? item.uri);
-      if (uri) return uri;
-    }
-  }
-  if (card.photo) {
-    if (typeof card.photo === "string") {
-      const uri = trim(card.photo);
-      if (uri) return uri;
-    } else {
-      const uri = trim(card.photo.href ?? card.photo.uri);
-      if (uri) return uri;
-    }
-  }
-  if (card.avatar) {
-    const uri = trim(card.avatar);
-    if (uri) return uri;
-  }
-  return undefined;
-}
-
-function parseAttachments(raw: unknown): NoteAttachment[] | undefined {
-  if (!Array.isArray(raw) || raw.length === 0) return undefined;
-  const result: NoteAttachment[] = [];
-  for (const item of raw) {
-    if (
-      item &&
-      typeof item === "object" &&
-      typeof item.id === "string" &&
-      typeof item.adk === "string"
-    ) {
-      result.push(item as NoteAttachment);
-    }
-  }
-  return result.length > 0 ? result : undefined;
 }
 
 export function parseDraft(raw: string): ContactDraft {
-  const card = JSON.parse(raw) as RawCard;
-  const emails = parseChannels(card.emails, (entry) => entry.address, "home");
-  const phones = parseChannels(
-    card.phones,
-    (entry) => entry.number ?? entry.phoneNumber,
-    "home",
-    (entry) => (entry.features?.mobile ? "mobile" : undefined),
-  );
-  return {
-    name: trim(card.name?.full) || "Untitled",
-    nickname: parseNickname(card),
-    pronouns: parsePronouns(card),
-    emails,
-    phones,
-    address: parseAddress(card.addresses),
-    work: parseWork(card),
-    dates: parseDates(card),
-    socials: parseSocials(card),
-    notes: parseNotes(card),
-    avatar: parseAvatar(card),
-    profile: parseProfile(card[CONTACT_PROFILE_PROP]),
-    attachments: parseAttachments(card[CONTACT_ATTACHMENTS_PROP]),
-    addressBookId: resolveAddressBookId(card[ADDRESS_BOOK_ID_PROP]),
-    archived: card[CONTACT_ARCHIVED_PROP] === true ? true : undefined,
-    createdAt: card.created ?? card.createdAt,
-    updatedAt: card.updated ?? card.updatedAt,
-  };
+  return draftFrom(coreContactParse("", raw));
 }
 
 export function parseContact(
@@ -756,29 +290,13 @@ export function parseContact(
   ciphertext: string,
   paddedSize: number,
 ): Contact {
-  try {
-    const draft = parseDraft(raw);
-    return {
-      ...draft,
-      id,
-      email: draft.emails[0]?.value,
-      raw,
-      ciphertext,
-      paddedSize,
-    };
-  } catch {
-    return {
-      id,
-      name: raw,
-      emails: [],
-      phones: [],
-      work: [],
-      dates: [],
-      socials: [],
-      addressBookId: DEFAULT_ADDRESS_BOOK_ID,
-      raw,
-      ciphertext,
-      paddedSize,
-    };
-  }
+  const draft = draftFrom(coreContactParse(id, raw));
+  return {
+    ...draft,
+    id,
+    email: draft.emails[0]?.value,
+    raw,
+    ciphertext,
+    paddedSize,
+  };
 }

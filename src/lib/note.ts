@@ -31,7 +31,7 @@ export const UNTITLED_NOTEBOOK_NAME = "Untitled";
  * `thumbnail`, and a build that rebuilt each entry from its own fields dropped
  * it from every photo it touched.
  */
-function attachmentFrom(entry: CoreNoteAttachment): NoteAttachment {
+export function attachmentFrom(entry: CoreNoteAttachment): NoteAttachment {
   return {
     id: entry.id,
     filename: entry.filename,
@@ -49,7 +49,7 @@ function attachmentFrom(entry: CoreNoteAttachment): NoteAttachment {
   };
 }
 
-function attachmentTo(entry: NoteAttachment): CoreNoteAttachment {
+export function attachmentTo(entry: NoteAttachment): CoreNoteAttachment {
   return {
     id: entry.id,
     filename: entry.filename,

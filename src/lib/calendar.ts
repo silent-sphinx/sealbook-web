@@ -1,54 +1,151 @@
-import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
-import { DEFAULT_CALENDAR_COLOR } from "./types";
-import type { Calendar } from "./types";
+import type { Calendar, CalendarEvent, RecurrenceRule } from "./types";
+import {
+  coreCalendarNameById,
+  coreCalendarParse,
+  coreCalendarWrite,
+  coreEventParse,
+  coreEventWrite,
+} from "./wasm";
+import type { CoreCalendar, CoreCalendarEvent, CoreRecurrence } from "./wasm";
 
-// Mirrors of the Rust constants in
-// `sealbook/crates/sealbook-protocol/src/lib.rs`. There is no codegen between the
-// two, so the pairing is covered by a test rather than by the compiler.
+// Mirrors of the Rust constants in `sealbook-core`'s `calendars` module. They
+// stay literals here because module scope runs before `initWasm`, and
+// `calendarParity.test.ts` asserts every one of them against core so they
+// cannot drift. Same arrangement as the note constants in `note.ts`.
 export const DEFAULT_CALENDAR_NAME = "Default Calendar";
 export const DEFAULT_CALENDAR_ID = "00000000-0000-0000-0000-000000000003";
-
-/** Every key this build writes for a calendar. See `mergePayload`. */
-const CALENDAR_KEYS = ["@type", "version", "name", "color", "favorite", "archived"] as const;
+export const UNTITLED_CALENDAR_NAME = "Untitled calendar";
+export const UNTITLED_EVENT_TITLE = "Untitled event";
 
 /**
- * The wire form of a calendar.
+ * The wire form of a calendar and of an event.
  *
- * This is the plaintext inside the sealed envelope, so it is shared with every
- * other client and is not ours to change unilaterally. `archived` is written
- * only when set, so a calendar that has never been archived is byte-identical
- * to one from a build predating the field; it is an owned key, so omitting it
- * is also what clears a stored flag.
+ * Both the writer and the reader are core's as of the client unification's
+ * phase 8, so the owned key sets, the trimming, the fallback names and the
+ * omit-rather-than-null rule are one implementation rather than three. What
+ * stays here is this client's view model and everything above the payload:
+ * sorting, the archived/active split and which calendars are drawn.
+ *
+ * Core filters the fields it is handed down to the owned keys, which is what
+ * closes the hole this function used to have: it took `Omit<Calendar, "id">`
+ * and spread the rest, so a caller handing it a whole `Calendar` wrote the
+ * object id into the plaintext, and TypeScript's excess-property check does not
+ * catch that through a variable.
  */
 export function serializeCalendar(calendar: Omit<Calendar, "id">): string {
-  const { raw, archived, ...fields } = calendar;
-  return mergePayload(
-    raw,
-    {
-      "@type": "Calendar",
-      version: PAYLOAD_SCHEMA_VERSION,
-      ...fields,
-      name: calendar.name.trim(),
-      ...(archived ? { archived: true } : {}),
-    },
-    CALENDAR_KEYS,
-  );
+  return coreCalendarWrite({
+    name: calendar.name,
+    color: calendar.color,
+    favorite: calendar.favorite === true,
+    archived: calendar.archived === true,
+    raw: calendar.raw,
+  });
 }
 
 export function parseCalendar(id: string, raw: string): Calendar {
-  try {
-    const body = JSON.parse(raw) as { name?: string; color?: string; favorite?: boolean; archived?: boolean };
-    return {
-      id,
-      name: body.name?.trim() || "Untitled calendar",
-      color: body.color || DEFAULT_CALENDAR_COLOR,
-      favorite: body.favorite === true,
-      archived: body.archived === true,
-      raw,
-    };
-  } catch {
-    return { id, name: "Untitled calendar", color: DEFAULT_CALENDAR_COLOR, raw };
-  }
+  return calendarFrom(coreCalendarParse(id, raw));
+}
+
+function calendarFrom(calendar: CoreCalendar): Calendar {
+  return {
+    id: calendar.id,
+    name: calendar.name,
+    color: calendar.color,
+    favorite: calendar.favorite,
+    archived: calendar.archived,
+    readable: calendar.readable,
+    raw: calendar.raw,
+  };
+}
+
+/**
+ * Writes an event's plaintext through core.
+ *
+ * `unreadableRecurrence` is the one field nothing in this client reads: it is
+ * the stored repeat rule core could not name, carried back so the write puts it
+ * where it was. Dropping it turned a series written by a newer client into a
+ * single event everywhere, which is what Android did.
+ */
+export function serializeEvent(event: Omit<CalendarEvent, "id">): string {
+  return coreEventWrite({
+    title: event.title,
+    start: event.start,
+    end: event.end,
+    notes: event.notes,
+    location: event.location,
+    participants: event.participants ?? [],
+    timezone: event.timezone,
+    calendar_id: event.calendarId,
+    recurrence: event.recurrence ? recurrenceTo(event.recurrence) : undefined,
+    unreadable_recurrence: event.unreadableRecurrence,
+    raw: event.raw,
+  });
+}
+
+export function parseEvent(id: string, raw: string): CalendarEvent {
+  return eventFrom(coreEventParse(id, raw));
+}
+
+function eventFrom(event: CoreCalendarEvent): CalendarEvent {
+  return {
+    id: event.id,
+    title: event.title,
+    start: event.start,
+    end: event.end,
+    notes: event.notes,
+    location: event.location,
+    participants: event.participants.length ? event.participants : undefined,
+    timezone: event.timezone,
+    calendarId: event.calendar_id,
+    recurrence: event.recurrence ? recurrenceFrom(event.recurrence) : undefined,
+    unreadableRecurrence: event.unreadable_recurrence,
+    readable: event.readable,
+    raw: event.raw,
+  };
+}
+
+// Core's records are snake_case on the TypeScript boundary, as every core record
+// is, and this client's rule is camelCase and read all over the composer.
+function recurrenceFrom(rule: CoreRecurrence): RecurrenceRule {
+  return {
+    frequency: rule.frequency,
+    interval: rule.interval,
+    until: rule.until,
+    count: rule.count,
+    weekdays: rule.weekdays.length > 0 ? rule.weekdays : undefined,
+    dayOfMonth: rule.day_of_month,
+    nthWeekday: rule.nth_weekday
+      ? { ordinal: rule.nth_weekday.ordinal as 1 | 2 | 3 | 4 | 5, weekday: rule.nth_weekday.weekday }
+      : undefined,
+  };
+}
+
+function recurrenceTo(rule: RecurrenceRule): CoreRecurrence {
+  return {
+    frequency: rule.frequency,
+    interval: rule.interval,
+    until: rule.until,
+    count: rule.count,
+    weekdays: rule.weekdays ?? [],
+    day_of_month: rule.dayOfMonth,
+    nth_weekday: rule.nthWeekday,
+  };
+}
+
+/** The name to show for an event's calendar, against the list in hand. */
+export function calendarNameById(calendars: Calendar[], calendarId?: string): string | undefined {
+  return coreCalendarNameById(
+    calendars.map((calendar) => ({
+      id: calendar.id,
+      name: calendar.name,
+      color: calendar.color,
+      favorite: calendar.favorite === true,
+      archived: calendar.archived === true,
+      readable: calendar.readable !== false,
+      raw: calendar.raw ?? "",
+    })),
+    calendarId,
+  );
 }
 
 export function sortCalendars(calendars: Calendar[]): Calendar[] {

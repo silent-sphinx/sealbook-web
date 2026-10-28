@@ -103,6 +103,7 @@ describe("archived calendars", () => {
       color: "#9ece6a",
       favorite: false,
       archived: true,
+      readable: true,
       raw: android,
     });
   });

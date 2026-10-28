@@ -1,3 +1,5 @@
+import { coreContactProfileParse, coreContactProfileWrite } from "./wasm";
+import type { CoreContactProfile } from "./wasm";
 import type {
   ContactCareer,
   ContactCustomSection,
@@ -127,10 +129,6 @@ function trim(value?: string): string {
   return value?.trim() ?? "";
 }
 
-function optional(value?: string): string | undefined {
-  return trim(value) || undefined;
-}
-
 /** True when nothing in the section would survive serialization. */
 export function sectionIsEmpty(profile: ContactProfile, section: ProfileSection): boolean {
   switch (section) {
@@ -178,165 +176,89 @@ export function filledSections(profile: ContactProfile): ProfileSection[] {
   return PROFILE_SECTIONS.filter((section) => !sectionIsEmpty(profile, section));
 }
 
-function tagList(rows: ContactTag[]): string[] | undefined {
-  const values = rows.map((row) => trim(row.value)).filter(Boolean);
-  return values.length > 0 ? values.slice(0, MAX_PROFILE_ENTRIES) : undefined;
+/**
+ * The profile as core holds it. Rows lose the editor ids this client gives them,
+ * and the sections nothing here shows ride in `extra`.
+ */
+export function profileTo(profile: ContactProfile): CoreContactProfile {
+  const full = profileOf(profile);
+  return {
+    how_we_met: full.howWeMet,
+    interests: full.interests.map((row) => row.value),
+    music: full.music.map((row) => row.value),
+    food: full.food.map(({ polarity, value, note }) => ({ polarity, value, note })),
+    pets: full.pets.map(({ name, species, note }) => ({ name, species, note })),
+    career: full.career.map(({ organization, title, start, end, note }) => ({
+      organization,
+      title,
+      start,
+      end,
+      note,
+    })),
+    relationships: full.relationships.map(({ name, kind, start, end, current, note }) => ({
+      name,
+      kind,
+      start,
+      end,
+      current: current === true,
+      note,
+    })),
+    timeline: full.timeline.map(({ title, date, description }) => ({ title, date, description })),
+    family: full.family.map(personTo),
+    friends: full.friends.map(personTo),
+    colleagues: full.colleagues.map(personTo),
+    custom: full.custom.map(({ title, text }) => ({ title, text })),
+    extra: full.extra ?? "{}",
+  };
 }
 
-function list<T>(rows: T[], build: (row: T) => Record<string, unknown> | null) {
-  const out: Record<string, unknown>[] = [];
-  for (const row of rows) {
-    const body = build(row);
-    if (body) out.push(body);
-    if (out.length >= MAX_PROFILE_ENTRIES) break;
-  }
-  return out.length > 0 ? out : undefined;
+function personTo({ name, relation, note, contactId }: ContactPerson) {
+  return { name, relation, note, contact_id: contactId };
+}
+
+function personFrom(row: CoreContactProfile["family"][number]): ContactPerson {
+  return {
+    id: newId(),
+    name: row.name,
+    relation: row.relation,
+    note: row.note,
+    ...(row.contact_id ? { contactId: row.contact_id } : {}),
+  };
+}
+
+export function profileFrom(profile: CoreContactProfile): ContactProfile {
+  return {
+    howWeMet: profile.how_we_met,
+    interests: profile.interests.map((value) => ({ id: newId(), value })),
+    music: profile.music.map((value) => ({ id: newId(), value })),
+    food: profile.food.map((row) => ({ id: newId(), ...row })),
+    pets: profile.pets.map((row) => ({ id: newId(), ...row })),
+    career: profile.career.map((row) => ({ id: newId(), ...row })),
+    relationships: profile.relationships.map((row) => ({
+      id: newId(),
+      ...row,
+      current: row.current ? true : undefined,
+    })),
+    timeline: profile.timeline.map((row) => ({ id: newId(), ...row })),
+    family: profile.family.map(personFrom),
+    friends: profile.friends.map(personFrom),
+    colleagues: profile.colleagues.map(personFrom),
+    custom: profile.custom.map((row) => ({ id: newId(), ...row })),
+    extra: profile.extra === "{}" ? undefined : profile.extra,
+  };
 }
 
 /**
  * The profile as it sits in the card, or undefined when nothing is filled in so
- * an empty profile adds no bytes and no key.
- *
- * Every optional field is omitted rather than written null, so a reader that
- * predates it sees the shape it expects.
+ * an empty profile adds no bytes and no key. Core writes it; this is for the
+ * importers and exporters that carry a profile outside a card.
  */
 export function serializeProfile(profile?: ContactProfile): Record<string, unknown> | undefined {
-  if (!profile || profileIsEmpty(profile)) {
+  if (!profile) {
     return undefined;
   }
-  const full = profileOf(profile);
-  const body: Record<string, unknown> = { "@type": "SealbookProfile", version: "1.0" };
-
-  const howWeMet = trim(full.howWeMet).slice(0, MAX_PROFILE_TEXT_CHARS);
-  if (howWeMet) body.howWeMet = howWeMet;
-
-  const interests = tagList(full.interests);
-  if (interests) body.interests = interests;
-  const music = tagList(full.music);
-  if (music) body.music = music;
-
-  const food = list(full.food, (row) => {
-    const value = trim(row.value);
-    if (!value) return null;
-    const entry: Record<string, unknown> = {
-      polarity: row.polarity === "dislike" ? "dislike" : "like",
-      value,
-    };
-    const note = optional(row.note);
-    if (note) entry.note = note;
-    return entry;
-  });
-  if (food) body.food = food;
-
-  const pets = list(full.pets, (row) => {
-    const name = trim(row.name);
-    if (!name) return null;
-    const entry: Record<string, unknown> = { name };
-    const species = optional(row.species);
-    if (species) entry.species = species;
-    const note = optional(row.note);
-    if (note) entry.note = note;
-    return entry;
-  });
-  if (pets) body.pets = pets;
-
-  const career = list(full.career, (row) => {
-    const organization = trim(row.organization);
-    const title = optional(row.title);
-    if (!organization && !title) return null;
-    const entry: Record<string, unknown> = {};
-    if (organization) entry.organization = organization;
-    if (title) entry.title = title;
-    const start = optional(row.start);
-    if (start) entry.start = start;
-    const end = optional(row.end);
-    if (end) entry.end = end;
-    const note = optional(row.note);
-    if (note) entry.note = note;
-    return entry;
-  });
-  if (career) body.career = career;
-
-  const relationships = list(full.relationships, (row) => {
-    const name = trim(row.name);
-    if (!name) return null;
-    const entry: Record<string, unknown> = { name };
-    const kind = optional(row.kind);
-    if (kind) entry.kind = kind;
-    const start = optional(row.start);
-    if (start) entry.start = start;
-    // A current relationship is ongoing by definition, so its end is never
-    // written even if one lingers in the draft from before the flag was set.
-    if (row.current) {
-      entry.current = true;
-    } else {
-      const end = optional(row.end);
-      if (end) entry.end = end;
-    }
-    const note = optional(row.note);
-    if (note) entry.note = note;
-    return entry;
-  });
-  if (relationships) body.relationships = relationships;
-
-  const timeline = list(full.timeline, (row) => {
-    const title = trim(row.title);
-    if (!title) return null;
-    const entry: Record<string, unknown> = { title };
-    const date = optional(row.date);
-    if (date) entry.date = date;
-    const description = optional(row.description);
-    if (description) entry.description = description;
-    return entry;
-  });
-  if (timeline) body.timeline = timeline;
-
-  for (const section of LINKABLE_SECTIONS) {
-    const people = list(full[section], (row) => {
-      const name = trim(row.name);
-      if (!name) return null;
-      const entry: Record<string, unknown> = { name };
-      const relation = optional(row.relation);
-      if (relation) entry.relation = relation;
-      const note = optional(row.note);
-      if (note) entry.note = note;
-      if (row.contactId) entry.contactId = row.contactId;
-      return entry;
-    });
-    if (people) body[section] = people;
-  }
-
-  const custom = list(full.custom, (row) => {
-    const title = trim(row.title).slice(0, MAX_PROFILE_TEXT_CHARS);
-    const text = trim(row.text).slice(0, MAX_PROFILE_TEXT_CHARS);
-    if (!title && !text) return null;
-    const entry: Record<string, unknown> = {};
-    if (title) entry.title = title;
-    if (text) entry.text = text;
-    return entry;
-  });
-  if (custom) body.custom = custom;
-
-  return body;
-}
-
-function asArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value.slice(0, MAX_PROFILE_ENTRIES) : [];
-}
-
-function str(value: unknown): string {
-  return typeof value === "string" ? value.trim().slice(0, MAX_PROFILE_TEXT_CHARS) : "";
-}
-
-function optionalStr(value: unknown): string | undefined {
-  return str(value) || undefined;
-}
-
-function parseTags(value: unknown): ContactTag[] {
-  return asArray(value)
-    .map((entry) => str(entry))
-    .filter(Boolean)
-    .map((text) => ({ id: newId(), value: text }));
+  const text = coreContactProfileWrite(profileTo(profile));
+  return text ? (JSON.parse(text) as Record<string, unknown>) : undefined;
 }
 
 /**
@@ -344,108 +266,11 @@ function parseTags(value: unknown): ContactTag[] {
  * failing the card, the same rule the note table sidecar follows.
  */
 export function parseProfile(value: unknown): ContactProfile | undefined {
-  if (!value || typeof value !== "object") {
+  if (value === undefined) {
     return undefined;
   }
-  const raw = value as Record<string, unknown>;
-  const profile = emptyProfile();
-
-  profile.howWeMet = optionalStr(raw.howWeMet);
-  profile.interests = parseTags(raw.interests);
-  profile.music = parseTags(raw.music);
-
-  for (const entry of asArray(raw.food)) {
-    const row = (entry ?? {}) as Record<string, unknown>;
-    const text = str(row.value);
-    if (!text) continue;
-    profile.food.push({
-      id: newId(),
-      polarity: row.polarity === "dislike" ? "dislike" : "like",
-      value: text,
-      note: optionalStr(row.note),
-    });
-  }
-
-  for (const entry of asArray(raw.pets)) {
-    const row = (entry ?? {}) as Record<string, unknown>;
-    const name = str(row.name);
-    if (!name) continue;
-    profile.pets.push({
-      id: newId(),
-      name,
-      species: optionalStr(row.species),
-      note: optionalStr(row.note),
-    });
-  }
-
-  for (const entry of asArray(raw.career)) {
-    const row = (entry ?? {}) as Record<string, unknown>;
-    const organization = str(row.organization);
-    const title = optionalStr(row.title);
-    if (!organization && !title) continue;
-    profile.career.push({
-      id: newId(),
-      organization,
-      title,
-      start: optionalStr(row.start),
-      end: optionalStr(row.end),
-      note: optionalStr(row.note),
-    });
-  }
-
-  for (const entry of asArray(raw.relationships)) {
-    const row = (entry ?? {}) as Record<string, unknown>;
-    const name = str(row.name);
-    if (!name) continue;
-    const current = row.current === true ? true : undefined;
-    profile.relationships.push({
-      id: newId(),
-      name,
-      kind: str(row.kind) || RELATIONSHIP_KINDS[0],
-      start: optionalStr(row.start),
-      end: current ? undefined : optionalStr(row.end),
-      current,
-      note: optionalStr(row.note),
-    });
-  }
-
-  for (const entry of asArray(raw.timeline)) {
-    const row = (entry ?? {}) as Record<string, unknown>;
-    const title = str(row.title);
-    if (!title) continue;
-    profile.timeline.push({
-      id: newId(),
-      title,
-      date: optionalStr(row.date),
-      description: optionalStr(row.description),
-    });
-  }
-
-  for (const section of LINKABLE_SECTIONS) {
-    for (const entry of asArray(raw[section])) {
-      const row = (entry ?? {}) as Record<string, unknown>;
-      const name = str(row.name);
-      if (!name) continue;
-      const contactId = optionalStr(row.contactId);
-      profile[section].push({
-        id: newId(),
-        name,
-        relation: optionalStr(row.relation),
-        note: optionalStr(row.note),
-        ...(contactId ? { contactId } : {}),
-      });
-    }
-  }
-
-  for (const entry of asArray(raw.custom)) {
-    const row = (entry ?? {}) as Record<string, unknown>;
-    const title = str(row.title);
-    const text = str(row.text);
-    if (!title && !text) continue;
-    profile.custom.push({ id: newId(), title, text });
-  }
-
-  return profileIsEmpty(profile) ? undefined : profile;
+  const profile = coreContactProfileParse(JSON.stringify(value));
+  return profile ? profileFrom(profile) : undefined;
 }
 
 /** How much of a date a value states. Each precision has its own native picker. */

@@ -3,10 +3,10 @@ import {
   DEFAULT_CALENDAR_ID,
   DEFAULT_CALENDAR_NAME,
   serializeCalendar,
+  serializeEvent,
   sortCalendars,
 } from "./calendar";
 import { putAccountSettings, listVault, putSealed } from "./client";
-import { mergePayload, PAYLOAD_SCHEMA_VERSION } from "./payload";
 import type { Calendar, CalendarEvent } from "./types";
 import { DEFAULT_CALENDAR_COLOR } from "./types";
 import { newUuid } from "./wasm";
@@ -15,31 +15,9 @@ import type { Session } from "./client";
 export const CALENDAR_EVENT_CONTENT_TYPE = "application/sealbook.calendar-event+json";
 export const CALENDAR_CONTENT_TYPE = "application/sealbook.calendar+json";
 
-/** Every key this build writes for an event. See `mergePayload`. */
-export const CALENDAR_EVENT_KEYS = [
-  "@type",
-  "version",
-  "title",
-  "start",
-  "end",
-  "notes",
-  "location",
-  "participants",
-  "timezone",
-  "calendarId",
-  "recurrence",
-] as const;
-
 export async function putCalendarEvent(session: Session, event: Omit<CalendarEvent, "id">, existingId?: string): Promise<string> {
   const id = existingId ?? newUuid();
-  // `raw` is what the merge reads, not a field of the payload itself.
-  const { raw, ...fields } = event;
-  const plaintext = mergePayload(
-    raw,
-    { "@type": "CalendarEvent", version: PAYLOAD_SCHEMA_VERSION, ...fields },
-    CALENDAR_EVENT_KEYS,
-  );
-  await putSealed(session, id, CALENDAR_EVENT_CONTENT_TYPE, false, plaintext);
+  await putSealed(session, id, CALENDAR_EVENT_CONTENT_TYPE, false, serializeEvent(event));
   return id;
 }
 
