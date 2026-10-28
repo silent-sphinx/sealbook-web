@@ -13,6 +13,8 @@ on:
 # sealbook repository: both repositories are private and the default
 # GITHUB_TOKEN is scoped to this one. scripts/build-wasm.sh resolves the crate
 # at ../sealbook, which is why both checkouts are given an explicit path.
+# sealbook is checked out at the commit in sealbook.pin, since the build fails
+# on any other.
 
 jobs:
   build:
@@ -25,10 +27,16 @@ jobs:
         with:
           path: sealbook-web
 
+      - name: Read the sealbook pin
+        id: pin
+        working-directory: sealbook-web
+        run: echo "sha=$(grep -v '^[[:space:]]*#' sealbook.pin | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
         with:
           repository: silent-sphinx/sealbook
           path: sealbook
+          ref: ${{ steps.pin.outputs.sha }}
           token: ${{ secrets.SEALBOOK_REPO_TOKEN }}
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -87,10 +95,16 @@ jobs:
           path: sealbook-firefox
           token: ${{ secrets.SEALBOOK_REPO_TOKEN }}
 
+      - name: Read the sealbook pin
+        id: pin
+        working-directory: sealbook-web
+        run: echo "sha=$(grep -v '^[[:space:]]*#' sealbook.pin | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
         with:
           repository: silent-sphinx/sealbook
           path: sealbook
+          ref: ${{ steps.pin.outputs.sha }}
           token: ${{ secrets.SEALBOOK_REPO_TOKEN }}
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
