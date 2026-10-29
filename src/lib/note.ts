@@ -4,6 +4,7 @@ import {
   coreNoteParse,
   coreNoteWrite,
   coreNotebookNameById,
+  coreNotebookTone,
   coreNotebookParse,
   coreNotebookWrite,
   coreResolveNotebookId,
@@ -240,25 +241,4 @@ export function noteWordCount(body: string): number {
   return count;
 }
 
-/**
- * A notebook stores no colour, so its dot derives one from the id: stable across
- * devices without adding a field the other clients would have to write.
- */
-const NOTEBOOK_TONES = [
-  "#7aa2f7",
-  "#9ece6a",
-  "#bb9af7",
-  "#e0af68",
-  "#7dcfff",
-  "#f7768e",
-  "#ff9e64",
-  "#73daca",
-];
-
-export function notebookTone(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i += 1) {
-    hash = (Math.imul(hash, 31) + id.charCodeAt(i)) >>> 0;
-  }
-  return NOTEBOOK_TONES[hash % NOTEBOOK_TONES.length];
-}
+export const notebookTone = coreNotebookTone;

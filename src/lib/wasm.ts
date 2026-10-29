@@ -72,6 +72,7 @@ import init, {
   core_note_write,
   core_notebook_keys,
   core_notebook_name_by_id,
+  core_notebook_tone,
   core_notebook_parse,
   core_notebook_write,
   core_normalize_phrase,
@@ -1479,6 +1480,11 @@ export function coreNotebookWrite(name: string, previousRaw?: string): string {
  */
 export function coreNotebookNameById(notebooks: CoreNotebook[], notebookId?: string): string {
   return core_notebook_name_by_id(notebooks, notebookId);
+}
+
+/** A notebook's colour, derived from its id. */
+export function coreNotebookTone(id: string): string {
+  return core_notebook_tone(id);
 }
 
 export type {
