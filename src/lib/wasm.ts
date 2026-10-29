@@ -147,6 +147,7 @@ import init, {
   core_rotation_plan,
   core_rotation_recipients,
   core_rotation_wraps,
+  core_changes_page_read,
   core_walk_page,
   core_walk_start,
   create_device,
@@ -735,6 +736,11 @@ export function coreChangesRequest(collectionId: string, cursor: WalkCursor): Ht
  * What the walk does with the page it was just served: another page, a restart
  * that drops the rows read so far, or the walk being complete.
  */
+/** What a walk reads out of a `/changes` response body. */
+export function coreChangesPageRead(body: string): ChangesPage {
+  return core_changes_page_read(body);
+}
+
 export function coreWalkPage(cursor: WalkCursor, page: ChangesPage): WalkStep {
   return core_walk_page(cursor, page);
 }

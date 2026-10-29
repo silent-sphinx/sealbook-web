@@ -1,6 +1,7 @@
 import type { AccountImportObject } from "./accountExport";
 import { bytesFromJson } from "./bytes";
 import {
+  coreChangesPageRead,
   coreChangesRequest,
   coreErrorOf,
   coreLatestRevisions,
@@ -12,7 +13,7 @@ import {
   newUuid,
   sealedContentType,
 } from "./wasm";
-import type { ChangesPage, WalkCursor, WalkOutcome, WalkStep } from "../pkg/sealbook_wasm.js";
+import type { WalkCursor, WalkOutcome, WalkStep } from "../pkg/sealbook_wasm.js";
 import {
   ACCOUNT_SETTINGS_CONTENT_TYPE,
   ACCOUNT_SETTINGS_ID,
@@ -61,7 +62,7 @@ import {
   isContactPayload,
   isPayloadOfType,
 } from "./payloadGuards";
-import { apiRoot, getJson, putJson } from "./transport";
+import { apiRoot, getText, putJson } from "./transport";
 import {
   alignKeyEpoch,
   applyWrite,
@@ -330,17 +331,10 @@ export async function walkChanges(session: Session): Promise<ChangesWalk> {
   let walk: WalkOutcome | undefined;
   while (!walk) {
     const request = coreChangesRequest(state.collection_id, cursor);
-    const page = await getJson<ChangesBody>(`${apiRoot(state.server)}${request.path}`, token);
+    const body = await getText(`${apiRoot(state.server)}${request.path}`, token);
+    const page = JSON.parse(body) as { objects: SealedObject[] };
     pages += 1;
-    const step = walkPage(cursor, {
-      manifest_json: page.manifest ? JSON.stringify(page.manifest) : undefined,
-      key_epoch: page.key_epoch,
-      latest_revision: page.latest_revision,
-      tombstone_floor: page.tombstone_floor ?? 0,
-      has_more: page.has_more,
-      resync: page.resync ?? false,
-      highest_revision: page.objects.reduce((top, object) => Math.max(top, object.revision), 0),
-    });
+    const step = walkPage(cursor, body);
     if ("Next" in step) {
       rows.push(...page.objects);
       cursor = step.Next.cursor;
@@ -381,9 +375,9 @@ export async function walkChanges(session: Session): Promise<ChangesWalk> {
  * Deliberately not a `ManifestError`: a write between two pages is a race, and
  * reporting it as tampering is both wrong and unactionable.
  */
-function walkPage(cursor: WalkCursor, page: ChangesPage): WalkStep {
+function walkPage(cursor: WalkCursor, body: string): WalkStep {
   try {
-    return coreWalkPage(cursor, page);
+    return coreWalkPage(cursor, coreChangesPageRead(body));
   } catch (err) {
     const core = coreErrorOf(err);
     if (core?.kind === "CollectionBusy") {
@@ -394,17 +388,6 @@ function walkPage(cursor: WalkCursor, page: ChangesPage): WalkStep {
     throw new Error(core && "detail" in core ? core.detail : describeError(err));
   }
 }
-
-/** A `/changes` page as the server sends it. */
-type ChangesBody = {
-  latest_revision: number;
-  key_epoch: number;
-  objects: SealedObject[];
-  has_more: boolean;
-  manifest: ManifestBody | null;
-  resync?: boolean;
-  tombstone_floor?: number;
-};
 
 type OpenedVaultObject = {
   object: SealedObject;
