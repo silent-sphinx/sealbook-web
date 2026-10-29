@@ -146,13 +146,13 @@ import init, {
   core_rotation_entries,
   core_rotation_plan,
   core_rotation_recipients,
+  core_rotation_wraps,
   core_walk_page,
   core_walk_start,
   create_device,
   create_enrollment,
   decrypt_contact,
   encrypt_contact,
-  generate_new_phrase,
   new_collection_key,
   new_uuid,
   manifest_bucket_of_id,
@@ -171,7 +171,6 @@ import init, {
   sealed_content_type,
   unwrap_ck,
   wrap_ck_for_device,
-  wrap_ck_for_password,
 } from "../pkg/sealbook_wasm.js";
 import type {
   AppliedManifest,
@@ -235,6 +234,7 @@ import type {
   Registering,
   ResealRow,
   RosterContext,
+  CoreRotationWraps,
   RotationPlan,
   AttachmentLimits,
   AttachmentPlan,
@@ -264,8 +264,6 @@ import type {
   OpaqueStart,
   EncryptedOut,
   OpenedObject,
-  PasswordWrapOut,
-  PhraseWrapOut,
   Roster,
   RosterVerified,
   RotatedObject,
@@ -295,10 +293,6 @@ export async function initWasm(): Promise<void> {
   log.debug("crypto module versions match", { ...built });
 }
 
-export function wrapCkForPassword(ck: string, password: string): PasswordWrapOut {
-  return JSON.parse(wrap_ck_for_password(ck, password)) as PasswordWrapOut;
-}
-
 /**
  * The pairing code both screens show.
  *
@@ -326,10 +320,6 @@ export function pairConfirmationCode(
     BigInt(rosterSeq),
     rosterTranscript,
   );
-}
-
-export function generateNewPhrase(ck: string): PhraseWrapOut {
-  return JSON.parse(generate_new_phrase(ck)) as PhraseWrapOut;
 }
 
 export function createEnrollment(password: string): Enrollment {
@@ -858,7 +848,7 @@ export function coreRosterAnswersFor(
 
 // ── Core: rotation ──
 
-export type { ResealRow, RotationPlan, RotationState };
+export type { CoreRotationWraps, ResealRow, RotationPlan, RotationState };
 
 /**
  * What a rotation does with the collection it just read: which rows are
@@ -876,6 +866,19 @@ export function coreRotationPlan(
   rows: CoreSealedRow[],
 ): RotationPlan {
   return core_rotation_plan(ck, collectionId, state, rows);
+}
+
+/**
+ * The new key wrapped for the recipients, the password and a fresh phrase, in
+ * the order the rotation signature covers.
+ */
+export function coreRotationWraps(
+  newCk: string,
+  recipients: CoreDevice[],
+  username: string,
+  password: string,
+): CoreRotationWraps {
+  return core_rotation_wraps(newCk, recipients, username, password);
 }
 
 /** The devices a rotation re-wraps the new key for, from the verified roster. */

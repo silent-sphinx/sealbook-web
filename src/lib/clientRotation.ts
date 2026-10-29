@@ -1,6 +1,5 @@
 import { bytesFromJson } from "./bytes";
 import {
-  generateNewPhrase,
   coreManifestSign,
   coreResealRow,
   coreRotationEntries,
@@ -10,8 +9,7 @@ import {
   rosterSealDevice,
   rotationSign,
   sealedContentType,
-  wrapCkForDevice,
-  wrapCkForPassword,
+  coreRotationWraps,
 } from "./wasm";
 import { elapsed, log } from "./log";
 import { pinSealedRoster, verifiedRoster } from "./roster";
@@ -100,35 +98,8 @@ async function rotateAuthenticatedInner(
   });
 
   const newCk = newCollectionKey();
-  const passwordWrap = wrapCkForPassword(newCk, password);
-  const phraseOut = generateNewPhrase(newCk);
-
-  const keyWraps = [
-    ...remaining.map((device) => {
-      const wrap = wrapCkForDevice(newCk, device.xwing_hpke_pk);
-      return {
-        recipient_kind: "device",
-        recipient_id: device.device_id,
-        hpke_enc: wrap.enc,
-        wrapped_ck: wrap.wrapped_ck,
-        ciphersuite: wrap.ciphersuite,
-      };
-    }),
-    {
-      recipient_kind: "recovery",
-      recipient_id: fresh.state.username,
-      hpke_enc: passwordWrap.recovery_nonce,
-      wrapped_ck: passwordWrap.recovery_wrapped_ck,
-      ciphersuite: passwordWrap.recovery_ciphersuite,
-    },
-    {
-      recipient_kind: "phrase",
-      recipient_id: fresh.state.username,
-      hpke_enc: phraseOut.phrase_nonce,
-      wrapped_ck: phraseOut.phrase_wrapped_ck,
-      ciphersuite: phraseOut.phrase_ciphersuite,
-    },
-  ];
+  const wraps = coreRotationWraps(newCk, remaining, fresh.state.username, password);
+  const keyWraps = wraps.key_wraps;
 
   const total = plan.reseal.length;
   const resealed: CoreSealedRow[] = [];
@@ -164,8 +135,8 @@ async function rotateAuthenticatedInner(
     currentRoster.roster_seq + 1,
     keyEpoch,
     remaining,
-    phraseOut.phrase_mldsa_pk,
-    phraseOut.phrase_ed25519_pk,
+    wraps.phrase_mldsa_pk,
+    wraps.phrase_ed25519_pk,
     fresh.state.device_id,
     bytesFromJson(fresh.state.mldsa_seed),
     bytesFromJson(fresh.state.ed25519_sk),
@@ -182,11 +153,11 @@ async function rotateAuthenticatedInner(
     objects,
     manifest.digest,
     {
-      kdf_salt: passwordWrap.kdf_salt,
-      phrase_mldsa_pk: phraseOut.phrase_mldsa_pk,
-      phrase_ed25519_pk: phraseOut.phrase_ed25519_pk,
-      phrase_lookup_id: phraseOut.phrase_lookup_id,
-      phrase_scheme: phraseOut.phrase_scheme,
+      kdf_salt: wraps.kdf_salt,
+      phrase_mldsa_pk: wraps.phrase_mldsa_pk,
+      phrase_ed25519_pk: wraps.phrase_ed25519_pk,
+      phrase_lookup_id: wraps.phrase_lookup_id,
+      phrase_scheme: wraps.phrase_scheme,
     },
   );
 
@@ -195,13 +166,13 @@ async function rotateAuthenticatedInner(
     {
       key_epoch: keyEpoch,
       revoke_device_id: revokeDeviceId,
-      kdf_salt: passwordWrap.kdf_salt,
+      kdf_salt: wraps.kdf_salt,
       key_wraps: keyWraps,
       phrase_recovery: {
-        mldsa_pk: phraseOut.phrase_mldsa_pk,
-        ed25519_pk: phraseOut.phrase_ed25519_pk,
-        lookup_id: phraseOut.phrase_lookup_id,
-        scheme: phraseOut.phrase_scheme,
+        mldsa_pk: wraps.phrase_mldsa_pk,
+        ed25519_pk: wraps.phrase_ed25519_pk,
+        lookup_id: wraps.phrase_lookup_id,
+        scheme: wraps.phrase_scheme,
       },
       objects,
       manifest,
@@ -216,7 +187,7 @@ async function rotateAuthenticatedInner(
   fresh.collectionKey = newCk;
   fresh.keyEpoch = response.key_epoch;
   fresh.latestRevision = response.latest_revision;
-  fresh.state = { ...fresh.state, kdf_salt: passwordWrap.kdf_salt };
+  fresh.state = { ...fresh.state, kdf_salt: wraps.kdf_salt };
   // The rotation carried a roster at the new epoch, so the pin moves with it.
   // Done after the key and epoch are updated, because the pin is computed from
   // the MAC under the new key.
@@ -229,5 +200,5 @@ async function rotateAuthenticatedInner(
     devices: newRoster.devices.length,
     ms: elapsed(rotationStarted),
   });
-  return { session: fresh, phrase: phraseOut.phrase };
+  return { session: fresh, phrase: wraps.phrase };
 }

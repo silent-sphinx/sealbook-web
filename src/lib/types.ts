@@ -689,21 +689,3 @@ export type OpenedObject = {
   tombstone: boolean;
   payload: string;
 };
-
-export type PasswordWrapOut = {
-  kdf_salt: string;
-  recovery_nonce: string;
-  recovery_wrapped_ck: string;
-  recovery_ciphersuite: string;
-};
-
-export type PhraseWrapOut = {
-  phrase: string;
-  phrase_nonce: string;
-  phrase_wrapped_ck: string;
-  phrase_mldsa_pk: string;
-  phrase_ed25519_pk: string;
-  phrase_lookup_id: string;
-  phrase_scheme: string;
-  phrase_ciphersuite: string;
-};
