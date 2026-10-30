@@ -74,7 +74,8 @@ import {
   storeHiddenAddressBooks,
   visibleAddressBooks,
 } from "./lib/addressBook";
-import { contactSearchText, emptyDraft, sortContacts } from "./lib/contact";
+import { emptyDraft, sortContacts } from "./lib/contact";
+import { coreContactIndex } from "./lib/wasm";
 import { extractRecoveryWords } from "./lib/phrase";
 import { findInvalidBip39Words } from "./lib/bip39Words";
 import { closeAttachmentCache, primeAttachmentCache } from "./lib/attachmentCache";
@@ -396,16 +397,16 @@ export default function App() {
   // stays responsive on a vault the filter takes time over.
   const deferredSearch = useDeferredValue(search);
 
-  // The heaviest part of a match is reading the contact out, and it does not
-  // depend on the query, so it is built once per contact here and a keystroke
-  // costs one `includes` against each.
-  const searchText = useMemo(() => {
-    const haystacks = new Map<string, string>();
-    for (const contact of contacts) {
-      haystacks.set(contact.id, contactSearchText(contact, addressBooks));
-    }
-    return haystacks;
-  }, [addressBooks, contacts]);
+  // Core reads every card once into an index, so a keystroke is one lookup.
+  const searchIndex = useMemo(
+    () =>
+      coreContactIndex(
+        [...contacts, ...archivedContacts],
+        addressBooks.map(({ id, name }) => ({ id, name })),
+      ),
+    [addressBooks, archivedContacts, contacts],
+  );
+  useEffect(() => () => searchIndex.free(), [searchIndex]);
 
   const filtered = useMemo(() => {
     // Hidden rather than shown is what is matched, so a contact whose book was
@@ -418,12 +419,12 @@ export default function App() {
           contact.archived !== true &&
           !hiddenBooks.has(resolveAddressBookId(contact.addressBookId)),
       );
-    const query = deferredSearch.trim().toLowerCase();
-    const matches = !query
-      ? inBook
-      : inBook.filter((contact) => searchText.get(contact.id)?.includes(query) === true);
-    return sortContacts(matches);
-  }, [archivedContacts, contacts, deferredSearch, hiddenBooks, searchText, viewingArchive]);
+    if (!deferredSearch.trim()) return sortContacts(inBook);
+    const rank = new Map(searchIndex.search(deferredSearch).map((id, place) => [id, place]));
+    return inBook
+      .filter((contact) => rank.has(contact.id))
+      .sort((a, b) => (rank.get(a.id) as number) - (rank.get(b.id) as number));
+  }, [archivedContacts, contacts, deferredSearch, hiddenBooks, searchIndex, viewingArchive]);
 
   const shownBooks = useMemo(
     () => visibleAddressBooks(addressBooks, hiddenBooks),

@@ -355,24 +355,3 @@ export function formatDateRange(start?: string, end?: string): string {
   if (from) return `${from} - Present`;
   return to;
 }
-
-/** Profile text folded into the contact search haystack. */
-export function profileSearchText(profile?: ContactProfile): string {
-  if (!profile) return "";
-  const full = profileOf(profile);
-  const parts: string[] = [];
-  if (full.howWeMet) parts.push(full.howWeMet);
-  for (const row of [...full.interests, ...full.music]) parts.push(row.value);
-  for (const row of full.food) parts.push(row.value, row.note ?? "");
-  for (const row of full.pets) parts.push(row.name, row.species ?? "", row.note ?? "");
-  for (const row of full.career) {
-    parts.push(row.organization, row.title ?? "", row.note ?? "");
-  }
-  for (const row of full.relationships) parts.push(row.name, row.kind, row.note ?? "");
-  for (const row of full.timeline) parts.push(row.title, row.description ?? "");
-  for (const row of [...full.family, ...full.friends, ...full.colleagues]) {
-    parts.push(row.name, row.relation ?? "", row.note ?? "");
-  }
-  for (const row of full.custom) parts.push(row.title, row.text);
-  return parts.filter(Boolean).join(" ");
-}

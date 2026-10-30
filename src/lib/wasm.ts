@@ -57,6 +57,7 @@ import init, {
   core_csv_import,
   core_notes_import,
   core_notes_write_json,
+  CoreContactIndex,
   core_order_by_name,
   core_order_by_recency,
   core_order_containers,
@@ -2122,4 +2123,17 @@ export function coreOrderByRecency(
   pinnedFirst: boolean,
 ): string[] {
   return core_order_by_recency(items, pinnedFirst);
+}
+
+export type ContactSearchIndex = CoreContactIndex;
+
+/** Every contact, searchable. Free it when the contacts change. */
+export function coreContactIndex(
+  contacts: { id: string; raw: string }[],
+  books: { id: string; name: string }[],
+): ContactSearchIndex {
+  return new CoreContactIndex(
+    contacts.map(({ id, raw }) => ({ id, raw })),
+    books,
+  );
 }

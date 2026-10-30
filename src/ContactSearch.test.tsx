@@ -19,6 +19,7 @@ import "./test/dom";
 import { aContact, enrolDevice, setConnectionDomain, snapshotWritten } from "./test/vault";
 import { DEFAULT_ACCOUNT_SETTINGS } from "./lib/accountSettings";
 import { DEFAULT_ADDRESS_BOOK_ID } from "./lib/addressBook";
+import { serializeCard } from "./lib/contact";
 import { emptyProfile } from "./lib/contactProfile";
 import type { Contact, ContactDraft } from "./lib/types";
 
@@ -26,6 +27,11 @@ const PASSWORD = "correct horse battery";
 const WORK_BOOK_ID = "book-work";
 
 let store: Contact[] = [];
+
+/** The stored card behind a view, as the index reads it. */
+function withRaw(contact: Contact): Contact {
+  return { ...contact, raw: serializeCard({ ...contact, raw: undefined }) };
+}
 
 vi.mock("./lib/client", async () => {
   const actual = await vi.importActual<typeof import("./lib/client")>("./lib/client");
@@ -56,7 +62,7 @@ vi.mock("./lib/client", async () => {
     ensureDefaultAddressBook: async (_session: unknown, books: unknown) => books,
     putContact: async (_session: unknown, draft: ContactDraft, id?: string) => {
       const at = store.findIndex((contact) => contact.id === id);
-      if (at !== -1) store[at] = { ...store[at]!, ...draft } as Contact;
+      if (at !== -1) store[at] = withRaw({ ...store[at]!, ...draft } as Contact);
       return id ?? "new";
     },
   };
@@ -109,7 +115,7 @@ beforeEach(() => {
       addressBookId: WORK_BOOK_ID,
       notes: "wrote the first compiler",
     },
-  ];
+  ].map((contact) => withRaw(contact as Contact));
 });
 
 describe("the contacts search", () => {
@@ -139,6 +145,20 @@ describe("the contacts search", () => {
 
     search("admiralty");
     await listShows("Grace Hopper");
+  });
+
+  it("finds a name typed with accents and words in any order", async () => {
+    await unlock();
+
+    search("Lov\u00e9lace ada");
+    await listShows("Ada Lovelace");
+  });
+
+  it("matches a phone number written differently from how it is stored", async () => {
+    await unlock();
+
+    search("07700 900123");
+    await listShows("Ada Lovelace");
   });
 
   it("ignores case and the query's own padding", async () => {

@@ -13,7 +13,6 @@ import {
   lifeEventOrder,
   parseProfile,
   profileIsEmpty,
-  profileSearchText,
   sectionIsEmpty,
   serializeProfile,
 } from "./contactProfile";
@@ -238,18 +237,6 @@ describe("partial dates", () => {
     expect(formatDateRange(undefined, "2019")).toBe("2019");
     expect(formatDateRange("2015", "2018")).toBe("2015 - 2018");
     expect(formatDateRange(undefined, undefined)).toBe("");
-  });
-});
-
-describe("search text", () => {
-  it("reaches a note on a friend, which is what the sections are searched for", () => {
-    expect(profileSearchText(filled())).toContain("Also climbs");
-    expect(profileSearchText(filled())).toContain("Reading");
-    expect(profileSearchText(filled())).toContain("Flat white");
-  });
-
-  it("is empty for an absent profile", () => {
-    expect(profileSearchText(undefined)).toBe("");
   });
 });
 
