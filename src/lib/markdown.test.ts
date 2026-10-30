@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { inlineText, parseMarkdown, repairPipeTables, safeHref, stripMarkdown } from "./markdown";
+import { inlineText, parseMarkdown, safeHref, stripMarkdown } from "./markdown";
 import type { MdBlock, MdInline, MdListItem, MdTableCell } from "./markdown";
 
 const text = (value: string): MdInline => ({ kind: "text", text: value });
@@ -528,59 +528,5 @@ describe("inlineText", () => {
 
   it("returns an empty string for an empty tree", () => {
     expect(inlineText([])).toBe("");
-  });
-});
-
-describe("repairPipeTables", () => {
-  const kinds = (source: string): string =>
-    parseMarkdown(source)
-      .map((block) => block.kind)
-      .join(",");
-
-  it("leaves a table the parser already accepts alone", () => {
-    const valid = "| a | b |\n| --- | --- |\n| 1 | 2 |";
-    expect(repairPipeTables(valid)).toBe(valid);
-    expect(repairPipeTables("| a | b |\n| :-- | --: |\n| 1 | 2 |")).toBe(
-      "| a | b |\n| :-- | --: |\n| 1 | 2 |",
-    );
-  });
-
-  it("leaves prose alone, pipes and all", () => {
-    expect(repairPipeTables("Hello world.\n\nSecond.")).toBe("Hello world.\n\nSecond.");
-    // No delimiter row, so these pipes are not a table waiting to be fixed.
-    expect(repairPipeTables("a | b | c\nd | e | f")).toBe("a | b | c\nd | e | f");
-    expect(repairPipeTables("| a | b |\n| no | no |\n| 1 | 2 |")).toBe(
-      "| a | b |\n| no | no |\n| 1 | 2 |",
-    );
-  });
-
-  it("fills the blank cells an exporter leaves in a delimiter row", () => {
-    const repaired = repairPipeTables("| a | b | c |\n| --- |  |  |\n| 1 | 2 | 3 |");
-    expect(repaired).toBe("| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |");
-    expect(kinds(repaired)).toBe("table");
-  });
-
-  it("widens to the longest row rather than dropping cells past the header", () => {
-    const repaired = repairPipeTables("| a | b |\n| --- |  |\n| 1 | 2 | 3 | 4 |");
-    expect(repaired).toBe("| a | b |  |  |\n| --- | --- | --- | --- |\n| 1 | 2 | 3 | 4 |");
-    expect(kinds(repaired)).toBe("table");
-  });
-
-  it("keeps the alignment the loose delimiter asked for", () => {
-    expect(repairPipeTables("| a | b |\n| :-: |  |\n| 1 | 2 |")).toBe(
-      "| a | b |\n| :-: | --- |\n| 1 | 2 |",
-    );
-  });
-
-  it("keeps an escaped pipe inside a cell", () => {
-    expect(repairPipeTables("| a | b |\n| --- |  |\n| x \\| y | 2 |")).toBe(
-      "| a | b |\n| --- | --- |\n| x \\| y | 2 |",
-    );
-  });
-
-  it("stops at the end of the table", () => {
-    expect(repairPipeTables("| a |  |\n| --- |  |\n| 1 |  |\n\nAfter.")).toBe(
-      "| a |  |\n| --- | --- |\n| 1 |  |\n\nAfter.",
-    );
   });
 });

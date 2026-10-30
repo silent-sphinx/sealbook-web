@@ -55,6 +55,10 @@ import init, {
   core_contact_write,
   core_contacts_import,
   core_csv_import,
+  core_notes_import,
+  core_notes_write_json,
+  core_notes_write_markdown,
+  core_repair_pipe_tables,
   core_ics_parse,
   core_ics_write,
   core_csv_write,
@@ -208,6 +212,8 @@ import type {
   CoreContactChannel,
   CoreContactDraft,
   CoreContactFile,
+  CoreNoteFile,
+  CoreNoteFileEntry,
   CoreContactImport,
   CoreContactProfile,
   CoreManifestEntry,
@@ -1684,6 +1690,37 @@ export function coreContactsImport(
 /** The contacts in a CSV file, as drafts for the address book unless a row names its own, and the rows left out. */
 export function coreCsvImport(text: string, addressBookId: string): CoreContactImport {
   return core_csv_import(text, addressBookId);
+}
+
+/** Pipe tables an exporter left loose, rewritten so the parser reads them. */
+export function coreRepairPipeTables(source: string): string {
+  return core_repair_pipe_tables(source);
+}
+
+/** Every note in one markdown file, pinned first, then latest edit. */
+export function coreNotesWriteMarkdown(
+  notes: CoreNoteFileEntry[],
+  notebooks: CoreNotebook[],
+): string {
+  return core_notes_write_markdown(notes, notebooks);
+}
+
+/** Every note, and the notebooks, as a JSON backup. */
+export function coreNotesWriteJson(
+  notes: CoreNoteFileEntry[],
+  notebooks: CoreNotebook[],
+  exportedAt: string,
+): string {
+  return core_notes_write_json(notes, notebooks, exportedAt);
+}
+
+/** The notes in a JSON or markdown file. Throws a `Malformed` core error for a file too large or with too many notes. */
+export function coreNotesImport(
+  filename: string,
+  text: string,
+  notebookId: string,
+): CoreNoteFile {
+  return core_notes_import(filename, text, notebookId);
 }
 
 /** A CSV file holding the cards, each row's book named from `books`. */

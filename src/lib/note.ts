@@ -71,9 +71,10 @@ export function attachmentTo(entry: NoteAttachment): CoreNoteAttachment {
 /**
  * Writes a note's plaintext through core, which every client now does.
  *
- * `pinned` is passed as `undefined` on purpose rather than left off: this client
- * removed favouriting, so it must neither write the key nor strip the values
- * Android wrote, and `undefined` is what tells core to leave it as stored.
+ * `pinned` is passed through as `undefined` rather than left off: this client
+ * removed favouriting, so an edit must neither write the key nor strip the
+ * values Android wrote, and `undefined` is what tells core to leave it as
+ * stored. Only an import carrying a pin sets it.
  */
 export function serializeNote(draft: NoteDraft): string {
   return coreNoteWrite(
@@ -84,7 +85,7 @@ export function serializeNote(draft: NoteDraft): string {
       parent_id: draft.parentId,
       attachments: (draft.attachments ?? []).map(attachmentTo),
       created_at: draft.createdAt,
-      pinned: undefined,
+      pinned: draft.pinned,
       raw: draft.raw,
     },
     new Date().toISOString(),

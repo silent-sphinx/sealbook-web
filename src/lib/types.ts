@@ -417,6 +417,11 @@ export type NoteDraft = {
   createdAt?: string;
   updatedAt?: string;
   /**
+   * Only an import sets this, from a file that carried it. This client has no
+   * pinning of its own, so an edit leaves it unset and the stored value alone.
+   */
+  pinned?: boolean;
+  /**
    * The payload this draft was parsed from, when it came from one. A save
    * merges onto it, so a field written by a newer build survives an edit here
    * rather than being dropped. Absent for a draft started from scratch.
