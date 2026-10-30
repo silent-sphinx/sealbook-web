@@ -7,6 +7,7 @@ import {
   coreLatestRevisions,
   coreManifestSignRoot,
   coreOpenRow,
+  corePayloadKind,
   coreRequireKeyEpoch,
   coreWalkPage,
   coreWalkStart,
@@ -22,15 +23,12 @@ import {
   serializeAccountSettings,
 } from "./accountSettings";
 import {
-  ADDRESS_BOOK_CONTENT_TYPE,
   parseAddressBook,
   sortAddressBooks,
 } from "./addressBook";
 import { parseCalendar, parseEvent, serializeEvent, sortCalendars } from "./calendar";
-import { CALENDAR_CONTENT_TYPE, CALENDAR_EVENT_CONTENT_TYPE } from "./calendarApi";
+import { CALENDAR_EVENT_CONTENT_TYPE } from "./calendarApi";
 import {
-  BOOKMARK_COLLECTION_CONTENT_TYPE,
-  BOOKMARK_CONTENT_TYPE,
   parseBookmark,
   parseBookmarkCollection,
   sortBookmarks,
@@ -41,12 +39,8 @@ import {
   parseTaskList,
   sortTaskLists,
   sortTasks,
-  TASK_CONTENT_TYPE,
-  TASK_LIST_CONTENT_TYPE,
 } from "./task";
 import {
-  NOTEBOOK_CONTENT_TYPE,
-  NOTE_CONTENT_TYPE,
   parseNote,
   parseNotebook,
   sortNotebooks,
@@ -55,13 +49,6 @@ import {
 import { parseContact, sortContacts } from "./contact";
 import { describeError, log, elapsed } from "./log";
 import { importBatches } from "./vaultImport";
-import {
-  isAddressBookPayload,
-  isCalendarEventPayload,
-  isCalendarPayload,
-  isContactPayload,
-  isPayloadOfType,
-} from "./payloadGuards";
 import { apiRoot, getText, putJson } from "./transport";
 import {
   alignKeyEpoch,
@@ -616,46 +603,52 @@ async function listVaultInner(
   for (const { object: obj, contentType, payload: raw } of opened) {
     try {
       sealed.push(obj);
-      if (contentType === CALENDAR_EVENT_CONTENT_TYPE || isCalendarEventPayload(raw)) {
-        calendarEvents.push(parseEvent(obj.id, raw));
-      } else if (contentType === CALENDAR_CONTENT_TYPE || isCalendarPayload(raw)) {
-        calendars.push(parseCalendar(obj.id, raw));
-      } else if (contentType === ADDRESS_BOOK_CONTENT_TYPE || isAddressBookPayload(raw)) {
-        addressBooks.push(parseAddressBook(obj.id, raw));
-      } else if (contentType === NOTE_CONTENT_TYPE || isPayloadOfType(raw, "Note")) {
-        notes.push(parseNote(obj.id, raw));
-      } else if (contentType === NOTEBOOK_CONTENT_TYPE || isPayloadOfType(raw, "Notebook")) {
-        notebooks.push(parseNotebook(obj.id, raw));
-      } else if (contentType === BOOKMARK_CONTENT_TYPE || isPayloadOfType(raw, "Bookmark")) {
-        bookmarks.push(parseBookmark(obj.id, raw));
-      } else if (
-        contentType === BOOKMARK_COLLECTION_CONTENT_TYPE ||
-        isPayloadOfType(raw, "BookmarkCollection")
-      ) {
-        bookmarkCollections.push(parseBookmarkCollection(obj.id, raw));
-      } else if (contentType === TASK_CONTENT_TYPE || isPayloadOfType(raw, "Task")) {
-        tasks.push(parseTask(obj.id, raw));
-      } else if (contentType === TASK_LIST_CONTENT_TYPE || isPayloadOfType(raw, "TaskList")) {
-        taskLists.push(parseTaskList(obj.id, raw));
-      } else if (
-        contentType === ACCOUNT_SETTINGS_CONTENT_TYPE ||
-        isPayloadOfType(raw, "AccountSettings")
-      ) {
-        // Two objects can answer to this shape until a legacy account's copy
-        // at the calendar's id is migrated, so the canonical id wins rather
-        // than whichever the server returned last.
-        if (obj.id === ACCOUNT_SETTINGS_ID || accountSettingsId !== ACCOUNT_SETTINGS_ID) {
-          accountSettings = parseAccountSettings(raw);
-          accountSettingsRaw = raw;
-          accountSettingsId = obj.id;
-        }
-      } else if (isContactPayload(raw)) {
-        contacts.push(parseContact(obj.id, raw, obj.ciphertext, obj.padded_size));
-      } else {
-        // Not a shape this build knows. Skipping it is the only safe answer: the
-        // old behaviour of falling through to a contact turned any newer content
-        // type into a blank contact whose edit or delete destroyed the original.
-        sealed.pop();
+      switch (corePayloadKind(contentType ?? "", raw)) {
+        case "calendar_event":
+          calendarEvents.push(parseEvent(obj.id, raw));
+          break;
+        case "calendar":
+          calendars.push(parseCalendar(obj.id, raw));
+          break;
+        case "address_book":
+          addressBooks.push(parseAddressBook(obj.id, raw));
+          break;
+        case "note":
+          notes.push(parseNote(obj.id, raw));
+          break;
+        case "notebook":
+          notebooks.push(parseNotebook(obj.id, raw));
+          break;
+        case "bookmark":
+          bookmarks.push(parseBookmark(obj.id, raw));
+          break;
+        case "bookmark_collection":
+          bookmarkCollections.push(parseBookmarkCollection(obj.id, raw));
+          break;
+        case "task":
+          tasks.push(parseTask(obj.id, raw));
+          break;
+        case "task_list":
+          taskLists.push(parseTaskList(obj.id, raw));
+          break;
+        case "account_settings":
+          // Two objects can answer to this shape until a legacy account's copy
+          // at the calendar's id is migrated, so the canonical id wins rather
+          // than whichever the server returned last.
+          if (obj.id === ACCOUNT_SETTINGS_ID || accountSettingsId !== ACCOUNT_SETTINGS_ID) {
+            accountSettings = parseAccountSettings(raw);
+            accountSettingsRaw = raw;
+            accountSettingsId = obj.id;
+          }
+          break;
+        case "contact":
+          contacts.push(parseContact(obj.id, raw, obj.ciphertext, obj.padded_size));
+          break;
+        default:
+          // Not a shape this build knows. Skipping it is the only safe answer: a
+          // newer content type read as a contact would be destroyed by its edit
+          // or delete.
+          sealed.pop();
       }
     } catch {
       sealed.pop();

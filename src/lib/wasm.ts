@@ -65,6 +65,7 @@ import init, {
   core_resolve_address_book_id,
   core_event_parse,
   core_is_calendar_day,
+  core_payload_kind,
   core_account_export_filename,
   core_account_export_parse,
   core_account_export_write,
@@ -223,6 +224,7 @@ import type {
   CoreExportAccount,
   CoreExportObject,
   CoreRecurrence,
+  CorePayloadKind,
   CorePairPreview,
   CoreRoster,
   CoreRosterPin,
@@ -1522,6 +1524,7 @@ export type {
   CoreCalendarEvent,
   CoreCalendarEventDraft,
   CoreRecurrence,
+  CorePayloadKind,
 };
 
 /**
@@ -1568,6 +1571,11 @@ export function coreRecurrenceDays(anchor: string, rule: CoreRecurrence, from: s
 /** The first day of a rule after `after`, or null once the rule is spent. */
 export function coreRecurrenceNext(anchor: string, rule: CoreRecurrence, after: string): string | null {
   return core_recurrence_next(anchor, rule, after) ?? null;
+}
+
+/** Which payload type an opened object is; unknown types come back as `unknown`. */
+export function corePayloadKind(contentType: string, raw: string): CorePayloadKind {
+  return core_payload_kind(contentType, raw);
 }
 
 /** Whether the text is a real calendar day; `Date.parse` accepts `2026-02-30`. */
