@@ -7,6 +7,7 @@ import { buildTree, canReparent, subtree } from "./tree";
 import type { TreeNode } from "./tree";
 import type { Task, TaskDraft, TaskList } from "./types";
 import {
+  coreIsCalendarDay,
   coreTaskListParse,
   coreTaskListTone,
   coreTaskListWrite,
@@ -24,7 +25,7 @@ export const DEFAULT_TASK_LIST_ID = "00000000-0000-0000-0000-000000000006";
 export const ALL_TASK_LISTS = "all";
 export const MAX_TASK_COMPLETIONS = 50;
 
-const DUE_DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DUE_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const DUE_TIMED =
   /^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?$/;
 
@@ -155,27 +156,13 @@ export function emptyTaskDraft(taskListId: string, parentId?: string): TaskDraft
 
 /**
  * A due value as it should be stored, or undefined where it names no real
- * moment. Core decides; this mirror runs per row, and `taskParity.test.ts` holds
- * it to core's.
+ * moment. The shape is checked here; whether the day exists is core's.
  */
 export function normalizeDueDate(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
-  const day = DUE_DAY.exec(trimmed);
-  if (day) return validDay(day[1], day[2], day[3]) ? trimmed : undefined;
-  const timed = DUE_TIMED.exec(trimmed);
-  if (!timed) return undefined;
-  const [year, month, date] = timed[1].split("-");
-  return validDay(year, month, date) ? trimmed : undefined;
-}
-
-function validDay(year: string, month: string, date: string): boolean {
-  const y = Number(year);
-  const m = Number(month);
-  const d = Number(date);
-  const leap = y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
-  const length = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
-  return length !== undefined && d >= 1 && d <= length;
+  const day = DUE_DAY.test(trimmed) ? trimmed : DUE_TIMED.exec(trimmed)?.[1];
+  return day && coreIsCalendarDay(day) ? trimmed : undefined;
 }
 
 export function isAllDayDue(dueDate?: string): boolean {
