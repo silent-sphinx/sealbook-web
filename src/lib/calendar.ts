@@ -6,7 +6,13 @@ import {
   coreEventParse,
   coreEventWrite,
 } from "./wasm";
-import type { CoreCalendar, CoreCalendarEvent, CoreCalendarEventDraft, CoreRecurrence } from "./wasm";
+import type {
+  CoreCalendar,
+  CoreCalendarEvent,
+  CoreCalendarEventDraft,
+  CoreRecurrence,
+} from "./wasm";
+import { sortContainers } from "./order";
 
 // Mirrors of the Rust constants in `sealbook-core`'s `calendars` module. They
 // stay literals here because module scope runs before `initWasm`, and
@@ -71,7 +77,9 @@ export function serializeEvent(event: Omit<CalendarEvent, "id">): string {
 }
 
 /** This client's event as core's draft. */
-export function coreEventDraftOf(event: Omit<CalendarEvent, "id">): CoreCalendarEventDraft {
+export function coreEventDraftOf(
+  event: Omit<CalendarEvent, "id">,
+): CoreCalendarEventDraft {
   return {
     title: event.title,
     start: event.start,
@@ -120,7 +128,10 @@ export function recurrenceFrom(rule: CoreRecurrence): RecurrenceRule {
     weekdays: rule.weekdays.length > 0 ? rule.weekdays : undefined,
     dayOfMonth: rule.day_of_month,
     nthWeekday: rule.nth_weekday
-      ? { ordinal: rule.nth_weekday.ordinal as 1 | 2 | 3 | 4 | 5, weekday: rule.nth_weekday.weekday }
+      ? {
+          ordinal: rule.nth_weekday.ordinal as 1 | 2 | 3 | 4 | 5,
+          weekday: rule.nth_weekday.weekday,
+        }
       : undefined,
   };
 }
@@ -138,7 +149,10 @@ export function recurrenceTo(rule: RecurrenceRule): CoreRecurrence {
 }
 
 /** The name to show for an event's calendar, against the list in hand. */
-export function calendarNameById(calendars: Calendar[], calendarId?: string): string | undefined {
+export function calendarNameById(
+  calendars: Calendar[],
+  calendarId?: string,
+): string | undefined {
   return coreCalendarNameById(
     calendars.map((calendar) => ({
       id: calendar.id,
@@ -154,11 +168,7 @@ export function calendarNameById(calendars: Calendar[], calendarId?: string): st
 }
 
 export function sortCalendars(calendars: Calendar[]): Calendar[] {
-  return [...calendars].sort((a, b) => {
-    if (a.id === DEFAULT_CALENDAR_ID) return -1;
-    if (b.id === DEFAULT_CALENDAR_ID) return 1;
-    return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
-  });
+  return sortContainers(DEFAULT_CALENDAR_ID, calendars);
 }
 
 /** The calendars in play: an archived one is out of the list and the pickers. */
@@ -183,7 +193,9 @@ export function isCalendarVisible(
   hidden: ReadonlySet<string>,
   shownArchived: ReadonlySet<string>,
 ): boolean {
-  return calendar.archived === true ? shownArchived.has(calendar.id) : !hidden.has(calendar.id);
+  return calendar.archived === true
+    ? shownArchived.has(calendar.id)
+    : !hidden.has(calendar.id);
 }
 
 /** The ids [isCalendarVisible] holds for, as the event filters want them. */
@@ -193,6 +205,8 @@ export function visibleCalendarIds(
   shownArchived: ReadonlySet<string>,
 ): Set<string> {
   return new Set(
-    calendars.filter((calendar) => isCalendarVisible(calendar, hidden, shownArchived)).map((calendar) => calendar.id),
+    calendars
+      .filter((calendar) => isCalendarVisible(calendar, hidden, shownArchived))
+      .map((calendar) => calendar.id),
   );
 }

@@ -57,6 +57,9 @@ import init, {
   core_csv_import,
   core_notes_import,
   core_notes_write_json,
+  core_order_by_name,
+  core_order_by_recency,
+  core_order_containers,
   core_notes_write_markdown,
   core_repair_pipe_tables,
   core_ics_parse,
@@ -302,14 +305,23 @@ import type {
  */
 export async function initWasm(): Promise<void> {
   await init();
-  const built = { protocol: protocol_version(), payload_schema: payload_schema_version() };
-  if (built.protocol !== PROTOCOL_VERSION || built.payload_schema !== PAYLOAD_SCHEMA_VERSION) {
-    log.error("crypto module disagrees with this build; rebuild it with npm run wasm", {
-      module_protocol: built.protocol,
-      app_protocol: PROTOCOL_VERSION,
-      module_payload_schema: built.payload_schema,
-      app_payload_schema: PAYLOAD_SCHEMA_VERSION,
-    });
+  const built = {
+    protocol: protocol_version(),
+    payload_schema: payload_schema_version(),
+  };
+  if (
+    built.protocol !== PROTOCOL_VERSION ||
+    built.payload_schema !== PAYLOAD_SCHEMA_VERSION
+  ) {
+    log.error(
+      "crypto module disagrees with this build; rebuild it with npm run wasm",
+      {
+        module_protocol: built.protocol,
+        app_protocol: PROTOCOL_VERSION,
+        module_payload_schema: built.payload_schema,
+        app_payload_schema: PAYLOAD_SCHEMA_VERSION,
+      },
+    );
     return;
   }
   log.debug("crypto module versions match", { ...built });
@@ -447,7 +459,9 @@ export function encryptContact(
   collectionId: string,
   plaintext: string,
 ): EncryptedOut {
-  return JSON.parse(encrypt_contact(ck, objectId, collectionId, plaintext)) as EncryptedOut;
+  return JSON.parse(
+    encrypt_contact(ck, objectId, collectionId, plaintext),
+  ) as EncryptedOut;
 }
 
 export function decryptContact(
@@ -458,7 +472,14 @@ export function decryptContact(
   ciphertext: string,
   paddedSize: number,
 ): string {
-  return decrypt_contact(ck, objectId, collectionId, nonce, ciphertext, paddedSize);
+  return decrypt_contact(
+    ck,
+    objectId,
+    collectionId,
+    nonce,
+    ciphertext,
+    paddedSize,
+  );
 }
 
 /**
@@ -489,7 +510,9 @@ export function sealObject(
   contentType: string,
   payload: string,
 ): EncryptedOut {
-  return JSON.parse(seal_object(ck, objectId, collectionId, contentType, payload)) as EncryptedOut;
+  return JSON.parse(
+    seal_object(ck, objectId, collectionId, contentType, payload),
+  ) as EncryptedOut;
 }
 
 /** Decrypts an object and opens its envelope. */
@@ -726,7 +749,13 @@ export function coreManifestEntryFor(
   nonce: string,
   ciphertext: string,
 ): CoreManifestEntry {
-  return core_manifest_entry_for(id, BigInt(revision), tombstone, nonce, ciphertext);
+  return core_manifest_entry_for(
+    id,
+    BigInt(revision),
+    tombstone,
+    nonce,
+    ciphertext,
+  );
 }
 
 /** The sequence to persist once a manifest has been verified. */
@@ -749,7 +778,10 @@ export function coreWalkStart(after: number): WalkCursor {
  * `path` is server-relative: the caller prefixes its own API root and adds the
  * bearer token, which core never sees.
  */
-export function coreChangesRequest(collectionId: string, cursor: WalkCursor): HttpRequest {
+export function coreChangesRequest(
+  collectionId: string,
+  cursor: WalkCursor,
+): HttpRequest {
   return core_changes_request(collectionId, cursor);
 }
 
@@ -851,7 +883,10 @@ export function coreRosterAcceptSealed(
 }
 
 /** The roster fields to persist, refusing a pin that would move backwards. */
-export function corePinRoster(context: RosterContext, pin: CoreRosterPin): RosterContext {
+export function corePinRoster(
+  context: RosterContext,
+  pin: CoreRosterPin,
+): RosterContext {
   return core_pin_roster(context, pin);
 }
 
@@ -946,7 +981,14 @@ export function coreRotationEntries(
 
 // ── Core: pairing ──
 
-export type { CoreDevice, CorePairPreview, PairApproval, PairJoined, PairPoll, PairStatus };
+export type {
+  CoreDevice,
+  CorePairPreview,
+  PairApproval,
+  PairJoined,
+  PairPoll,
+  PairStatus,
+};
 
 /** The join request body, with the enrollment signature over the new keys. */
 export function corePairJoinBody(
@@ -965,7 +1007,10 @@ export function corePairJoinBody(
  * substituted the keys could show the real code and keep the ones it swapped
  * in. Throws when the two do not agree.
  */
-export function corePairJoinAccept(device: CoreDevice, body: string): PairJoined {
+export function corePairJoinAccept(
+  device: CoreDevice,
+  body: string,
+): PairJoined {
   return core_pair_join_accept(device, body);
 }
 
@@ -974,7 +1019,10 @@ export function corePairJoinAccept(device: CoreDevice, body: string): PairJoined
  * expired, or ask again after the stated wait. `status` is undefined when the
  * request got no answer.
  */
-export function corePairPoll(status: number | undefined, body: string): PairPoll {
+export function corePairPoll(
+  status: number | undefined,
+  body: string,
+): PairPoll {
   return core_pair_poll(status, body);
 }
 
@@ -1117,7 +1165,10 @@ export function coreNewRegistration(): RegisterIdentity {
   return core_new_registration();
 }
 
-export function coreRegisterStartRequest(username: string, opaqueRequest: string): AuthRequest {
+export function coreRegisterStartRequest(
+  username: string,
+  opaqueRequest: string,
+): AuthRequest {
   return core_register_start_request(username, opaqueRequest);
 }
 
@@ -1149,7 +1200,10 @@ export function coreRegisterAccept(
   return core_register_accept(server, username, identity, pin, body);
 }
 
-export function coreLoginChallengeRequest(username: string, deviceId: string): AuthRequest {
+export function coreLoginChallengeRequest(
+  username: string,
+  deviceId: string,
+): AuthRequest {
   return core_login_challenge_request(username, deviceId);
 }
 
@@ -1170,7 +1224,13 @@ export function coreLoginFinishRequest(
   challenge: string,
   body: string,
 ): AuthRequest {
-  return core_login_finish_request(state, opaqueState, password, challenge, body);
+  return core_login_finish_request(
+    state,
+    opaqueState,
+    password,
+    challenge,
+    body,
+  );
 }
 
 /**
@@ -1197,7 +1257,10 @@ export function coreRecoverStartRequest(
  * Opens the phrase wrap and checks the roster the account is on under the key
  * it opened.
  */
-export function coreRecoverStartAccept(phrase: string, body: string): RecoverStarted {
+export function coreRecoverStartAccept(
+  phrase: string,
+  body: string,
+): RecoverStarted {
   return core_recover_start_accept(phrase, body);
 }
 
@@ -1210,7 +1273,14 @@ export function coreRecoverFinishRequest(
   device: CoreDeviceSecrets,
   upload: string,
 ): Recovering {
-  return core_recover_finish_request(username, phrase, password, started, device, upload);
+  return core_recover_finish_request(
+    username,
+    phrase,
+    password,
+    started,
+    device,
+    upload,
+  );
 }
 
 export function coreRecoverAccept(
@@ -1221,7 +1291,14 @@ export function coreRecoverAccept(
   recovering: Recovering,
   body: string,
 ): CoreDeviceState {
-  return core_recover_accept(server, username, started, device, recovering, body);
+  return core_recover_accept(
+    server,
+    username,
+    started,
+    device,
+    recovering,
+    body,
+  );
 }
 
 /** The challenge a username change or a deletion is signed over. */
@@ -1235,14 +1312,23 @@ export function coreChangeUsernameRequest(
   upload: string,
   challengeBody: string,
 ): AuthRequest {
-  return core_change_username_request(state, newUsername, upload, challengeBody);
+  return core_change_username_request(
+    state,
+    newUsername,
+    upload,
+    challengeBody,
+  );
 }
 
-export function corePasswordChangeStartRequest(opaqueRequest: string): AuthRequest {
+export function corePasswordChangeStartRequest(
+  opaqueRequest: string,
+): AuthRequest {
   return core_password_change_start_request(opaqueRequest);
 }
 
-export function corePasswordChangeStartAccept(body: string): PasswordChangeStarted {
+export function corePasswordChangeStartAccept(
+  body: string,
+): PasswordChangeStarted {
   return core_password_change_start_accept(body);
 }
 
@@ -1269,7 +1355,14 @@ export function coreDeleteAccountRequest(
 
 // ── Core: attachments ──
 
-export type { AttachmentLimits, AttachmentPlan, AttachmentRow, ChunkRange, SweepCursor, SweepPage };
+export type {
+  AttachmentLimits,
+  AttachmentPlan,
+  AttachmentRow,
+  ChunkRange,
+  SweepCursor,
+  SweepPage,
+};
 
 /**
  * The protocol's ceiling, the chunk size, the nonce header and the sweep's
@@ -1301,7 +1394,10 @@ export function coreAttachmentCreateRequest(
   return core_attachment_create_request(collectionId, plan);
 }
 
-export function coreAttachmentCreateAccept(plan: AttachmentPlan, body: string): void {
+export function coreAttachmentCreateAccept(
+  plan: AttachmentPlan,
+  body: string,
+): void {
   core_attachment_create_accept(plan, body);
 }
 
@@ -1370,7 +1466,10 @@ export function coreAttachmentCommitRequest(
   return core_attachment_commit_request(collectionId, attachmentId);
 }
 
-export function coreAttachmentCommitAccept(attachmentId: string, body: string): void {
+export function coreAttachmentCommitAccept(
+  attachmentId: string,
+  body: string,
+): void {
   core_attachment_commit_accept(attachmentId, body);
 }
 
@@ -1439,7 +1538,10 @@ export function coreAttachmentSweepRequest(
  * One page of the listing, and where to ask next. `next` is absent once the
  * listing is exhausted, which includes a cursor the sweep already followed.
  */
-export function coreAttachmentSweepPage(cursor: SweepCursor, body: string): SweepPage {
+export function coreAttachmentSweepPage(
+  cursor: SweepCursor,
+  body: string,
+): SweepPage {
   return core_attachment_sweep_page(cursor, body);
 }
 
@@ -1517,7 +1619,10 @@ export function coreNotebookWrite(name: string, previousRaw?: string): string {
  * default notebook's name rather than nothing, since a missing notebook and a
  * blank one look the same to the user.
  */
-export function coreNotebookNameById(notebooks: CoreNotebook[], notebookId?: string): string {
+export function coreNotebookNameById(
+  notebooks: CoreNotebook[],
+  notebookId?: string,
+): string {
   return core_notebook_name_by_id(notebooks, notebookId);
 }
 
@@ -1572,17 +1677,29 @@ export function coreCalendarWrite(draft: CoreCalendarDraft): string {
 }
 
 /** The days a rule lands on from `from` to `to` inclusive, as `YYYY-MM-DD`. */
-export function coreRecurrenceDays(anchor: string, rule: CoreRecurrence, from: string, to: string): string[] {
+export function coreRecurrenceDays(
+  anchor: string,
+  rule: CoreRecurrence,
+  from: string,
+  to: string,
+): string[] {
   return core_recurrence_days(anchor, rule, from, to);
 }
 
 /** The first day of a rule after `after`, or null once the rule is spent. */
-export function coreRecurrenceNext(anchor: string, rule: CoreRecurrence, after: string): string | null {
+export function coreRecurrenceNext(
+  anchor: string,
+  rule: CoreRecurrence,
+  after: string,
+): string | null {
   return core_recurrence_next(anchor, rule, after) ?? null;
 }
 
 /** Which payload type an opened object is; unknown types come back as `unknown`. */
-export function corePayloadKind(contentType: string, raw: string): CorePayloadKind {
+export function corePayloadKind(
+  contentType: string,
+  raw: string,
+): CorePayloadKind {
   return core_payload_kind(contentType, raw);
 }
 
@@ -1607,7 +1724,10 @@ export function coreEventWrite(draft: CoreCalendarEventDraft): string {
  * The name to show for an event's calendar. A calendar that is gone shows the
  * default calendar's name; an event in no calendar at all has no name to show.
  */
-export function coreCalendarNameById(calendars: CoreCalendar[], calendarId?: string): string | undefined {
+export function coreCalendarNameById(
+  calendars: CoreCalendar[],
+  calendarId?: string,
+): string | undefined {
   return core_calendar_name_by_id(calendars, calendarId);
 }
 
@@ -1674,7 +1794,11 @@ export function coreIcsParse(input: string): CoreIcsImport {
 }
 
 /** An RFC 5545 calendar holding the events. */
-export function coreIcsWrite(events: CoreIcsExportEvent[], calendarName: string, now: string): string {
+export function coreIcsWrite(
+  events: CoreIcsExportEvent[],
+  calendarName: string,
+  now: string,
+): string {
   return core_ics_write(events, calendarName, now);
 }
 
@@ -1688,7 +1812,10 @@ export function coreContactsImport(
 }
 
 /** The contacts in a CSV file, as drafts for the address book unless a row names its own, and the rows left out. */
-export function coreCsvImport(text: string, addressBookId: string): CoreContactImport {
+export function coreCsvImport(
+  text: string,
+  addressBookId: string,
+): CoreContactImport {
   return core_csv_import(text, addressBookId);
 }
 
@@ -1724,12 +1851,18 @@ export function coreNotesImport(
 }
 
 /** A CSV file holding the cards, each row's book named from `books`. */
-export function coreCsvWrite(contacts: CoreContactDraft[], books: CoreAddressBook[]): string {
+export function coreCsvWrite(
+  contacts: CoreContactDraft[],
+  books: CoreAddressBook[],
+): string {
   return core_csv_write(contacts, books);
 }
 
 /** The cards in a vCard file, as drafts for the address book, and the cards left out. */
-export function coreVcardImport(text: string, addressBookId: string): CoreContactImport {
+export function coreVcardImport(
+  text: string,
+  addressBookId: string,
+): CoreContactImport {
   return core_vcard_import(text, addressBookId);
 }
 
@@ -1739,12 +1872,16 @@ export function coreVcardWrite(contacts: CoreContactDraft[]): string {
 }
 
 /** A profile off its JSON text, for the importers. Undefined if it is not one. */
-export function coreContactProfileParse(raw: string): CoreContactProfile | undefined {
+export function coreContactProfileParse(
+  raw: string,
+): CoreContactProfile | undefined {
   return core_contact_profile_parse(raw);
 }
 
 /** A profile as JSON text, or undefined when nothing in it would be written. */
-export function coreContactProfileWrite(profile: CoreContactProfile): string | undefined {
+export function coreContactProfileWrite(
+  profile: CoreContactProfile,
+): string | undefined {
   return core_contact_profile_write(profile);
 }
 
@@ -1757,7 +1894,10 @@ export function coreAddressBookWrite(draft: CoreAddressBookDraft): string {
 }
 
 /** A book that is gone, or a card in none, shows the default book's name. */
-export function coreAddressBookNameById(books: CoreAddressBook[], addressBookId?: string): string {
+export function coreAddressBookNameById(
+  books: CoreAddressBook[],
+  addressBookId?: string,
+): string {
   return core_address_book_name_by_id(books, addressBookId);
 }
 
@@ -1802,15 +1942,23 @@ export function coreBookmarkParse(id: string, raw: string): CoreBookmark {
  * Serialises a bookmark onto `draft.raw`. `now` is the caller's clock. Throws
  * `PayloadSchema` for a bookmark written by a newer client.
  */
-export function coreBookmarkWrite(draft: CoreBookmarkDraft, now: string): string {
+export function coreBookmarkWrite(
+  draft: CoreBookmarkDraft,
+  now: string,
+): string {
   return core_bookmark_write(draft, now);
 }
 
-export function coreBookmarkCollectionParse(id: string, raw: string): CoreBookmarkCollection {
+export function coreBookmarkCollectionParse(
+  id: string,
+  raw: string,
+): CoreBookmarkCollection {
   return core_bookmark_collection_parse(id, raw);
 }
 
-export function coreBookmarkCollectionWrite(draft: CoreBookmarkCollectionDraft): string {
+export function coreBookmarkCollectionWrite(
+  draft: CoreBookmarkCollectionDraft,
+): string {
   return core_bookmark_collection_write(draft);
 }
 
@@ -1873,7 +2021,10 @@ export function coreTaskListWrite(draft: CoreTaskListDraft): string {
   return core_task_list_write(draft);
 }
 
-export function coreTaskListNameById(lists: CoreTaskList[], taskListId?: string): string {
+export function coreTaskListNameById(
+  lists: CoreTaskList[],
+  taskListId?: string,
+): string {
   return core_task_list_name_by_id(lists, taskListId);
 }
 
@@ -1913,7 +2064,10 @@ export function coreSettingsWithFeature(
   return core_settings_with_feature(settings, feature, enabled);
 }
 
-export function coreCanDisableFeature(settings: CoreAccountSettings, feature: string): boolean {
+export function coreCanDisableFeature(
+  settings: CoreAccountSettings,
+  feature: string,
+): boolean {
   return core_can_disable_feature(settings, feature);
 }
 
@@ -1935,6 +2089,37 @@ export function coreAccountExportParse(document: string): CoreAccountImport {
   return core_account_export_parse(document);
 }
 
-export function coreAccountExportFilename(username: string, day: string): string {
+export function coreAccountExportFilename(
+  username: string,
+  day: string,
+): string {
   return core_account_export_filename(username, day);
+}
+
+export type OrderItem = {
+  id: string;
+  name: string;
+  pinned?: boolean;
+  stamp?: string;
+};
+
+/** Ids by name, without regard to case or accents. */
+export function coreOrderByName(items: OrderItem[]): string[] {
+  return core_order_by_name(items);
+}
+
+/** Ids with the default container first, then the rest by name. */
+export function coreOrderContainers(
+  defaultId: string,
+  items: OrderItem[],
+): string[] {
+  return core_order_containers(defaultId, items);
+}
+
+/** Ids most recently edited first, pinned entries leading when asked. */
+export function coreOrderByRecency(
+  items: OrderItem[],
+  pinnedFirst: boolean,
+): string[] {
+  return core_order_by_recency(items, pinnedFirst);
 }

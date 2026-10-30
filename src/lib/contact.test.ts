@@ -303,9 +303,14 @@ describe("sortContacts", () => {
     expect(sorted.map((row) => row.name)).toEqual(["Alice", "bob", "charlie"]);
   });
 
-  it("orders numbers the way a person counts", () => {
+  it("orders digits as text, as core does for every client", () => {
     const sorted = sortContacts([{ name: "Room 10" }, { name: "Room 9" }, { name: "Room 1" }]);
-    expect(sorted.map((row) => row.name)).toEqual(["Room 1", "Room 9", "Room 10"]);
+    expect(sorted.map((row) => row.name)).toEqual(["Room 1", "Room 10", "Room 9"]);
+  });
+
+  it("files an accented name beside its plain spelling", () => {
+    const sorted = sortContacts([{ name: "Zoe" }, { name: "Émile" }, { name: "Emma" }]);
+    expect(sorted.map((row) => row.name)).toEqual(["Émile", "Emma", "Zoe"]);
   });
 
   it("leaves the caller's array alone", () => {

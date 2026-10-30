@@ -1,4 +1,8 @@
-import { DEFAULT_ADDRESS_BOOK_ID, bookNameById, resolveAddressBookId } from "./addressBook";
+import {
+  DEFAULT_ADDRESS_BOOK_ID,
+  bookNameById,
+  resolveAddressBookId,
+} from "./addressBook";
 import {
   MAX_PROFILE_ENTRIES,
   MAX_PROFILE_TEXT_CHARS,
@@ -23,15 +27,24 @@ import type {
 } from "./types";
 import { coreContactParse, coreContactWrite } from "./wasm";
 import type { CoreContact, CoreContactChannel, CoreContactDraft } from "./wasm";
+import { sortByName } from "./order";
 
-export const CHANNEL_KINDS: ContactChannelKind[] = ["work", "home", "mobile", "custom"];
+export const CHANNEL_KINDS: ContactChannelKind[] = [
+  "work",
+  "home",
+  "mobile",
+  "custom",
+];
 
 /** Written only when true, so a reader predating it sees the card it expects. */
 export const CONTACT_ARCHIVED_PROP = "sealbook:archived";
 /** Absent on contacts with no attachments, so old readers ignore it. */
 export const CONTACT_ATTACHMENTS_PROP = "sealbook:attachments";
 
-export function channelKindLabel(kind: ContactChannelKind, label?: string): string {
+export function channelKindLabel(
+  kind: ContactChannelKind,
+  label?: string,
+): string {
   if (kind === "custom") {
     return label?.trim() || "Custom";
   }
@@ -55,12 +68,7 @@ export function dateKindLabel(kind: ContactDateKind, label?: string): string {
 }
 
 export function sortContacts<T extends { name: string }>(contacts: T[]): T[] {
-  return [...contacts].sort((a, b) =>
-    (a.name || "").localeCompare(b.name || "", undefined, {
-      sensitivity: "base",
-      numeric: true,
-    }),
-  );
+  return sortByName(contacts, (contact) => contact.name || "");
 }
 
 /**
@@ -68,7 +76,10 @@ export function sortContacts<T extends { name: string }>(contacts: T[]): T[] {
  * contact rather than per keystroke: the text depends only on the contact and
  * its address book, so the query itself is one `includes`.
  */
-export function contactSearchText(contact: Contact, addressBooks: AddressBook[]): string {
+export function contactSearchText(
+  contact: Contact,
+  addressBooks: AddressBook[],
+): string {
   return [
     contact.name,
     contact.nickname,
@@ -105,7 +116,9 @@ export function emptySocial(platform = "x"): ContactSocial {
   return { id: newId(), platform, handle: "" };
 }
 
-export function emptyDraft(addressBookId = DEFAULT_ADDRESS_BOOK_ID): ContactDraft {
+export function emptyDraft(
+  addressBookId = DEFAULT_ADDRESS_BOOK_ID,
+): ContactDraft {
   return {
     name: "",
     nickname: "",
@@ -144,7 +157,9 @@ const MAX_PADDED_OBJECT_SIZE = 8 * 1024 * 1024;
 const ENVELOPE_OVERHEAD = 64;
 
 export function contactByteSize(draft: ContactDraft): number {
-  return new TextEncoder().encode(serializeCard(draft)).length + ENVELOPE_OVERHEAD;
+  return (
+    new TextEncoder().encode(serializeCard(draft)).length + ENVELOPE_OVERHEAD
+  );
 }
 
 export function contactFitsObjectLimit(draft: ContactDraft): boolean {
@@ -225,15 +240,31 @@ export function serializeCard(draft: ContactDraft): string {
 /** This client's view model as core's draft: the editor ids go, the rest stays. */
 export function coreDraftOf(draft: ContactDraft): CoreContactDraft {
   return {
-    name: draft.derivedName !== undefined && draft.name === draft.derivedName ? "" : draft.name,
+    name:
+      draft.derivedName !== undefined && draft.name === draft.derivedName
+        ? ""
+        : draft.name,
     nickname: draft.nickname,
     pronouns: draft.pronouns,
     emails: draft.emails.map(channelTo),
     phones: draft.phones.map(channelTo),
     address: draft.address,
-    work: draft.work.map(({ organization, title, extra }) => ({ organization, title, extra })),
-    dates: draft.dates.map(({ kind, label, date, extra }) => ({ kind, label, date, extra })),
-    socials: draft.socials.map(({ platform, handle, extra }) => ({ platform, handle, extra })),
+    work: draft.work.map(({ organization, title, extra }) => ({
+      organization,
+      title,
+      extra,
+    })),
+    dates: draft.dates.map(({ kind, label, date, extra }) => ({
+      kind,
+      label,
+      date,
+      extra,
+    })),
+    socials: draft.socials.map(({ platform, handle, extra }) => ({
+      platform,
+      handle,
+      extra,
+    })),
     notes: draft.notes,
     avatar: draft.avatar,
     profile: draft.profile ? profileTo(draft.profile) : undefined,
@@ -251,12 +282,19 @@ export function draftOfCore(draft: CoreContactDraft): ContactDraft {
     name: draft.name,
     nickname: draft.nickname,
     pronouns: draft.pronouns,
-    emails: draft.emails.map((channel, index) => channelFrom("e", index, channel)),
-    phones: draft.phones.map((channel, index) => channelFrom("p", index, channel)),
+    emails: draft.emails.map((channel, index) =>
+      channelFrom("e", index, channel),
+    ),
+    phones: draft.phones.map((channel, index) =>
+      channelFrom("p", index, channel),
+    ),
     address: draft.address,
     work: draft.work.map((row, index) => ({ id: `w${index + 1}`, ...row })),
     dates: draft.dates.map((row, index) => ({ id: `d${index + 1}`, ...row })),
-    socials: draft.socials.map((row, index) => ({ id: `s${index + 1}`, ...row })),
+    socials: draft.socials.map((row, index) => ({
+      id: `s${index + 1}`,
+      ...row,
+    })),
     notes: draft.notes,
     avatar: draft.avatar,
     profile: draft.profile ? profileFrom(draft.profile) : undefined,
@@ -265,11 +303,20 @@ export function draftOfCore(draft: CoreContactDraft): ContactDraft {
   };
 }
 
-function channelTo({ kind, label, value, extra }: ContactChannel): CoreContactChannel {
+function channelTo({
+  kind,
+  label,
+  value,
+  extra,
+}: ContactChannel): CoreContactChannel {
   return { kind, label, value, extra };
 }
 
-function channelFrom(prefix: string, index: number, channel: CoreContactChannel): ContactChannel {
+function channelFrom(
+  prefix: string,
+  index: number,
+  channel: CoreContactChannel,
+): ContactChannel {
   return {
     id: `${prefix}${index + 1}`,
     kind: channel.kind,
@@ -285,16 +332,25 @@ function draftFrom(card: CoreContact): ContactDraft {
     derivedName: card.name === "" ? card.display_name : undefined,
     nickname: card.nickname,
     pronouns: card.pronouns,
-    emails: card.emails.map((channel, index) => channelFrom("e", index, channel)),
-    phones: card.phones.map((channel, index) => channelFrom("p", index, channel)),
+    emails: card.emails.map((channel, index) =>
+      channelFrom("e", index, channel),
+    ),
+    phones: card.phones.map((channel, index) =>
+      channelFrom("p", index, channel),
+    ),
     address: card.address,
     work: card.work.map((row, index) => ({ id: `w${index + 1}`, ...row })),
     dates: card.dates.map((row, index) => ({ id: `d${index + 1}`, ...row })),
-    socials: card.socials.map((row, index) => ({ id: `s${index + 1}`, ...row })),
+    socials: card.socials.map((row, index) => ({
+      id: `s${index + 1}`,
+      ...row,
+    })),
     notes: card.notes,
     avatar: card.avatar,
     profile: card.profile ? profileFrom(card.profile) : undefined,
-    attachments: card.attachments.length ? card.attachments.map(attachmentFrom) : undefined,
+    attachments: card.attachments.length
+      ? card.attachments.map(attachmentFrom)
+      : undefined,
     addressBookId: card.address_book_id,
     archived: card.archived ? true : undefined,
     createdAt: card.created_at,

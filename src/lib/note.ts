@@ -10,6 +10,7 @@ import {
   coreResolveNotebookId,
 } from "./wasm";
 import type { CoreNote, CoreNoteAttachment, CoreNotebook } from "./wasm";
+import { sortByRecency, sortContainers } from "./order";
 
 // Mirrors of the Rust constants in `sealbook-core`'s `notes` module. They stay
 // literals here because module scope runs before `initWasm`, and
@@ -104,7 +105,9 @@ function noteFrom(note: CoreNote): Note {
     body: note.body,
     notebookId: note.notebook_id,
     parentId: note.parent_id,
-    attachments: note.attachments.length ? note.attachments.map(attachmentFrom) : undefined,
+    attachments: note.attachments.length
+      ? note.attachments.map(attachmentFrom)
+      : undefined,
     createdAt: note.created_at,
     updatedAt: note.updated_at,
     readable: note.readable,
@@ -146,14 +149,13 @@ export function noteDraftWritable(draft: NoteDraft): boolean {
 }
 
 export function sortNotebooks(notebooks: Notebook[]): Notebook[] {
-  return [...notebooks].sort((a, b) => {
-    if (a.id === DEFAULT_NOTEBOOK_ID) return -1;
-    if (b.id === DEFAULT_NOTEBOOK_ID) return 1;
-    return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
-  });
+  return sortContainers(DEFAULT_NOTEBOOK_ID, notebooks);
 }
 
-export function notebookNameById(notebooks: Notebook[], notebookId?: string): string {
+export function notebookNameById(
+  notebooks: Notebook[],
+  notebookId?: string,
+): string {
   return coreNotebookNameById(
     notebooks.map((notebook) => ({
       id: notebook.id,
@@ -167,18 +169,10 @@ export function notebookNameById(notebooks: Notebook[], notebookId?: string): st
 
 /** Most recently edited first, then by title so the order is total. */
 export function sortNotes(notes: Note[]): Note[] {
-  return [...notes].sort((a, b) => {
-    const edited = editedAt(b) - editedAt(a);
-    if (edited !== 0) return edited;
-    return a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+  return sortByRecency(notes, {
+    name: (note) => note.title,
+    stamp: (note) => note.updatedAt ?? note.createdAt,
   });
-}
-
-function editedAt(note: Note): number {
-  const stamp = note.updatedAt ?? note.createdAt;
-  if (!stamp) return 0;
-  const parsed = Date.parse(stamp);
-  return Number.isNaN(parsed) ? 0 : parsed;
 }
 
 /**

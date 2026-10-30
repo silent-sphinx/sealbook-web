@@ -9,14 +9,17 @@ import {
   coreBookmarkWrite,
 } from "./wasm";
 import type { CoreBookmark, CoreBookmarkCollection } from "./wasm";
+import { sortByRecency, sortContainers } from "./order";
 
 // Mirrors of the Rust constants in
 // `sealbook/crates/sealbook-protocol/src/lib.rs`. There is no codegen between the
 // two, so the pairing is covered by a test rather than by the compiler.
 export const BOOKMARK_CONTENT_TYPE = "application/sealbook.bookmark+json";
-export const BOOKMARK_COLLECTION_CONTENT_TYPE = "application/sealbook.bookmark-collection+json";
+export const BOOKMARK_COLLECTION_CONTENT_TYPE =
+  "application/sealbook.bookmark-collection+json";
 export const DEFAULT_BOOKMARK_COLLECTION_NAME = "Default Collection";
-export const DEFAULT_BOOKMARK_COLLECTION_ID = "00000000-0000-0000-0000-000000000005";
+export const DEFAULT_BOOKMARK_COLLECTION_ID =
+  "00000000-0000-0000-0000-000000000005";
 export const ALL_COLLECTIONS = "all";
 
 /**
@@ -89,11 +92,16 @@ export function serializeBookmarkCollection(
   });
 }
 
-export function parseBookmarkCollection(id: string, raw: string): BookmarkCollection {
+export function parseBookmarkCollection(
+  id: string,
+  raw: string,
+): BookmarkCollection {
   return collectionFrom(coreBookmarkCollectionParse(id, raw));
 }
 
-function collectionFrom(collection: CoreBookmarkCollection): BookmarkCollection {
+function collectionFrom(
+  collection: CoreBookmarkCollection,
+): BookmarkCollection {
   return {
     id: collection.id,
     name: collection.name,
@@ -190,26 +198,16 @@ export function bookmarkHost(url: string): string {
 
 /** Most recently saved first, then by title so the order is total. */
 export function sortBookmarks(bookmarks: Bookmark[]): Bookmark[] {
-  return [...bookmarks].sort((a, b) => {
-    const saved = savedAt(b) - savedAt(a);
-    if (saved !== 0) return saved;
-    return a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+  return sortByRecency(bookmarks, {
+    name: (bookmark) => bookmark.title,
+    stamp: (bookmark) => bookmark.updatedAt ?? bookmark.createdAt,
   });
 }
 
-function savedAt(bookmark: Bookmark): number {
-  const stamp = bookmark.updatedAt ?? bookmark.createdAt;
-  if (!stamp) return 0;
-  const parsed = Date.parse(stamp);
-  return Number.isNaN(parsed) ? 0 : parsed;
-}
-
-export function sortCollections(collections: BookmarkCollection[]): BookmarkCollection[] {
-  return [...collections].sort((a, b) => {
-    if (a.id === DEFAULT_BOOKMARK_COLLECTION_ID) return -1;
-    if (b.id === DEFAULT_BOOKMARK_COLLECTION_ID) return 1;
-    return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
-  });
+export function sortCollections(
+  collections: BookmarkCollection[],
+): BookmarkCollection[] {
+  return sortContainers(DEFAULT_BOOKMARK_COLLECTION_ID, collections);
 }
 
 export function collectionNameById(
@@ -231,7 +229,10 @@ export function buildCollectionTree(
 }
 
 /** The collection and every one nested under it, itself first. */
-export function collectionSubtree(collections: BookmarkCollection[], id: string): string[] {
+export function collectionSubtree(
+  collections: BookmarkCollection[],
+  id: string,
+): string[] {
   return subtree(collections, id);
 }
 
@@ -256,7 +257,8 @@ export function bookmarkMatches(bookmark: Bookmark, query: string): boolean {
   // Title first: it is short, and it is what a search is usually reaching for.
   if (bookmark.title.toLowerCase().includes(needle)) return true;
   if (bookmark.url.toLowerCase().includes(needle)) return true;
-  if (bookmark.tags?.some((tag) => tag.toLowerCase().includes(needle))) return true;
+  if (bookmark.tags?.some((tag) => tag.toLowerCase().includes(needle)))
+    return true;
   return bookmark.notes?.toLowerCase().includes(needle) === true;
 }
 
@@ -279,11 +281,19 @@ export function bookmarkFitsObjectLimit(draft: BookmarkDraft): boolean {
 }
 
 export function emptyBookmarkDraft(collectionId: string): BookmarkDraft {
-  return { url: "", title: "", collectionId: resolveCollectionId(collectionId), tags: [] };
+  return {
+    url: "",
+    title: "",
+    collectionId: resolveCollectionId(collectionId),
+    tags: [],
+  };
 }
 
 /** The top-level collection `id` sits under: itself, if it is already one. */
-export function collectionRootId(collections: BookmarkCollection[], id: string): string {
+export function collectionRootId(
+  collections: BookmarkCollection[],
+  id: string,
+): string {
   const ancestors = ancestorsOf(collections, id);
   return ancestors.length > 0 ? ancestors[ancestors.length - 1] : id;
 }
@@ -295,7 +305,10 @@ export function collectionRootId(collections: BookmarkCollection[], id: string):
  * colour, and everything nested under it adopts its root's.
  */
 export function collectionTone(
-  collections: Pick<BookmarkCollection, "id" | "name" | "parentId" | "color" | "raw">[],
+  collections: Pick<
+    BookmarkCollection,
+    "id" | "name" | "parentId" | "color" | "raw"
+  >[],
   id: string,
 ): string {
   return coreBookmarkCollectionTone(collections.map(collectionTo), id);

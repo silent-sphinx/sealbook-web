@@ -1,8 +1,10 @@
 import type { AddressBook } from "./types";
 import { coreAddressBookParse, coreAddressBookWrite } from "./wasm";
+import { sortContainers } from "./order";
 
 export const JSCONTACT_CONTENT_TYPE = "application/jscontact+json";
-export const ADDRESS_BOOK_CONTENT_TYPE = "application/sealbook.addressbook+json";
+export const ADDRESS_BOOK_CONTENT_TYPE =
+  "application/sealbook.addressbook+json";
 export const ADDRESS_BOOK_ID_PROP = "sealbook:addressBookId";
 export const DEFAULT_ADDRESS_BOOK_NAME = "Default Address Book";
 export const DEFAULT_ADDRESS_BOOK_ID = "00000000-0000-0000-0000-000000000001";
@@ -25,7 +27,10 @@ export const UNTITLED_ADDRESS_BOOK_NAME = "Untitled Address Book";
  * one implementation. Throws `PayloadSchema` for a book written by a newer
  * client, which this build may read but must not write over.
  */
-export function serializeAddressBook(name: string, previousRaw?: string): string {
+export function serializeAddressBook(
+  name: string,
+  previousRaw?: string,
+): string {
   return coreAddressBookWrite({ name, raw: previousRaw });
 }
 
@@ -42,19 +47,13 @@ export function parseAddressBook(id: string, raw: string): AddressBook {
  */
 export function resolveAddressBookId(addressBookId?: string): string {
   const trimmed = addressBookId?.trim();
-  return trimmed && trimmed !== ALL_ADDRESS_BOOKS ? trimmed : DEFAULT_ADDRESS_BOOK_ID;
+  return trimmed && trimmed !== ALL_ADDRESS_BOOKS
+    ? trimmed
+    : DEFAULT_ADDRESS_BOOK_ID;
 }
 
 export function sortAddressBooks(books: AddressBook[]): AddressBook[] {
-  return [...books].sort((a, b) => {
-    if (a.id === DEFAULT_ADDRESS_BOOK_ID) {
-      return -1;
-    }
-    if (b.id === DEFAULT_ADDRESS_BOOK_ID) {
-      return 1;
-    }
-    return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
-  });
+  return sortContainers(DEFAULT_ADDRESS_BOOK_ID, books);
 }
 
 export function bookNameById(
@@ -85,21 +84,34 @@ export function loadHiddenAddressBooks(collectionId: string): Set<string> {
   try {
     const stored = localStorage.getItem(hiddenBooksStorageKey(collectionId));
     const ids = stored ? JSON.parse(stored) : [];
-    return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []);
+    return new Set(
+      Array.isArray(ids)
+        ? ids.filter((id): id is string => typeof id === "string")
+        : [],
+    );
   } catch {
     return new Set();
   }
 }
 
-export function storeHiddenAddressBooks(collectionId: string, hidden: ReadonlySet<string>): void {
+export function storeHiddenAddressBooks(
+  collectionId: string,
+  hidden: ReadonlySet<string>,
+): void {
   try {
-    localStorage.setItem(hiddenBooksStorageKey(collectionId), JSON.stringify([...hidden]));
+    localStorage.setItem(
+      hiddenBooksStorageKey(collectionId),
+      JSON.stringify([...hidden]),
+    );
   } catch {
     // Storage unavailable; the choice then lasts for this session only.
   }
 }
 
-export function isAddressBookVisible(book: AddressBook, hidden: ReadonlySet<string>): boolean {
+export function isAddressBookVisible(
+  book: AddressBook,
+  hidden: ReadonlySet<string>,
+): boolean {
   return !hidden.has(book.id);
 }
 

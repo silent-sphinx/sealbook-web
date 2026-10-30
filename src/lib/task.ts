@@ -15,6 +15,7 @@ import {
   coreTaskWrite,
 } from "./wasm";
 import type { CoreTask, CoreTaskDraft, CoreTaskList } from "./wasm";
+import { sortContainers } from "./order";
 
 // Mirrors of the Rust constants in
 // `sealbook/crates/sealbook-protocol/src/lib.rs`, pinned by a test.
@@ -50,7 +51,9 @@ function draftTo(draft: TaskDraft): CoreTaskDraft {
     completions: draft.completions ?? [],
     due_date: draft.dueDate,
     priority:
-      draft.priority !== undefined && Number.isInteger(draft.priority) && draft.priority > 0
+      draft.priority !== undefined &&
+      Number.isInteger(draft.priority) &&
+      draft.priority > 0
         ? draft.priority
         : undefined,
     tags: draft.tags ?? [],
@@ -112,7 +115,12 @@ export function serializeTaskList(
   previousRaw?: string,
   color?: string,
 ): string {
-  return coreTaskListWrite({ name, parent_id: parentId, color, raw: previousRaw });
+  return coreTaskListWrite({
+    name,
+    parent_id: parentId,
+    color,
+    raw: previousRaw,
+  });
 }
 
 export function parseTaskList(id: string, raw: string): TaskList {
@@ -145,7 +153,10 @@ export function resolveTaskListId(taskListId?: string): string {
   return taskListId?.trim() || DEFAULT_TASK_LIST_ID;
 }
 
-export function emptyTaskDraft(taskListId: string, parentId?: string): TaskDraft {
+export function emptyTaskDraft(
+  taskListId: string,
+  parentId?: string,
+): TaskDraft {
   return {
     title: "",
     taskListId: resolveTaskListId(taskListId),
@@ -177,7 +188,9 @@ export function priorityLabel(priority?: number): string | null {
 
 /** The calendar day of a due value in `timezone`, at local midnight. */
 function dayOf(dueDate: string, timezone: string): Date {
-  const day = isAllDayDue(dueDate) ? dueDate : utcToLocalInput(dueDate, timezone).slice(0, 10);
+  const day = isAllDayDue(dueDate)
+    ? dueDate
+    : utcToLocalInput(dueDate, timezone).slice(0, 10);
   return new Date(`${day}T00:00`);
 }
 
@@ -187,13 +200,21 @@ export function dueDayKey(task: Task, timezone: string): string | null {
   return due ? keyFor(dayOf(due, timezone)) : null;
 }
 
-function rolledDueDate(task: Task, now: Date, timezone: string): { dueDate: string; anchor: string } | null {
+function rolledDueDate(
+  task: Task,
+  now: Date,
+  timezone: string,
+): { dueDate: string; anchor: string } | null {
   const due = normalizeDueDate(task.dueDate);
   if (!task.recurrence || !due) return null;
   const anchor = normalizeDueDate(task.recurrenceAnchor) ?? due;
   const current = dayOf(due, timezone);
   const today = dayOf(now.toISOString(), timezone);
-  const next = nextOccurrence(dayOf(anchor, timezone), task.recurrence, current > today ? current : today);
+  const next = nextOccurrence(
+    dayOf(anchor, timezone),
+    task.recurrence,
+    current > today ? current : today,
+  );
   if (!next) return null;
   const key = keyFor(next);
   if (isAllDayDue(due)) return { dueDate: key, anchor };
@@ -205,13 +226,18 @@ function rolledDueDate(task: Task, now: Date, timezone: string): { dueDate: stri
  * The draft for ticking a task. A recurring task with a later occurrence stays
  * open and moves its due date on; anything else is marked done.
  */
-export function completeTask(task: Task, now: Date, timezone: string): TaskDraft {
+export function completeTask(
+  task: Task,
+  now: Date,
+  timezone: string,
+): TaskDraft {
   const doneAt = now.toISOString();
   const completions = task.recurrence
     ? [doneAt, ...(task.completions ?? [])].slice(0, MAX_TASK_COMPLETIONS)
     : task.completions;
   const rolled = rolledDueDate(task, now, timezone);
-  if (!rolled) return { ...taskDraft(task), done: true, completedAt: doneAt, completions };
+  if (!rolled)
+    return { ...taskDraft(task), done: true, completedAt: doneAt, completions };
   return {
     ...taskDraft(task),
     done: undefined,
@@ -235,11 +261,19 @@ export function isOverdue(task: Task, now: Date, timezone: string): boolean {
   return due < keyFor(dayOf(now.toISOString(), timezone));
 }
 
-export function inScope(task: Task, scope: TaskScope, now: Date, timezone: string): boolean {
+export function inScope(
+  task: Task,
+  scope: TaskScope,
+  now: Date,
+  timezone: string,
+): boolean {
   if (scope === "all") return true;
   if (scope === "completed") return task.done === true;
   if (scope === "overdue") return isOverdue(task, now, timezone);
-  return !task.done && dueDayKey(task, timezone) === keyFor(dayOf(now.toISOString(), timezone));
+  return (
+    !task.done &&
+    dueDayKey(task, timezone) === keyFor(dayOf(now.toISOString(), timezone))
+  );
 }
 
 function dueTime(task: Task): number {
@@ -278,18 +312,18 @@ export function taskFitsObjectLimit(draft: TaskDraft): boolean {
 }
 
 export function sortTaskLists(lists: TaskList[]): TaskList[] {
-  return [...lists].sort((a, b) => {
-    if (a.id === DEFAULT_TASK_LIST_ID) return -1;
-    if (b.id === DEFAULT_TASK_LIST_ID) return 1;
-    return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
-  });
+  return sortContainers(DEFAULT_TASK_LIST_ID, lists);
 }
 
 /**
  * Folds written tasks into a listing, dropping `removed` ids. The writer knows
  * what it stored, so showing a save does not need a vault re-read.
  */
-export function mergeTasks(current: Task[], saved: Task[], removed?: string[]): Task[] {
+export function mergeTasks(
+  current: Task[],
+  saved: Task[],
+  removed?: string[],
+): Task[] {
   return sortTasks(mergeById(current, saved, removed));
 }
 
@@ -302,17 +336,29 @@ export function mergeTaskLists(
   return sortTaskLists(mergeById(current, saved, removed));
 }
 
-function mergeById<T extends { id: string }>(current: T[], saved: T[], removed?: string[]): T[] {
+function mergeById<T extends { id: string }>(
+  current: T[],
+  saved: T[],
+  removed?: string[],
+): T[] {
   const gone = new Set(removed ?? []);
-  const bySaved = new Map(saved.filter((item) => !gone.has(item.id)).map((item) => [item.id, item]));
+  const bySaved = new Map(
+    saved.filter((item) => !gone.has(item.id)).map((item) => [item.id, item]),
+  );
   const merged = current
     .filter((item) => !gone.has(item.id))
     .map((item) => bySaved.get(item.id) ?? item);
   const seen = new Set(merged.map((item) => item.id));
-  return [...merged, ...[...bySaved.values()].filter((item) => !seen.has(item.id))];
+  return [
+    ...merged,
+    ...[...bySaved.values()].filter((item) => !seen.has(item.id)),
+  ];
 }
 
-export function taskListNameById(lists: TaskList[], taskListId?: string): string {
+export function taskListNameById(
+  lists: TaskList[],
+  taskListId?: string,
+): string {
   const id = resolveTaskListId(taskListId);
   return lists.find((list) => list.id === id)?.name ?? DEFAULT_TASK_LIST_NAME;
 }
@@ -325,7 +371,11 @@ export function taskListSubtree(lists: TaskList[], id: string): string[] {
   return subtree(lists, id);
 }
 
-export function canMoveTaskList(lists: TaskList[], id: string, parentId: string | null): boolean {
+export function canMoveTaskList(
+  lists: TaskList[],
+  id: string,
+  parentId: string | null,
+): boolean {
   if (id === DEFAULT_TASK_LIST_ID) return parentId === null;
   return canReparent(lists, id, parentId);
 }
@@ -334,7 +384,11 @@ export function taskListTone(lists: TaskList[], id: string): string {
   return coreTaskListTone(lists.map(listTo), id);
 }
 
-export function dueLabel(task: Task, now: Date, timezone: string): string | null {
+export function dueLabel(
+  task: Task,
+  now: Date,
+  timezone: string,
+): string | null {
   const due = normalizeDueDate(task.dueDate);
   if (!due) return null;
   const day = dayOf(due, timezone);
@@ -351,5 +405,7 @@ export function dueLabel(task: Task, now: Date, timezone: string): string | null
       ...(day.getFullYear() === today.getFullYear() ? {} : { year: "numeric" }),
     });
   }
-  return isAllDayDue(due) ? label : `${label} ${utcToLocalInput(due, timezone).slice(11)}`;
+  return isAllDayDue(due)
+    ? label
+    : `${label} ${utcToLocalInput(due, timezone).slice(11)}`;
 }
