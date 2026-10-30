@@ -75,7 +75,7 @@ import {
   visibleAddressBooks,
 } from "./lib/addressBook";
 import { emptyDraft, sortContacts } from "./lib/contact";
-import { coreContactIndex } from "./lib/wasm";
+import { coreContactIndex, type ContactSearchIndex } from "./lib/wasm";
 import { extractRecoveryWords } from "./lib/phrase";
 import { findInvalidBip39Words } from "./lib/bip39Words";
 import { closeAttachmentCache, primeAttachmentCache } from "./lib/attachmentCache";
@@ -398,15 +398,17 @@ export default function App() {
   const deferredSearch = useDeferredValue(search);
 
   // Core reads every card once into an index, so a keystroke is one lookup.
-  const searchIndex = useMemo(
-    () =>
-      coreContactIndex(
-        [...contacts, ...archivedContacts],
-        addressBooks.map(({ id, name }) => ({ id, name })),
-      ),
-    [addressBooks, archivedContacts, contacts],
-  );
-  useEffect(() => () => searchIndex.free(), [searchIndex]);
+  // Built in an effect, because a memoised index is freed by the cleanup and
+  // then reused when the effect re-runs, which StrictMode does on mount.
+  const [searchIndex, setSearchIndex] = useState<ContactSearchIndex | null>(null);
+  useEffect(() => {
+    const index = coreContactIndex(
+      [...contacts, ...archivedContacts],
+      addressBooks.map(({ id, name }) => ({ id, name })),
+    );
+    setSearchIndex(index);
+    return () => index.free();
+  }, [addressBooks, archivedContacts, contacts]);
 
   const filtered = useMemo(() => {
     // Hidden rather than shown is what is matched, so a contact whose book was
@@ -420,6 +422,7 @@ export default function App() {
           !hiddenBooks.has(resolveAddressBookId(contact.addressBookId)),
       );
     if (!deferredSearch.trim()) return sortContacts(inBook);
+    if (searchIndex === null) return [];
     const rank = new Map(searchIndex.search(deferredSearch).map((id, place) => [id, place]));
     return inBook
       .filter((contact) => rank.has(contact.id))
