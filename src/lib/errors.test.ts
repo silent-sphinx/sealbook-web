@@ -34,7 +34,7 @@ describe("friendlyError", () => {
         new Error(
           JSON.stringify({
             kind: "Rotation",
-            refusal: { refusal: "Unreadable", object: "a5a5a5a5", reason: "Key" },
+            refusal: { refusal: "Unreadable", object: "a5a5a5a5-a5a5-a5a5-a5a5-a5a5a5a5a5a5", reason: "Key" },
           }),
         ),
       ),
@@ -52,7 +52,7 @@ describe("friendlyError", () => {
     expect(refusal({ refusal: "Expired" })).toContain("has expired");
     expect(refusal({ refusal: "TypedCode" })).toContain("doesn't match");
     expect(refusal({ refusal: "KeyRotated", held: 3, roster: 4 })).toContain("Sign in again");
-    expect(refusal({ refusal: "AlreadyEnrolled", device: "dddd" })).toContain("already enrolled");
+    expect(refusal({ refusal: "AlreadyEnrolled", device: "dddddddd-dddd-dddd-dddd-dddddddddddd" })).toContain("already enrolled");
     expect(refusal({ refusal: "RosterMoved", joined_at: 2, now: 3 })).toBe(
       "The new device started pairing against device list 2 but this account is now on 3. " +
         "Start the pairing again.",
@@ -68,9 +68,8 @@ describe("friendlyError", () => {
   it("tells a device that fell behind to pair rather than that it was tampered with", () => {
     const text = friendlyError(
       new RosterTooOldError(
-        "This device is further behind than the server's device-list history reaches, so the " +
-          "chain from the roster it pinned cannot be checked. Pair this device again to anchor " +
-          "it on the current list.",
+        "This device has been away too long to check the account's device list. Pair it again " +
+          "to carry on.",
       ),
     );
     // The message mentions the device list, so the roster branch would otherwise
@@ -88,7 +87,7 @@ describe("friendlyError", () => {
           "can be used again, which issues a new recovery phrase",
       ),
     );
-    expect(text).toContain("Finish the interrupted recovery");
+    expect(text).toContain("unfinished recovery");
   });
 
   it("still maps the server's own refusals", () => {

@@ -3,6 +3,7 @@ import { bytesFromJson } from "./bytes";
 import {
   coreChangesPageRead,
   coreChangesRequest,
+  coreErrorMessage,
   coreErrorOf,
   coreLatestRevisions,
   coreManifestSignRoot,
@@ -368,9 +369,7 @@ function walkPage(cursor: WalkCursor, body: string): WalkStep {
   } catch (err) {
     const core = coreErrorOf(err);
     if (core?.kind === "CollectionBusy") {
-      throw new Error(
-        "The vault kept changing while it was being read. Another device may be writing to it; try again.",
-      );
+      throw new Error(coreErrorMessage(JSON.stringify(core)) ?? core.kind);
     }
     throw new Error(core && "detail" in core ? core.detail : describeError(err));
   }

@@ -283,7 +283,7 @@ describe("a pin below the server's retention floor", () => {
     // The server keeps a bounded history, so the chain back to this pin is gone.
     server({ "/roster": () => ({ rosters: [session.roster], floor: 9 }) });
     await expect(verifiedRoster(session)).rejects.toThrow(RosterTooOldError);
-    await expect(verifiedRoster(session)).rejects.toThrow(/pair this device again/iu);
+    await expect(verifiedRoster(session)).rejects.toThrow(/pair it again/iu);
   });
 
   it("accepts a floor at or below the pin, and a server that reports none", async () => {

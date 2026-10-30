@@ -2,6 +2,7 @@ import type { Session } from "./client";
 import { describeError, log } from "./log";
 import { apiRoot, getText } from "./transport";
 import {
+  coreErrorMessage,
   coreErrorOf,
   corePinRoster,
   coreRosterAccept,
@@ -36,11 +37,6 @@ export class RosterTooOldError extends Error {
   }
 }
 
-const ROSTER_TOO_OLD =
-  "This device is further behind than the server's device-list history reaches, so the " +
-  "chain from the roster it pinned cannot be checked. Pair this device again to anchor " +
-  "it on the current list.";
-
 /**
  * Core's verdict as the class the callers of this module already catch.
  *
@@ -53,7 +49,7 @@ function rosterFailure(err: unknown): Error {
     return err instanceof Error ? err : new Error(describeError(err));
   }
   if (core.kind === "RosterTooOld") {
-    return new RosterTooOldError(ROSTER_TOO_OLD);
+    return new RosterTooOldError(coreErrorMessage(JSON.stringify(core)) ?? core.kind);
   }
   return new ManifestError("detail" in core ? core.detail : core.kind);
 }

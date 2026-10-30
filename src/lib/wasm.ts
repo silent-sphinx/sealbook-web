@@ -54,6 +54,7 @@ import init, {
   core_contact_profile_write,
   core_contact_write,
   core_contacts_import,
+  core_error_message,
   core_csv_import,
   core_notes_import,
   core_notes_write_json,
@@ -851,6 +852,20 @@ export function coreErrorOf(err: unknown): CoreError | null {
     return null;
   }
   return null;
+}
+
+/**
+ * The sentence core words for an error, or `null` when it has none.
+ *
+ * Takes the text an error carried across the boundary, so a caller can ask
+ * without first deciding that it is a core error.
+ */
+export function coreErrorMessage(raw: string): string | null {
+  try {
+    return core_error_message(raw) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** The roster request to send, with a server-relative path. */

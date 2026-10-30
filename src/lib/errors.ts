@@ -1,111 +1,4 @@
-/**
- * This client's wording for each rotation core refused.
- *
- * Core names the condition rather than carrying a sentence, so the three
- * clients refuse the same rotations and each says it in its own words.
- */
-const ROTATION_REFUSALS: Record<string, string> = {
-  RevokingSelf: "You can't revoke the device you're signed in on.",
-  NotInRoster: "That device has already been removed.",
-  LastDevice: "You can't revoke the last device.",
-  NotEnrolled: "This device isn't in the account's device list. Sign in again.",
-  // Counting the row would leave it sealed under the key the rotation retires,
-  // which drops the object from the vault for good, so nothing was written.
-  Unreadable:
-    "One object in this vault can't be re-encrypted, so the key wasn't rotated and nothing " +
-    "was changed. Sign in on a device that can read it.",
-};
-
-/**
- * This client's wording for each pairing core refused.
- *
- * As above, core names the condition. A refusal whose sentence needs numbers
- * out of the refusal itself is built in `pairingRefusal`.
- */
-const PAIR_REFUSALS: Record<string, string> = {
-  NoAnchor:
-    "The server sent no device list for this account to anchor on, so there is nothing to " +
-    "pair against.",
-  // Either the device list moved under the pairing or the keys on offer are not
-  // the ones the other device is holding; neither is safe to approve.
-  ServerCode:
-    "This device and the new one don't agree on the account's devices. Start the pairing again.",
-  Expired: "That pairing code has expired. Start the pairing again on the new device.",
-  TypedCode: "That code doesn't match the one for this pairing.",
-};
-
-const AUTH_REFUSALS: Record<string, string> = {
-  Username:
-    "A name can be 3 to 64 characters of letters, digits, dot, dash or underscore, and " +
-    "nothing else.",
-  Phrase: "That isn't a 24-word recovery phrase. Check for a missing or misspelled word.",
-  PhraseMismatch:
-    "That recovery phrase doesn't open this account. Check the account name and the words.",
-  NoRoster:
-    "The server sent no device list for this account, so the devices this would restore " +
-    "access alongside can't be checked.",
-  Challenge: "The server's answer wasn't in the shape a recovery needs. Try again.",
-  NoKeyWrap: "This device no longer has access to the vault. It may have been removed.",
-};
-
-/**
- * Parsed here rather than through the client's own `coreErrorOf`, which would
- * pull the wasm module into every component that reports an error.
- */
-function coreRefusal(raw: string, kind: string): Record<string, unknown> | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (typeof parsed !== "object" || parsed === null) return null;
-  const error = parsed as { kind?: unknown; refusal?: Record<string, unknown> };
-  if (error.kind !== kind || typeof error.refusal?.refusal !== "string") return null;
-  return error.refusal;
-}
-
-function rotationRefusal(raw: string): string | null {
-  const refusal = coreRefusal(raw, "Rotation");
-  return refusal === null ? null : ROTATION_REFUSALS[refusal.refusal as string] ?? null;
-}
-
-function pairingRefusal(raw: string): string | null {
-  const refusal = coreRefusal(raw, "Pair");
-  if (refusal === null) {
-    return null;
-  }
-  switch (refusal.refusal) {
-    case "KeyRotated":
-      return (
-        "The vault key has been rotated since this device fetched it. Sign in again and " +
-        "approve the new device after that."
-      );
-    case "AlreadyEnrolled":
-      return "That device is already enrolled.";
-    case "RosterMoved":
-      return (
-        `The new device started pairing against device list ${String(refusal.joined_at)} but ` +
-        `this account is now on ${String(refusal.now)}. Start the pairing again.`
-      );
-    default:
-      return PAIR_REFUSALS[refusal.refusal as string] ?? null;
-  }
-}
-
-function authRefusal(raw: string): string | null {
-  const refusal = coreRefusal(raw, "Auth");
-  if (refusal === null) {
-    return null;
-  }
-  if (refusal.refusal === "CollectionMoved") {
-    return (
-      "The server answered with a different vault than the one this device just signed for. " +
-      "Nothing was saved."
-    );
-  }
-  return AUTH_REFUSALS[refusal.refusal as string] ?? null;
-}
+import { coreErrorMessage } from "./wasm";
 
 export function friendlyError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
@@ -122,9 +15,9 @@ export function friendlyError(err: unknown): string {
   }
   // Before the message branches below: core's error is JSON, so a refusal that
   // names a device list would otherwise match the roster branch.
-  const refusal = rotationRefusal(raw) ?? pairingRefusal(raw) ?? authRefusal(raw);
-  if (refusal !== null) {
-    return refusal;
+  const said = coreErrorMessage(raw);
+  if (said !== null) {
+    return said;
   }
   if (text.includes("username taken")) {
     return "That name is taken.";
@@ -154,7 +47,7 @@ export function friendlyError(err: unknown): string {
   // match: the history ran out rather than anything failing to verify, and the
   // remedy is pairing rather than alarm.
   if (err instanceof Error && err.name === "RosterTooOldError") {
-    return "This device has been away too long to check the account's device list. Pair it again to carry on.";
+    return raw;
   }
   // A roster failure means the device list served was not one this account's
   // devices signed for. Never transient, and never worth retrying.
@@ -184,7 +77,7 @@ export function friendlyError(err: unknown): string {
     return "The two devices don't show the same code. Start the pairing again.";
   }
   if (text.includes("unfinished recovery")) {
-    return "Finish the interrupted recovery first: use the banner at the top of the app.";
+    return coreErrorMessage('{"kind":"RecoveryRotationPending"}') ?? raw;
   }
   if (text.includes("hasn't signed in") || text.includes("this browser")) {
     return "This browser isn't signed in yet. Pair it, or use your recovery words.";
