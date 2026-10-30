@@ -222,6 +222,7 @@ export function SettingsView({
   const [parsedIcsFormat, setParsedIcsFormat] = useState<string | null>(null);
   const [parsedEvents, setParsedEvents] = useState<Omit<CalendarEvent, "id">[]>([]);
   const [skippedEvents, setSkippedEvents] = useState(0);
+  const [droppedRules, setDroppedRules] = useState(0);
   const [icsCalendarId, setIcsCalendarId] = useState("");
   const [isCreatingCalendar, setIsCreatingCalendar] = useState(false);
   const [newCalendarName, setNewCalendarName] = useState("");
@@ -639,7 +640,7 @@ export function SettingsView({
       }
       try {
         const trimmed = content.trimStart();
-        const { events, skipped } = parseCalendarImport(content, timezone, icsCalendarId);
+        const { events, skipped, droppedRules: dropped = 0 } = parseCalendarImport(content, timezone, icsCalendarId);
         if (events.length === 0) {
           setIcsImportMsg({
             type: "error",
@@ -658,6 +659,7 @@ export function SettingsView({
         setParsedIcsFormat(trimmed.startsWith("[") || trimmed.startsWith("{") ? "JSON" : "ICS");
         setParsedEvents(events);
         setSkippedEvents(skipped.length);
+        setDroppedRules(dropped);
       } catch (err) {
         setIcsImportMsg({ type: "error", text: `Failed to parse file: ${friendlyError(err)}` });
       }
@@ -701,6 +703,7 @@ export function SettingsView({
     setParsedIcsFormat(null);
     setParsedEvents([]);
     setSkippedEvents(0);
+    setDroppedRules(0);
     setIcsProgress(null);
     setIsCreatingCalendar(false);
     setNewCalendarName("");
@@ -750,6 +753,12 @@ export function SettingsView({
           parsedEvents.length === 1 ? "" : "s"
         } into "${calendarName}".${
           skippedEvents ? ` ${skippedEvents} could not be read and were skipped.` : ""
+        }${
+          droppedRules
+            ? ` ${droppedRules} repeat${droppedRules === 1 ? "s" : ""} by a rule that is not supported, so ${
+                droppedRules === 1 ? "it was" : "they were"
+              } imported once.`
+            : ""
         }`,
       });
 
@@ -1158,6 +1167,7 @@ export function SettingsView({
                       Detected {parsedIcsFormat} · {parsedEvents.length} event
                       {parsedEvents.length === 1 ? "" : "s"} found
                       {skippedEvents ? ` · ${skippedEvents} unreadable and skipped` : ""}
+                      {droppedRules ? ` · ${droppedRules} repeat rule${droppedRules === 1 ? "" : "s"} not supported` : ""}
                     </p>
                   </div>
                   <button

@@ -11,6 +11,8 @@ export type CalendarImportResult = {
    * the rest.
    */
   skipped: { title: string; reason: string }[];
+  /** Events whose repeat rule Sealbook cannot express; they import as single events. */
+  droppedRules?: number;
 };
 
 /**
@@ -23,7 +25,7 @@ function resolved(value: string, zone: string): string {
 }
 
 export function parseIcs(input: string, timezone: string, calendarId?: string): CalendarImportResult {
-  const { events, skipped } = coreIcsParse(input);
+  const { events, skipped, dropped_rules } = coreIcsParse(input);
   return {
     events: events.map((event) => ({
       title: event.title,
@@ -37,6 +39,7 @@ export function parseIcs(input: string, timezone: string, calendarId?: string): 
       recurrence: event.recurrence ? recurrenceFrom(event.recurrence) : undefined,
     })),
     skipped,
+    droppedRules: dropped_rules,
   };
 }
 

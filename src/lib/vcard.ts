@@ -1,10 +1,20 @@
 import { coreDraftOf, draftOfCore } from "./contact";
 import type { Contact, ContactDraft } from "./types";
-import { coreVcardParse, coreVcardWrite } from "./wasm";
+import { coreVcardImport, coreVcardWrite } from "./wasm";
 
-/** The cards in a vCard file, read by core. */
+export type ContactImport = {
+  contacts: ContactDraft[];
+  skipped: { label: string; reason: string }[];
+};
+
+/** The cards in a vCard file, and the ones left out, read by core. */
+export function importVCard(text: string, targetAddressBookId: string): ContactImport {
+  const { contacts, skipped } = coreVcardImport(text, targetAddressBookId);
+  return { contacts: contacts.map(draftOfCore), skipped };
+}
+
 export function parseVCard(text: string, targetAddressBookId: string): ContactDraft[] {
-  return coreVcardParse(text, targetAddressBookId).map(draftOfCore);
+  return importVCard(text, targetAddressBookId).contacts;
 }
 
 export function serializeVCard(contacts: Contact[] | ContactDraft[]): string {

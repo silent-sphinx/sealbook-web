@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseVCard, serializeVCard } from "./vcard";
+import { importVCard, parseVCard, serializeVCard } from "./vcard";
 import { emptyDraft } from "./contact";
 import { emptyProfile } from "./contactProfile";
 
@@ -125,5 +125,13 @@ describe("the relationship profile", () => {
     const back = parseVCard(damaged, BOOK);
     expect(back[0].name).toBe("Ada Lovelace");
     expect(back[0].profile).toBeUndefined();
+  });
+});
+
+describe("importVCard", () => {
+  it("reports a card with nothing to name it by", () => {
+    const { contacts, skipped } = importVCard(`BEGIN:VCARD\r\nNOTE:x\r\nEND:VCARD\r\n${CARD}`, BOOK);
+    expect(contacts).toHaveLength(1);
+    expect(skipped.map((s) => s.label)).toEqual(["Card 1"]);
   });
 });

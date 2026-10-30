@@ -53,11 +53,11 @@ import init, {
   core_contact_profile_parse,
   core_contact_profile_write,
   core_contact_write,
-  core_csv_parse,
+  core_csv_import,
   core_ics_parse,
   core_ics_write,
   core_csv_write,
-  core_vcard_parse,
+  core_vcard_import,
   core_vcard_write,
   core_default_address_book_id,
   core_default_calendar_id,
@@ -205,6 +205,7 @@ import type {
   CoreContact,
   CoreContactChannel,
   CoreContactDraft,
+  CoreContactImport,
   CoreContactProfile,
   CoreManifestEntry,
   CoreNote,
@@ -1661,9 +1662,9 @@ export function coreIcsWrite(events: CoreIcsExportEvent[], calendarName: string,
   return core_ics_write(events, calendarName, now);
 }
 
-/** The contacts in a CSV file, as drafts for the address book unless a row names its own. */
-export function coreCsvParse(text: string, addressBookId: string): CoreContactDraft[] {
-  return core_csv_parse(text, addressBookId);
+/** The contacts in a CSV file, as drafts for the address book unless a row names its own, and the rows left out. */
+export function coreCsvImport(text: string, addressBookId: string): CoreContactImport {
+  return core_csv_import(text, addressBookId);
 }
 
 /** A CSV file holding the cards, each row's book named from `books`. */
@@ -1671,9 +1672,9 @@ export function coreCsvWrite(contacts: CoreContactDraft[], books: CoreAddressBoo
   return core_csv_write(contacts, books);
 }
 
-/** The cards in a vCard file, as drafts for the address book. */
-export function coreVcardParse(text: string, addressBookId: string): CoreContactDraft[] {
-  return core_vcard_parse(text, addressBookId);
+/** The cards in a vCard file, as drafts for the address book, and the cards left out. */
+export function coreVcardImport(text: string, addressBookId: string): CoreContactImport {
+  return core_vcard_import(text, addressBookId);
 }
 
 /** A vCard 3.0 file holding the cards. */

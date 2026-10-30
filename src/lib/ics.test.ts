@@ -129,7 +129,14 @@ describe("ics round trip", () => {
 
 describe("parseCalendarImport", () => {
   it("returns nothing for input that is not a calendar", () => {
-    expect(parseCalendarImport("not a calendar at all", TZ)).toEqual({ events: [], skipped: [] });
+    expect(parseCalendarImport("not a calendar at all", TZ)).toEqual({ events: [], skipped: [], droppedRules: 0 });
+  });
+
+  it("counts a repeat rule it cannot express", () => {
+    const text = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nSUMMARY:x\nDTSTART:20261001T090000Z\nRRULE:FREQ=HOURLY\nEND:VEVENT\nEND:VCALENDAR";
+    const result = parseCalendarImport(text, TZ);
+    expect(result.events).toHaveLength(1);
+    expect(result.droppedRules).toBe(1);
   });
 
   it("tolerates CRLF and bare LF line endings", () => {

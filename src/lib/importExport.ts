@@ -1,11 +1,13 @@
 import type { AddressBook, Contact, ContactDraft } from "./types";
-import { parseVCard, serializeVCard } from "./vcard";
-import { parseCsvContacts, serializeCsvContacts } from "./csv";
+import { importVCard, serializeVCard } from "./vcard";
+import { importCsvContacts, serializeCsvContacts } from "./csv";
 import { resolveAddressBookId } from "./addressBook";
 
 export type ImportResult = {
   format: "vCard" | "CSV" | "JSON";
   contacts: ContactDraft[];
+  /** Cards or rows the file held that could not be used. */
+  skipped: { label: string; reason: string }[];
 };
 
 export type ExportFormat = "vcf" | "csv" | "json";
@@ -91,22 +93,22 @@ export function parseImportContent(
       }
 
       if (drafts.length > 0) {
-        return { format: "JSON", contacts: drafts };
+        return { format: "JSON", contacts: drafts, skipped: [] };
       }
     }
   }
 
   // 2. vCard check
   if (lowerName.endsWith(".vcf") || trimmed.toUpperCase().includes("BEGIN:VCARD")) {
-    const contacts = parseVCard(trimmed, targetAddressBookId);
+    const { contacts, skipped } = importVCard(trimmed, targetAddressBookId);
     if (contacts.length > 0) {
-      return { format: "vCard", contacts };
+      return { format: "vCard", contacts, skipped };
     }
   }
 
   // 3. Fallback to CSV
-  const contacts = parseCsvContacts(trimmed, targetAddressBookId);
-  return { format: "CSV", contacts };
+  const { contacts, skipped } = importCsvContacts(trimmed, targetAddressBookId);
+  return { format: "CSV", contacts, skipped };
 }
 
 export function generateExportData(

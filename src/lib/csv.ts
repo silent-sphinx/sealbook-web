@@ -1,10 +1,16 @@
 import { coreDraftOf, draftOfCore } from "./contact";
+import type { ContactImport } from "./vcard";
 import type { AddressBook, Contact, ContactDraft } from "./types";
-import { coreCsvParse, coreCsvWrite } from "./wasm";
+import { coreCsvImport, coreCsvWrite } from "./wasm";
 
-/** The contacts in a CSV file, read by core. */
+/** The contacts in a CSV file, and the rows left out, read by core. */
+export function importCsvContacts(text: string, targetAddressBookId: string): ContactImport {
+  const { contacts, skipped } = coreCsvImport(text, targetAddressBookId);
+  return { contacts: contacts.map(draftOfCore), skipped };
+}
+
 export function parseCsvContacts(text: string, targetAddressBookId: string): ContactDraft[] {
-  return coreCsvParse(text, targetAddressBookId).map(draftOfCore);
+  return importCsvContacts(text, targetAddressBookId).contacts;
 }
 
 export function serializeCsvContacts(

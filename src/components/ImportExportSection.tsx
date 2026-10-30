@@ -43,6 +43,7 @@ export function ImportExportSection({
   const [importFile, setImportFile] = useState<{ name: string; size: number } | null>(null);
   const [parsedFormat, setParsedFormat] = useState<string | null>(null);
   const [parsedContacts, setParsedContacts] = useState<ContactDraft[]>([]);
+  const [skippedContacts, setSkippedContacts] = useState(0);
   const [targetBookId, setTargetBookId] = useState<string>(
     addressBooks[0]?.id ?? DEFAULT_ADDRESS_BOOK_ID,
   );
@@ -94,6 +95,7 @@ export function ImportExportSection({
         setImportFile({ name: file.name, size: file.size });
         setParsedFormat(result.format);
         setParsedContacts(result.contacts);
+        setSkippedContacts(result.skipped.length);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setImportMsg({ type: "error", text: `Failed to parse file: ${msg}` });
@@ -137,6 +139,7 @@ export function ImportExportSection({
     setImportFile(null);
     setParsedFormat(null);
     setParsedContacts([]);
+    setSkippedContacts(0);
     setImportProgress(null);
     setIsCreatingBook(false);
     setNewBookName("");
@@ -185,7 +188,9 @@ export function ImportExportSection({
         type: "success",
         text: `Successfully imported ${parsedContacts.length} contact${
           parsedContacts.length === 1 ? "" : "s"
-        } into "${bookName}".`,
+        } into "${bookName}".${
+          skippedContacts ? ` ${skippedContacts} had no name, email or phone number and were skipped.` : ""
+        }`,
       });
 
       resetImport();
@@ -319,6 +324,7 @@ export function ImportExportSection({
                 <p className="text-[11px] text-accent font-medium mt-0.5">
                   Detected {parsedFormat} · {parsedContacts.length} contact
                   {parsedContacts.length === 1 ? "" : "s"} found
+                  {skippedContacts ? ` · ${skippedContacts} unreadable and skipped` : ""}
                 </p>
               </div>
               <button
