@@ -10,7 +10,7 @@ import {
 import type { Calendar, CalendarEvent, Contact, RecurrenceRule, Task } from "../lib/types";
 import { dueTaskMarks } from "../lib/taskCalendar";
 import { DEFAULT_CALENDAR_COLOR } from "../lib/types";
-import { DEFAULT_CALENDAR_ID, activeCalendars, archivedCalendars, isCalendarVisible, visibleCalendarIds } from "../lib/calendar";
+import { DEFAULT_CALENDAR_ID, UNTITLED_EVENT_TITLE, activeCalendars, archivedCalendars, isCalendarVisible, visibleCalendarIds } from "../lib/calendar";
 import { friendlyError } from "../lib/errors";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SidebarDrawer, SidebarHeader, SidebarSection, type Sidebar } from "./SidebarDrawer";
@@ -126,7 +126,7 @@ function EventSearch({
               className={`flex cursor-pointer items-center gap-3 px-3 py-2.5 text-sm transition-colors ${i === cursor ? "bg-surface" : "hover:bg-surface/60"}`}
             >
               <span className="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: result.color }} />
-              <span className="min-w-0 flex-1 truncate font-medium">{result.event.title || "Untitled"}</span>
+              <span className="min-w-0 flex-1 truncate font-medium">{result.event.title || UNTITLED_EVENT_TITLE}</span>
               <span className="shrink-0 text-[11px] text-mute">{result.dateLabel}</span>
             </li>
           ))}
