@@ -1,7 +1,8 @@
 import type { AddressBook, Contact, ContactDraft } from "./types";
-import { importVCard, serializeVCard } from "./vcard";
-import { importCsvContacts, serializeCsvContacts } from "./csv";
-import { resolveAddressBookId } from "./addressBook";
+import { draftOfCore } from "./contact";
+import { serializeVCard } from "./vcard";
+import { serializeCsvContacts } from "./csv";
+import { coreContactsImport, coreErrorOf } from "./wasm";
 
 export type ImportResult = {
   format: "vCard" | "CSV" | "JSON";
@@ -12,103 +13,18 @@ export type ImportResult = {
 
 export type ExportFormat = "vcf" | "csv" | "json";
 
-const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
-const MAX_IMPORTED_CONTACTS = 1_000;
-const MAX_CONTACT_LIST_ITEMS = 100;
-
-function stringField(value: unknown): string | undefined {
-  return typeof value === "string" && value.length <= 100_000 ? value : undefined;
-}
-
-function objectList(value: unknown): Record<string, unknown>[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .slice(0, MAX_CONTACT_LIST_ITEMS)
-    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object");
-}
-
 export function parseImportContent(
   filename: string,
   content: string,
   targetAddressBookId: string,
 ): ImportResult {
-  if (content.length > MAX_IMPORT_BYTES) {
-    throw new Error("Import file is too large (maximum 5 MB). ");
+  try {
+    const file = coreContactsImport(filename, content, targetAddressBookId);
+    return { ...file, contacts: file.contacts.map(draftOfCore) } as ImportResult;
+  } catch (error) {
+    const core = coreErrorOf(error);
+    throw core?.kind === "Malformed" ? new Error(core.detail) : error;
   }
-  const trimmed = content.trim();
-  const lowerName = filename.toLowerCase();
-
-  // 1. JSON check
-  if (
-    lowerName.endsWith(".json") ||
-    trimmed.startsWith("[") ||
-    trimmed.startsWith("{")
-  ) {
-    // Only the parse is guarded. A wider `try` here also swallowed the limit
-    // below, so an oversized list fell through to the CSV branch and the import
-    // reported no contacts rather than saying what was wrong with the file.
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch {
-      parsed = null;
-    }
-    if (parsed !== null && typeof parsed === "object") {
-      const wrapper = parsed as { contacts?: unknown };
-      const list = (
-        Array.isArray(parsed)
-          ? parsed
-          : Array.isArray(wrapper.contacts)
-            ? wrapper.contacts
-            : [parsed]
-      ) as Record<string, unknown>[];
-      if (list.length > MAX_IMPORTED_CONTACTS) {
-        throw new Error("Import contains too many contacts (maximum 1,000).");
-      }
-
-      const drafts: ContactDraft[] = [];
-      for (const item of list) {
-        if (!item || typeof item !== "object") continue;
-        const name = stringField(item.name)?.trim() ?? "";
-        if (!name) continue;
-
-        drafts.push({
-          name,
-          nickname: stringField(item.nickname),
-          pronouns: stringField(item.pronouns),
-          emails: objectList(item.emails) as ContactDraft["emails"],
-          phones: objectList(item.phones) as ContactDraft["phones"],
-          dates: objectList(item.dates) as ContactDraft["dates"],
-          socials: objectList(item.socials) as ContactDraft["socials"],
-          notes: stringField(item.notes),
-          avatar: stringField(item.avatar),
-          address: item.address && typeof item.address === "object" ? item.address as ContactDraft["address"] : undefined,
-          work: objectList(item.work) as ContactDraft["work"],
-          addressBookId: resolveAddressBookId(
-            stringField(item.addressBookId) || targetAddressBookId,
-          ),
-          createdAt: stringField(item.createdAt),
-          updatedAt: stringField(item.updatedAt),
-        });
-      }
-
-      if (drafts.length > 0) {
-        return { format: "JSON", contacts: drafts, skipped: [] };
-      }
-    }
-  }
-
-  // 2. vCard check
-  if (lowerName.endsWith(".vcf") || trimmed.toUpperCase().includes("BEGIN:VCARD")) {
-    const { contacts, skipped } = importVCard(trimmed, targetAddressBookId);
-    if (contacts.length > 0) {
-      return { format: "vCard", contacts, skipped };
-    }
-  }
-
-  // 3. Fallback to CSV
-  const { contacts, skipped } = importCsvContacts(trimmed, targetAddressBookId);
-  return { format: "CSV", contacts, skipped };
 }
 
 export function generateExportData(

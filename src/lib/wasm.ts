@@ -53,6 +53,7 @@ import init, {
   core_contact_profile_parse,
   core_contact_profile_write,
   core_contact_write,
+  core_contacts_import,
   core_csv_import,
   core_ics_parse,
   core_ics_write,
@@ -206,6 +207,7 @@ import type {
   CoreContact,
   CoreContactChannel,
   CoreContactDraft,
+  CoreContactFile,
   CoreContactImport,
   CoreContactProfile,
   CoreManifestEntry,
@@ -1668,6 +1670,15 @@ export function coreIcsParse(input: string): CoreIcsImport {
 /** An RFC 5545 calendar holding the events. */
 export function coreIcsWrite(events: CoreIcsExportEvent[], calendarName: string, now: string): string {
   return core_ics_write(events, calendarName, now);
+}
+
+/** The cards in a JSON, vCard or CSV file, and the format it was read as. Throws a `Malformed` core error for a file too large or with too many cards. */
+export function coreContactsImport(
+  filename: string,
+  text: string,
+  addressBookId: string,
+): CoreContactFile {
+  return core_contacts_import(filename, text, addressBookId);
 }
 
 /** The contacts in a CSV file, as drafts for the address book unless a row names its own, and the rows left out. */
