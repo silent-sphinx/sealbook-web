@@ -53,6 +53,8 @@ import init, {
   core_contact_profile_parse,
   core_contact_profile_write,
   core_contact_write,
+  core_vcard_parse,
+  core_vcard_write,
   core_default_address_book_id,
   core_default_calendar_id,
   core_default_notebook_id,
@@ -1638,6 +1640,16 @@ export function coreContactParse(id: string, raw: string): CoreContact {
  */
 export function coreContactWrite(draft: CoreContactDraft, now: string): string {
   return core_contact_write(draft, now);
+}
+
+/** The cards in a vCard file, as drafts for the address book. */
+export function coreVcardParse(text: string, addressBookId: string): CoreContactDraft[] {
+  return core_vcard_parse(text, addressBookId);
+}
+
+/** A vCard 3.0 file holding the cards. */
+export function coreVcardWrite(contacts: CoreContactDraft[]): string {
+  return core_vcard_write(contacts);
 }
 
 /** A profile off its JSON text, for the importers. Undefined if it is not one. */

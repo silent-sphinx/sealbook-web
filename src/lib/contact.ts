@@ -22,7 +22,7 @@ import type {
   ContactWork,
 } from "./types";
 import { coreContactParse, coreContactWrite } from "./wasm";
-import type { CoreContact, CoreContactChannel } from "./wasm";
+import type { CoreContact, CoreContactChannel, CoreContactDraft } from "./wasm";
 
 export const CHANNEL_KINDS: ContactChannelKind[] = ["work", "home", "mobile", "custom"];
 
@@ -219,28 +219,50 @@ export function addressLines(address?: ContactAddress): string[] {
  * the payload does not.
  */
 export function serializeCard(draft: ContactDraft): string {
-  return coreContactWrite(
-    {
-      name: draft.derivedName !== undefined && draft.name === draft.derivedName ? "" : draft.name,
-      nickname: draft.nickname,
-      pronouns: draft.pronouns,
-      emails: draft.emails.map(channelTo),
-      phones: draft.phones.map(channelTo),
-      address: draft.address,
-      work: draft.work.map(({ organization, title, extra }) => ({ organization, title, extra })),
-      dates: draft.dates.map(({ kind, label, date, extra }) => ({ kind, label, date, extra })),
-      socials: draft.socials.map(({ platform, handle, extra }) => ({ platform, handle, extra })),
-      notes: draft.notes,
-      avatar: draft.avatar,
-      profile: draft.profile ? profileTo(draft.profile) : undefined,
-      attachments: (draft.attachments ?? []).map(attachmentTo),
-      address_book_id: draft.addressBookId,
-      archived: draft.archived === true,
-      created_at: draft.createdAt,
-      raw: draft.raw,
-    },
-    new Date().toISOString(),
-  );
+  return coreContactWrite(coreDraftOf(draft), new Date().toISOString());
+}
+
+/** This client's view model as core's draft: the editor ids go, the rest stays. */
+export function coreDraftOf(draft: ContactDraft): CoreContactDraft {
+  return {
+    name: draft.derivedName !== undefined && draft.name === draft.derivedName ? "" : draft.name,
+    nickname: draft.nickname,
+    pronouns: draft.pronouns,
+    emails: draft.emails.map(channelTo),
+    phones: draft.phones.map(channelTo),
+    address: draft.address,
+    work: draft.work.map(({ organization, title, extra }) => ({ organization, title, extra })),
+    dates: draft.dates.map(({ kind, label, date, extra }) => ({ kind, label, date, extra })),
+    socials: draft.socials.map(({ platform, handle, extra }) => ({ platform, handle, extra })),
+    notes: draft.notes,
+    avatar: draft.avatar,
+    profile: draft.profile ? profileTo(draft.profile) : undefined,
+    attachments: (draft.attachments ?? []).map(attachmentTo),
+    address_book_id: draft.addressBookId,
+    archived: draft.archived === true,
+    created_at: draft.createdAt,
+    raw: draft.raw,
+  };
+}
+
+/** Core's draft as a view model, with editor ids numbered in order. */
+export function draftOfCore(draft: CoreContactDraft): ContactDraft {
+  return {
+    name: draft.name,
+    nickname: draft.nickname,
+    pronouns: draft.pronouns,
+    emails: draft.emails.map((channel, index) => channelFrom("e", index, channel)),
+    phones: draft.phones.map((channel, index) => channelFrom("p", index, channel)),
+    address: draft.address,
+    work: draft.work.map((row, index) => ({ id: `w${index + 1}`, ...row })),
+    dates: draft.dates.map((row, index) => ({ id: `d${index + 1}`, ...row })),
+    socials: draft.socials.map((row, index) => ({ id: `s${index + 1}`, ...row })),
+    notes: draft.notes,
+    avatar: draft.avatar,
+    profile: draft.profile ? profileFrom(draft.profile) : undefined,
+    addressBookId: draft.address_book_id,
+    createdAt: draft.created_at,
+  };
 }
 
 function channelTo({ kind, label, value, extra }: ContactChannel): CoreContactChannel {
