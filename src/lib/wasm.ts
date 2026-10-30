@@ -53,6 +53,8 @@ import init, {
   core_contact_profile_parse,
   core_contact_profile_write,
   core_contact_write,
+  core_csv_parse,
+  core_csv_write,
   core_vcard_parse,
   core_vcard_write,
   core_default_address_book_id,
@@ -1640,6 +1642,16 @@ export function coreContactParse(id: string, raw: string): CoreContact {
  */
 export function coreContactWrite(draft: CoreContactDraft, now: string): string {
   return core_contact_write(draft, now);
+}
+
+/** The contacts in a CSV file, as drafts for the address book unless a row names its own. */
+export function coreCsvParse(text: string, addressBookId: string): CoreContactDraft[] {
+  return core_csv_parse(text, addressBookId);
+}
+
+/** A CSV file holding the cards, each row's book named from `books`. */
+export function coreCsvWrite(contacts: CoreContactDraft[], books: CoreAddressBook[]): string {
+  return core_csv_write(contacts, books);
 }
 
 /** The cards in a vCard file, as drafts for the address book. */

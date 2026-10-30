@@ -1,51 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseCsvContacts, parseCsvRows, serializeCsvContacts } from "./csv";
+import { parseCsvContacts, serializeCsvContacts } from "./csv";
 import { emptyDraft } from "./contact";
 import { emptyProfile } from "./contactProfile";
 
 const BOOK = "00000000-0000-0000-0000-000000000001";
-
-describe("parseCsvRows", () => {
-  it("splits a simple grid", () => {
-    expect(parseCsvRows("a,b\n1,2")).toEqual([
-      ["a", "b"],
-      ["1", "2"],
-    ]);
-  });
-
-  it("keeps commas inside quoted fields", () => {
-    expect(parseCsvRows('name,note\n"Doe, Jane",hello')).toEqual([
-      ["name", "note"],
-      ["Doe, Jane", "hello"],
-    ]);
-  });
-
-  it("unescapes doubled quotes", () => {
-    expect(parseCsvRows('a\n"She said ""hi"""')).toEqual([["a"], ['She said "hi"']]);
-  });
-
-  it("keeps newlines inside quoted fields", () => {
-    expect(parseCsvRows('a\n"line one\nline two"')).toEqual([["a"], ["line one\nline two"]]);
-  });
-
-  it("handles CRLF line endings", () => {
-    expect(parseCsvRows("a,b\r\n1,2")).toEqual([
-      ["a", "b"],
-      ["1", "2"],
-    ]);
-  });
-
-  it("preserves empty fields", () => {
-    expect(parseCsvRows("a,b,c\n1,,3")).toEqual([
-      ["a", "b", "c"],
-      ["1", "", "3"],
-    ]);
-  });
-
-  it("returns nothing for empty input", () => {
-    expect(parseCsvRows("")).toEqual([]);
-  });
-});
 
 describe("parseCsvContacts", () => {
   it("returns nothing when there is only a header row", () => {
