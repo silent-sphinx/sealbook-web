@@ -113,6 +113,7 @@ import init, {
   core_pair_join_body,
   core_pair_path,
   core_pair_preview,
+  core_pair_poll,
   core_pair_status,
   core_pin_roster,
   core_roster_accept,
@@ -226,6 +227,7 @@ import type {
   ManifestSigner,
   PairApproval,
   PairJoined,
+  PairPoll,
   PairStatus,
   PasswordChange,
   PasswordChangeStarted,
@@ -925,7 +927,7 @@ export function coreRotationEntries(
 
 // ── Core: pairing ──
 
-export type { CoreDevice, CorePairPreview, PairApproval, PairJoined, PairStatus };
+export type { CoreDevice, CorePairPreview, PairApproval, PairJoined, PairPoll, PairStatus };
 
 /** The join request body, with the enrollment signature over the new keys. */
 export function corePairJoinBody(
@@ -946,6 +948,15 @@ export function corePairJoinBody(
  */
 export function corePairJoinAccept(device: CoreDevice, body: string): PairJoined {
   return core_pair_join_accept(device, body);
+}
+
+/**
+ * What a joining device does after a poll: stop because it was approved or has
+ * expired, or ask again after the stated wait. `status` is undefined when the
+ * request got no answer.
+ */
+export function corePairPoll(status: number | undefined, body: string): PairPoll {
+  return core_pair_poll(status, body);
 }
 
 /**

@@ -43,7 +43,7 @@ import {
   pairApprove,
   pairJoin,
   pairPreview,
-  pairReady,
+  pairPoll,
   putAccountSettings,
   putAddressBook,
   putCalendar,
@@ -461,32 +461,26 @@ export default function App() {
       return;
     }
     let cancelled = false;
-    let intervalId = 0;
+    let timer = 0;
 
     const tick = async () => {
-      try {
-        const ready = await pairReady("", pairId);
-        if (!cancelled && ready) {
-          setPairApproved(true);
-        }
-      } catch (err) {
-        if (cancelled) return;
-        const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
-        if (msg.includes("expired") || msg.includes("not found")) {
-          window.clearInterval(intervalId);
-          setError(friendlyError(err));
-        }
-        // other errors are treated as transient; keep polling
+      const next = await pairPoll("", pairId);
+      if (cancelled) return;
+      if (next === "Ready") {
+        setPairApproved(true);
+      } else if (next === "Expired") {
+        setError("That pairing request expired. Start again.");
+      } else {
+        timer = window.setTimeout(() => {
+          void tick();
+        }, next.Wait.after_ms);
       }
     };
 
-    intervalId = window.setInterval(() => {
-      void tick();
-    }, 2000);
     void tick();
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
+      window.clearTimeout(timer);
     };
   }, [screen, pairId, pairApproved]);
 

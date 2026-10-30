@@ -6,14 +6,14 @@ import {
   corePairJoinBody,
   corePairPath,
   corePairPreview,
-  corePairStatus,
+  corePairPoll,
   coreNewDevice,
 } from "./wasm";
 import { pinSealedRoster, syncRoster, verifiedRosterCore } from "./roster";
 import { apiRoot, getJson, getTextStatus, postJson } from "./transport";
 import { checkProtocol, deviceFromSecrets, type Session } from "./clientCore";
 import { rotateVault } from "./clientAuth";
-import type { CoreDevice, CorePairPreview, PairStatus } from "./wasm";
+import type { CoreDevice, CorePairPreview, PairPoll } from "./wasm";
 import type { DeviceState, Roster } from "./types";
 
 /**
@@ -74,18 +74,18 @@ export async function pairJoin(
 }
 
 /**
- * Where a pairing has got to, for the joining device's poll.
+ * What a joining device does after a poll of its pairing.
  *
  * The status code matters here, not just the body: a code that has timed out is
  * a 404, so a poll that read only the body would wait on a pairing that is gone.
  */
-export async function pairStatus(server: string, pairCode: string): Promise<PairStatus> {
-  const { status, text } = await getTextStatus(`${apiRoot(server)}${corePairPath(pairCode)}`);
-  return corePairStatus(status, text);
-}
-
-export async function pairReady(server: string, pairCode: string): Promise<boolean> {
-  return (await pairStatus(server, pairCode)) === "Ready";
+export async function pairPoll(server: string, pairCode: string): Promise<PairPoll> {
+  try {
+    const { status, text } = await getTextStatus(`${apiRoot(server)}${corePairPath(pairCode)}`);
+    return corePairPoll(status, text);
+  } catch {
+    return corePairPoll(undefined, "");
+  }
 }
 
 export async function pairPreview(session: Session, pairCode: string): Promise<PairPreview> {
