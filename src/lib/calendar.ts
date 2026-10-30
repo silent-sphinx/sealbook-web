@@ -6,7 +6,7 @@ import {
   coreEventParse,
   coreEventWrite,
 } from "./wasm";
-import type { CoreCalendar, CoreCalendarEvent, CoreRecurrence } from "./wasm";
+import type { CoreCalendar, CoreCalendarEvent, CoreCalendarEventDraft, CoreRecurrence } from "./wasm";
 
 // Mirrors of the Rust constants in `sealbook-core`'s `calendars` module. They
 // stay literals here because module scope runs before `initWasm`, and
@@ -67,7 +67,12 @@ function calendarFrom(calendar: CoreCalendar): Calendar {
  * single event everywhere, which is what Android did.
  */
 export function serializeEvent(event: Omit<CalendarEvent, "id">): string {
-  return coreEventWrite({
+  return coreEventWrite(coreEventDraftOf(event));
+}
+
+/** This client's event as core's draft. */
+export function coreEventDraftOf(event: Omit<CalendarEvent, "id">): CoreCalendarEventDraft {
+  return {
     title: event.title,
     start: event.start,
     end: event.end,
@@ -79,7 +84,7 @@ export function serializeEvent(event: Omit<CalendarEvent, "id">): string {
     recurrence: event.recurrence ? recurrenceTo(event.recurrence) : undefined,
     unreadable_recurrence: event.unreadableRecurrence,
     raw: event.raw,
-  });
+  };
 }
 
 export function parseEvent(id: string, raw: string): CalendarEvent {

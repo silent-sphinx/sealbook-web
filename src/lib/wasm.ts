@@ -54,6 +54,8 @@ import init, {
   core_contact_profile_write,
   core_contact_write,
   core_csv_parse,
+  core_ics_parse,
+  core_ics_write,
   core_csv_write,
   core_vcard_parse,
   core_vcard_write,
@@ -194,6 +196,8 @@ import type {
   CoreCalendarDraft,
   CoreCalendarEvent,
   CoreCalendarEventDraft,
+  CoreIcsExportEvent,
+  CoreIcsImport,
   CoreBookmark,
   CoreBookmarkCollection,
   CoreBookmarkCollectionDraft,
@@ -1642,6 +1646,19 @@ export function coreContactParse(id: string, raw: string): CoreContact {
  */
 export function coreContactWrite(draft: CoreContactDraft, now: string): string {
   return core_contact_write(draft, now);
+}
+
+/**
+ * The events in a calendar file. A time written in a zone comes back as local
+ * wall-clock time and the zone's name, for this client to resolve.
+ */
+export function coreIcsParse(input: string): CoreIcsImport {
+  return core_ics_parse(input);
+}
+
+/** An RFC 5545 calendar holding the events. */
+export function coreIcsWrite(events: CoreIcsExportEvent[], calendarName: string, now: string): string {
+  return core_ics_write(events, calendarName, now);
 }
 
 /** The contacts in a CSV file, as drafts for the address book unless a row names its own. */
