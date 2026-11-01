@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import type { Session } from "../lib/client";
 import {
   deleteAttachment,
@@ -48,10 +48,14 @@ export function ContactAttachmentsSection({
   const [confirmingDelete, setConfirmingDelete] = useState<NoteAttachment | null>(null);
   const objectUrlsRef = useRef<Map<string, string>>(new Map());
   const currentAttachment = lightbox !== null ? attachments[lightbox.index] ?? null : null;
+  const currentId = currentAttachment?.id ?? null;
+  const currentRef = useRef(currentAttachment);
+  currentRef.current = currentAttachment;
 
   useEffect(() => {
+    const urls = objectUrlsRef.current;
     return () => {
-      for (const url of objectUrlsRef.current.values()) {
+      for (const url of urls.values()) {
         URL.revokeObjectURL(url);
       }
     };
@@ -61,8 +65,8 @@ export function ContactAttachmentsSection({
   // holding something else. A download the viewer moved past is discarded
   // rather than aborted, since `loadAttachment` is cache-first.
   useEffect(() => {
-    if (currentAttachment === null) return;
-    const attachment = currentAttachment;
+    if (currentId === null || currentRef.current === null) return;
+    const attachment = currentRef.current;
     let cancelled = false;
 
     async function loadImage() {
@@ -87,7 +91,18 @@ export function ContactAttachmentsSection({
 
     void loadImage();
     return () => { cancelled = true; };
-  }, [currentAttachment?.id, session]);
+  }, [currentId, session]);
+
+  const navigateLightbox = useCallback(
+    (delta: number) => {
+      setLightbox((l) => {
+        if (!l) return l;
+        const next = (l.index + delta + attachments.length) % attachments.length;
+        return { index: next, objectUrl: null, loading: true };
+      });
+    },
+    [attachments.length],
+  );
 
   useEffect(() => {
     if (!lightbox || confirmingDelete) return;
@@ -104,15 +119,7 @@ export function ContactAttachmentsSection({
 
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [lightbox, attachments.length, confirmingDelete]);
-
-  function navigateLightbox(delta: number) {
-    setLightbox((l) => {
-      if (!l) return l;
-      const next = (l.index + delta + attachments.length) % attachments.length;
-      return { index: next, objectUrl: null, loading: true };
-    });
-  }
+  }, [lightbox, navigateLightbox, confirmingDelete]);
 
   function openLightbox(index: number) {
     setLightbox({ index, objectUrl: null, loading: true });
@@ -284,6 +291,9 @@ export function ContactAttachmentsSection({
       />
 
       {lightbox !== null ? (
+        // Escape closes the viewer through the keydown listener above, so the
+        // backdrop click needs no keyboard handler of its own.
+        // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
         <div
           className="fixed inset-0 z-[100] flex flex-col bg-black/95"
           role="dialog"

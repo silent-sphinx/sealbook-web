@@ -130,13 +130,17 @@ describe("toggling a feature", () => {
     expect(coreSettingsWithFeature(before, c.feature, c.enabled)).toEqual(
       c.settings,
     );
+  });
+
+  const known = fixture.toggles.filter((c) =>
+    FEATURES.includes(c.feature as (typeof FEATURES)[number]),
+  );
+  it.each(known.map((c) => [c.case, c] as const))("%s, in the settings view", (_, c) => {
     const view = parseAccountSettings(c.raw);
-    if (FEATURES.includes(c.feature as (typeof FEATURES)[number])) {
-      const feature = c.feature as (typeof FEATURES)[number];
-      expect(canDisableFeature(view, feature)).toBe(c.can_disable);
-      expect(withFeature(view, feature, c.enabled).features[feature]).toBe(
-        c.settings.features.find((flag) => flag.key === c.feature)?.enabled,
-      );
-    }
+    const feature = c.feature as (typeof FEATURES)[number];
+    expect(canDisableFeature(view, feature)).toBe(c.can_disable);
+    expect(withFeature(view, feature, c.enabled).features[feature]).toBe(
+      c.settings.features.find((flag) => flag.key === c.feature)?.enabled,
+    );
   });
 });
