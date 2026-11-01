@@ -1,0 +1,19 @@
+# Fields an older release reads differently from this tree, accepted with a reason.
+# Read by scripts/compare-reader-dumps.mjs. One entry per line:
+#   release<TAB>field<TAB>case
+# The case is the fixture row's name without its "(mutant n)" suffix. Each of these
+# is the two readers disagreeing over the same bytes, not this tree writing new ones.
+
+# Keeps a later build's attachment keys in `extra`; v1.4.4 spreads them onto the row. Both keep them.
+v1.4.4	attachments	an archived card in a named address book, with a photo and attachments
+# A blank stored createdAt is carried over as written; this tree reads it as absent.
+v1.4.4	createdAt	a note under another note, in a notebook of its own
+v1.4.4	createdAt	an untitled bookmark saved unchanged stays untitled
+# Fallback names come from core's display chain; v1.4.4 said "Untitled". Display only.
+v1.4.4	name	a nameless card edited without being named
+# A custom number without a label is written bare by both; v1.4.4 reads a bare number as home.
+v1.4.4	phones	every kind of email and number
+# Unknown rule keys are carried in the stored payload but not shown; v1.4.4 shows them raw.
+v1.4.4	recurrence	a newer minor keeps its version, its keys and the keys inside its repeat rule
+# A frequency this tree cannot name reads as unreadable; v1.4.4 passes it through.
+v1.4.4	recurrence	an edit to an event whose rule this build cannot name
