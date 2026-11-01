@@ -143,3 +143,17 @@ describe("parseAccountExport", () => {
     expect(() => parseAccountExport("}{")).toThrow(new Error("This is not a JSON document."));
   });
 });
+
+describe("an export written by the v1.0.0 release", () => {
+  it("still imports every object it holds", () => {
+    const document = readFixture("v1.0.0-account-export.json");
+    const written = JSON.parse(document) as {
+      objects: { id: string; contentType: string }[];
+    };
+    const { objects } = parseAccountExport(document);
+
+    expect(objects.map((o) => [o.id, o.contentType])).toEqual(
+      written.objects.map((o) => [o.id, o.contentType]),
+    );
+  });
+});
