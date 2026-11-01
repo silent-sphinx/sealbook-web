@@ -66,6 +66,8 @@ export default defineConfig({
       },
       workbox: {
         cleanupOutdatedCaches: true,
+        // The wasm core is past workbox's 2 MiB default, and the app cannot start offline without it.
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         navigateFallbackDenylist: [/^\/v1\//, /^\/health$/],
       },
     }),
