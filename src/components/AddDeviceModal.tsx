@@ -1,4 +1,4 @@
-import { useRef, type FormEvent, type KeyboardEvent, type ClipboardEvent } from "react";
+import { useId, useRef, type FormEvent, type KeyboardEvent, type ClipboardEvent } from "react";
 import { Modal } from "./Modal";
 import { confirmationGroups } from "../lib/pairing";
 
@@ -26,6 +26,7 @@ export function AddDeviceModal({
   onClose,
 }: Props) {
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const codeLabelId = useId();
 
   const rawWords = addCode.split(" ");
   const words = Array.from({ length: WORD_COUNT }, (_, i) => rawWords[i] ?? "");
@@ -132,7 +133,7 @@ export function AddDeviceModal({
 
             <div className="mt-6">
               <div className="flex items-center justify-between mb-3">
-                <label className="text-sm font-medium text-text">Pairing code</label>
+                <span id={codeLabelId} className="text-sm font-medium text-text">Pairing code</span>
                 <button
                   type="button"
                   onClick={handleClipboardPaste}
@@ -145,13 +146,14 @@ export function AddDeviceModal({
                   Paste from clipboard
                 </button>
               </div>
-              <div className="grid grid-cols-4 gap-2">
+              <div role="group" aria-labelledby={codeLabelId} className="grid grid-cols-4 gap-2">
                 {words.map((word, i) => (
                   <div key={i} className="flex flex-col gap-1">
                     <span className="text-[10px] font-medium text-mute/60 text-center select-none">{i + 1}</span>
                     <input
                       ref={(el) => { inputRefs.current[i] = el; }}
                       type="text"
+                      aria-label={`Word ${i + 1}`}
                       value={word}
                       onChange={(e) => handleChange(i, e.target.value)}
                       onKeyDown={(e) => handleKeyDown(i, e)}

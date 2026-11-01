@@ -23,8 +23,7 @@ const key = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 
 describe("recurrence against the shared fixture", () => {
-  for (const item of fixture.cases) {
-    it(item.name, () => {
+  it.each(fixture.cases)("$name", (item) => {
       const rule = recurrenceFrom(item.rule);
       const event = {
         id: "e",
@@ -45,8 +44,7 @@ describe("recurrence against the shared fixture", () => {
         new Date(`${item.after}T00:00`),
       );
       expect(next ? key(next) : null).toBe(item.next);
-    });
-  }
+  });
 
   it("agrees on which texts are days", () => {
     for (const item of fixture.calendar_days)

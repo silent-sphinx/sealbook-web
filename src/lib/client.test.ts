@@ -2259,7 +2259,7 @@ function attachmentServer() {
     if (method === "DELETE") {
       committed.delete(attachmentId);
       created.delete(attachmentId);
-      for (const key of [...chunks.keys()]) {
+      for (const key of Array.from(chunks.keys())) {
         if (key.startsWith(`${attachmentId}/`)) chunks.delete(key);
       }
       const row = extraRows.findIndex((r) => r.attachment_id === attachmentId);
@@ -2271,7 +2271,7 @@ function attachmentServer() {
       const index = Number(parts[parts.length - 1]);
       const key = `${attachmentId}/${index}`;
       if (method === "PUT") {
-        const nonce = (options?.headers as Record<string, string>)["x-sealbook-nonce"];
+        const nonce = ((options?.headers ?? {}) as Record<string, string>)["x-sealbook-nonce"];
         if (options?.body) putBodies.push(options.body);
         const body = new Uint8Array(options?.body as ArrayBuffer | Uint8Array);
         chunks.set(key, { nonce, body });

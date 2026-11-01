@@ -70,11 +70,11 @@ describe("the shared account export fixture", () => {
     );
   });
 
-  it.each(fixture.reads)("reads: $name", (c) => {
-    if (c.error !== null) {
-      expect(() => parseAccountExport(c.document)).toThrow(c.error);
-      return;
-    }
+  it.each(fixture.reads.filter((c) => c.error !== null))("reads: $name", (c) => {
+    expect(() => parseAccountExport(c.document)).toThrow(c.error as string);
+  });
+
+  it.each(fixture.reads.filter((c) => c.error === null))("reads: $name", (c) => {
     expect(coreAccountExportParse(c.document)).toEqual(c.imported);
   });
 

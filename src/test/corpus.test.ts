@@ -72,7 +72,7 @@ for (const { file, tables } of corpus.fixtures) {
     const run = operations[op];
     describe(`${file} ${table}`, () => {
       it("names an operation this host has", () => {
-        expect(run, op).toBeDefined();
+        expect(Object.keys(operations)).toContain(op);
       });
 
       const rows = fixture[table] as Record<string, unknown>[];

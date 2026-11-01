@@ -116,9 +116,9 @@ function EventSearch({
         ) : null}
       </div>
       {open && results.length > 0 ? (
-        <ul role="listbox" className="absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-xl border border-line bg-bg shadow-lg sm:w-80">
+        <div role="listbox" className="absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-xl border border-line bg-bg shadow-lg sm:w-80">
           {results.map((result, i) => (
-            <li
+            <div
               key={`${result.event.id}-${result.date.toISOString()}`}
               role="option"
               aria-selected={i === cursor}
@@ -128,9 +128,9 @@ function EventSearch({
               <span className="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: result.color }} />
               <span className="min-w-0 flex-1 truncate font-medium">{result.event.title || UNTITLED_EVENT_TITLE}</span>
               <span className="shrink-0 text-[11px] text-mute">{result.dateLabel}</span>
-            </li>
+            </div>
           ))}
-        </ul>
+        </div>
       ) : open && query.trim() ? (
         <div className="absolute right-0 top-full z-50 mt-1 w-72 rounded-xl border border-line bg-bg px-3 py-2.5 text-xs text-mute shadow-lg sm:w-80">
           No events match &ldquo;{query.trim()}&rdquo;
@@ -951,9 +951,9 @@ function ParticipantPicker({
           />
         </div>
         {open && suggestions.length > 0 ? (
-          <ul role="listbox" className="absolute left-0 top-full z-50 mt-1 w-full overflow-hidden rounded-xl border border-line bg-bg shadow-lg">
+          <div role="listbox" className="absolute left-0 top-full z-50 mt-1 w-full overflow-hidden rounded-xl border border-line bg-bg shadow-lg">
             {suggestions.map((contact, i) => (
-              <li
+              <div
                 key={contact.id}
                 role="option"
                 aria-selected={i === cursor}
@@ -962,9 +962,9 @@ function ParticipantPicker({
               >
                 <span className="min-w-0 flex-1 truncate font-medium text-text">{contact.name}</span>
                 {contact.email ? <span className="shrink-0 text-mute">{contact.email}</span> : null}
-              </li>
+              </div>
             ))}
-          </ul>
+          </div>
         ) : null}
       </div>
     </div>

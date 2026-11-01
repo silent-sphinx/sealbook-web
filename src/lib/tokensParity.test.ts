@@ -19,10 +19,8 @@ function declared(name: string): string | undefined {
 }
 
 describe("shared design tokens", () => {
-  it("index.css declares each colour the fixture names", () => {
-    for (const [name, value] of Object.entries(tokens.colors)) {
-      expect(declared(`color-${name.replace("_", "-")}`), name).toBe(value);
-    }
+  it.each(Object.entries(tokens.colors))("index.css declares the colour %s", (name, value) => {
+    expect(declared(`color-${name.replace("_", "-")}`)).toBe(value);
   });
 
   it("the accent table matches", () => {
