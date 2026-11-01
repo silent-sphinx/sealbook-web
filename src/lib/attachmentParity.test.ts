@@ -112,7 +112,7 @@ function planOf(size: number): AttachmentPlan {
     key: fixture.key,
     chunk_size: fixture.limits.chunk_size,
     chunk_count: Math.ceil(size / fixture.limits.chunk_size),
-    total_plaintext_size: BigInt(size),
+    total_plaintext_size: size,
   } as AttachmentPlan;
 }
 
@@ -235,7 +235,7 @@ describe("attachment rounds", () => {
 describe("attachment hashing", () => {
   it("produces the chunk digests the fixture pins", () => {
     for (const entry of fixture.digests) {
-      expect(coreAttachmentChunkDigest(b64ToByteArray(entry.plaintext_b64))).toBe(entry.digest);
+      expect(coreAttachmentChunkDigest(Uint8Array.from(b64ToByteArray(entry.plaintext_b64)))).toBe(entry.digest);
     }
   });
 
@@ -275,7 +275,7 @@ describe("attachment chunks", () => {
       sealed.index,
       sealed.chunk_count,
       sealed.nonce,
-      b64ToByteArray(sealed.ciphertext_b64),
+      Uint8Array.from(b64ToByteArray(sealed.ciphertext_b64)),
     );
     expect(b64encode(opened)).toBe(sealed.plaintext_b64);
   });
@@ -284,7 +284,7 @@ describe("attachment chunks", () => {
    * what makes all four fail rather than decrypt to the wrong thing. */
   it("does not open a chunk in another position or under another attachment", () => {
     const sealed = fixture.sealed_chunk;
-    const ciphertext = b64ToByteArray(sealed.ciphertext_b64);
+    const ciphertext = Uint8Array.from(b64ToByteArray(sealed.ciphertext_b64));
     const open = (attachment: string, collection: string, index: number, count: number) =>
       refusalOf(() =>
         coreOpenAttachmentChunk(
