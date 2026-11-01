@@ -102,10 +102,26 @@ jobs:
         with:
           path: sealbook-web
 
+      # The extension branch of the same name, so v2 web is checked against v2 Firefox.
+      - name: Pick the extension branch
+        id: ext
+        working-directory: .
+        env:
+          TOKEN: ${{ secrets.SEALBOOK_REPO_TOKEN }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          url="https://x-access-token:${TOKEN}@github.com/silent-sphinx/sealbook-firefox"
+          if git ls-remote --exit-code --heads "$url" "$BRANCH" >/dev/null; then
+            echo "ref=$BRANCH" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
         with:
           repository: silent-sphinx/sealbook-firefox
           path: sealbook-firefox
+          ref: ${{ steps.ext.outputs.ref }}
           token: ${{ secrets.SEALBOOK_REPO_TOKEN }}
 
       - name: Read the sealbook pin
