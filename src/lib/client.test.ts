@@ -8,7 +8,6 @@ import {
   exportVault,
   importBatches,
   importVault,
-  paddedLength,
   listVault,
   apiRoot,
   normalizeServer,
@@ -1130,22 +1129,6 @@ describe("exportVault", () => {
   });
 });
 
-describe("the padded length a batch is sized by", () => {
-  /// The same cases `padding_above_the_bucket_table_is_a_power_of_two` pins in
-  /// `sealbook-crypto`. If these drift, a batch is sized against the wrong
-  /// numbers and the request limit is the thing that discovers it.
-  it("matches the buckets the Rust padding uses", () => {
-    expect(paddedLength(1)).toBe(256);
-    expect(paddedLength(0)).toBe(256);
-    expect(paddedLength(600 * 1024)).toBe(1024 * 1024);
-    expect(paddedLength(3 * 1024 * 1024)).toBe(4 * 1024 * 1024);
-    expect(paddedLength(5 * 1024 * 1024)).toBe(8 * 1024 * 1024);
-    // The bucket edges: four bytes of length prefix go in front of the payload.
-    expect(paddedLength(252)).toBe(256);
-    expect(paddedLength(253)).toBe(512);
-  });
-});
-
 describe("importBatches", () => {
   const sized = (bytes: number) => ({
     id: newUuid(),
@@ -1163,13 +1146,9 @@ describe("importBatches", () => {
   /// server's body limit, and a vault of large notes could not be imported.
   it("bounds a batch of large objects by the bytes", () => {
     const objects = Array.from({ length: 20 }, () => sized(1024 * 1024));
+    // Each pads to 2 MiB, so four fill the 8 MiB a batch may carry.
     const batches = importBatches(objects);
-    expect(batches.length).toBeGreaterThan(1);
-    for (const batch of batches) {
-      const bytes = batch.reduce((sum, object) => sum + paddedLength(object.payload.length), 0);
-      expect(bytes).toBeLessThanOrEqual(8 * 1024 * 1024);
-    }
-    expect(batches.flat()).toHaveLength(objects.length);
+    expect(batches.map((batch) => batch.length)).toEqual([4, 4, 4, 4, 4]);
   });
 
   it("sends an object larger than the whole budget on its own", () => {

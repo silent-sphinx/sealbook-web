@@ -1,4 +1,4 @@
-export { importBatches, paddedLength } from "./vaultImport";
+export { importBatches } from "./vaultImport";
 export {
   ApiError,
   REQUEST_TIMEOUT_MS,

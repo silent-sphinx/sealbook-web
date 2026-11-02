@@ -76,6 +76,7 @@ import init, {
   core_event_parse,
   core_is_calendar_day,
   core_payload_kind,
+  core_write_batches,
   core_account_export_filename,
   core_account_export_parse,
   core_account_export_write,
@@ -1711,6 +1712,11 @@ export function corePayloadKind(
   raw: string,
 ): CorePayloadKind {
   return core_payload_kind(contentType, raw);
+}
+
+/** How many objects each consecutive batch write takes, for payloads of these UTF-8 byte lengths. */
+export function coreWriteBatches(payloadLengths: number[]): number[] {
+  return Array.from(core_write_batches(Uint32Array.from(payloadLengths)));
 }
 
 /** Whether the text is a real calendar day; `Date.parse` accepts `2026-02-30`. */
