@@ -52,7 +52,7 @@ jobs:
       - name: No host logic that belongs in core
         run: ../sealbook/scripts/check-host-boundaries.sh --strict src
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           toolchain: stable
           target: wasm32-unknown-unknown
@@ -146,7 +146,7 @@ jobs:
           echo "::error::the sealbook pin is on none of main, v2 or release-1"
           exit 1
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           toolchain: stable
           target: wasm32-unknown-unknown
