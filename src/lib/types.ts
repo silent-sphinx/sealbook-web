@@ -322,7 +322,11 @@ export type RecurrenceRule = {
   nthWeekday?: {
     ordinal: 1 | 2 | 3 | 4 | 5;
     weekday: number;
+    /** Keys of the stored entry this build does not write, as JSON. */
+    extra?: string;
   };
+  /** Keys of the stored rule this build does not write, as JSON. */
+  extra?: string;
 };
 
 export type Calendar = {

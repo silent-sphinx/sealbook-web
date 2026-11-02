@@ -221,6 +221,10 @@ export function CalendarView({
   const [repeatEnd, setRepeatEnd] = useState<RepeatEnd>("never");
   const [repeatCount, setRepeatCount] = useState(DEFAULT_REPEAT_COUNT);
   const [repeatUntil, setRepeatUntil] = useState("");
+  // A stored rule is written back as it is unless the repeat controls or the
+  // start day change, since the controls cannot show every rule.
+  const [repeatTouched, setRepeatTouched] = useState(false);
+  const [openedDay, setOpenedDay] = useState("");
   const [deletingCalendar, setDeletingCalendar] = useState(false);
   const [confirmDeleteCalendar, setConfirmDeleteCalendar] = useState(false);
   const [confirmPurgeEvents, setConfirmPurgeEvents] = useState(false);
@@ -470,6 +474,7 @@ export function CalendarView({
     setRepeatEnd("never");
     setRepeatCount(DEFAULT_REPEAT_COUNT);
     setRepeatUntil("");
+    setRepeatTouched(false);
     setError(null);
     setComposer(true);
   }
@@ -477,7 +482,10 @@ export function CalendarView({
   function openEditTask(event: CalendarEvent) {
     setEditingEvent(event);
     setTitle(event.title);
-    setStart(event.start.includes("T") ? utcToLocalInput(event.start, event.timezone ?? timezone) : event.start);
+    const openedStart = event.start.includes("T") ? utcToLocalInput(event.start, event.timezone ?? timezone) : event.start;
+    setStart(openedStart);
+    setOpenedDay(openedStart.slice(0, 10));
+    setRepeatTouched(false);
     setEnd(event.end?.includes("T") ? utcToLocalInput(event.end, event.timezone ?? timezone) : event.end ?? "");
     setAllDay(!event.start.includes("T"));
     setNotes(event.notes ?? "");
@@ -527,6 +535,13 @@ export function CalendarView({
     setError(null);
   }
 
+  function touched<T>(set: (value: T) => void): (value: T) => void {
+    return (value) => {
+      setRepeatTouched(true);
+      set(value);
+    };
+  }
+
   function updateStart(nextStart: string) {
     setEnd((currentEnd) => shiftEndWithStart(start, currentEnd, nextStart, allDay));
     setStart(nextStart);
@@ -552,7 +567,8 @@ export function CalendarView({
       // Both guards keep "On a date" from falling back to repeating forever: a
       // missing date, and one before the first occurrence, which would instead
       // hide the event entirely.
-      if (pattern && repeatEnd === "date") {
+      const kept = !repeatTouched && day === openedDay ? editingEvent?.recurrence : undefined;
+      if (!kept && pattern && repeatEnd === "date") {
         if (!repeatUntil) {
           setError("Choose the last date the event should repeat on.");
           return;
@@ -562,10 +578,11 @@ export function CalendarView({
           return;
         }
       }
-      const recurrence: RecurrenceRule | undefined = !pattern ? undefined
-        : repeatEnd === "count" ? { ...pattern, count: Math.max(1, Math.round(repeatCount) || 1) }
-          : repeatEnd === "date" ? { ...pattern, until: repeatUntil }
-            : pattern;
+      const recurrence: RecurrenceRule | undefined = kept ? kept
+        : !pattern ? undefined
+          : repeatEnd === "count" ? { ...pattern, count: Math.max(1, Math.round(repeatCount) || 1) }
+            : repeatEnd === "date" ? { ...pattern, until: repeatUntil }
+              : pattern;
       setSaving(true);
       await putCalendarEvent(
         session,
@@ -794,7 +811,7 @@ export function CalendarView({
         </section>
       </div>
 
-      {composer ? <TaskDialog editing={editingEvent !== null} title={title} start={start} end={end} notes={notes} location={location} participants={participants} contacts={contacts} allDay={allDay} calendarId={eventCalendarId} calendars={composerCalendars} repeatChoice={repeatChoice} customFrequency={customFrequency} customInterval={customInterval} repeatEnd={repeatEnd} repeatCount={repeatCount} repeatUntil={repeatUntil} minRepeatUntil={start.slice(0, 10)} busy={busy} saving={saving} removing={removingEvent} error={error} onClose={() => { if (!saving && !removingEvent) closeTaskDialog(); }} onSave={() => void saveEvent()} onDelete={editingEvent ? () => void removeEvent() : undefined} onTitleChange={setTitle} onStartChange={updateStart} onEndChange={setEnd} onNotesChange={setNotes} onLocationChange={setLocation} onParticipantsChange={setParticipants} onAllDayChange={setAllDay} onCalendarChange={setEventCalendarId} onRepeatChange={setRepeatChoice} onCustomFrequencyChange={setCustomFrequency} onCustomIntervalChange={setCustomInterval} onRepeatEndChange={setRepeatEnd} onRepeatCountChange={setRepeatCount} onRepeatUntilChange={setRepeatUntil} /> : null}
+      {composer ? <TaskDialog editing={editingEvent !== null} title={title} start={start} end={end} notes={notes} location={location} participants={participants} contacts={contacts} allDay={allDay} calendarId={eventCalendarId} calendars={composerCalendars} repeatChoice={repeatChoice} customFrequency={customFrequency} customInterval={customInterval} repeatEnd={repeatEnd} repeatCount={repeatCount} repeatUntil={repeatUntil} minRepeatUntil={start.slice(0, 10)} busy={busy} saving={saving} removing={removingEvent} error={error} onClose={() => { if (!saving && !removingEvent) closeTaskDialog(); }} onSave={() => void saveEvent()} onDelete={editingEvent ? () => void removeEvent() : undefined} onTitleChange={setTitle} onStartChange={updateStart} onEndChange={setEnd} onNotesChange={setNotes} onLocationChange={setLocation} onParticipantsChange={setParticipants} onAllDayChange={setAllDay} onCalendarChange={setEventCalendarId} onRepeatChange={touched(setRepeatChoice)} onCustomFrequencyChange={touched(setCustomFrequency)} onCustomIntervalChange={touched(setCustomInterval)} onRepeatEndChange={touched(setRepeatEnd)} onRepeatCountChange={touched(setRepeatCount)} onRepeatUntilChange={touched(setRepeatUntil)} /> : null}
       {calendarComposer ? <CalendarDialog editing={editingCalendar !== null} name={calendarName} color={calendarColor} busy={busy || purgingEvents} saving={saving} error={error} eventCount={editingCalendar ? events.filter((event) => event.calendarId === editingCalendar.id).length : 0} onClose={() => { if (saving) return; setCalendarComposer(false); setEditingCalendar(null); }} onSave={() => void saveCalendar()} onDelete={editingCalendar && editingCalendar.id !== DEFAULT_CALENDAR_ID ? () => setConfirmDeleteCalendar(true) : undefined} onPurge={editingCalendar ? () => setConfirmPurgeEvents(true) : undefined} onNameChange={setCalendarName} onColorChange={setCalendarColor} /> : null}
       {confirmDeleteCalendar && editingCalendar ? (
         <ConfirmDialog
