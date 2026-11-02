@@ -1,0 +1,85 @@
+name: Nightly fuzz
+
+# Regenerates sealbook's fuzz corpus (payloads/fuzz.json: near-valid payloads,
+# drafts and sealed rows) from a new seed, with the pinned core's own outputs as
+# the expected values, and runs this host's corpus suite over it. A failure is a
+# difference between core and this host's binding of it; the seed in the log
+# reproduces the fixture, and the failing rows go into the committed corpus.
+#
+# SEALBOOK_REPO_TOKEN is the same token ci.yml uses.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "Fuzz seed; empty uses today's date"
+        required: false
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sealbook-web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: sealbook-web
+
+      - name: Read the sealbook pin
+        id: pin
+        run: echo "sha=$(grep -v '^[[:space:]]*#' sealbook.pin | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: silent-sphinx/sealbook
+          path: sealbook
+          ref: ${{ steps.pin.outputs.sha }}
+          token: ${{ secrets.SEALBOOK_REPO_TOKEN }}
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+          cache-workspaces: sealbook
+
+      - name: Pick the seed
+        id: seed
+        env:
+          INPUT: ${{ inputs.seed }}
+        run: echo "seed=${INPUT:-$(date -u +%Y%m%d)}" >> "$GITHUB_OUTPUT"
+
+      - name: Regenerate the fuzz corpus
+        working-directory: sealbook
+        env:
+          FUZZ_SEED: ${{ steps.seed.outputs.seed }}
+        run: cargo test -p sealbook-core --test corpus -- --ignored regenerate_the_fuzz_fixture
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: sealbook-web/package-lock.json
+
+      - run: npm ci
+
+      - name: Build the WebAssembly package
+        run: npm run wasm
+
+      - name: Run the corpus
+        run: npx vitest run src/test/corpus.test.ts
+
+      - name: Say how to reproduce
+        if: failure()
+        run: echo "::error::fuzz seed ${{ steps.seed.outputs.seed }}; reproduce with FUZZ_SEED=${{ steps.seed.outputs.seed }} cargo test -p sealbook-core --test corpus -- --ignored regenerate_the_fuzz_fixture"
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-${{ steps.seed.outputs.seed }}
+          path: sealbook/crates/sealbook-protocol/fixtures/payloads/fuzz.json

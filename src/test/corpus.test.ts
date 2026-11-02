@@ -20,6 +20,7 @@ import {
   coreNotebookParse,
   coreNotebookTone,
   coreNotebookWrite,
+  coreOpenRow,
   coreSettingsParse,
   coreSettingsWrite,
   coreTaskListParse,
@@ -36,6 +37,7 @@ type Corpus = { fixtures: { file: string; tables: Table[] }[] };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const operations: Record<string, (args: any[]) => unknown> = {
+  "sealed.open_row": ([key, collectionId, row]) => coreOpenRow(key, collectionId, row),
   "task.write": ([draft, now]) => coreTaskWrite(draft, now),
   "task.parse": ([id, raw]) => coreTaskParse(id, raw),
   "task.normalize_due": ([value]) => coreNormalizeDueDate(value),
