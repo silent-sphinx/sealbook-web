@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_TASK_LIST_ID, parseTask, parseTaskList, serializeTask, serializeTaskList } from "./task";
-import { generateTaskExportData, importOrder, parseTaskImport } from "./taskExport";
+import { generateTaskExportData, parseTaskImport } from "./taskExport";
 import type { TaskDraft } from "./types";
 
 const lists = [
@@ -89,34 +89,34 @@ describe("parseTaskImport", () => {
   it("refuses a document that is neither an export nor an array", () => {
     expect(() => parseTaskImport('{"title":"a"}')).toThrow(/Unrecognised format/);
     expect(() => parseTaskImport("7")).toThrow(/Unrecognised format/);
-    expect(() => parseTaskImport("not json")).toThrow(/JSON|token/i);
+    expect(() => parseTaskImport("not json")).toThrow(/Unrecognised format/);
   });
 });
 
-describe("importOrder", () => {
-  const entry = (sourceId: string, parentId?: string) => ({
-    sourceId,
-    draft: { title: sourceId, taskListId: DEFAULT_TASK_LIST_ID, parentId } as TaskDraft,
-  });
+describe("import order", () => {
+  const ordered = (entries: [string, string?][]) =>
+    parseTaskImport(
+      JSON.stringify(entries.map(([id, parentId]) => ({ id, title: id, ...(parentId ? { parentId } : {}) }))),
+    ).tasks;
 
   it("puts every parent before its subtasks, whatever order the file has", () => {
-    const ordered = importOrder([entry("leaf", "mid"), entry("mid", "top"), entry("top")]);
-    expect(ordered.map((task) => task.sourceId)).toEqual(["top", "mid", "leaf"]);
+    const tasks = ordered([["leaf", "mid"], ["mid", "top"], ["top"]]);
+    expect(tasks.map((task) => task.sourceId)).toEqual(["top", "mid", "leaf"]);
   });
 
   it("leaves a task at the top level when its parent is not in the file", () => {
-    const [only] = importOrder([entry("a", "missing")]);
+    const [only] = ordered([["a", "missing"]]);
     expect(only!.draft.parentId).toBeUndefined();
   });
 
   it("breaks a cycle instead of looping", () => {
-    const ordered = importOrder([entry("a", "b"), entry("b", "a")]);
-    expect(ordered).toHaveLength(2);
-    expect(ordered.filter((task) => task.draft.parentId === undefined)).toHaveLength(1);
+    const tasks = ordered([["a", "b"], ["b", "a"]]);
+    expect(tasks).toHaveLength(2);
+    expect(tasks.filter((task) => task.draft.parentId === undefined)).toHaveLength(1);
   });
 
   it("does not let a task be its own parent", () => {
-    const [only] = importOrder([entry("a", "a")]);
+    const [only] = ordered([["a", "a"]]);
     expect(only!.draft.parentId).toBeUndefined();
   });
 });

@@ -30,7 +30,19 @@ import init, {
   core_default_task_list_id,
   core_normalize_due_date,
   core_resolve_task_list_id,
+  core_order_tasks,
+  core_task_can_move,
+  core_task_complete,
+  core_task_export,
+  core_task_import,
   core_task_keys,
+  core_task_list_can_move,
+  core_task_list_move_plan,
+  core_task_list_remove_plan,
+  core_task_move_plan,
+  core_task_relist_plan,
+  core_task_remove_plan,
+  core_task_reopen,
   core_task_list_keys,
   core_task_list_name_by_id,
   core_task_list_parse,
@@ -228,9 +240,14 @@ import type {
   CoreNoteDraft,
   CoreNotebook,
   CoreTask,
+  CoreTaskClock,
+  CoreTaskCompletion,
   CoreTaskDraft,
+  CoreTaskImport,
   CoreTaskList,
   CoreTaskListDraft,
+  CoreTaskOrderItem,
+  CoreTaskPlan,
   CoreAccountSettings,
   CoreAccountSettingsDraft,
   CoreFeatureFlag,
@@ -1992,7 +2009,17 @@ export function coreBookmarkCollectionTone(
   return core_bookmark_collection_tone(collections, id);
 }
 
-export type { CoreTask, CoreTaskDraft, CoreTaskList, CoreTaskListDraft };
+export type {
+  CoreTask,
+  CoreTaskClock,
+  CoreTaskCompletion,
+  CoreTaskDraft,
+  CoreTaskImport,
+  CoreTaskList,
+  CoreTaskListDraft,
+  CoreTaskOrderItem,
+  CoreTaskPlan,
+};
 
 /** Every key a task writer owns, and every key a task list writer owns. */
 export function coreTaskKeys(): string[] {
@@ -2046,6 +2073,77 @@ export function coreTaskListNameById(
 
 export function coreTaskListTone(lists: CoreTaskList[], id: string): string {
   return core_task_list_tone(lists, id);
+}
+
+export function coreTaskCanMove(tasks: CoreTask[], id: string, parentId?: string): boolean {
+  return core_task_can_move(tasks, id, parentId);
+}
+
+/** Whether a list may move under `parentId`. The default list stays at the top. */
+export function coreTaskListCanMove(
+  lists: CoreTaskList[],
+  id: string,
+  parentId?: string,
+): boolean {
+  return core_task_list_can_move(lists, id, parentId);
+}
+
+export function coreTaskReopen(task: CoreTask): CoreTaskDraft {
+  return core_task_reopen(task);
+}
+
+/**
+ * Ticks a task. A recurring one rolls on and reopens its done subtasks; a
+ * rolled timed one comes back with `local_due` for the caller to store as UTC.
+ */
+export function coreTaskComplete(
+  task: CoreTask,
+  tasks: CoreTask[],
+  clock: CoreTaskClock,
+): CoreTaskCompletion {
+  return core_task_complete(task, tasks, clock);
+}
+
+export function coreTaskRemovePlan(tasks: CoreTask[], id: string): CoreTaskPlan {
+  return core_task_remove_plan(tasks, id);
+}
+
+export function coreTaskMovePlan(tasks: CoreTask[], id: string, parentId?: string): CoreTaskPlan {
+  return core_task_move_plan(tasks, id, parentId);
+}
+
+export function coreTaskRelistPlan(tasks: CoreTask[], id: string, taskListId: string): CoreTaskPlan {
+  return core_task_relist_plan(tasks, id, taskListId);
+}
+
+export function coreTaskListMovePlan(
+  lists: CoreTaskList[],
+  id: string,
+  parentId?: string,
+): CoreTaskPlan {
+  return core_task_list_move_plan(lists, id, parentId);
+}
+
+export function coreTaskListRemovePlan(
+  lists: CoreTaskList[],
+  tasks: CoreTask[],
+  id: string,
+): CoreTaskPlan {
+  return core_task_list_remove_plan(lists, tasks, id);
+}
+
+/** Ids in list order: open, then soonest due, then highest priority, then title. */
+export function coreOrderTasks(items: CoreTaskOrderItem[]): string[] {
+  return [...core_order_tasks(items)];
+}
+
+export function coreTaskExport(tasks: CoreTask[], lists: CoreTaskList[], now: string): string {
+  return core_task_export(tasks, lists, now);
+}
+
+/** The tasks in an export file, parents first. Throws `Malformed` with a sentence. */
+export function coreTaskImport(text: string): CoreTaskImport {
+  return core_task_import(text);
 }
 
 export type { CoreAccountSettings, CoreAccountSettingsDraft, CoreFeatureFlag };

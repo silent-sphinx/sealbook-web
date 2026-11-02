@@ -1,7 +1,8 @@
-import { resolveTaskListId, sortTasks } from "./task";
-import { ancestorsOf as treeAncestors, buildTree, canReparent as treeCanReparent, subtree } from "./tree";
+import { resolveTaskListId, sortTasks, taskTo } from "./task";
+import { ancestorsOf as treeAncestors, buildTree, subtree } from "./tree";
 import type { TreeNode } from "./tree";
 import type { Task } from "./types";
+import { coreTaskCanMove } from "./wasm";
 
 export type TaskTreeNode = {
   task: Task;
@@ -29,7 +30,7 @@ export function taskSubtree(tasks: Task[], id: string): string[] {
 }
 
 export function canReparentTask(tasks: Task[], id: string, parentId: string | null): boolean {
-  return treeCanReparent(tasks, id, parentId);
+  return coreTaskCanMove(tasks.map(taskTo), id, parentId ?? undefined);
 }
 
 export function flattenTaskTree(nodes: TaskTreeNode[]): TaskTreeNode[] {

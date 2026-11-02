@@ -135,7 +135,7 @@ describe("importing tasks", () => {
   it("reports a file that is not JSON", async () => {
     mount();
     choose("not json at all");
-    expect((await screen.findByRole("alert")).textContent).toBe("That file is not valid JSON.");
+    expect((await screen.findByRole("alert")).textContent).toMatch(/^Unrecognised format/);
   });
 
   it("reports a file with nothing usable in it", async () => {
