@@ -9,6 +9,11 @@ name: Nightly fuzz
 # SEALBOOK_REPO_TOKEN is the same token ci.yml uses.
 
 on:
+  # A change to this file runs it once, since a schedule and a manual run only
+  # start from the default branch.
+  push:
+    paths:
+      - .github/workflows/fuzz.yml
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
