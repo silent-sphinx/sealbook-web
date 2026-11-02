@@ -14,11 +14,25 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 tag="${1:-$(git -C "$here" tag --sort=-v:refname | head -n 1)}"
 fixtures="$(cd "$here/../sealbook/crates/sealbook-protocol/fixtures" && pwd)"
 work="$(mktemp -d)"
-trap 'git -C "$here" worktree remove --force "$work/older" >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
+sealbook="$(cd "$here/../sealbook" && pwd)"
+cleanup() {
+  git -C "$here" worktree remove --force "$work/older" >/dev/null 2>&1 || true
+  git -C "$sealbook" worktree remove --force "$work/sealbook" >/dev/null 2>&1 || true
+  rm -rf "$work"
+}
+trap cleanup EXIT
 
 git -C "$here" worktree add --detach "$work/older" "$tag" >/dev/null
 ln -s "$here/node_modules" "$work/older/node_modules"
 cp "$here/src/test/readerDump.test.ts" "$work/older/src/test/"
+
+# A release with a sealbook pin reads through core, so its wasm package is built
+# from the pinned commit, which its build script finds at ../sealbook.
+if [[ -f "$work/older/sealbook.pin" ]]; then
+  pin="$(grep -v '^[[:space:]]*#' "$work/older/sealbook.pin" | tr -d '[:space:]')"
+  git -C "$sealbook" worktree add --detach "$work/sealbook" "$pin" >/dev/null
+  bash "$work/older/scripts/build-wasm.sh" >/dev/null 2>&1
+fi
 
 dump() {
   (cd "$1" && READER_DUMP="$2" SEALBOOK_FIXTURES="$fixtures" \
