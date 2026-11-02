@@ -7,6 +7,13 @@ import type {
 } from "./wire.gen";
 
 export type { ManifestBody, ManifestEntry, RotatedObject } from "./wire.gen";
+export type {
+  DeviceOut,
+  EncryptedOut,
+  Enrollment,
+  OpaqueStart,
+  OpenedObject,
+} from "../pkg/sealbook_wasm.js";
 export type Roster = RosterBody;
 export type DevicePublic = DevicePublicKeys;
 export type DualSignature = DualSignatureBody;
@@ -560,66 +567,3 @@ export type TaskList = {
  * calendar exists. Keep the two in step by hand if the accent ever changes.
  */
 export const DEFAULT_CALENDAR_COLOR = "#7aa2f7";
-
-export type OpaqueStart = {
-  request: string;
-  state: string;
-};
-
-export type Enrollment = {
-  device_id: string;
-  hpke_sk: string;
-  hpke_pk: string;
-  mldsa_seed: string;
-  mldsa_pk: string;
-  ed25519_sk: string;
-  ed25519_pk: string;
-  kdf_salt: string;
-  collection_key: string;
-  enrollment_mldsa: string;
-  enrollment_ed25519: string;
-  device_enc: string;
-  device_wrapped_ck: string;
-  recovery_nonce: string;
-  recovery_wrapped_ck: string;
-  phrase: string;
-  phrase_nonce: string;
-  phrase_wrapped_ck: string;
-  phrase_mldsa_pk: string;
-  phrase_ed25519_pk: string;
-  phrase_lookup_id: string;
-  phrase_scheme: string;
-  phrase_ciphersuite: string;
-  xwing_ciphersuite: string;
-  recovery_ciphersuite: string;
-};
-
-export type DeviceOut = {
-  device_id: string;
-  hpke_sk: string;
-  hpke_pk: string;
-  mldsa_seed: string;
-  mldsa_pk: string;
-  ed25519_sk: string;
-  ed25519_pk: string;
-  enrollment_mldsa: string;
-  enrollment_ed25519: string;
-};
-
-
-export type EncryptedOut = {
-  nonce: string;
-  ciphertext: string;
-  padded_size: number;
-};
-
-/** One object's plaintext after its sealed envelope has been opened. */
-export type OpenedObject = {
-  /**
-   * Authenticated by the AEAD along with the payload, so this is the type to
-   * parse by rather than the label the server serves.
-   */
-  contentType: string;
-  tombstone: boolean;
-  payload: string;
-};

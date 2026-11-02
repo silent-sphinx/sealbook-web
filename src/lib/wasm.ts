@@ -359,11 +359,11 @@ export function pairConfirmationCode(
 }
 
 export function createEnrollment(password: string): Enrollment {
-  return JSON.parse(create_enrollment(password)) as Enrollment;
+  return create_enrollment(password);
 }
 
 export function createDevice(): DeviceOut {
-  return JSON.parse(create_device()) as DeviceOut;
+  return create_device();
 }
 
 export function wrapCkForDevice(
@@ -461,9 +461,7 @@ export function encryptContact(
   collectionId: string,
   plaintext: string,
 ): EncryptedOut {
-  return JSON.parse(
-    encrypt_contact(ck, objectId, collectionId, plaintext),
-  ) as EncryptedOut;
+  return encrypt_contact(ck, objectId, collectionId, plaintext);
 }
 
 export function decryptContact(
@@ -512,9 +510,7 @@ export function sealObject(
   contentType: string,
   payload: string,
 ): EncryptedOut {
-  return JSON.parse(
-    seal_object(ck, objectId, collectionId, contentType, payload),
-  ) as EncryptedOut;
+  return seal_object(ck, objectId, collectionId, contentType, payload);
 }
 
 /** Decrypts an object and opens its envelope. */
@@ -526,9 +522,7 @@ export function openObject(
   ciphertext: string,
   paddedSize: number,
 ): OpenedObject {
-  return JSON.parse(
-    open_object(ck, objectId, collectionId, nonce, ciphertext, paddedSize),
-  ) as OpenedObject;
+  return open_object(ck, objectId, collectionId, nonce, ciphertext, paddedSize);
 }
 
 export function newUuid(): string {
