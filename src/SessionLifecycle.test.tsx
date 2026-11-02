@@ -211,11 +211,13 @@ describe("locking", () => {
     await openOnline();
     fireEvent.click(screen.getByRole("button", { name: "Lock" }));
     await screen.findByRole("button", { name: "Unlock" });
+    const first = await storedSnapshot();
 
     unlock();
 
     expect(await screen.findByText("Grace Hopper")).toBeDefined();
     expect(loginAccount).toHaveBeenCalledTimes(2);
+    await snapshotWritten(first);
   });
 });
 
@@ -230,7 +232,8 @@ describe("signing out", () => {
 
     // Not a lock: the stored device is gone, so the lock screen has nothing to
     // ask for and the app is back to setting one up.
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Unlock" })).toBeNull());
+    expect(await screen.findByLabelText("Username")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Unlock" })).toBeNull();
     expect(await loadDeviceMetadata()).toBeNull();
     expect(screen.queryByText("Grace Hopper")).toBeNull();
   });
