@@ -14,6 +14,9 @@ import {
   coreContactWrite,
   coreEventParse,
   coreEventWrite,
+  coreFlushPlan,
+  coreLocalView,
+  coreMergePayload,
   coreNormalizeDueDate,
   coreNoteParse,
   coreNoteWrite,
@@ -21,6 +24,7 @@ import {
   coreNotebookTone,
   coreNotebookWrite,
   coreOpenRow,
+  coreOutboxPush,
   coreSettingsParse,
   coreSettingsWrite,
   coreTaskListParse,
@@ -29,7 +33,13 @@ import {
   coreTaskParse,
   coreTaskWrite,
 } from "../lib/wasm";
+import { EMPTY_OUTBOX } from "../lib/localStore";
 import { readFixture } from "./fixtures";
+
+/** An absent option as core serializes it, where the field is not skipped. */
+function withNulls(value: unknown): unknown {
+  return JSON.parse(JSON.stringify(value, (_key, field: unknown) => field ?? null));
+}
 
 type Arg = string | { value: unknown };
 type Table = { table: string; op: string; args: Arg[]; expect: string };
@@ -64,6 +74,11 @@ const operations: Record<string, (args: any[]) => unknown> = {
   "address_book.parse": ([id, raw]) => coreAddressBookParse(id, raw),
   "settings.write": ([draft]) => coreSettingsWrite(draft),
   "settings.parse": ([raw]) => coreSettingsParse(raw),
+  "offline.outbox_push": ([pushes]) => pushes.reduce(coreOutboxPush, EMPTY_OUTBOX),
+  "offline.local_view": ([vault, outbox]) => coreLocalView(vault, outbox),
+  "offline.merge": ([contentType, base, local, remote, date]) =>
+    withNulls(coreMergePayload(contentType, base, local, remote, date)),
+  "offline.flush_plan": ([outbox, vault, date]) => coreFlushPlan(outbox, vault, date),
 };
 
 const corpus = JSON.parse(readFixture("corpus.json")) as Corpus;
