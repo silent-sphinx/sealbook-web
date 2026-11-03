@@ -9,9 +9,9 @@ import { TaskIcon } from "./TaskIcon";
 import { TaskTreeList } from "./TaskTreeList";
 import type { TaskActions } from "./TaskTreeList";
 import {
+  ensureDefaultTaskList,
   deleteTask,
   deleteTaskList,
-  ensureDefaultTaskList,
   putTask,
   putTaskList,
   type Session,
@@ -20,24 +20,25 @@ import { friendlyError } from "../lib/errors";
 import { focusRing, sidebarHeaderAction } from "../lib/styles";
 import {
   buildTaskListTree,
-  canMoveTaskList,
-  completeTask,
-  DEFAULT_TASK_LIST_ID,
   dueLabel,
+  DEFAULT_TASK_LIST_ID,
+  draftFrom,
   emptyTaskDraft,
   inScope,
+  listTo,
   reopenTask,
   resolveTaskListId,
   sortTasks,
   taskDraft,
   taskListNameById,
   taskMatches,
+  taskTo,
+  tickTask,
 } from "../lib/task";
 import type { TaskScope } from "../lib/task";
 import {
   buildTaskTree,
   buildTaskTreeOf,
-  canReparentTask,
   flattenTaskTree,
   childCounts,
   taskAncestors,
@@ -47,6 +48,14 @@ import { TASKS_LEADING } from "../lib/splitPane";
 import { utcToLocalInput } from "../lib/timezone";
 import { flattenTree } from "../lib/tree";
 import type { Task, TaskDraft, TaskList, TaskPatch } from "../lib/types";
+import {
+  coreTaskListMovePlan,
+  coreTaskListRemovePlan,
+  coreTaskMovePlan,
+  coreTaskRelistPlan,
+  coreTaskRemovePlan,
+} from "../lib/wasm";
+import type { CoreTaskPlan } from "../lib/wasm";
 
 type Props = {
   session: Session;
@@ -66,6 +75,27 @@ type Props = {
   focusTaskId?: string;
   onFocusHandled?: () => void;
 };
+
+/**
+ * Writes what a core task plan names: lists, then tasks, then the deletes, so
+ * nothing is removed before what it held has moved.
+ */
+async function writeTaskPlan(session: Session, plan: CoreTaskPlan): Promise<TaskPatch> {
+  const taskLists: TaskList[] = [];
+  for (const { id, draft } of plan.lists) {
+    taskLists.push(await putTaskList(session, draft.name, draft.parent_id, id, draft.raw, draft.color));
+  }
+  const tasks: Task[] = [];
+  for (const { id, draft } of plan.tasks) tasks.push(await putTask(session, draftFrom(draft), id));
+  for (const id of plan.removed_tasks) await deleteTask(session, id);
+  for (const id of plan.removed_lists) await deleteTaskList(session, id);
+  return {
+    tasks,
+    taskLists,
+    removedTaskIds: plan.removed_tasks,
+    removedTaskListIds: plan.removed_lists,
+  };
+}
 
 type FormState = { initial: TaskDraft; editingId: string | null; key: number };
 type Notice = { message: string; previous: Task; reopened: Task[] };
@@ -293,15 +323,14 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     const ok = await run(async () => {
       const moved = original && resolveTaskListId(original.taskListId) !== draft.taskListId;
       const next = moved ? { ...draft, parentId: undefined } : draft;
-      const saved = [await putTask(session, next, editingId ?? undefined)];
-      savedId = saved[0]!.id;
-      if (moved && editingId) {
-        for (const id of taskSubtree(tasks, editingId).slice(1)) {
-          const child = tasks.find((task) => task.id === id);
-          if (child) saved.push(await putTask(session, { ...child, taskListId: draft.taskListId }, id));
-        }
-      }
-      return { tasks: saved };
+      const saved = await putTask(session, next, editingId ?? undefined);
+      savedId = saved.id;
+      if (!moved || !editingId) return { tasks: [saved] };
+      const followers = await writeTaskPlan(
+        session,
+        coreTaskRelistPlan(tasks.map(taskTo), editingId, draft.taskListId),
+      );
+      return { tasks: [saved, ...(followers.tasks ?? [])] };
     });
     if (ok) {
       setForm(null);
@@ -312,20 +341,16 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
   async function toggleDone(task: Task) {
     setNotice(null);
     const finishing = !task.done;
-    const draft = finishing ? completeTask(task, new Date(), timezone) : reopenTask(task);
-    const rolls = finishing && Boolean(task.recurrence) && !draft.done;
-    const reopened = rolls
-      ? taskSubtree(tasks, task.id)
-          .slice(1)
-          .map((id) => tasks.find((candidate) => candidate.id === id))
-          .filter((child): child is Task => Boolean(child?.done))
-      : [];
+    const tick = finishing ? tickTask(task, tasks, new Date(), timezone) : null;
+    const draft = tick ? tick.draft : reopenTask(task);
+    const reopenedIds = new Set(tick?.reopened.map((entry) => entry.id) ?? []);
+    const reopened = tasks.filter((candidate) => reopenedIds.has(candidate.id));
     const ok = await run(async () => {
       const saved = [await putTask(session, draft, task.id)];
-      for (const child of reopened) saved.push(await putTask(session, reopenTask(child), child.id));
+      for (const entry of tick?.reopened ?? []) saved.push(await putTask(session, entry.draft, entry.id));
       return { tasks: saved };
     });
-    if (ok && rolls) {
+    if (ok && tick?.rolled) {
       const label = dueLabel({ ...task, dueDate: draft.dueDate }, new Date(), timezone);
       setNotice({ message: `"${task.title}" is next due ${label ?? "later"}.`, previous: task, reopened });
     }
@@ -334,22 +359,14 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
   async function undo(previous: Task, reopened: Task[]) {
     setNotice(null);
     await run(async () => {
-      const saved = [await putTask(session, previous, previous.id)];
-      for (const child of reopened) saved.push(await putTask(session, child, child.id));
+      const saved = [await putTask(session, taskDraft(previous), previous.id)];
+      for (const child of reopened) saved.push(await putTask(session, taskDraft(child), child.id));
       return { tasks: saved };
     });
   }
 
   async function removeTask(task: Task) {
-    const ok = await run(async () => {
-      const saved: Task[] = [];
-      for (const child of tasks) {
-        if (child.parentId !== task.id) continue;
-        saved.push(await putTask(session, { ...child, parentId: task.parentId }, child.id));
-      }
-      await deleteTask(session, task.id);
-      return { tasks: saved, removedTaskIds: [task.id] };
-    });
+    const ok = await run(() => writeTaskPlan(session, coreTaskRemovePlan(tasks.map(taskTo), task.id)));
     if (ok) {
       setConfirmDelete(null);
       if (form?.editingId === task.id) setForm(null);
@@ -359,16 +376,12 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
 
   async function moveTask(id: string, parentId: string | null) {
     if (readOnlyMode) return;
-    const task = tasks.find((entry) => entry.id === id);
-    if (!task) return;
-    if (!canReparentTask(tasks, id, parentId)) {
-      setError("A task cannot be moved inside itself.");
+    const plan = coreTaskMovePlan(tasks.map(taskTo), id, parentId ?? undefined);
+    if (plan.refusal) {
+      setError(plan.refusal);
       return;
     }
-    const parent = parentId ? tasks.find((entry) => entry.id === parentId) : undefined;
-    const listId = resolveTaskListId((parent ?? task).taskListId);
-    const relisted = listId !== resolveTaskListId(task.taskListId);
-    if ((task.parentId ?? null) === parentId && !relisted) return;
+    if (plan.tasks.length === 0) return;
     if (parentId) {
       setExpanded((current) => {
         const next = new Set(current);
@@ -376,23 +389,7 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
         return next;
       });
     }
-    // A subtask follows its parent into another list, and its own subtasks follow it.
-    await run(async () => {
-      const written = [
-        await putTask(
-          session,
-          { ...taskDraft(task), parentId: parentId ?? undefined, taskListId: relisted ? listId : task.taskListId },
-          id,
-        ),
-      ];
-      if (relisted) {
-        for (const childId of taskSubtree(tasks, id).slice(1)) {
-          const child = tasks.find((entry) => entry.id === childId);
-          if (child) written.push(await putTask(session, { ...child, taskListId: listId }, childId));
-        }
-      }
-      return { tasks: written };
-    });
+    await run(() => writeTaskPlan(session, plan));
   }
 
   async function createList(name: string, parentId?: string): Promise<string | undefined> {
@@ -419,42 +416,24 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
 
   async function moveList(id: string, parentId: string | null) {
     if (readOnlyMode) return;
-    const list = taskLists.find((entry) => entry.id === id);
-    if (!list) return;
-    if (!canMoveTaskList(taskLists, id, parentId)) {
-      setError("A list cannot be moved inside itself.");
+    const plan = coreTaskListMovePlan(taskLists.map(listTo), id, parentId ?? undefined);
+    if (plan.refusal) {
+      setError(plan.refusal);
       return;
     }
-    if ((list.parentId ?? null) === parentId) return;
-    await run(async () => ({
-      taskLists: [
-        await putTaskList(session, list.name, parentId ?? undefined, list.id, list.raw, list.color),
-      ],
-    }));
+    if (plan.lists.length === 0) return;
+    await run(() => writeTaskPlan(session, plan));
   }
 
   async function removeList(list: TaskList) {
-    const parentId = list.parentId;
-    const ok = await run(async () => {
-      const savedLists: TaskList[] = [];
-      for (const child of taskLists) {
-        if (child.parentId !== list.id) continue;
-        savedLists.push(
-          await putTaskList(session, child.name, parentId, child.id, child.raw, child.color),
-        );
-      }
-      const savedTasks: Task[] = [];
-      for (const task of tasks) {
-        if (resolveTaskListId(task.taskListId) !== list.id) continue;
-        savedTasks.push(
-          await putTask(session, { ...taskDraft(task), taskListId: parentId ?? DEFAULT_TASK_LIST_ID }, task.id),
-        );
-      }
-      await deleteTaskList(session, list.id);
-      return { tasks: savedTasks, taskLists: savedLists, removedTaskListIds: [list.id] };
-    });
+    const plan = coreTaskListRemovePlan(taskLists.map(listTo), tasks.map(taskTo), list.id);
+    if (plan.refusal) {
+      setError(plan.refusal);
+      return;
+    }
+    const ok = await run(() => writeTaskPlan(session, plan));
     if (ok) {
-      if (scope === list.id) changeScope(parentId ?? "all");
+      if (scope === list.id) changeScope(list.parentId ?? "all");
       setDeletingList(null);
     }
   }

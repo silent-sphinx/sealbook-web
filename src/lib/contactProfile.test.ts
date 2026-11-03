@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   MAX_PROFILE_ENTRIES,
-  atPrecision,
   customSectionIsEmpty,
-  precisionOf,
   MAX_PROFILE_TEXT_CHARS,
   emptyProfile,
   filledSections,
@@ -52,7 +50,8 @@ const filled = (): ContactProfile =>
 describe("the profile payload", () => {
   it("round trips every section through a card", () => {
     const draft = { ...emptyDraft(), name: "Jo Bell", profile: filled() };
-    const back = parseDraft(serializeCard(draft)).profile;
+    const parsed = parseDraft(serializeCard(draft));
+    const back = parsed.profile;
     expect(back).toBeDefined();
     expect(back?.howWeMet).toBe(filled().howWeMet);
     expect(back?.interests.map((row) => row.value)).toEqual(["Bouldering"]);
@@ -61,7 +60,8 @@ describe("the profile payload", () => {
       value: "Coriander",
       note: "Tastes of soap",
     });
-    expect(back?.career[0]).toMatchObject({
+    expect(back?.career).toEqual([]);
+    expect(parsed.work[0]).toMatchObject({
       organization: "Ordnance Survey",
       title: "Cartographer",
       start: "2019-04",
@@ -194,12 +194,6 @@ describe("section emptiness", () => {
     expect(profileIsEmpty(profile({ howWeMet: "   " }))).toBe(true);
   });
 
-  it("holds a career row with only a title", () => {
-    expect(sectionIsEmpty(profile({ career: [{ id: "a", organization: "", title: "Cook" }] }), "career")).toBe(
-      false,
-    );
-  });
-
   it("lists filled sections in display order, not insertion order", () => {
     expect(filledSections(filled())).toEqual([
       "howWeMet",
@@ -207,7 +201,6 @@ describe("section emptiness", () => {
       "food",
       "music",
       "pets",
-      "career",
       "relationships",
       "timeline",
       "family",
@@ -322,46 +315,9 @@ describe("the contact size caps", () => {
   });
 });
 
-describe("date precision", () => {
-  it("reads the precision a value is written at", () => {
-    expect(precisionOf("2019")).toBe("year");
-    expect(precisionOf("2019-04")).toBe("month");
-    expect(precisionOf("2019-04-12")).toBe("day");
-  });
 
-  it("is null for anything that is not an ISO date, so the field falls back to text", () => {
-    expect(precisionOf("")).toBeNull();
-    expect(precisionOf("the summer of 2019")).toBeNull();
-    expect(precisionOf("19-04")).toBeNull();
-    expect(precisionOf("2019-4")).toBeNull();
-  });
-
-  it("narrows by dropping parts, never by clearing the field", () => {
-    expect(atPrecision("2019-04-12", "month")).toBe("2019-04");
-    expect(atPrecision("2019-04-12", "year")).toBe("2019");
-    expect(atPrecision("2019-04", "year")).toBe("2019");
-  });
-
-  it("widens to the first month or day rather than losing the year", () => {
-    expect(atPrecision("2019", "month")).toBe("2019-01");
-    expect(atPrecision("2019", "day")).toBe("2019-01-01");
-    expect(atPrecision("2019-04", "day")).toBe("2019-04-01");
-  });
-
-  it("keeps the month when widening from month to day", () => {
-    expect(atPrecision("2019-11", "day")).toBe("2019-11-01");
-  });
-
-  it("empties a value with no year to recover", () => {
-    expect(atPrecision("", "month")).toBe("");
-    expect(atPrecision("sometime", "year")).toBe("");
-  });
-
-  it("salvages the year out of free text when a precision is chosen", () => {
-    expect(atPrecision("2019 or thereabouts", "year")).toBe("2019");
-  });
-
-  it("round trips every precision through the display formatter", () => {
+describe("partial dates", () => {
+  it("formats every precision the date field stores", () => {
     for (const value of ["2019", "2019-04", "2019-04-12"]) {
       expect(formatPartialDate(value)).not.toBe("");
     }

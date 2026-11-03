@@ -346,6 +346,35 @@ describe("BookmarksView, saving a bookmark", () => {
 });
 
 describe("BookmarksView, the list", () => {
+  it("leaves a hidden collection and its children out of All, but not out of their own view", () => {
+    const secret: BookmarkCollection = {
+      id: "collection-secret",
+      name: "Secret",
+      hideFromAll: true,
+      raw: "{}",
+    };
+    const nested: BookmarkCollection = {
+      id: "collection-nested",
+      name: "Nested",
+      parentId: secret.id,
+      raw: "{}",
+    };
+    mount({
+      collections: [DEFAULT_COLLECTION, secret, nested],
+      bookmarks: [
+        aBookmark({ id: "b1" }),
+        aBookmark({ id: "b2", collectionId: secret.id }),
+        aBookmark({ id: "b3", collectionId: nested.id }),
+      ],
+    });
+
+    const header = screen.getByRole("heading", { name: "All bookmarks" }).parentElement!;
+    expect(within(header).getByTitle("1 bookmark").textContent).toBe("1");
+
+    selectCollection("Secret");
+    expect(screen.getByTitle("1 bookmark").textContent).toBe("1");
+  });
+
   it("counts what is on screen rather than the whole vault", () => {
     const work: BookmarkCollection = { id: "collection-work", name: "Work", raw: "{}" };
     mount({

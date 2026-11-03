@@ -31,12 +31,17 @@ function fullDraft(): ContactDraft {
       { id: "p1", kind: "mobile", value: "+44 7700 900000" },
       { id: "p2", kind: "custom", label: "Study", value: "+44 20 7946 0000" },
     ],
-    address: {
-      street1: "12 Dorset Street",
-      locality: "London",
-      postcode: "W1U 6QH",
-      country: "United Kingdom",
-    },
+    addresses: [
+      {
+        id: "a1",
+        kind: "home",
+        street1: "12 Dorset Street",
+        locality: "London",
+        postcode: "W1U 6QH",
+        country: "United Kingdom",
+      },
+      { id: "a2", kind: "custom", label: "Cottage", locality: "Ockham" },
+    ],
     work: [{ id: "w1", organization: "Analytical Engine", title: "Mathematician" }],
     dates: [
       { id: "d1", kind: "birthday", date: "1815-12-10" },
@@ -55,7 +60,7 @@ function content(draft: ContactDraft) {
     pronouns: draft.pronouns,
     emails: draft.emails.map(({ kind, value, label }) => ({ kind, value, label })),
     phones: draft.phones.map(({ kind, value, label }) => ({ kind, value, label })),
-    address: draft.address,
+    addresses: draft.addresses.map(({ id: _id, ...address }) => address),
     work: draft.work.map(({ organization, title }) => ({ organization, title })),
     dates: draft.dates.map(({ kind, date, label }) => ({ kind, date, label })),
     socials: draft.socials.map(({ platform, handle }) => ({ platform, handle })),

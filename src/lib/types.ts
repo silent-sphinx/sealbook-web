@@ -1,3 +1,25 @@
+import type {
+  DevicePublicKeys,
+  DualSignatureBody,
+  KeyWrapBody,
+  ObjectChange,
+  RosterBody,
+} from "./wire.gen";
+
+export type { ManifestBody, ManifestEntry, RotatedObject } from "./wire.gen";
+export type {
+  DeviceOut,
+  EncryptedOut,
+  Enrollment,
+  OpaqueStart,
+  OpenedObject,
+} from "../pkg/sealbook_wasm.js";
+export type Roster = RosterBody;
+export type DevicePublic = DevicePublicKeys;
+export type DualSignature = DualSignatureBody;
+export type KeyWrap = KeyWrapBody;
+export type SealedObject = ObjectChange;
+
 export type DeviceState = {
   server: string;
   username: string;
@@ -25,41 +47,11 @@ export type DeviceState = {
   roster_transcript?: string;
 };
 
-/** One roster in the signed device history. */
-export type Roster = {
-  roster_seq: number;
-  key_epoch: number;
-  devices: DevicePublic[];
-  phrase_mldsa_pk: string;
-  phrase_ed25519_pk: string;
-  signer: { kind: "device"; device_id: string } | { kind: "phrase" };
-  signature: DualSignature;
-  mac: string;
-};
-
 /** A verified roster and the pin to keep in place of the old one. */
 export type RosterVerified = {
   roster: Roster;
   pin_seq: number;
   pin_transcript: string;
-};
-
-export type KeyWrap = {
-  recipient_kind: string;
-  recipient_id: string;
-  hpke_enc: string;
-  wrapped_ck: string;
-  ciphersuite: string;
-};
-
-export type SealedObject = {
-  id: string;
-  revision: number;
-  tombstone: boolean;
-  nonce: string;
-  ciphertext: string;
-  padded_size: number;
-  content_type: string;
 };
 
 /** The vault features an account can turn off; settings is always on. */
@@ -108,18 +100,36 @@ export type ContactChannel = {
 };
 
 export type ContactAddress = {
+  id: string;
+  /** `home`, `work` or `custom`; the editor does not offer `mobile`. */
+  kind: ContactChannelKind;
+  label?: string;
   street1?: string;
   street2?: string;
   locality?: string;
   region?: string;
   postcode?: string;
   country?: string;
+  /** Moved in and departed, as partial ISO dates. No departure while `current`. */
+  start?: string;
+  end?: string;
+  current?: boolean;
+  extra?: string;
 };
 
+/**
+ * `start` and `end` are partial ISO dates, as on the profile. A current
+ * workplace carries no `end`. A card from before these fields had its dated
+ * jobs in the profile's `career`, which core folds in here on read.
+ */
 export type ContactWork = {
   id: string;
   organization: string;
   title?: string;
+  start?: string;
+  end?: string;
+  current?: boolean;
+  note?: string;
   extra?: string;
 };
 
@@ -249,7 +259,7 @@ export type ContactDraft = {
   pronouns?: string;
   emails: ContactChannel[];
   phones: ContactChannel[];
-  address?: ContactAddress;
+  addresses: ContactAddress[];
   work: ContactWork[];
   dates: ContactDate[];
   socials: ContactSocial[];
@@ -292,6 +302,8 @@ export type Contact = ContactDraft & {
 export type AddressBook = {
   id: string;
   name: string;
+  /** Put away: out of the list and the pickers, its contacts left as they are. */
+  archived?: boolean;
   raw: string;
 };
 
@@ -330,7 +342,11 @@ export type RecurrenceRule = {
   nthWeekday?: {
     ordinal: 1 | 2 | 3 | 4 | 5;
     weekday: number;
+    /** Keys of the stored entry this build does not write, as JSON. */
+    extra?: string;
   };
+  /** Keys of the stored rule this build does not write, as JSON. */
+  extra?: string;
 };
 
 export type Calendar = {
@@ -494,6 +510,8 @@ export type BookmarkCollection = {
    * one of its own. See `collectionTone` in `lib/bookmark`.
    */
   color?: string;
+  /** Keeps this collection, and any nested under it, out of "All Bookmarks". */
+  hideFromAll?: boolean;
   raw: string;
   readable?: boolean;
 };
@@ -575,122 +593,3 @@ export type TaskList = {
  * calendar exists. Keep the two in step by hand if the accent ever changes.
  */
 export const DEFAULT_CALENDAR_COLOR = "#7aa2f7";
-
-export type OpaqueStart = {
-  request: string;
-  state: string;
-};
-
-export type Enrollment = {
-  device_id: string;
-  hpke_sk: string;
-  hpke_pk: string;
-  mldsa_seed: string;
-  mldsa_pk: string;
-  ed25519_sk: string;
-  ed25519_pk: string;
-  kdf_salt: string;
-  collection_key: string;
-  enrollment_mldsa: string;
-  enrollment_ed25519: string;
-  device_enc: string;
-  device_wrapped_ck: string;
-  recovery_nonce: string;
-  recovery_wrapped_ck: string;
-  phrase: string;
-  phrase_nonce: string;
-  phrase_wrapped_ck: string;
-  phrase_mldsa_pk: string;
-  phrase_ed25519_pk: string;
-  phrase_lookup_id: string;
-  phrase_scheme: string;
-  phrase_ciphersuite: string;
-  xwing_ciphersuite: string;
-  recovery_ciphersuite: string;
-};
-
-/** Hybrid recovery-phrase material registered with the server. */
-export type PhraseRecovery = {
-  mldsa_pk: string;
-  ed25519_pk: string;
-  lookup_id: string;
-  scheme: string;
-};
-
-export type DualSignature = {
-  mldsa: string;
-  ed25519: string;
-};
-
-export type DeviceOut = {
-  device_id: string;
-  hpke_sk: string;
-  hpke_pk: string;
-  mldsa_seed: string;
-  mldsa_pk: string;
-  ed25519_sk: string;
-  ed25519_pk: string;
-  enrollment_mldsa: string;
-  enrollment_ed25519: string;
-};
-
-export type DevicePublic = {
-  device_id: string;
-  mldsa_pk: string;
-  ed25519_pk: string;
-  xwing_hpke_pk: string;
-};
-
-/** Step 2 of login: the opened challenge plus the device's proof of it. */
-export type LoginStartProof = DualSignature & {
-  challenge: string;
-};
-
-/** Step 3 of login. */
-export type LoginProof = DualSignature & {
-  finalization: string;
-};
-
-export type ManifestEntry = {
-  id: string;
-  revision: number;
-  tombstone: boolean;
-  content_digest: string;
-};
-
-export type ManifestBody = {
-  manifest_seq: number;
-  key_epoch: number;
-  latest_revision: number;
-  object_count: number;
-  digest: string;
-  device_id: string;
-  signature: DualSignature;
-};
-
-export type RotatedObject = {
-  id: string;
-  revision: number;
-  nonce: string;
-  ciphertext: string;
-  padded_size: number;
-  content_type: string;
-  tombstone: boolean;
-};
-
-export type EncryptedOut = {
-  nonce: string;
-  ciphertext: string;
-  padded_size: number;
-};
-
-/** One object's plaintext after its sealed envelope has been opened. */
-export type OpenedObject = {
-  /**
-   * Authenticated by the AEAD along with the payload, so this is the type to
-   * parse by rather than the label the server serves.
-   */
-  contentType: string;
-  tombstone: boolean;
-  payload: string;
-};

@@ -37,7 +37,9 @@ import {
   deleteAddressBook,
   deleteContact,
   ensureDefaultAddressBook,
+  flushOutbox,
   listVault,
+  listingFrom,
   loginAccount,
   normalizeServer,
   pairApprove,
@@ -55,8 +57,27 @@ import {
   registerAccount,
   revokeSession,
   type Session,
+  type VaultListing,
   type VaultProgress,
 } from "./lib/client";
+import {
+  closeLocalStore,
+  openLocalStore,
+  rekeyLocalStore,
+} from "./lib/localStore";
+import {
+  closeOutbox,
+  currentOutbox,
+  currentVault,
+  localObjects,
+  openOutbox,
+  subscribeNotices,
+  subscribeOutbox,
+  subscribeRemoteChanges,
+  type OutboxState,
+} from "./lib/outbox";
+import { failedStatus } from "./lib/transport";
+import { OutboxPanel } from "./components/OutboxPanel";
 import {
   DEFAULT_ACCOUNT_SETTINGS,
   accentVariables,
@@ -68,10 +89,14 @@ import { LINKABLE_SECTIONS, profileOf, type LinkableSection } from "./lib/contac
 import {
   ARCHIVE_VIEW_NAME,
   DEFAULT_ADDRESS_BOOK_ID,
+  activeAddressBooks,
+  effectiveHiddenBooks,
   loadHiddenAddressBooks,
+  loadShownArchivedBooks,
   pruneHiddenAddressBooks,
   resolveAddressBookId,
   storeHiddenAddressBooks,
+  storeShownArchivedBooks,
   visibleAddressBooks,
 } from "./lib/addressBook";
 import { emptyDraft, sortContacts } from "./lib/contact";
@@ -85,11 +110,9 @@ import {
   loadDevice,
   loadDeviceMetadata,
   loadUnverifiedLegacyDevice,
-  loadVaultSnapshot,
   OfflineUnavailableError,
   saveConnectionDomain,
   saveDevice,
-  saveVaultSnapshot,
   type DeviceMetadata,
 } from "./lib/storage";
 import { friendlyError } from "./lib/errors";
@@ -184,6 +207,7 @@ export default function App() {
    * the collection's, and `hiddenBooksCollection` records which one is loaded.
    */
   const [hiddenBooks, setHiddenBooks] = useState<Set<string>>(new Set());
+  const [shownArchivedBooks, setShownArchivedBooks] = useState<Set<string>>(new Set());
   const [hiddenBooksCollection, setHiddenBooksCollection] = useState<string | null>(null);
   /**
    * Whether the list is showing the Archive instead of the address books. A
@@ -219,6 +243,9 @@ export default function App() {
   const [activeTabState, setActiveTabState] = useState<MainTab>(loadLastTab);
   const [timezone, setTimezoneState] = useState(loadTimezone);
   const [online, setOnline] = useState(() => navigator.onLine);
+  const [outboxState, setOutboxState] = useState<OutboxState>({ pending: 0, failed: [], signIn: false });
+  const [notices, setNotices] = useState<{ id: number; text: string }[]>([]);
+  const [reviewingOutbox, setReviewingOutbox] = useState(false);
   const [loadingVault, setLoadingVault] = useState(false);
   /**
    * The stage the running vault read has reached, for the decrypting screen.
@@ -386,7 +413,13 @@ export default function App() {
   if (hiddenBooksCollection !== collectionId) {
     setHiddenBooksCollection(collectionId);
     setHiddenBooks(collectionId ? loadHiddenAddressBooks(collectionId) : new Set());
+    setShownArchivedBooks(collectionId ? loadShownArchivedBooks(collectionId) : new Set());
   }
+
+  const listHiddenBooks = useMemo(
+    () => effectiveHiddenBooks(addressBooks, hiddenBooks, shownArchivedBooks),
+    [addressBooks, hiddenBooks, shownArchivedBooks],
+  );
 
   const archivedContacts = useMemo(
     () => contacts.filter((contact) => contact.archived === true),
@@ -419,7 +452,7 @@ export default function App() {
       : contacts.filter(
         (contact) =>
           contact.archived !== true &&
-          !hiddenBooks.has(resolveAddressBookId(contact.addressBookId)),
+          !listHiddenBooks.has(resolveAddressBookId(contact.addressBookId)),
       );
     if (!deferredSearch.trim()) return sortContacts(inBook);
     if (searchIndex === null) return [];
@@ -427,18 +460,18 @@ export default function App() {
     return inBook
       .filter((contact) => rank.has(contact.id))
       .sort((a, b) => (rank.get(a.id) as number) - (rank.get(b.id) as number));
-  }, [archivedContacts, contacts, deferredSearch, hiddenBooks, searchIndex, viewingArchive]);
+  }, [archivedContacts, contacts, deferredSearch, listHiddenBooks, searchIndex, viewingArchive]);
 
   const shownBooks = useMemo(
-    () => visibleAddressBooks(addressBooks, hiddenBooks),
-    [addressBooks, hiddenBooks],
+    () => visibleAddressBooks(addressBooks, listHiddenBooks),
+    [addressBooks, listHiddenBooks],
   );
   /**
    * Where exactly one book is showing it stands in for the whole view: it
    * titles the list and is what a new contact lands in.
    */
   const soleShownBook = shownBooks.length === 1 ? shownBooks[0] : null;
-  const contactsTitle = hiddenBooks.size === 0
+  const contactsTitle = hiddenBooks.size === 0 && shownArchivedBooks.size === 0
     ? "All contacts"
     : soleShownBook
       ? soleShownBook.name
@@ -590,18 +623,12 @@ export default function App() {
     const handleOnline = () => {
       log.info("the browser came back online", { reconnecting: session?.offline === true });
       setOnline(true);
-      if (!session?.offline || !password) return;
-      void loginAccount(session.state, password)
-        .then(async (reconnected) => {
-          setSession(reconnected);
-          await refresh(reconnected);
-        })
-        .catch((err: unknown) => {
-          // Keep showing the last local snapshot until the server is reachable.
-          log.warn("could not reconnect; still showing the offline snapshot", {
-            reason: describeError(err),
-          });
-        });
+      if (!session) return;
+      if (!session.offline) {
+        void sync(session);
+        return;
+      }
+      if (password) void reconnect(session);
     };
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
@@ -615,9 +642,64 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [password, session]);
 
+  /** Signs in again with the held password, then sends what is queued. */
+  async function reconnect(current: Session) {
+    try {
+      const reconnected = await loginAccount(current.state, password);
+      setSession(reconnected);
+      await refresh(reconnected);
+    } catch (err) {
+      log.warn("could not reconnect; still showing this device's copy", {
+        reason: describeError(err),
+      });
+    }
+  }
+
+  /** Sends what is queued, and re-lists if anything went. */
+  async function sync(current: Session) {
+    if (current.offline || currentOutbox().writes.length === 0) return;
+    try {
+      const report = await flushOutbox(current);
+      if (report.stopped !== "retry") showLocal(current);
+    } catch (err) {
+      log.warn("queued changes could not be sent", { reason: describeError(err) });
+    }
+  }
+
+  useEffect(() => subscribeOutbox(setOutboxState), []);
+
+  useEffect(
+    () =>
+      subscribeNotices((text) =>
+        setNotices((current) => [...current, { id: Date.now() + Math.random(), text }]),
+      ),
+    [],
+  );
+
+  useEffect(() => {
+    if (!session) return;
+    return subscribeRemoteChanges(() => showLocal(session));
+    // `showLocal` reads only setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
+
+  useEffect(() => {
+    if (!session || session.offline || outboxState.pending === 0) return;
+    const timer = window.setInterval(() => void sync(session), 60_000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, outboxState.pending]);
+
+  useEffect(() => {
+    if (!session || !outboxState.signIn || !password) return;
+    void reconnect(session);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, outboxState.signIn]);
+
   async function openSession(next: Session, passwordForStorage: string) {
     await saveDevice(next.state, passwordForStorage);
     primeAttachmentCache(passwordForStorage);
+    openLocalStore(passwordForStorage);
     setStored(next.state);
     setSession(next);
     await refresh(next);
@@ -626,6 +708,7 @@ export default function App() {
   async function persistSession(next: Session, passwordForStorage: string) {
     await saveDevice(next.state, passwordForStorage);
     primeAttachmentCache(passwordForStorage);
+    await rekeyLocalStore(passwordForStorage);
     setPassword(passwordForStorage);
     setStored(next.state);
     setSession(next);
@@ -633,22 +716,54 @@ export default function App() {
 
   async function refresh(next: Session, selectContactId?: string) {
     setLoadingVault(true);
-    let listed;
+    let listed: VaultListing;
     let books;
     try {
-      listed = await listVault(next, setVaultProgress);
+      if (next.offline) {
+        await openOutbox(next.state.collection_id);
+        listed = listingFrom(localObjects(), 0);
+      } else {
+        await flushOutbox(next).catch((err: unknown) => {
+          log.warn("queued changes could not be sent before listing", {
+            reason: describeError(err),
+          });
+        });
+        try {
+          listed = await listVault(next, setVaultProgress);
+        } catch (err) {
+          if (failedStatus(err) !== 0) throw err;
+          log.warn("the server could not be reached; listing this device's copy", {
+            reason: describeError(err),
+          });
+          listed = listingFrom(localObjects(), 0);
+        }
+      }
       books = await ensureDefaultAddressBook(next, listed.addressBooks);
     } finally {
       setLoadingVault(false);
       setVaultProgress(null);
       setVaultOpened(true);
     }
+    applyListing(next, listed, books, selectContactId);
+  }
+
+  /** Re-lists from this device's copy, without reading the server. */
+  function showLocal(current: Session) {
+    const listed = listingFrom(localObjects(), unopened);
+    applyListing(current, listed, listed.addressBooks);
+  }
+
+  function applyListing(
+    next: Session,
+    listed: VaultListing,
+    books: AddressBook[],
+    selectContactId?: string,
+  ) {
     setAddressBooks(books);
     setContacts(listed.contacts);
     // The pane holds a contact, not an id, so without this it keeps the copy it
-    // opened with: `raw`, `ciphertext`, `paddedSize` and the timestamps would
-    // stay at the revision before the save. `selectContactId` moves the pane to
-    // a different contact, such as one just created.
+    // opened with. `selectContactId` moves the pane to a different contact,
+    // such as one just created.
     setViewingContact((current) => {
       const wanted = selectContactId ?? current?.id;
       return wanted
@@ -666,31 +781,16 @@ export default function App() {
     setAccountSettings(listed.accountSettings);
     accountSettingsRaw.current = listed.accountSettingsRaw;
     setUnopened(listed.unopened);
-    // A listing missing rows this device could not open is the worse copy: the
-    // previous snapshot still holds them, so it is left alone.
-    if (password && listed.unopened === 0) {
-      await saveVaultSnapshot(
-        {
-          addressBooks: books,
-          contacts: listed.contacts,
-          calendars: listed.calendars,
-          calendarEvents: listed.calendarEvents,
-          notes: listed.notes,
-          notebooks: listed.notebooks,
-          bookmarks: listed.bookmarks,
-          bookmarkCollections: listed.bookmarkCollections,
-          tasks: listed.tasks,
-          taskLists: listed.taskLists,
-          accountSettings: listed.accountSettings,
-          accountSettingsRaw: listed.accountSettingsRaw,
-        },
-        password,
-      );
-    }
     setHiddenBooks((current) => {
       const pruned = pruneHiddenAddressBooks(books, current);
       if (pruned.size === current.size) return current;
       storeHiddenAddressBooks(next.state.collection_id, pruned);
+      return pruned;
+    });
+    setShownArchivedBooks((current) => {
+      const pruned = pruneHiddenAddressBooks(books, current);
+      if (pruned.size === current.size) return current;
+      storeShownArchivedBooks(next.state.collection_id, pruned);
       return pruned;
     });
   }
@@ -848,6 +948,8 @@ export default function App() {
     setSession(null);
     setPassword("");
     closeAttachmentCache();
+    closeOutbox();
+    closeLocalStore();
     resetVaultState();
     if (active) {
       try {
@@ -914,36 +1016,43 @@ export default function App() {
         await openSession(await loginAccount(legacy, password), password);
         return;
       }
-      if (!navigator.onLine) {
-        const snapshot = await loadVaultSnapshot(password);
-        if (!snapshot) {
-          throw new OfflineUnavailableError(
-            "Connect to the server once before using the vault offline.",
-          );
+      openLocalStore(password);
+      if (navigator.onLine) {
+        try {
+          await openSession(await loginAccount(unlocked, password), password);
+          return;
+        } catch (err) {
+          if (failedStatus(err) !== 0) throw err;
+          log.warn("the server could not be reached at unlock; opening this device's copy", {
+            reason: describeError(err),
+          });
         }
-        setAddressBooks(snapshot.addressBooks);
-        setContacts(snapshot.contacts);
-        setCalendars(snapshot.calendars);
-        setCalendarEvents(snapshot.calendarEvents);
-        setNotes(snapshot.notes);
-        setNotebooks(snapshot.notebooks);
-        setBookmarks(snapshot.bookmarks);
-        setBookmarkCollections(snapshot.bookmarkCollections);
-        setTasks(snapshot.tasks);
-        setTaskLists(snapshot.taskLists);
-        setAccountSettings(snapshot.accountSettings);
-        accountSettingsRaw.current = snapshot.accountSettingsRaw;
-        log.info("opened the offline snapshot", {
-          contacts: snapshot.contacts.length,
-          events: snapshot.calendarEvents.length,
-          notes: snapshot.notes.length,
-          bookmarks: snapshot.bookmarks.length,
-        });
-        primeAttachmentCache(password);
-        setSession({ state: unlocked, collectionKey: "", token: "", latestRevision: 0, keyEpoch: 0, manifestSeq: 0, offline: true });
-      } else {
-        await openSession(await loginAccount(unlocked, password), password);
       }
+      const offline: Session = {
+        state: unlocked,
+        collectionKey: "",
+        token: "",
+        latestRevision: 0,
+        keyEpoch: 0,
+        manifestSeq: 0,
+        offline: true,
+      };
+      await openOutbox(unlocked.collection_id);
+      if (currentVault().objects.length === 0 && currentOutbox().writes.length === 0) {
+        throw new OfflineUnavailableError(
+          "Connect to the server once before using the vault offline.",
+        );
+      }
+      const listed = listingFrom(localObjects(), 0);
+      log.info("opened this device's copy offline", {
+        objects: currentVault().objects.length,
+        queued: currentOutbox().writes.length,
+      });
+      primeAttachmentCache(password);
+      applyListing(offline, listed, listed.addressBooks);
+      setVaultOpened(true);
+      setSession(offline);
+
     } catch (err) {
       setError(friendlyError(err));
       // Disabling the field while busy blurs it, so once it is re-enabled the
@@ -977,6 +1086,7 @@ export default function App() {
       setTimezoneState(defaultTimezone);
       await saveDevice(next.state, password);
       primeAttachmentCache(password);
+      openLocalStore(password);
       setStored(next.state);
       setSession(next);
       setPhrase(words);
@@ -1395,14 +1505,17 @@ export default function App() {
       setViewingArchive(false);
       return;
     }
-    setHiddenBooks((current) => {
+    const archived = addressBooks.some((book) => book.id === id && book.archived === true);
+    const update = archived ? setShownArchivedBooks : setHiddenBooks;
+    const store = archived ? storeShownArchivedBooks : storeHiddenAddressBooks;
+    update((current) => {
       const next = new Set(current);
       if (next.has(id)) {
         next.delete(id);
       } else {
         next.add(id);
       }
-      if (session) storeHiddenAddressBooks(session.state.collection_id, next);
+      if (session) store(session.state.collection_id, next);
       return next;
     });
   }
@@ -1413,15 +1526,23 @@ export default function App() {
     if (session) storeHiddenAddressBooks(session.state.collection_id, new Set());
   }
 
-  /** Drops a deleted book's toggle, so a later book cannot inherit it. */
+  /**
+   * Drops a book's recorded toggle, so a deleted book cannot be inherited by a
+   * later one and an archived or restored one starts at its group's default.
+   */
   function forgetBookVisibility(id: string) {
-    setHiddenBooks((current) => {
-      if (!current.has(id)) return current;
-      const next = new Set(current);
-      next.delete(id);
-      if (session) storeHiddenAddressBooks(session.state.collection_id, next);
-      return next;
-    });
+    for (const [update, store] of [
+      [setHiddenBooks, storeHiddenAddressBooks],
+      [setShownArchivedBooks, storeShownArchivedBooks],
+    ] as const) {
+      update((current) => {
+        if (!current.has(id)) return current;
+        const next = new Set(current);
+        next.delete(id);
+        if (session) store(session.state.collection_id, next);
+        return next;
+      });
+    }
   }
 
   async function onCreateBook(name: string): Promise<string | undefined> {
@@ -1448,7 +1569,22 @@ export default function App() {
     setError(null);
     try {
       const previous = addressBooks.find((book) => book.id === id);
-      await putAddressBook(session, name, id, previous?.raw);
+      await putAddressBook(session, name, id, previous?.raw, previous?.archived === true);
+      await refreshAfterSave(session);
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onToggleBookArchived(book: AddressBook): Promise<void> {
+    if (!session || book.id === DEFAULT_ADDRESS_BOOK_ID) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await putAddressBook(session, book.name, book.id, book.raw, book.archived !== true);
+      forgetBookVisibility(book.id);
       await refreshAfterSave(session);
     } catch (err) {
       setError(friendlyError(err));
@@ -1635,9 +1771,34 @@ export default function App() {
     <div className="min-h-screen">
       {/* Sticky header with accent top line */}
       <div ref={headerRef} className="sticky top-0 z-40">
-        {isOffline ? (
-          <div className="border-b border-red-400/20 bg-red-500/10 px-5 py-2 text-center text-xs font-medium text-red-300" role="status">
-            App is offline. Showing your last synced vault; editing is unavailable.
+        {isOffline || outboxState.pending > 0 ? (
+          <div
+            className={`border-b px-5 py-2 text-center text-xs font-medium ${
+              isOffline
+                ? "border-red-400/20 bg-red-500/10 text-red-300"
+                : "border-line bg-surface/60 text-mute"
+            }`}
+            role="status"
+          >
+            {isOffline ? "You're offline. Changes are kept on this device. " : null}
+            {outboxState.pending > 0
+              ? `${outboxState.pending} change${outboxState.pending === 1 ? "" : "s"} waiting to sync.`
+              : isOffline
+                ? "They will sync when you reconnect."
+                : null}
+          </div>
+        ) : null}
+        {outboxState.failed.length > 0 ? (
+          <div className="border-b border-amber-400/25 bg-amber-500/10 px-5 py-2 text-center text-xs font-medium text-amber-200" role="alert">
+            {outboxState.failed.length} change{outboxState.failed.length === 1 ? "" : "s"} couldn't
+            sync.{" "}
+            <button
+              type="button"
+              className="underline underline-offset-2 cursor-pointer"
+              onClick={() => setReviewingOutbox(true)}
+            >
+              Review
+            </button>
           </div>
         ) : null}
         {unopened > 0 ? (
@@ -1800,13 +1961,7 @@ export default function App() {
         </header>
       </div>
 
-      {activeTab === "settings" && isOffline ? (
-        <main className={`${shell} px-4 pb-24 pt-6 sm:px-5`}>
-          <div className="rounded-xl border border-line bg-panel/25 p-6 text-sm text-mute">
-            Settings are unavailable while offline.
-          </div>
-        </main>
-      ) : activeTab === "settings" ? (
+      {activeTab === "settings" ? (
         <main className={`${shell} px-4 pb-24 pt-6 sm:px-5`}>
           <SettingsView
             session={session}
@@ -1829,13 +1984,11 @@ export default function App() {
               void signOut();
             }}
             onRefresh={() => refresh(session)}
-            onCreateBook={isOffline ? undefined : onCreateBook}
-            onCreateNotebook={isOffline ? undefined : onCreateNotebook}
-            onCreateBookmarkCollection={
-              isOffline
-                ? undefined
-                : (name) => onCreateBookmarkCollection(name)
-            }
+            onCreateBook={onCreateBook}
+            onCreateNotebook={onCreateNotebook}
+            onCreateBookmarkCollection={(name) => onCreateBookmarkCollection(name)}
+            offline={isOffline}
+            pendingChanges={outboxState.pending + outboxState.failed.length}
             timezone={timezone}
             onTimezoneChange={setTimezone}
             accountSettings={accountSettings}
@@ -1845,7 +1998,7 @@ export default function App() {
         </main>
       ) : activeTab === "calendar" ? (
         <div>
-          <CalendarView session={session} calendars={calendars} events={calendarEvents} contacts={contacts} busy={busy} timezone={timezone} onRefresh={() => refresh(session)} readOnly={isOffline} sidebar={sidebar} dueTasks={isFeatureEnabled(accountSettings, "tasks") ? tasks : undefined} onOpenTask={(id) => guardEditing(() => { setTaskFocusId(id); setActiveTab("tasks"); })} />
+          <CalendarView session={session} calendars={calendars} events={calendarEvents} contacts={contacts} busy={busy} timezone={timezone} onRefresh={() => refresh(session)} sidebar={sidebar} dueTasks={isFeatureEnabled(accountSettings, "tasks") ? tasks : undefined} onOpenTask={(id) => guardEditing(() => { setTaskFocusId(id); setActiveTab("tasks"); })} />
         </div>
       ) : activeTab === "notes" ? (
         <div>
@@ -1856,7 +2009,7 @@ export default function App() {
             busy={busy}
             onRefresh={() => refresh(session)}
             onSaved={applySavedNote}
-            readOnly={isOffline}
+            offline={isOffline}
             sidebar={sidebar}
           />
         </div>
@@ -1869,7 +2022,6 @@ export default function App() {
             busy={busy}
             onRefresh={() => refresh(session)}
             onCreateCollection={onCreateBookmarkCollection}
-            readOnly={isOffline}
             sidebar={sidebar}
           />
         </div>
@@ -1883,7 +2035,6 @@ export default function App() {
             timezone={timezone}
             onRefresh={() => refresh(session)}
             onApply={applyTaskPatch}
-            readOnly={isOffline}
             sidebar={sidebar}
             focusTaskId={taskFocusId}
             onFocusHandled={() => setTaskFocusId(undefined)}
@@ -1898,7 +2049,8 @@ export default function App() {
           contacts={contacts}
           filtered={filtered}
           addressBooks={addressBooks}
-          hiddenBooks={hiddenBooks}
+          hiddenBooks={listHiddenBooks}
+          shownArchivedBooks={shownArchivedBooks}
           archivedContacts={archivedContacts}
           viewingContact={viewingContact}
           editingDetail={editingDetail}
@@ -1921,6 +2073,7 @@ export default function App() {
           onShowAllBooks={showAllBooks}
           onCreateBook={onCreateBook}
           onRenameBook={onRenameBook}
+          onToggleBookArchived={onToggleBookArchived}
           onDeleteBook={onDeleteBook}
           onSetSearch={setSearch}
           onSetViewingContact={(c) => setViewingContact(c)}
@@ -1944,7 +2097,11 @@ export default function App() {
             busy={busy}
             error={error}
             addressBooks={addressBooks}
-            initialDraft={emptyDraft(soleShownBook?.id ?? DEFAULT_ADDRESS_BOOK_ID)}
+            initialDraft={emptyDraft(
+              soleShownBook && soleShownBook.archived !== true
+                ? soleShownBook.id
+                : DEFAULT_ADDRESS_BOOK_ID,
+            )}
             submitLabel="Add contact"
             detailed={detailedContacts}
             onSubmit={onAdd}
@@ -1986,7 +2143,7 @@ export default function App() {
       {contactsEnabled && deletingAddressBook ? (
         <DeleteAddressBookModal
           book={deletingAddressBook}
-          destinationBooks={addressBooks.filter((book) => book.id !== deletingAddressBook.id)}
+          destinationBooks={activeAddressBooks(addressBooks).filter((book) => book.id !== deletingAddressBook.id)}
           contactCount={contacts.filter(
             (contact) => resolveAddressBookId(contact.addressBookId) === deletingAddressBook.id,
           ).length}
@@ -2058,6 +2215,40 @@ export default function App() {
             </button>
           </div>
         </div>
+      ) : null}
+
+      {notices.length > 0 ? (
+        <div className="pointer-events-none fixed bottom-0 right-0 z-[65] flex w-full max-w-sm flex-col gap-2 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          {notices.map((notice) => (
+            <div
+              key={notice.id}
+              role="status"
+              className="pointer-events-auto flex items-start gap-3 rounded-xl border border-line-light bg-elevated px-4 py-3 text-xs leading-relaxed text-text shadow-2xl shadow-black/50 animate-slide-up"
+            >
+              <p className="min-w-0 flex-1">{notice.text}</p>
+              <button
+                type="button"
+                aria-label="Dismiss"
+                className="shrink-0 text-mute hover:text-text cursor-pointer"
+                onClick={() => setNotices((current) => current.filter((item) => item.id !== notice.id))}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {reviewingOutbox && outboxState.failed.length > 0 ? (
+        <OutboxPanel
+          session={session}
+          failed={outboxState.failed}
+          onClose={() => setReviewingOutbox(false)}
+          onRetry={() => {
+            setReviewingOutbox(false);
+            void sync(session);
+          }}
+        />
       ) : null}
     </div>
   );

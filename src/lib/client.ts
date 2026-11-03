@@ -1,4 +1,4 @@
-export { importBatches, paddedLength } from "./vaultImport";
+export { importBatches } from "./vaultImport";
 export {
   ApiError,
   REQUEST_TIMEOUT_MS,
@@ -92,9 +92,11 @@ export {
   exportVault,
   importVault,
   listVault,
-  putAccountSettings,
+  listVaultOrLocal,
+  listingFrom,
   putCalendarEvents,
-  putSealed,
 } from "./clientVault";
+export type { FlushReport } from "./clientFlush";
+export { catchUp, flushOutbox, putAccountSettings, putSealed } from "./clientFlush";
 
 export { rotateAuthenticated } from "./clientRotation";

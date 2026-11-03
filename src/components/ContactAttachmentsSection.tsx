@@ -9,6 +9,7 @@ import {
 import { optimizeAttachmentThumbnail } from "../lib/image";
 import { friendlyError } from "../lib/errors";
 import { focusRing } from "../lib/styles";
+import { PaneSection } from "./PaneControls";
 import type { NoteAttachment } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 
@@ -213,7 +214,9 @@ export function ContactAttachmentsSection({
         setLightbox(null);
       } else {
         const nextIndex = Math.min(at, next.length - 1);
-        setLightbox({ index: nextIndex, objectUrl: null, loading: true });
+        // The load effect is keyed on the id, which may already be the one shown.
+        const cached = objectUrlsRef.current.get(next[nextIndex]!.id) ?? null;
+        setLightbox({ index: nextIndex, objectUrl: cached, loading: cached === null });
       }
       // Off the card already, so `sweepOrphanedAttachments` reclaims the bytes
       // if this fails; the viewer is not told about a file it no longer sees.
@@ -233,10 +236,10 @@ export function ContactAttachmentsSection({
   const busy = uploading || deleting !== null;
 
   return (
-    <section className="break-inside-avoid">
-      <h4 className="sticky top-0 z-10 flex items-center justify-between border-b border-line/60 bg-surface/80 px-5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-mute backdrop-blur-sm">
-        <span>Photos &amp; Attachments</span>
-        {!readOnly ? (
+    <PaneSection
+      title="Photos & Attachments"
+      action={
+        !readOnly ? (
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
@@ -246,9 +249,9 @@ export function ContactAttachmentsSection({
           >
             <PlusIcon />
           </button>
-        ) : null}
-      </h4>
-
+        ) : null
+      }
+    >
       {uploadError ? (
         <p role="alert" className="border-b border-danger/30 bg-danger/10 px-5 py-2 text-xs text-danger">
           {uploadError}
@@ -421,7 +424,7 @@ export function ContactAttachmentsSection({
           }}
         />
       ) : null}
-    </section>
+    </PaneSection>
   );
 }
 

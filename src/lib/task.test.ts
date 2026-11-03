@@ -230,7 +230,7 @@ describe("completeTask", () => {
   });
 
   it("reopens a done task", () => {
-    const reopened = reopenTask(completeTask(task(), now, TZ) as Task);
+    const reopened = reopenTask(parseTask("t", serializeTask(completeTask(task(), now, TZ))));
     expect(reopened.done).toBeUndefined();
     expect(reopened.completedAt).toBeUndefined();
   });

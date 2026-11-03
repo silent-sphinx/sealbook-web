@@ -25,8 +25,8 @@ let gate: Promise<void> | null = null;
 
 // Faked a layer below `lib/client`, because `putCalendarEvent` reaches
 // `putSealed` through the client module rather than taking it as an argument.
-vi.mock("./lib/clientVault", async () => {
-  const actual = await vi.importActual<typeof import("./lib/clientVault")>("./lib/clientVault");
+vi.mock("./lib/clientFlush", async () => {
+  const actual = await vi.importActual<typeof import("./lib/clientFlush")>("./lib/clientFlush");
   return {
     ...actual,
     putSealed: async (_session: unknown, id: string, _contentType: string, _tombstone: boolean, payload: string) => {

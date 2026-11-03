@@ -43,6 +43,7 @@ function aRing(count: number): Contact[] {
       work: [],
       dates: [],
       socials: [],
+      addresses: [],
       addressBookId: "default",
       raw: "{}",
       ciphertext: "",

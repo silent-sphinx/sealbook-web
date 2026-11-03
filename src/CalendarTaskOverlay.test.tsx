@@ -9,7 +9,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import "./test/dom";
-import { aContact, enrolDevice, setConnectionDomain, snapshotWritten } from "./test/vault";
+import { aContact, enrolDevice, setConnectionDomain } from "./test/vault";
 import { DEFAULT_ACCOUNT_SETTINGS, withFeature } from "./lib/accountSettings";
 import { DEFAULT_ADDRESS_BOOK_ID } from "./lib/addressBook";
 import { DEFAULT_CALENDAR_ID } from "./lib/calendar";
@@ -36,7 +36,6 @@ vi.mock("./lib/client", async () => {
       manifestSeq: 1,
     }),
     listVault: async () => ({
-      sealed: [],
       addressBooks: [{ id: DEFAULT_ADDRESS_BOOK_ID, name: "Contacts", raw: "{}" }],
       contacts: [aContact("Ada Lovelace", "c1")],
       calendars: [{ id: DEFAULT_CALENDAR_ID, name: "Default Calendar", color: "#7aa2f7", raw: "{}" }],
@@ -76,7 +75,6 @@ async function unlockToCalendar() {
   await screen.findByText("Ada Lovelace");
   fireEvent.click(screen.getByRole("button", { name: "Calendar" }));
   await screen.findByRole("button", { name: "Create event" });
-  await snapshotWritten();
 }
 
 function overlaySwitch(): HTMLInputElement | null {

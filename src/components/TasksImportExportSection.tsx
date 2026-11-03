@@ -11,12 +11,7 @@ import {
   taskListNameById,
 } from "../lib/task";
 import { newTaskId, putTask, putTaskList } from "../lib/taskApi";
-import {
-  generateTaskExportData,
-  importOrder,
-  parseTaskImport,
-  type TaskImportResult,
-} from "../lib/taskExport";
+import { generateTaskExportData, parseTaskImport, type TaskImportResult } from "../lib/taskExport";
 import { btnPrimary, btnSecondary, field, focusRing, selectField } from "../lib/styles";
 import type { Task, TaskList } from "../lib/types";
 
@@ -36,7 +31,6 @@ function plural(count: number, word: string): string {
 }
 
 function readError(err: unknown): string {
-  if (err instanceof SyntaxError) return "That file is not valid JSON.";
   return err instanceof Error ? err.message : friendlyError(err);
 }
 
@@ -142,7 +136,7 @@ export function TasksImportExportSection({ session, tasks, taskLists, onRefresh 
 
   async function runImport() {
     if (!parsed || parsed.tasks.length === 0) return;
-    const ordered = importOrder(parsed.tasks);
+    const ordered = parsed.tasks;
     setImporting(true);
     setImportMsg(null);
     setProgress({ current: 0, total: ordered.length });

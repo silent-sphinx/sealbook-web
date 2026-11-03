@@ -170,6 +170,10 @@ type Props = {
   onPersistSession: (updated: Session, password: string) => Promise<void>;
   onAccountDeleted: () => void;
   onSignOut: () => void;
+  /** Writes queued on this device, which a sign-out would lose. */
+  pendingChanges?: number;
+  /** Hides what needs the server: devices, account changes, imports. */
+  offline?: boolean;
   onRefresh: () => Promise<void>;
   onCreateBook?: (name: string) => Promise<string | undefined>;
   onCreateNotebook?: (name: string) => Promise<string | undefined>;
@@ -199,6 +203,8 @@ export function SettingsView({
   onPersistSession,
   onAccountDeleted,
   onSignOut,
+  pendingChanges = 0,
+  offline = false,
   onRefresh,
   onCreateBook,
   onCreateNotebook,
@@ -827,6 +833,11 @@ export function SettingsView({
     activeSection === "account"
       ? ACCOUNT_PAGES.find((item) => item.id === accountPage) ?? null
       : null;
+  const serverOnly =
+    offline &&
+    activeSection !== "features" &&
+    activeSection !== "appearance" &&
+    !(activeSection === "account" && (accountPage === null || accountPage === "signout"));
 
   const recoveryPhraseCard = newWords ? (
     <div className="mt-6 rounded-xl border border-accent/30 bg-bg/70 p-5 animate-fade-in">
@@ -937,7 +948,13 @@ export function SettingsView({
           </p>
         </div>
 
-      {activeSection === "features" && (
+      {serverOnly ? (
+        <section className="rounded-2xl border border-line bg-panel/75 p-6 text-sm text-mute">
+          This needs a connection to the server. It will be available again once you are back online.
+        </section>
+      ) : null}
+
+      {!serverOnly && activeSection === "features" && (
         <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
           <h3 className="text-base font-semibold text-text">Enabled features</h3>
           <p className="mt-1 text-xs leading-relaxed text-mute">
@@ -1002,7 +1019,7 @@ export function SettingsView({
         </section>
       )}
 
-      {activeSection === "appearance" && (
+      {!serverOnly && activeSection === "appearance" && (
         <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
           <h3 className="text-base font-semibold text-text">Accent colour</h3>
           <p className="mt-1 text-xs leading-relaxed text-mute">
@@ -1069,7 +1086,7 @@ export function SettingsView({
         </section>
       )}
 
-      {activeSection === "calendar" && (<>
+      {!serverOnly && activeSection === "calendar" && (<>
         <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
           <h3 className="text-base font-semibold text-text">Calendar timezone</h3>
           <select value={timezone} onChange={(event) => onTimezoneChange(event.target.value)} className={`${field} mt-5`}>
@@ -1401,7 +1418,7 @@ export function SettingsView({
         </section>
       </>)}
 
-      {activeSection === "account" && accountPage === null && (
+      {!serverOnly && activeSection === "account" && accountPage === null && (
         <div className="space-y-2">
           {ACCOUNT_PAGES.map((item) => (
             <button
@@ -1430,7 +1447,7 @@ export function SettingsView({
         </div>
       )}
 
-      {activeSection === "account" && accountPage === "username" && (
+      {!serverOnly && activeSection === "account" && accountPage === "username" && (
       <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-base font-semibold text-text">Username</h3>
@@ -1493,7 +1510,7 @@ export function SettingsView({
       </section>
       )}
 
-      {activeSection === "account" && accountPage === "password" && (
+      {!serverOnly && activeSection === "account" && accountPage === "password" && (
       <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
         <div>
           <h3 className="text-base font-semibold text-text">Change Password</h3>
@@ -1565,7 +1582,7 @@ export function SettingsView({
       </section>
       )}
 
-      {activeSection === "account" && accountPage === "devices" && (
+      {!serverOnly && activeSection === "account" && accountPage === "devices" && (
       <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
         <div className="flex flex-col gap-1">
           <h3 className="text-base font-semibold text-text">Paired devices</h3>
@@ -1627,7 +1644,7 @@ export function SettingsView({
       </section>
       )}
 
-      {activeSection === "account" && accountPage === "recovery" && (
+      {!serverOnly && activeSection === "account" && accountPage === "recovery" && (
       <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -1721,12 +1738,12 @@ export function SettingsView({
       </section>
       )}
 
-      {activeSection === "contacts" && (<>
+      {!serverOnly && activeSection === "contacts" && (<>
         <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
           <h3 className="text-base font-semibold text-text">Contact detail</h3>
           <p className="mt-1 text-xs leading-relaxed text-mute">
             Detailed contacts turn the address book into a personal relationship manager:
-            how you met, interests, food, music, pets, career and relationship history,
+            how you met, interests, food, music, pets, workplace dates, relationship history,
             life events, family and friends. Switching back to basic hides those sections
             without deleting anything.
           </p>
@@ -1791,7 +1808,7 @@ export function SettingsView({
         />
       </>)}
 
-      {activeSection === "notes" && (
+      {!serverOnly && activeSection === "notes" && (
         <NotesImportExportSection
           session={session}
           notes={notes}
@@ -1801,7 +1818,7 @@ export function SettingsView({
         />
       )}
 
-      {activeSection === "bookmarks" && (
+      {!serverOnly && activeSection === "bookmarks" && (
         <BookmarksImportExportSection
           session={session}
           bookmarks={bookmarks}
@@ -1811,7 +1828,7 @@ export function SettingsView({
         />
       )}
 
-      {activeSection === "tasks" && (
+      {!serverOnly && activeSection === "tasks" && (
         <TasksImportExportSection
           session={session}
           tasks={tasks}
@@ -1820,7 +1837,7 @@ export function SettingsView({
         />
       )}
 
-      {activeSection === "account" && accountPage === "signout" && (
+      {!serverOnly && activeSection === "account" && accountPage === "signout" && (
         <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
@@ -1847,14 +1864,14 @@ export function SettingsView({
         </section>
       )}
 
-      {activeSection === "account" && accountPage === "data" && (
+      {!serverOnly && activeSection === "account" && accountPage === "data" && (
         <div className="space-y-4">
           <AccountExportSection session={session} />
           <AccountImportSection session={session} onRefresh={onRefresh} />
         </div>
       )}
 
-      {activeSection === "account" && accountPage === "delete" && (
+      {!serverOnly && activeSection === "account" && accountPage === "delete" && (
       <section className="rounded-2xl border border-danger/40 bg-danger/5 backdrop-blur-md p-4 shadow-sm sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -1956,6 +1973,13 @@ export function SettingsView({
                 This device's keys are removed from this browser. Nothing is
                 deleted from your account.
               </span>
+              {pendingChanges > 0 ? (
+                <span className="block font-medium text-danger">
+                  {pendingChanges} change{pendingChanges === 1 ? "" : "s"} made on this device
+                  {pendingChanges === 1 ? " has" : " have"} not synced yet and will be lost.
+                  Cancel and wait for them to sync, or export them from the sync banner first.
+                </span>
+              ) : null}
               <span className="block">
                 {onlyDevice
                   ? "No other device is signed in, so your 24 recovery words are the only way back into this account. If you do not have them written down, cancel and keep this device signed in."

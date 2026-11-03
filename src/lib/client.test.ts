@@ -8,7 +8,6 @@ import {
   exportVault,
   importBatches,
   importVault,
-  paddedLength,
   listVault,
   apiRoot,
   normalizeServer,
@@ -24,8 +23,17 @@ import {
   syncRoster,
   uploadAttachment,
   verifiedRoster,
+  flushOutbox,
+  putSealed,
   type Session,
 } from "./client";
+import {
+  currentOutbox,
+  currentVault,
+  localObjects,
+  queueWrite,
+  subscribeNotices,
+} from "./outbox";
 import { ATTACHMENT_NONCE_LEN } from "./attachments";
 import { b64ToByteArray } from "./bytes";
 import {
@@ -818,7 +826,7 @@ describe("listVault", () => {
     expect(listed.tasks.map((task) => task.title)).toEqual(["Water plants"]);
     expect(listed.taskLists.map((list) => list.id)).toEqual([DEFAULT_TASK_LIST_ID]);
     expect(listed.contacts).toEqual([]);
-    expect(listed.sealed).toHaveLength(2);
+    expect(localObjects()).toHaveLength(3);
   });
 
   it("defaults to every feature enabled when the account has no settings object", async () => {
@@ -1068,7 +1076,9 @@ describe("exportVault", () => {
     expect(JSON.parse(note!.payload)).toMatchObject({ pinned: true });
 
     const listed = await listVault(owner.session);
-    expect(listed.sealed.map((object) => object.id)).not.toContain(futureId);
+    expect(listed.notes.map((listedNote) => listedNote.id)).toEqual([noteId]);
+    expect(listed.contacts.map((contact) => contact.id)).toEqual([contactId]);
+    expect(localObjects().map((object) => object.id)).toContain(futureId);
   });
 
   it("counts the rows it could not open, so a backup can say it is short", async () => {
@@ -1130,22 +1140,6 @@ describe("exportVault", () => {
   });
 });
 
-describe("the padded length a batch is sized by", () => {
-  /// The same cases `padding_above_the_bucket_table_is_a_power_of_two` pins in
-  /// `sealbook-crypto`. If these drift, a batch is sized against the wrong
-  /// numbers and the request limit is the thing that discovers it.
-  it("matches the buckets the Rust padding uses", () => {
-    expect(paddedLength(1)).toBe(256);
-    expect(paddedLength(0)).toBe(256);
-    expect(paddedLength(600 * 1024)).toBe(1024 * 1024);
-    expect(paddedLength(3 * 1024 * 1024)).toBe(4 * 1024 * 1024);
-    expect(paddedLength(5 * 1024 * 1024)).toBe(8 * 1024 * 1024);
-    // The bucket edges: four bytes of length prefix go in front of the payload.
-    expect(paddedLength(252)).toBe(256);
-    expect(paddedLength(253)).toBe(512);
-  });
-});
-
 describe("importBatches", () => {
   const sized = (bytes: number) => ({
     id: newUuid(),
@@ -1163,13 +1157,9 @@ describe("importBatches", () => {
   /// server's body limit, and a vault of large notes could not be imported.
   it("bounds a batch of large objects by the bytes", () => {
     const objects = Array.from({ length: 20 }, () => sized(1024 * 1024));
+    // Each pads to 2 MiB, so four fill the 8 MiB a batch may carry.
     const batches = importBatches(objects);
-    expect(batches.length).toBeGreaterThan(1);
-    for (const batch of batches) {
-      const bytes = batch.reduce((sum, object) => sum + paddedLength(object.payload.length), 0);
-      expect(bytes).toBeLessThanOrEqual(8 * 1024 * 1024);
-    }
-    expect(batches.flat()).toHaveLength(objects.length);
+    expect(batches.map((batch) => batch.length)).toEqual([4, 4, 4, 4, 4]);
   });
 
   it("sends an object larger than the whole budget on its own", () => {
@@ -2429,3 +2419,251 @@ describe("attachments", () => {
 });
 
 const DEFAULT_NOTEBOOK_ID_FOR_TEST = "00000000-0000-0000-0000-000000000002";
+
+describe("flushing the outbox", () => {
+  type Answer = { status: number; body: unknown };
+
+  /**
+   * A collection that takes writes the way the server does: the next revision
+   * at the next manifest sequence, or a 409. `remote` writes as another device
+   * would, and `onWrite` can hold a write open or refuse it.
+   */
+  function collection(owner: Account) {
+    const rows: SealedObject[] = [];
+    let manifest: ManifestBody | null = null;
+    let seq = 1;
+    let onWrite: (() => Promise<Answer | null>) | null = null;
+
+    const latest = () => rows.reduce((max, row) => Math.max(max, row.revision), 0);
+    const current = () => {
+      const byId = new Map<string, SealedObject>();
+      for (const row of rows) byId.set(row.id, row);
+      return [...byId.values()];
+    };
+    const entries = (): ManifestEntry[] =>
+      current().map((row) => ({
+        id: row.id,
+        revision: row.revision,
+        tombstone: row.tombstone,
+        content_digest: objectContentDigest(row.nonce, row.ciphertext),
+      }));
+    const routes = manifestRoutes(() => ({ manifest, entries: entries() }));
+
+    function remote(id: string, contentType: string, payload: string) {
+      const sealed = sealObject(owner.session.collectionKey, id, owner.collectionId, contentType, payload);
+      rows.push({
+        id,
+        revision: latest() + 1,
+        tombstone: false,
+        nonce: sealed.nonce,
+        ciphertext: sealed.ciphertext,
+        padded_size: sealed.padded_size,
+        content_type: sealedContentType(),
+      });
+      seq += 1;
+      manifest = manifestSign(
+        owner.enrollment.mldsa_seed,
+        owner.enrollment.ed25519_sk,
+        owner.collectionId,
+        owner.enrollment.device_id,
+        seq,
+        1,
+        latest(),
+        entries(),
+      );
+    }
+
+    function take(objects: SealedObject[], body: ManifestBody): Answer {
+      if (objects[0]!.revision !== latest() + 1 || body.manifest_seq !== seq + 1) {
+        return { status: 409, body: { error: "stale revision" } };
+      }
+      rows.push(...objects);
+      seq += 1;
+      manifest = body;
+      return { status: 200, body: { revision: latest(), latest_revision: latest() } };
+    }
+
+    async function answer(url: URL, body: unknown): Promise<Answer> {
+      const path = url.pathname;
+      if (path.endsWith("/objects") || path.endsWith("/objects/batch")) {
+        const held = onWrite ? await onWrite() : null;
+        if (held) return held;
+        const { manifest: signed, objects, ...single } = body as SealedObject & {
+          manifest: ManifestBody;
+          objects?: SealedObject[];
+        };
+        return take(objects ?? [single as SealedObject], signed);
+      }
+      if (path.endsWith("/changes")) {
+        const after = Number(url.searchParams.get("after") ?? 0);
+        return {
+          status: 200,
+          body: {
+            latest_revision: latest(),
+            key_epoch: 1,
+            objects: current().filter((row) => row.revision > after),
+            has_more: false,
+            manifest,
+            resync: false,
+            tombstone_floor: 0,
+          },
+        };
+      }
+      if (path.endsWith("/roster")) return { status: 200, body: { rosters: [owner.roster] } };
+      const route = Object.keys(routes).find((key) => path.endsWith(key));
+      if (!route) throw new Error(`no route for ${path}`);
+      return { status: 200, body: routes[route](url, undefined) };
+    }
+
+    const fetchMock = vi.fn(async (input: string, options?: RequestInit) => {
+      const url = new URL(input);
+      const body = options?.body ? (JSON.parse(options.body as string) as unknown) : undefined;
+      const { status, body: reply } = await answer(url, body);
+      return new Response(JSON.stringify(reply), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    return {
+      remote,
+      fetchMock,
+      holdWrites(next: (() => Promise<Answer | null>) | null) {
+        onWrite = next;
+      },
+      /** What the server now holds for `id`, opened. */
+      payloadOf(id: string): string {
+        const row = current().find((candidate) => candidate.id === id)!;
+        return openObject(
+          owner.session.collectionKey,
+          id,
+          owner.collectionId,
+          row.nonce,
+          row.ciphertext,
+          row.padded_size,
+        ).payload;
+      },
+      ids: () => current().map((row) => row.id),
+    };
+  }
+
+  const NOTEBOOK = "00000000-0000-0000-0000-000000000010";
+
+  function note(title: string, body: string, updatedAt: string): string {
+    return JSON.stringify({
+      "@type": "Note",
+      body,
+      createdAt: "2026-11-01T08:00:00.000Z",
+      notebookId: NOTEBOOK,
+      title,
+      updatedAt,
+      version: "1.0",
+    });
+  }
+
+  /** An account holding one note, listed once so this device has its copy. */
+  async function opened() {
+    const owner = account();
+    const server = collection(owner);
+    const id = newUuid();
+    server.remote(id, NOTE_CONTENT_TYPE, note("Plan", "one\ntwo", "2026-11-01T08:00:00.000Z"));
+    await listVault(owner.session);
+    const offline = { ...owner.session, offline: true };
+    return { owner, server, id, offline };
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("merges an offline edit with another device's edit to another field", async () => {
+    const { owner, server, id, offline } = await opened();
+    await putSealed(offline, id, NOTE_CONTENT_TYPE, false, note("Plan A", "one\ntwo", "2026-11-02T09:00:00.000Z"));
+    server.remote(id, NOTE_CONTENT_TYPE, note("Plan", "one\nTWO", "2026-11-02T10:00:00.000Z"));
+
+    const report = await flushOutbox(owner.session);
+
+    expect(report.stopped).toBeUndefined();
+    expect(JSON.parse(server.payloadOf(id))).toMatchObject({
+      title: "Plan A",
+      body: "one\nTWO",
+      updatedAt: "2026-11-02T10:00:00.000Z",
+    });
+    expect(currentOutbox().writes).toEqual([]);
+    expect(currentVault().objects.find((object) => object.id === id)?.revision).toBe(3);
+  });
+
+  it("keeps the other device's edit and writes this one as a copy when both changed a field", async () => {
+    const { owner, server, id, offline } = await opened();
+    const notices: string[] = [];
+    const stop = subscribeNotices((notice) => notices.push(notice));
+    await putSealed(offline, id, NOTE_CONTENT_TYPE, false, note("Mine", "one\ntwo", "2026-11-02T09:00:00.000Z"));
+    server.remote(id, NOTE_CONTENT_TYPE, note("Theirs", "one\ntwo", "2026-11-02T10:00:00.000Z"));
+
+    await flushOutbox(owner.session);
+    stop();
+
+    expect(JSON.parse(server.payloadOf(id)).title).toBe("Theirs");
+    const copy = server.ids().find((candidate) => candidate !== id)!;
+    expect(JSON.parse(server.payloadOf(copy)).title).toMatch(/^Mine \(conflict, \d{4}-\d{2}-\d{2}\)$/u);
+    expect(notices).toHaveLength(1);
+    expect(currentOutbox().writes).toEqual([]);
+  });
+
+  it("leaves a write queued when the server cannot be reached", async () => {
+    const { owner, server, id } = await opened();
+    server.holdWrites(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+
+    await putSealed(owner.session, id, NOTE_CONTENT_TYPE, false, note("Plan B", "one\ntwo", "2026-11-02T09:00:00.000Z"));
+
+    expect(currentOutbox().writes.map((write) => write.id)).toEqual([id]);
+    expect(JSON.parse(server.payloadOf(id)).title).toBe("Plan");
+
+    server.holdWrites(null);
+    await flushOutbox(owner.session);
+    expect(JSON.parse(server.payloadOf(id)).title).toBe("Plan B");
+    expect(currentOutbox().writes).toEqual([]);
+  });
+
+  it("moves a write the server refuses to the failed list, and says so", async () => {
+    const { owner, server, id } = await opened();
+    server.holdWrites(async () => ({ status: 413, body: { error: "object too large" } }));
+
+    await expect(
+      putSealed(owner.session, id, NOTE_CONTENT_TYPE, false, note("Big", "x", "2026-11-02T09:00:00.000Z")),
+    ).rejects.toThrow(/too large/u);
+
+    expect(currentOutbox().writes).toEqual([]);
+    expect(currentOutbox().failed.map((failed) => failed.write.id)).toEqual([id]);
+  });
+
+  it("keeps an edit made while its earlier version was being sent, based on what was sent", async () => {
+    const { owner, server, id } = await opened();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.holdWrites(async () => {
+      await gate;
+      return null;
+    });
+
+    const first = putSealed(owner.session, id, NOTE_CONTENT_TYPE, false, note("One", "one\ntwo", "2026-11-02T09:00:00.000Z"));
+    await vi.waitFor(() => expect(server.fetchMock.mock.calls.some(([url]) => String(url).endsWith("/objects"))).toBe(true));
+    await queueWrite({
+      id,
+      contentType: NOTE_CONTENT_TYPE,
+      tombstone: false,
+      payload: note("Two", "one\ntwo", "2026-11-02T09:01:00.000Z"),
+    });
+    release();
+    server.holdWrites(null);
+    await first;
+
+    expect(JSON.parse(server.payloadOf(id)).title).toBe("Two");
+    expect(currentOutbox().writes).toEqual([]);
+  });
+});

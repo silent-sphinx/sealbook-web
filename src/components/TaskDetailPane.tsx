@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { TaskIcon } from "./TaskIcon";
+import { HeaderButton, HeaderDivider, PaneSection } from "./PaneControls";
 import { dueLabel, isAllDayDue, isOverdue, priorityLabel } from "../lib/task";
 import { utcToLocalInput } from "../lib/timezone";
 import { focusRing } from "../lib/styles";
@@ -122,7 +123,7 @@ export function TaskDetailPane({
                 <HeaderButton label="Delete this task" onClick={() => onDelete(task)} disabled={busy} danger>
                   <TaskIcon name="trash" />
                 </HeaderButton>
-                <span aria-hidden="true" className="mx-1 h-5 w-px bg-line" />
+                <HeaderDivider />
               </>
             ) : null}
             <HeaderButton label="Close task details" onClick={onClose}>
@@ -160,7 +161,7 @@ export function TaskDetailPane({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        <Section title="Details">
+        <PaneSection title="Details">
           <dl>
             <Field label="Due">
               {task.dueDate ? (
@@ -193,18 +194,18 @@ export function TaskDetailPane({
             ) : null}
             {completed ? <Field label="Completed">{completed}</Field> : null}
           </dl>
-        </Section>
+        </PaneSection>
 
         {task.notes ? (
-          <Section title="Notes">
+          <PaneSection title="Notes">
             <p className="whitespace-pre-wrap px-5 py-3 text-sm leading-relaxed text-text">
               {task.notes}
             </p>
-          </Section>
+          </PaneSection>
         ) : null}
 
         {subtasks.length > 0 ? (
-          <Section title={`Subtasks ${doneChildren}/${subtasks.length}`}>
+          <PaneSection title={`Subtasks ${doneChildren}/${subtasks.length}`}>
             <ul>
               {subtasks.map((child) => (
                 <li
@@ -239,11 +240,11 @@ export function TaskDetailPane({
                 </li>
               ))}
             </ul>
-          </Section>
+          </PaneSection>
         ) : null}
 
         {completions.length > 0 ? (
-          <Section title="Completed before">
+          <PaneSection title="Completed before">
             <ul>
               {completions.slice(0, 10).map((entry, index) => (
                 <li
@@ -254,7 +255,7 @@ export function TaskDetailPane({
                 </li>
               ))}
             </ul>
-          </Section>
+          </PaneSection>
         ) : null}
 
         {created || updated ? (
@@ -268,17 +269,6 @@ export function TaskDetailPane({
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="break-inside-avoid">
-      <h4 className="sticky top-0 z-10 border-b border-line/60 bg-surface/80 px-5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-mute backdrop-blur-sm">
-        {title}
-      </h4>
-      {children}
-    </section>
-  );
-}
-
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-baseline gap-3 border-b border-line/60 px-5 py-2.5 text-sm">
@@ -287,34 +277,5 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       </dt>
       <dd className="min-w-0 flex-1 font-medium text-text">{children}</dd>
     </div>
-  );
-}
-
-function HeaderButton({
-  label,
-  onClick,
-  disabled,
-  danger,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  danger?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      disabled={disabled}
-      className={`flex h-8 w-8 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface disabled:opacity-50 ${
-        danger ? "hover:text-danger" : "hover:text-text"
-      } ${focusRing}`}
-    >
-      {children}
-    </button>
   );
 }

@@ -6,7 +6,6 @@ import {
   PROFILE_SECTIONS,
   PROFILE_SECTION_LABELS,
   RELATIONSHIP_KINDS,
-  emptyCareer,
   emptyCustomSection,
   emptyLifeEvent,
   emptyPerson,
@@ -16,11 +15,10 @@ import {
   type LinkableSection,
   type ProfileSection,
 } from "../lib/contactProfile";
-import { addLink, fieldBase, focusRing } from "../lib/styles";
+import { addLink, fieldBase, focusRing, ghost } from "../lib/styles";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import type {
   Contact,
-  ContactCareer,
   ContactCustomSection,
   ContactFood,
   ContactFoodPolarity,
@@ -31,9 +29,25 @@ import type {
   ContactRelationship,
   ContactTag,
 } from "../lib/types";
-import { AddIcon, FormSection, RemoveButton } from "./FieldControls";
+import {
+  AddIcon,
+  DateRange,
+  EntryCard,
+  EntryList,
+  FieldPair,
+  FormSection,
+  LinkIcon,
+  PillInput,
+  ProseField,
+  TagsInput,
+} from "./FieldControls";
 import { PartialDateInput } from "./PartialDateInput";
+import { Avatar } from "./ContactCard";
 import { ContactLinkPicker } from "./ContactLinkPicker";
+
+/** Sections that add entries through their own field rather than an add button. */
+const TAG_SECTIONS: ProfileSection[] = ["howWeMet", "interests", "music", "food"];
+type RowSection = Exclude<ProfileSection, "howWeMet" | "interests" | "music" | "food">;
 
 /** What each section's add button says, singular. */
 const ADD_LABELS: Record<Exclude<ProfileSection, "howWeMet">, string> = {
@@ -41,7 +55,6 @@ const ADD_LABELS: Record<Exclude<ProfileSection, "howWeMet">, string> = {
   food: "Food",
   music: "Artist or genre",
   pets: "Pet",
-  career: "Role",
   relationships: "Relationship",
   timeline: "Life event",
   family: "Family member",
@@ -49,52 +62,12 @@ const ADD_LABELS: Record<Exclude<ProfileSection, "howWeMet">, string> = {
   colleagues: "Colleague",
 };
 
+function isLinkable(section: ProfileSection): section is LinkableSection {
+  return section === "family" || section === "friends" || section === "colleagues";
+}
+
 /** Long enough to notice, short enough not to linger over the next edit. */
 const FLASH_MS = 1000;
-
-// Career and relationship entries span several rows, so a hairline rule marks
-// where one ends and the next begins. The same divider the form uses between
-// sections, not a card, which reads as foreign here.
-const entrySeparator = "border-t border-line/60 pt-4";
-
-/**
- * The add-item and remove-section controls for a section header, as discreet
- * pills on transparent fills: green to add, red to remove. `onAdd` is omitted
- * for a section with no list to add to.
- */
-function SectionActions({
-  onAdd,
-  addDisabled,
-  onRemove,
-}: {
-  onAdd?: () => void;
-  addDisabled?: boolean;
-  onRemove: () => void;
-}) {
-  return (
-    <div className="flex shrink-0 items-center gap-1.5">
-      {onAdd ? (
-        <button
-          type="button"
-          onClick={onAdd}
-          disabled={addDisabled}
-          title={addDisabled ? `Up to ${MAX_PROFILE_ENTRIES} entries` : undefined}
-          className={`inline-flex items-center gap-1 rounded-full border border-note-new/30 bg-note-new/10 px-2.5 py-1 text-[11px] font-medium text-note-new transition-colors hover:bg-note-new/20 disabled:opacity-40 disabled:hover:bg-note-new/10 ${focusRing}`}
-        >
-          <AddIcon />
-          Add
-        </button>
-      ) : null}
-      <button
-        type="button"
-        onClick={onRemove}
-        className={`inline-flex items-center rounded-full border border-danger/30 bg-danger/10 px-2.5 py-1 text-[11px] font-medium text-danger transition-colors hover:bg-danger/20 ${focusRing}`}
-      >
-        Remove
-      </button>
-    </div>
-  );
-}
 
 type Props = {
   profile: ContactProfile;
@@ -197,8 +170,6 @@ export function ContactProfileFields({ profile, onChange, contacts, currentConta
         return;
       case "pets":
         return patch({ pets: [...profile.pets, emptyPet()] });
-      case "career":
-        return patch({ career: [...profile.career, emptyCareer()] });
       case "relationships":
         return patch({ relationships: [...profile.relationships, emptyRelationship()] });
       case "timeline":
@@ -225,8 +196,6 @@ export function ContactProfileFields({ profile, onChange, contacts, currentConta
         return patch({ food: [] });
       case "pets":
         return patch({ pets: [] });
-      case "career":
-        return patch({ career: [] });
       case "relationships":
         return patch({ relationships: [] });
       case "timeline":
@@ -253,8 +222,6 @@ export function ContactProfileFields({ profile, onChange, contacts, currentConta
         return;
       case "pets":
         return patch({ pets: [...profile.pets, emptyPet()] });
-      case "career":
-        return patch({ career: [...profile.career, emptyCareer()] });
       case "relationships":
         return patch({ relationships: [...profile.relationships, emptyRelationship()] });
       case "timeline":
@@ -268,6 +235,10 @@ export function ContactProfileFields({ profile, onChange, contacts, currentConta
     }
   }
 
+  function hasRows(section: ProfileSection): section is RowSection {
+    return !TAG_SECTIONS.includes(section);
+  }
+
   function sectionCount(section: ProfileSection): number {
     return section === "howWeMet" ? 0 : profile[section].length;
   }
@@ -278,9 +249,10 @@ export function ContactProfileFields({ profile, onChange, contacts, currentConta
 
   return (
     <>
-      {ordered.map((section) => (
+      {ordered.map((section, index) => (
         <FormSection
           key={section}
+          first={index === 0}
           // A block body: a ref callback that returns a value is read by React 19
           // as a cleanup function, and `Map.set` returns the map.
           ref={(node) => {
@@ -291,44 +263,45 @@ export function ContactProfileFields({ profile, onChange, contacts, currentConta
           // past its neighbours for the second the class is on.
           className={flash?.key === section ? "animate-flash-block" : undefined}
           title={PROFILE_SECTION_LABELS[section]}
-          action={
-            <SectionActions
-              onAdd={
-                section === "howWeMet" ||
-                section === "interests" ||
-                section === "music" ||
-                section === "food"
-                  ? undefined
-                  : () => addEntry(section)
-              }
-              addDisabled={sectionCount(section) >= MAX_PROFILE_ENTRIES}
-              onRemove={() => removeSection(section)}
-            />
+          onAdd={hasRows(section) ? () => addEntry(section) : undefined}
+          addLabel={hasRows(section) ? ADD_LABELS[section] : undefined}
+          addDisabled={sectionCount(section) >= MAX_PROFILE_ENTRIES}
+          addDisabledReason={`Up to ${MAX_PROFILE_ENTRIES} entries`}
+          actions={
+            contacts && isLinkable(section) ? (
+              <button
+                type="button"
+                onClick={() => setLinkingSection(section)}
+                aria-label="Link a contact"
+                disabled={sectionCount(section) >= MAX_PROFILE_ENTRIES}
+                className={`${ghost} inline-flex h-7 items-center gap-1 rounded-lg px-2 text-xs font-medium hover:bg-surface disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-mute`}
+              >
+                <LinkIcon />
+                Link Contact
+              </button>
+            ) : undefined
           }
+          onRemoveSection={() => removeSection(section)}
         >
           <SectionBody
             section={section}
             profile={profile}
             patch={patch}
-            onLinkRequest={
-              contacts &&
-              (section === "family" || section === "friends" || section === "colleagues")
-                ? () => setLinkingSection(section as LinkableSection)
-                : undefined
-            }
+            contacts={contacts}
           />
         </FormSection>
       ))}
 
-      {profile.custom.map((section) => (
+      {profile.custom.map((section, index) => (
         <FormSection
           key={section.id}
+          first={ordered.length === 0 && index === 0}
           ref={(node) => {
             sectionNodes.current.set(section.id, node);
           }}
           className={flash?.key === section.id ? "animate-flash-block" : undefined}
           title="Custom Section"
-          action={<SectionActions onRemove={() => removeCustomSection(section.id)} />}
+          onRemoveSection={() => removeCustomSection(section.id)}
         >
           <CustomSectionBody
             section={section}
@@ -358,7 +331,10 @@ export function ContactProfileFields({ profile, onChange, contacts, currentConta
         />
       ) : null}
 
-      <div ref={pickerRef} className="relative mt-6 border-t border-line pt-5">
+      <div
+        ref={pickerRef}
+        className={`relative ${ordered.length + profile.custom.length > 0 ? "mt-5 border-t border-line pt-4" : ""}`}
+      >
         <button
           type="button"
           className={`${addLink} inline-flex items-center gap-1.5`}
@@ -400,46 +376,45 @@ function SectionBody({
   section,
   profile,
   patch,
-  onLinkRequest,
+  contacts,
 }: {
   section: ProfileSection;
   profile: ContactProfile;
   patch: (partial: Partial<ContactProfile>) => void;
-  onLinkRequest?: () => void;
+  contacts?: Contact[];
 }) {
   switch (section) {
     case "howWeMet":
       return (
-        <TextAreaField
+        <ProseField
           value={profile.howWeMet ?? ""}
           placeholder="Where you met, who introduced you, what you talked about…"
+          max={MAX_PROFILE_TEXT_CHARS}
           onChange={(howWeMet) => patch({ howWeMet })}
         />
       );
     case "interests":
       return (
-        <TagsInput
+        <ProfileTags
           rows={profile.interests}
+          label={ADD_LABELS.interests}
           placeholder="e.g. Rock climbing"
-          addLabel={ADD_LABELS.interests}
           onChange={(interests) => patch({ interests })}
         />
       );
     case "music":
       return (
-        <TagsInput
+        <ProfileTags
           rows={profile.music}
+          label={ADD_LABELS.music}
           placeholder="e.g. Talking Heads"
-          addLabel={ADD_LABELS.music}
           onChange={(music) => patch({ music })}
         />
       );
     case "food":
-      return <FoodPills rows={profile.food} onChange={(food) => patch({ food })} />;
+      return <FoodTags rows={profile.food} onChange={(food) => patch({ food })} />;
     case "pets":
       return <PetRows rows={profile.pets} onChange={(pets) => patch({ pets })} />;
-    case "career":
-      return <CareerRows rows={profile.career} onChange={(career) => patch({ career })} />;
     case "relationships":
       return (
         <RelationshipRows
@@ -456,7 +431,7 @@ function SectionBody({
           showRelation
           addLabel={ADD_LABELS.family}
           onChange={(family) => patch({ family })}
-          onLinkRequest={onLinkRequest}
+          contacts={contacts}
         />
       );
     case "friends":
@@ -465,7 +440,7 @@ function SectionBody({
           rows={profile.friends}
           addLabel={ADD_LABELS.friends}
           onChange={(friends) => patch({ friends })}
-          onLinkRequest={onLinkRequest}
+          contacts={contacts}
         />
       );
     case "colleagues":
@@ -474,38 +449,10 @@ function SectionBody({
           rows={profile.colleagues}
           addLabel={ADD_LABELS.colleagues}
           onChange={(colleagues) => patch({ colleagues })}
-          onLinkRequest={onLinkRequest}
+          contacts={contacts}
         />
       );
   }
-}
-
-function TextAreaField({
-  value,
-  placeholder,
-  onChange,
-}: {
-  value: string;
-  placeholder: string;
-  onChange: (value: string) => void;
-}) {
-  const over = value.length > MAX_PROFILE_TEXT_CHARS;
-  return (
-    <div className="grid gap-1.5">
-      <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        rows={3}
-        className={`${fieldBase} h-auto min-h-[5.5rem] py-2.5 resize-y leading-relaxed`}
-      />
-      {value.length > MAX_PROFILE_TEXT_CHARS * 0.8 ? (
-        <p className={`text-right text-[11px] ${over ? "text-danger" : "text-mute"}`}>
-          {value.length.toLocaleString()} / {MAX_PROFILE_TEXT_CHARS.toLocaleString()}
-        </p>
-      ) : null}
-    </div>
-  );
 }
 
 /** A user-titled section: a free-text heading over a free-text body. */
@@ -518,123 +465,63 @@ function CustomSectionBody({
 }) {
   return (
     <div className="grid min-w-0 gap-2">
-      <input
+      <PillInput
+        label="Title"
         value={section.title}
-        onChange={(e) => onChange({ title: e.target.value })}
         placeholder="Section title"
-        aria-label="Section title"
-        maxLength={MAX_PROFILE_TEXT_CHARS}
-        className={fieldBase}
+        ariaLabel="Section title"
+        onChange={(title) => onChange({ title: title.slice(0, MAX_PROFILE_TEXT_CHARS) })}
       />
-      <TextAreaField
+      <ProseField
         value={section.text}
         placeholder="Anything you want to keep under this heading…"
+        max={MAX_PROFILE_TEXT_CHARS}
         onChange={(text) => onChange({ text })}
       />
     </div>
   );
 }
 
-/**
- * The add button every row list ends with. Hidden at the entry cap rather than
- * left to fail on save.
- */
 function rowOps<T extends { id: string }>(rows: T[], onChange: (rows: T[]) => void) {
   return {
     update: (id: string, partial: Partial<T>) =>
       onChange(rows.map((row) => (row.id === id ? { ...row, ...partial } : row))),
     remove: (id: string) => onChange(rows.filter((row) => row.id !== id)),
-    add: (row: T) => onChange([...rows, row]),
   };
 }
 
-/**
- * A type-and-Enter tag field: existing entries sit as removable chips in
- * front of a text input that commits on Enter, comma, or blur. Replaces a
- * stacked list of single-value rows, since each entry here is just a word or
- * two rather than something that needs its own line.
- */
-function TagsInput({
+const capPlaceholder = `Up to ${MAX_PROFILE_ENTRIES} entries`;
+
+function ProfileTags({
   rows,
+  label,
   placeholder,
-  addLabel,
   onChange,
 }: {
   rows: ContactTag[];
+  label: string;
   placeholder: string;
-  addLabel: string;
   onChange: (rows: ContactTag[]) => void;
 }) {
-  const [draft, setDraft] = useState("");
-  const atCap = rows.length >= MAX_PROFILE_ENTRIES;
-
-  function commit() {
-    const value = draft.trim();
-    setDraft("");
-    if (!value || atCap) return;
-    onChange([...rows, { id: crypto.randomUUID(), value }]);
-  }
-
-  function remove(id: string) {
-    onChange(rows.filter((row) => row.id !== id));
-  }
-
   return (
-    <div
-      className={`flex min-w-0 flex-wrap items-center gap-1.5 rounded-lg border border-line bg-bg px-2.5 py-1.5 transition-colors duration-150 focus-within:border-accent-dim focus-within:ring-1 focus-within:ring-accent-ring`}
-    >
-      {rows.map((row) => (
-        <span
-          key={row.id}
-          className="inline-flex items-center gap-1 rounded-md border border-line bg-bg/50 py-1 pl-2.5 pr-1 text-xs text-text"
-        >
-          {row.value}
-          <button
-            type="button"
-            aria-label={`Remove ${addLabel.toLowerCase()}: ${row.value}`}
-            onClick={() => remove(row.id)}
-            className={`flex h-4 w-4 items-center justify-center rounded-full text-mute transition-colors hover:bg-danger/20 hover:text-danger ${focusRing}`}
-          >
-            <svg className="h-2.5 w-2.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-              <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-            </svg>
-          </button>
-        </span>
-      ))}
-      <input
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === ",") {
-            e.preventDefault();
-            commit();
-          } else if (e.key === "Backspace" && draft === "" && rows.length > 0) {
-            remove(rows[rows.length - 1].id);
-          }
-        }}
-        onBlur={commit}
-        placeholder={atCap ? `Up to ${MAX_PROFILE_ENTRIES} entries` : placeholder}
-        disabled={atCap}
-        aria-label={addLabel}
-        className="h-7 min-w-[8rem] flex-1 bg-transparent text-sm text-text outline-none placeholder:text-mute/70 disabled:placeholder:text-mute/50"
-      />
-    </div>
+    <TagsInput
+      values={rows}
+      label={label}
+      removeLabel={`Remove ${label.toLowerCase()}`}
+      placeholder={placeholder}
+      disabled={rows.length >= MAX_PROFILE_ENTRIES}
+      disabledPlaceholder={capPlaceholder}
+      onAdd={(value) => onChange([...rows, { id: crypto.randomUUID(), value }])}
+      onRemove={(id) => onChange(rows.filter((row) => row.id !== id))}
+    />
   );
 }
 
-/** Chip colors per polarity, reusing the same green/red tokens as the add/remove section pills. */
-const FOOD_POLARITY_TONE: Record<ContactFoodPolarity, string> = {
-  like: "border-note-new/30 bg-note-new/10 text-note-new",
-  dislike: "border-danger/30 bg-danger/10 text-danger",
-};
-
 /**
- * Food likes and dislikes as two type-and-Enter pill inputs, one green, one
- * red, instead of a stacked list of polarity-dropdown rows. A per-entry note
- * no longer has anywhere to live here, so an existing note rides along
- * unedited until that entry is removed, and new entries carry none.
+ * Likes and dislikes as two toned tag fields. An existing per-entry note rides
+ * along unedited until that entry is removed; new entries carry none.
  */
-function FoodPills({
+function FoodTags({
   rows,
   onChange,
 }: {
@@ -642,108 +529,28 @@ function FoodPills({
   onChange: (rows: ContactFood[]) => void;
 }) {
   const atCap = rows.length >= MAX_PROFILE_ENTRIES;
-
-  function commit(polarity: ContactFoodPolarity, value: string) {
-    const text = value.trim();
-    if (!text || atCap) return;
-    onChange([...rows, { id: crypto.randomUUID(), polarity, value: text }]);
-  }
-
-  function remove(id: string) {
-    onChange(rows.filter((row) => row.id !== id));
-  }
-
+  const groups: { polarity: ContactFoodPolarity; label: string; placeholder: string }[] = [
+    { polarity: "like", label: "Likes", placeholder: "e.g. Coriander" },
+    { polarity: "dislike", label: "Dislikes", placeholder: "e.g. Oysters" },
+  ];
   return (
-    <div className="grid min-w-0 gap-3">
-      <FoodPolarityGroup
-        label="Likes"
-        polarity="like"
-        rows={rows.filter((row) => row.polarity === "like")}
-        disabled={atCap}
-        placeholder="e.g. Coriander"
-        onCommit={(value) => commit("like", value)}
-        onRemove={remove}
-      />
-      <FoodPolarityGroup
-        label="Dislikes"
-        polarity="dislike"
-        rows={rows.filter((row) => row.polarity === "dislike")}
-        disabled={atCap}
-        placeholder="e.g. Oysters"
-        onCommit={(value) => commit("dislike", value)}
-        onRemove={remove}
-      />
-    </div>
-  );
-}
-
-function FoodPolarityGroup({
-  label,
-  polarity,
-  rows,
-  disabled,
-  placeholder,
-  onCommit,
-  onRemove,
-}: {
-  label: string;
-  polarity: ContactFoodPolarity;
-  rows: ContactFood[];
-  disabled: boolean;
-  placeholder: string;
-  onCommit: (value: string) => void;
-  onRemove: (id: string) => void;
-}) {
-  const [draft, setDraft] = useState("");
-
-  function commit() {
-    const value = draft;
-    setDraft("");
-    onCommit(value);
-  }
-
-  return (
-    <div className="grid min-w-0 gap-1">
-      <span className="text-[11px] font-semibold uppercase tracking-wider text-mute/80">
-        {label}
-      </span>
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5 rounded-lg border border-line bg-bg px-2.5 py-1.5 transition-colors duration-150 focus-within:border-accent-dim focus-within:ring-1 focus-within:ring-accent-ring">
-        {rows.map((row) => (
-          <span
-            key={row.id}
-            className={`inline-flex items-center gap-1 rounded-md border py-1 pl-2.5 pr-1 text-xs ${FOOD_POLARITY_TONE[polarity]}`}
-          >
-            {row.value}
-            <button
-              type="button"
-              aria-label={`Remove ${label.toLowerCase()}: ${row.value}`}
-              onClick={() => onRemove(row.id)}
-              className={`flex h-4 w-4 items-center justify-center rounded-full text-mute transition-colors hover:bg-danger/20 hover:text-danger ${focusRing}`}
-            >
-              <svg className="h-2.5 w-2.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-              </svg>
-            </button>
-          </span>
-        ))}
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === ",") {
-              e.preventDefault();
-              commit();
-            } else if (e.key === "Backspace" && draft === "" && rows.length > 0) {
-              onRemove(rows[rows.length - 1].id);
-            }
-          }}
-          onBlur={commit}
-          placeholder={disabled ? `Up to ${MAX_PROFILE_ENTRIES} entries` : placeholder}
-          disabled={disabled}
-          aria-label={label}
-          className="h-7 min-w-[8rem] flex-1 bg-transparent text-sm text-text outline-none placeholder:text-mute/70 disabled:placeholder:text-mute/50"
-        />
-      </div>
+    <div className="grid min-w-0 gap-2">
+      {groups.map(({ polarity, label, placeholder }) => (
+        <div key={polarity} className="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-mute/80">{label}</span>
+          <TagsInput
+            values={rows.filter((row) => row.polarity === polarity)}
+            tone={polarity}
+            label={label}
+            removeLabel={`Remove ${label.toLowerCase()}`}
+            placeholder={placeholder}
+            disabled={atCap}
+            disabledPlaceholder={capPlaceholder}
+            onAdd={(value) => onChange([...rows, { id: crypto.randomUUID(), polarity, value }])}
+            onRemove={(id) => onChange(rows.filter((row) => row.id !== id))}
+          />
+        </div>
+      ))}
     </div>
   );
 }
@@ -757,132 +564,34 @@ function PetRows({
 }) {
   const list = rowOps(rows, onChange);
   return (
-    <div className="grid min-w-0 gap-2">
+    <EntryList>
       {rows.map((row) => (
-        <div key={row.id} className="flex min-w-0 items-start gap-2">
-          <div className="grid min-w-0 flex-1 gap-2">
-            <div className="grid min-w-0 gap-2 sm:grid-cols-2">
-              <input
-                value={row.name}
-                onChange={(e) => list.update(row.id, { name: e.target.value })}
-                placeholder="Name"
-                aria-label="Pet name"
-                className={fieldBase}
-              />
-              <input
-                value={row.species ?? ""}
-                onChange={(e) => list.update(row.id, { species: e.target.value })}
-                placeholder="Dog, cat, tortoise…"
-                aria-label="Pet species"
-                className={fieldBase}
-              />
-            </div>
-            <input
-              value={row.note ?? ""}
-              onChange={(e) => list.update(row.id, { note: e.target.value })}
-              placeholder="Note (optional)"
-              aria-label="Pet note"
-              className={fieldBase}
+        <EntryCard key={row.id} removeLabel="Remove pet" onRemove={() => list.remove(row.id)}>
+          <FieldPair>
+            <PillInput
+              label="Name"
+              value={row.name}
+              ariaLabel="Pet name"
+              onChange={(name) => list.update(row.id, { name })}
             />
-          </div>
-          <RemoveButton label="Remove pet" onClick={() => list.remove(row.id)} />
-        </div>
-      ))}    </div>
-  );
-}
-
-function CareerRows({
-  rows,
-  onChange,
-}: {
-  rows: ContactCareer[];
-  onChange: (rows: ContactCareer[]) => void;
-}) {
-  const list = rowOps(rows, onChange);
-  return (
-    <div className="grid min-w-0 gap-2">
-      {rows.map((row, index) => (
-        <div
-          key={row.id}
-          className={`flex min-w-0 items-start gap-2 ${index > 0 ? entrySeparator : ""}`}
-        >
-          <div className="grid min-w-0 flex-1 gap-2">
-            <div className="grid min-w-0 gap-2 sm:grid-cols-2">
-              <input
-                value={row.organization}
-                onChange={(e) => list.update(row.id, { organization: e.target.value })}
-                placeholder="Workplace"
-                aria-label="Past workplace"
-                className={fieldBase}
-              />
-              <input
-                value={row.title ?? ""}
-                onChange={(e) => list.update(row.id, { title: e.target.value })}
-                placeholder="Role"
-                aria-label="Past role"
-                className={fieldBase}
-              />
-            </div>
-            <div className="grid min-w-0 gap-2 sm:grid-cols-2">
-              <PartialDateInput
-                label="Started"
-                value={row.start ?? ""}
-                onChange={(start) => list.update(row.id, { start })}
-              />
-              <PartialDateInput
-                label="Ended"
-                value={row.end ?? ""}
-                hint="blank if current"
-                onChange={(end) => list.update(row.id, { end })}
-              />
-            </div>
-            <input
-              value={row.note ?? ""}
-              onChange={(e) => list.update(row.id, { note: e.target.value })}
-              placeholder="Note (optional)"
-              aria-label="Role note"
-              className={fieldBase}
+            <PillInput
+              label="Kind"
+              value={row.species ?? ""}
+              placeholder="Dog, cat, tortoise…"
+              ariaLabel="Pet species"
+              onChange={(species) => list.update(row.id, { species })}
             />
-          </div>
-          <RemoveButton label="Remove role" onClick={() => list.remove(row.id)} />
-        </div>
-      ))}    </div>
-  );
-}
-
-/**
- * A text field with its label as a pill inside the field on the left, on a
- * different background, so the field reads without a separate caption above it.
- */
-function PillInput({
-  label,
-  value,
-  placeholder,
-  ariaLabel,
-  listId,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  placeholder?: string;
-  ariaLabel?: string;
-  listId?: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="flex h-10 min-w-0 items-center rounded-lg border border-line bg-bg transition-colors focus-within:border-accent-dim focus-within:ring-1 focus-within:ring-accent-ring">
-      <span className="ml-1.5 shrink-0 rounded-md bg-surface px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-mute/80">
-        {label}
-      </span>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        aria-label={ariaLabel ?? label}
-        list={listId}
-        className="min-w-0 flex-1 bg-transparent px-2.5 text-sm text-text outline-none placeholder:text-mute/70"
-      />
-    </div>
+          </FieldPair>
+          <PillInput
+            label="Note"
+            value={row.note ?? ""}
+            placeholder="Optional"
+            ariaLabel="Pet note"
+            onChange={(note) => list.update(row.id, { note })}
+          />
+        </EntryCard>
+      ))}
+    </EntryList>
   );
 }
 
@@ -895,85 +604,48 @@ function RelationshipRows({
 }) {
   const list = rowOps(rows, onChange);
   return (
-    <div className="grid min-w-0 gap-3">
+    <EntryList>
+      <datalist id="relationship-kinds">
+        {RELATIONSHIP_KINDS.map((kind) => (
+          <option key={kind} value={kind} />
+        ))}
+      </datalist>
       {rows.map((row) => (
-        <div
-          key={row.id}
-          className="flex min-w-0 items-start gap-2 rounded-xl border border-line/60 bg-surface/40 p-3"
-        >
-          <div className="grid min-w-0 flex-1 gap-2">
-            <div className="grid min-w-0 gap-2 sm:grid-cols-2">
-              <PillInput
-                label="Name"
-                value={row.name}
-                placeholder="Full name"
-                ariaLabel="Partner name"
-                onChange={(name) => list.update(row.id, { name })}
-              />
-              <PillInput
-                label="Status"
-                value={row.kind}
-                placeholder="Partner, spouse, ex…"
-                ariaLabel="Relationship kind"
-                listId={`relationship-kinds-${row.id}`}
-                onChange={(kind) => list.update(row.id, { kind })}
-              />
-              <datalist id={`relationship-kinds-${row.id}`}>
-                {RELATIONSHIP_KINDS.map((kind) => (
-                  <option key={kind} value={kind} />
-                ))}
-              </datalist>
-            </div>
-            <label className="flex h-10 w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border border-line bg-bg px-3 text-sm text-mute transition-colors hover:border-line-light">
-              <input
-                type="checkbox"
-                checked={row.current ?? false}
-                // Checking clears any end date and drops the field below: a
-                // current relationship stores no end. See serializeProfile.
-                onChange={(e) =>
-                  list.update(row.id, {
-                    current: e.target.checked || undefined,
-                    end: e.target.checked ? undefined : row.end,
-                  })
-                }
-                className="h-4 w-4 accent-[var(--color-accent)]"
-              />
-              Current partner
-            </label>
-            <div className={`grid min-w-0 gap-2 ${row.current ? "" : "sm:grid-cols-2"}`}>
-              <PartialDateInput
-                label="Started"
-                value={row.start ?? ""}
-                onChange={(start) => list.update(row.id, { start })}
-              />
-              {!row.current ? (
-                <PartialDateInput
-                  label="Ended"
-                  value={row.end ?? ""}
-                  onChange={(end) => list.update(row.id, { end })}
-                />
-              ) : null}
-            </div>
+        <EntryCard key={row.id} removeLabel="Remove relationship" onRemove={() => list.remove(row.id)}>
+          <FieldPair>
             <PillInput
-              label="Note"
-              value={row.note ?? ""}
-              placeholder="Optional"
-              ariaLabel="Relationship note"
-              onChange={(note) => list.update(row.id, { note })}
+              label="Name"
+              value={row.name}
+              placeholder="Full name"
+              ariaLabel="Partner name"
+              onChange={(name) => list.update(row.id, { name })}
             />
-          </div>
-          <button
-            type="button"
-            aria-label="Remove relationship"
-            onClick={() => list.remove(row.id)}
-            className="-my-3 -mr-3 flex w-12 shrink-0 cursor-pointer items-center justify-center self-stretch rounded-r-xl bg-danger/10 text-danger transition-colors duration-150 hover:bg-danger/20"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-              <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-            </svg>
-          </button>
-        </div>
-      ))}    </div>
+            <PillInput
+              label="Status"
+              value={row.kind}
+              placeholder="Partner, spouse, ex…"
+              ariaLabel="Relationship kind"
+              listId="relationship-kinds"
+              onChange={(kind) => list.update(row.id, { kind })}
+            />
+          </FieldPair>
+          <DateRange
+            start={row.start}
+            end={row.end}
+            current={row.current}
+            currentLabel="Current partner"
+            onChange={(range) => list.update(row.id, range)}
+          />
+          <PillInput
+            label="Note"
+            value={row.note ?? ""}
+            placeholder="Optional"
+            ariaLabel="Relationship note"
+            onChange={(note) => list.update(row.id, { note })}
+          />
+        </EntryCard>
+      ))}
+    </EntryList>
   );
 }
 
@@ -986,35 +658,32 @@ function TimelineRows({
 }) {
   const list = rowOps(rows, onChange);
   return (
-    <div className="grid min-w-0 gap-2">
+    <EntryList>
       {rows.map((row) => (
-        <div key={row.id} className="flex min-w-0 items-start gap-2">
-          <div className="grid min-w-0 flex-1 gap-2">
-            <input
-              value={row.title}
-              onChange={(e) => list.update(row.id, { title: e.target.value })}
-              placeholder="What happened"
-              aria-label="Life event"
-              className={fieldBase}
-            />
-            <PartialDateInput
-              label="When"
-              value={row.date ?? ""}
-              defaultPrecision="day"
-              onChange={(date) => list.update(row.id, { date })}
-            />
-            <textarea
-              value={row.description ?? ""}
-              onChange={(e) => list.update(row.id, { description: e.target.value })}
-              placeholder="Description (optional)"
-              aria-label="Life event description"
-              rows={2}
-              className={`${fieldBase} h-auto min-h-[4rem] py-2.5 resize-y leading-relaxed`}
-            />
-          </div>
-          <RemoveButton label="Remove life event" onClick={() => list.remove(row.id)} />
-        </div>
-      ))}    </div>
+        <EntryCard key={row.id} removeLabel="Remove life event" onRemove={() => list.remove(row.id)}>
+          <PillInput
+            label="Event"
+            value={row.title}
+            placeholder="What happened"
+            ariaLabel="Life event"
+            onChange={(title) => list.update(row.id, { title })}
+          />
+          <PartialDateInput
+            label="When"
+            value={row.date ?? ""}
+            onChange={(date) => list.update(row.id, { date })}
+          />
+          <textarea
+            value={row.description ?? ""}
+            onChange={(e) => list.update(row.id, { description: e.target.value })}
+            placeholder="Description (optional)"
+            aria-label="Life event description"
+            rows={2}
+            className={`${fieldBase} h-auto min-h-[4rem] resize-y py-2.5 leading-relaxed`}
+          />
+        </EntryCard>
+      ))}
+    </EntryList>
   );
 }
 
@@ -1023,68 +692,89 @@ function PersonRows({
   showRelation = false,
   addLabel,
   onChange,
-  onLinkRequest,
+  contacts,
 }: {
   rows: ContactPerson[];
   showRelation?: boolean;
   addLabel: string;
   onChange: (rows: ContactPerson[]) => void;
-  onLinkRequest?: () => void;
+  contacts?: Contact[];
 }) {
   const list = rowOps(rows, onChange);
   return (
-    <div className="grid min-w-0 gap-2">
-      {rows.map((row) => (
-        <div key={row.id} className="flex min-w-0 items-start gap-2">
-          <div className="grid min-w-0 flex-1 gap-2">
-            <div className={`grid min-w-0 gap-2 ${showRelation ? "sm:grid-cols-2" : ""}`}>
-              <input
-                value={row.name}
-                onChange={(e) => list.update(row.id, { name: e.target.value })}
-                placeholder="Name"
-                aria-label={`${addLabel} name`}
-                className={fieldBase}
-              />
+    <EntryList>
+      {rows.map((row) => {
+        const linked = row.contactId ? contacts?.find((c) => c.id === row.contactId) : undefined;
+        if (row.contactId) {
+          return (
+            <EntryCard
+              key={row.id}
+              label={`Linked ${addLabel.toLowerCase()}`}
+              removeLabel={`Remove ${addLabel.toLowerCase()}`}
+              onRemove={() => list.remove(row.id)}
+            >
+              <div className="flex min-w-0 items-center gap-2.5">
+                <Avatar name={linked?.name ?? row.name} avatar={linked?.avatar} size="sm" />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-text">
+                  {linked?.name ?? row.name}
+                </span>
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-accent-dim/50 bg-accent/10 px-2 text-[11px] font-medium leading-[18px] text-accent">
+                  <LinkIcon />
+                  Linked
+                </span>
+              </div>
               {showRelation ? (
-                <input
+                <PillInput
+                  label="Relation"
                   value={row.relation ?? ""}
-                  onChange={(e) => list.update(row.id, { relation: e.target.value })}
                   placeholder="Mother, brother, nephew…"
-                  aria-label="Relation"
-                  className={fieldBase}
+                  ariaLabel="Relation"
+                  onChange={(relation) => list.update(row.id, { relation })}
                 />
               ) : null}
-            </div>
-            <input
-              value={row.note ?? ""}
-              onChange={(e) => list.update(row.id, { note: e.target.value })}
-              placeholder="Note (optional)"
-              aria-label={`${addLabel} note`}
-              className={fieldBase}
-            />
-          </div>
-          <RemoveButton label={`Remove ${addLabel.toLowerCase()}`} onClick={() => list.remove(row.id)} />
-        </div>
-      ))}
-      {onLinkRequest ? (
-        <button
-          type="button"
-          className={`${addLink} inline-flex items-center gap-1.5`}
-          onClick={onLinkRequest}
+              <PillInput
+                label="Note"
+                value={row.note ?? ""}
+                placeholder="Optional"
+                ariaLabel={`${addLabel} note`}
+                onChange={(note) => list.update(row.id, { note })}
+              />
+            </EntryCard>
+          );
+        }
+        return (
+        <EntryCard
+          key={row.id}
+          removeLabel={`Remove ${addLabel.toLowerCase()}`}
+          onRemove={() => list.remove(row.id)}
         >
-          <PersonLinkIcon />
-          Link a contact
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-function PersonLinkIcon() {
-  return (
-    <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-    </svg>
+          <div className={showRelation ? "grid min-w-0 gap-2 sm:grid-cols-2" : "grid min-w-0"}>
+            <PillInput
+              label="Name"
+              value={row.name}
+              ariaLabel={`${addLabel} name`}
+              onChange={(name) => list.update(row.id, { name })}
+            />
+            {showRelation ? (
+              <PillInput
+                label="Relation"
+                value={row.relation ?? ""}
+                placeholder="Mother, brother, nephew…"
+                ariaLabel="Relation"
+                onChange={(relation) => list.update(row.id, { relation })}
+              />
+            ) : null}
+          </div>
+          <PillInput
+            label="Note"
+            value={row.note ?? ""}
+            placeholder="Optional"
+            ariaLabel={`${addLabel} note`}
+            onChange={(note) => list.update(row.id, { note })}
+          />
+        </EntryCard>
+        );
+      })}
+    </EntryList>
   );
 }

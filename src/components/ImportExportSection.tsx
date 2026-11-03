@@ -374,7 +374,7 @@ export function ImportExportSection({
                   disabled={importing}
                   className={selectField}
                 >
-                  {addressBooks.map((book) => (
+                  {addressBooks.filter((book) => book.archived !== true).map((book) => (
                     <option key={book.id} value={book.id}>
                       {book.name} {book.id === DEFAULT_ADDRESS_BOOK_ID ? "(Default)" : ""}
                     </option>

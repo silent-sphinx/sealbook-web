@@ -1,7 +1,7 @@
 import { useMemo, type MouseEvent as ReactMouseEvent } from "react";
 import { SidebarDrawer, SidebarHeader, SidebarSection, useSidebar } from "./SidebarDrawer";
 import { SplitHandle, useSplitPane } from "./SplitPane";
-import { AddressBookList } from "./AddressBookList";
+import { AddressBookList, ArchivedAddressBooks } from "./AddressBookList";
 import { ContactCard, ContactListSkeleton } from "./ContactCard";
 import { ContactDetailModal } from "./ContactDetailModal";
 import { ContactNetworkMap } from "./ContactNetworkMap";
@@ -9,6 +9,8 @@ import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 import { ArchiveIcon, PlusIcon, SearchIcon, ClearIcon } from "./AppIcons";
 import {
   ARCHIVE_VIEW_NAME,
+  activeAddressBooks,
+  archivedAddressBooks,
   bookNameById,
   isAddressBookVisible,
   resolveAddressBookId,
@@ -37,6 +39,7 @@ interface ContactsTabProps {
   filtered: Contact[];
   addressBooks: AddressBook[];
   hiddenBooks: Set<string>;
+  shownArchivedBooks: Set<string>;
   archivedContacts: Contact[];
   viewingContact: Contact | null;
   editingDetail: boolean;
@@ -60,6 +63,7 @@ interface ContactsTabProps {
   onCreateBook: (name: string) => Promise<string | undefined>;
   onRenameBook: (id: string, name: string) => Promise<void>;
   onDeleteBook: (book: AddressBook) => void;
+  onToggleBookArchived: (book: AddressBook) => Promise<void>;
   onSetSearch: (value: string) => void;
   onSetViewingContact: (contact: Contact | null) => void;
   onSetError: (error: string | null) => void;
@@ -82,6 +86,7 @@ export function ContactsTab({
   filtered,
   addressBooks,
   hiddenBooks,
+  shownArchivedBooks,
   archivedContacts,
   viewingContact,
   editingDetail,
@@ -105,6 +110,7 @@ export function ContactsTab({
   onCreateBook,
   onRenameBook,
   onDeleteBook,
+  onToggleBookArchived,
   onSetSearch,
   onSetViewingContact,
   onSetError,
@@ -131,7 +137,6 @@ export function ContactsTab({
 
   /** The detail pane's own actions, reachable from the row itself. */
   function itemsFor(contact: Contact): MenuItem[] {
-    if (isOffline) return [];
     return [
       {
         label: "Edit contact",
@@ -166,36 +171,32 @@ export function ContactsTab({
             eyebrow="My contacts"
             title="Contacts"
             action={
-              !isOffline ? (
-                <button
-                  type="button"
-                  onClick={onOpenComposer}
-                  aria-label="Add contact"
-                  className={sidebarHeaderAction}
-                >
-                  <PlusIcon className="h-4 w-4" />
-                </button>
-              ) : null
+              <button
+                type="button"
+                onClick={onOpenComposer}
+                aria-label="Add contact"
+                className={sidebarHeaderAction}
+              >
+                <PlusIcon className="h-4 w-4" />
+              </button>
             }
           />
 
           <SidebarSection
             label="Address books"
             action={
-              !isOffline ? (
-                <button
-                  type="button"
-                  onClick={() => onSetCreatingBook(true)}
-                  aria-label="Add address book"
-                  className={sidebarSectionAction}
-                >
-                  <PlusIcon className="h-4 w-4" />
-                </button>
-              ) : null
+              <button
+                type="button"
+                onClick={() => onSetCreatingBook(true)}
+                aria-label="Add address book"
+                className={sidebarSectionAction}
+              >
+                <PlusIcon className="h-4 w-4" />
+              </button>
             }
           >
             <AddressBookList
-              books={addressBooks}
+              books={activeAddressBooks(addressBooks)}
               creating={creatingBook}
               onCreateHandled={() => onSetCreatingBook(false)}
               isVisible={(book) => isAddressBookVisible(book, hiddenBooks)}
@@ -204,8 +205,15 @@ export function ContactsTab({
               onCreate={onCreateBook}
               onRename={onRenameBook}
               onDelete={onDeleteBook}
-              readOnly={isOffline}
+              onArchive={(book) => onGuardEditing(() => void onToggleBookArchived(book))}
               busy={busy}
+            />
+            <ArchivedAddressBooks
+              books={archivedAddressBooks(addressBooks)}
+              isVisible={(book) => shownArchivedBooks.has(book.id)}
+              onToggleVisible={(id) => onGuardEditing(() => onToggleBookVisibility(id))}
+              onRestore={(book) => onGuardEditing(() => void onToggleBookArchived(book))}
+              onDelete={onDeleteBook}
             />
             <div className={sidebarSubgroup}>
               <button
@@ -237,16 +245,14 @@ export function ContactsTab({
               </span>
             </div>
             <div className="flex items-center gap-2.5">
-              {!isOffline ? (
-                <button
-                  type="button"
-                  onClick={onOpenComposer}
-                  className={`flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-xs font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] ${focusRing}`}
-                >
-                  <PlusIcon />
-                  New contact
-                </button>
-              ) : null}
+              <button
+                type="button"
+                onClick={onOpenComposer}
+                className={`flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-xs font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] ${focusRing}`}
+              >
+                <PlusIcon />
+                New contact
+              </button>
               <div className="relative min-w-0 flex-1 sm:flex-none">
                 <SearchIcon />
                 <input
@@ -309,12 +315,10 @@ export function ContactsTab({
                     Everything you add here is encrypted on this device before it
                     reaches the server.
                   </p>
-                  {!isOffline ? (
-                    <button type="button" className={`${btnPrimary} mt-5`} onClick={onOpenComposer}>
-                      <PlusIcon />
-                      Add your first contact
-                    </button>
-                  ) : null}
+                  <button type="button" className={`${btnPrimary} mt-5`} onClick={onOpenComposer}>
+                    <PlusIcon />
+                    Add your first contact
+                  </button>
                 </div>
               ) : filtered.length === 0 ? (
                 <div className="flex flex-col items-center px-6 py-12 text-center animate-fade-in-up sm:py-16">
@@ -370,7 +374,7 @@ export function ContactsTab({
                   busy={busy}
                   error={error}
                   onSave={onSaveViewedContact}
-                  readOnly={isOffline}
+                  attachmentsReadOnly={isOffline}
                   detailed={detailedContacts}
                   contacts={contacts}
                   onLinkInSection={onLinkInSection}

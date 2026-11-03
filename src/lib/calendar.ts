@@ -131,8 +131,10 @@ export function recurrenceFrom(rule: CoreRecurrence): RecurrenceRule {
       ? {
           ordinal: rule.nth_weekday.ordinal as 1 | 2 | 3 | 4 | 5,
           weekday: rule.nth_weekday.weekday,
+          extra: rule.nth_weekday.extra,
         }
       : undefined,
+    extra: rule.extra,
   };
 }
 
@@ -145,6 +147,7 @@ export function recurrenceTo(rule: RecurrenceRule): CoreRecurrence {
     weekdays: rule.weekdays ?? [],
     day_of_month: rule.dayOfMonth,
     nth_weekday: rule.nthWeekday,
+    extra: rule.extra,
   };
 }
 

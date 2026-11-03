@@ -1,5 +1,3 @@
-import type { ReactNode } from "react";
-
 import {
   PROFILE_SECTION_LABELS,
   customSectionIsEmpty,
@@ -13,14 +11,9 @@ import {
 } from "../lib/contactProfile";
 import type { Contact, ContactPerson, ContactProfile } from "../lib/types";
 import { Avatar } from "./ContactCard";
+import { LinkIcon } from "./FieldControls";
+import { ChipList, EntryRow, PaneSection, ProseBlock, RowAction } from "./PaneControls";
 import { focusRing } from "../lib/styles";
-
-const row = "border-b border-line/60 px-5 py-3 text-sm";
-const chip = "rounded-md border border-line bg-bg/50 px-2.5 py-1 text-xs text-text";
-const likeChip = "rounded-md border border-note-new/30 bg-note-new/10 px-2.5 py-1 text-xs text-note-new";
-const dislikeChip = "rounded-md border border-danger/30 bg-danger/10 px-2.5 py-1 text-xs text-danger";
-const badge =
-  "ml-2 rounded-md border border-accent-dim/40 bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-accent";
 
 export type LinkProfileProps = {
   contacts?: Contact[];
@@ -30,88 +23,74 @@ export type LinkProfileProps = {
   onUnlinkFromSection?: (section: LinkableSection, contactId: string) => void;
 };
 
+const PEOPLE: LinkableSection[] = ["family", "friends", "colleagues"];
+
+/** Whether `ContactProfileView` would render anything for this part. */
+export function profileViewHasContent(
+  part: "about" | "people",
+  profile?: ContactProfile,
+  linkProps?: LinkProfileProps,
+): boolean {
+  const full = profileOf(profile);
+  if (part === "people") {
+    const canLink = !linkProps?.readOnly && !!linkProps?.onLinkInSection;
+    return canLink || PEOPLE.some((section) => full[section].length > 0);
+  }
+  return (
+    filledSections(full).some((section) => !PEOPLE.includes(section as LinkableSection)) ||
+    full.custom.some((section) => !customSectionIsEmpty(section))
+  );
+}
+
 /**
- * The relationship sections, read-only. Empty sections are not rendered at all,
- * so a contact with nothing extra looks exactly as it did before detailed mode
- * existed.
+ * The relationship sections, read-only. `about` is what the contact is like,
+ * `people` is who they are connected to. Empty sections are not rendered, so a
+ * contact with nothing extra looks as it did before detailed mode existed.
  */
 export function ContactProfileView({
+  part,
   profile,
   linkProps,
 }: {
+  part: "about" | "people";
   profile?: ContactProfile;
   linkProps?: LinkProfileProps;
 }) {
   const full = profileOf(profile);
-  const sections = filledSections(full);
-  const custom = full.custom.filter((section) => !customSectionIsEmpty(section));
 
-  const hasFamily =
-    full.family.length > 0 || (!linkProps?.readOnly && !!linkProps?.onLinkInSection);
-  const hasFriends =
-    full.friends.length > 0 || (!linkProps?.readOnly && !!linkProps?.onLinkInSection);
-  const hasColleagues =
-    full.colleagues.length > 0 || (!linkProps?.readOnly && !!linkProps?.onLinkInSection);
-
-  const shownSections = sections.filter(
-    (s) => s !== "family" && s !== "friends" && s !== "colleagues",
-  );
-
-  if (
-    shownSections.length === 0 &&
-    custom.length === 0 &&
-    !hasFamily &&
-    !hasFriends &&
-    !hasColleagues
-  ) {
-    return null;
+  if (part === "people") {
+    const canLink = !linkProps?.readOnly && !!linkProps?.onLinkInSection;
+    return (
+      <>
+        {PEOPLE.filter((section) => canLink || full[section].length > 0).map((section) => (
+          <PaneSection key={section} title={PROFILE_SECTION_LABELS[section]}>
+            <PersonList
+              items={full[section]}
+              section={section}
+              showRelation={section === "family"}
+              linkProps={linkProps}
+            />
+          </PaneSection>
+        ))}
+      </>
+    );
   }
 
+  const sections = filledSections(full).filter(
+    (section) => !PEOPLE.includes(section as LinkableSection),
+  );
+  const custom = full.custom.filter((section) => !customSectionIsEmpty(section));
   return (
     <>
-      {shownSections.map((section) => (
-        <Section key={section} title={PROFILE_SECTION_LABELS[section]}>
+      {sections.map((section) => (
+        <PaneSection key={section} title={PROFILE_SECTION_LABELS[section]}>
           <SectionBody section={section} profile={full} />
-        </Section>
+        </PaneSection>
       ))}
-
-      {hasFamily ? (
-        <Section title={PROFILE_SECTION_LABELS.family}>
-          <PersonList
-            items={full.family}
-            section="family"
-            showRelation
-            linkProps={linkProps}
-          />
-        </Section>
-      ) : null}
-
-      {hasFriends ? (
-        <Section title={PROFILE_SECTION_LABELS.friends}>
-          <PersonList
-            items={full.friends}
-            section="friends"
-            showRelation={false}
-            linkProps={linkProps}
-          />
-        </Section>
-      ) : null}
-
-      {hasColleagues ? (
-        <Section title={PROFILE_SECTION_LABELS.colleagues}>
-          <PersonList
-            items={full.colleagues}
-            section="colleagues"
-            showRelation={false}
-            linkProps={linkProps}
-          />
-        </Section>
-      ) : null}
-
       {custom.map((section) => (
-        <Section key={section.id} title={section.title || "Custom section"}>
-          <div className={`${row} leading-relaxed whitespace-pre-wrap`}>{section.text}</div>
-        </Section>
+        <PaneSection key={section.id} title={section.title || "Custom section"}>
+          <ProseBlock text={section.text} />
+        </PaneSection>
       ))}
     </>
   );
@@ -130,167 +109,106 @@ function PersonList({
 }) {
   return (
     <div>
-      {items.map((item) => (
-        <PersonRow
-          key={item.id}
-          item={item}
-          showRelation={showRelation}
-          contacts={linkProps?.contacts}
-          onNavigate={linkProps?.onNavigateToContact}
-          onUnlink={
-            !linkProps?.readOnly && item.contactId && linkProps?.onUnlinkFromSection
-              ? (cid) => linkProps.onUnlinkFromSection!(section, cid)
-              : undefined
-          }
-        />
-      ))}
+      {items.map((item) => {
+        const linked = item.contactId
+          ? linkProps?.contacts?.find((c) => c.id === item.contactId)
+          : undefined;
+        const name = linked?.name ?? item.name;
+        const onNavigate = linkProps?.onNavigateToContact;
+        const onUnlink =
+          !linkProps?.readOnly && item.contactId && linkProps?.onUnlinkFromSection
+            ? () => linkProps.onUnlinkFromSection!(section, item.contactId!)
+            : undefined;
+        return (
+          <EntryRow
+            key={item.id}
+            leading={<Avatar name={name || "?"} avatar={linked?.avatar} size="sm" />}
+            title={
+              linked && onNavigate ? (
+                <button
+                  type="button"
+                  className={`min-w-0 truncate text-left font-medium text-text transition-colors hover:text-accent ${focusRing}`}
+                  onClick={() => onNavigate(linked)}
+                >
+                  {name}
+                </button>
+              ) : (
+                name
+              )
+            }
+            inlineMeta={showRelation ? item.relation : undefined}
+            note={item.note}
+            action={
+              onUnlink ? (
+                <button
+                  type="button"
+                  className={`rounded-md px-2 py-1 text-[11px] font-medium text-mute transition-colors hover:bg-danger/10 hover:text-danger ${focusRing}`}
+                  title="Remove link"
+                  onClick={onUnlink}
+                >
+                  Unlink
+                </button>
+              ) : undefined
+            }
+          />
+        );
+      })}
       {!linkProps?.readOnly && linkProps?.onLinkInSection ? (
-        <button
-          type="button"
-          className={`flex w-full items-center gap-2 border-b border-line/60 px-5 py-2.5 text-xs text-mute transition-colors hover:bg-surface/40 hover:text-accent ${focusRing}`}
+        <RowAction
+          icon={<LinkIcon />}
+          label="Link a contact"
           onClick={() => linkProps.onLinkInSection!(section)}
-        >
-          <LinkIcon />
-          Link a contact
-        </button>
+        />
       ) : null}
     </div>
   );
 }
 
-function PersonRow({
-  item,
-  showRelation,
-  contacts,
-  onNavigate,
-  onUnlink,
-}: {
-  item: ContactPerson;
-  showRelation: boolean;
-  contacts?: Contact[];
-  onNavigate?: (contact: Contact) => void;
-  onUnlink?: (contactId: string) => void;
-}) {
-  const linked = item.contactId ? contacts?.find((c) => c.id === item.contactId) : undefined;
-  const displayName = linked?.name ?? item.name;
-
-  return (
-    <div className={`${row} flex items-center gap-3`}>
-      {item.contactId ? (
-        <Avatar name={displayName} avatar={linked?.avatar} size="sm" />
-      ) : null}
-      <div className="min-w-0 flex-1">
-        {linked && onNavigate ? (
-          <button
-            type="button"
-            className={`min-w-0 truncate text-left font-medium text-text transition-colors hover:text-accent ${focusRing}`}
-            onClick={() => onNavigate(linked)}
-          >
-            {displayName}
-          </button>
-        ) : (
-          <p className="font-medium text-text">
-            {displayName}
-          </p>
-        )}
-        {showRelation && item.relation ? (
-          <p className="mt-0.5 text-xs text-mute">{item.relation}</p>
-        ) : null}
-        {item.note ? (
-          <p className="mt-1 text-xs leading-relaxed text-mute whitespace-pre-wrap">{item.note}</p>
-        ) : null}
-      </div>
-      {onUnlink && item.contactId ? (
-        <button
-          type="button"
-          className={`shrink-0 rounded-md px-2 py-1 text-[11px] font-medium text-mute transition-colors hover:bg-danger/10 hover:text-danger ${focusRing}`}
-          title="Remove link"
-          onClick={() => onUnlink(item.contactId!)}
-        >
-          Unlink
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-function SectionBody({
-  section,
-  profile,
-}: {
-  section: ProfileSection;
-  profile: ContactProfile;
-}) {
+function SectionBody({ section, profile }: { section: ProfileSection; profile: ContactProfile }) {
   switch (section) {
     case "howWeMet":
-      return (
-        <div className={`${row} leading-relaxed whitespace-pre-wrap`}>{profile.howWeMet}</div>
-      );
+      return <ProseBlock text={profile.howWeMet ?? ""} />;
     case "interests":
-      return <Chips values={profile.interests.map((item) => item.value)} />;
+      return <ChipList groups={[{ tone: "neutral", values: profile.interests.map((i) => i.value) }]} />;
     case "music":
-      return <Chips values={profile.music.map((item) => item.value)} />;
+      return <ChipList groups={[{ tone: "neutral", values: profile.music.map((i) => i.value) }]} />;
     case "food":
       return (
-        <FoodChips
-          likes={profile.food.filter((item) => item.polarity !== "dislike").map((item) => item.value)}
-          dislikes={profile.food.filter((item) => item.polarity === "dislike").map((item) => item.value)}
+        <ChipList
+          groups={[
+            {
+              tone: "like",
+              values: profile.food.filter((i) => i.polarity !== "dislike").map((i) => i.value),
+            },
+            {
+              tone: "dislike",
+              values: profile.food.filter((i) => i.polarity === "dislike").map((i) => i.value),
+            },
+          ]}
         />
       );
     case "pets":
       return (
-        <Rows>
+        <div>
           {profile.pets.map((item) => (
-            <div key={item.id} className={row}>
-              <p className="font-medium text-text">
-                {item.name}
-                {item.species ? (
-                  <span className="ml-2 text-xs font-normal text-mute">{item.species}</span>
-                ) : null}
-              </p>
-              <Note text={item.note} />
-            </div>
+            <EntryRow key={item.id} title={item.name} inlineMeta={item.species} note={item.note} />
           ))}
-        </Rows>
-      );
-    case "career":
-      return (
-        <Rows>
-          {profile.career.map((item) => (
-            <div key={item.id} className={row}>
-              <p className="font-medium text-text">{item.organization || item.title}</p>
-              {item.organization && item.title ? (
-                <p className="mt-0.5 text-xs text-mute">{item.title}</p>
-              ) : null}
-              <Period label={formatDateRange(item.start, item.end)} />
-              <Note text={item.note} />
-            </div>
-          ))}
-        </Rows>
+        </div>
       );
     case "relationships":
       return (
-        <Rows>
+        <div>
           {profile.relationships.map((item) => (
-            <div key={item.id} className={row}>
-              <div className="flex items-baseline justify-between gap-3">
-                <p className="min-w-0 font-medium text-text">
-                  {item.name}
-                  {item.kind ? (
-                    <span className="ml-2 text-xs font-normal text-mute">{item.kind}</span>
-                  ) : null}
-                  {item.current ? <span className={badge}>Current</span> : null}
-                </p>
-                {formatDateRange(item.start, item.end) ? (
-                  <p className="shrink-0 text-[11px] uppercase tracking-wider text-mute/80">
-                    {formatDateRange(item.start, item.end)}
-                  </p>
-                ) : null}
-              </div>
-              <Note text={item.note} />
-            </div>
+            <EntryRow
+              key={item.id}
+              title={item.name}
+              inlineMeta={item.kind || undefined}
+              badge={item.current ? "Current" : undefined}
+              trailingMeta={formatDateRange(item.start, item.end) || undefined}
+              note={item.note}
+            />
           ))}
-        </Rows>
+        </div>
       );
     case "timeline":
       return <Timeline profile={profile} />;
@@ -324,83 +242,21 @@ function Timeline({ profile }: { profile: ContactProfile }) {
             aria-hidden="true"
             className="absolute -left-[1.3rem] top-1.5 h-2 w-2 rounded-full border border-accent-dim bg-accent/40"
           />
-          <p className="text-sm font-medium text-text">{item.title}</p>
-          {item.date ? (
-            <p className="mt-0.5 text-[11px] uppercase tracking-wider text-mute/80">
-              {formatPartialDate(item.date)}
-            </p>
-          ) : null}
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="min-w-0 text-sm font-medium text-text">{item.title}</p>
+            {item.date ? (
+              <p className="shrink-0 text-[11px] uppercase tracking-wider text-mute/80">
+                {formatPartialDate(item.date)}
+              </p>
+            ) : null}
+          </div>
           {item.description ? (
-            <p className="mt-1 text-xs leading-relaxed text-mute whitespace-pre-wrap">
+            <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-mute">
               {item.description}
             </p>
           ) : null}
         </li>
       ))}
     </ol>
-  );
-}
-
-function Rows({ children }: { children: ReactNode }) {
-  return <div>{children}</div>;
-}
-
-function Chips({ values }: { values: string[] }) {
-  return (
-    <div className="flex flex-wrap gap-1.5 border-b border-line/60 px-5 py-3">
-      {values.map((value, index) => (
-        <span key={`${value}-${index}`} className={chip}>
-          {value}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-/** Likes and dislikes as green and red pills, in that order, polarity doing the labelling. */
-function FoodChips({ likes, dislikes }: { likes: string[]; dislikes: string[] }) {
-  return (
-    <div className="flex flex-wrap gap-1.5 border-b border-line/60 px-5 py-3">
-      {likes.map((value, index) => (
-        <span key={`like-${value}-${index}`} className={likeChip}>
-          {value}
-        </span>
-      ))}
-      {dislikes.map((value, index) => (
-        <span key={`dislike-${value}-${index}`} className={dislikeChip}>
-          {value}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function Period({ label }: { label: string }) {
-  if (!label) return null;
-  return <p className="mt-0.5 text-[11px] uppercase tracking-wider text-mute/80">{label}</p>;
-}
-
-function Note({ text }: { text?: string }) {
-  if (!text) return null;
-  return <p className="mt-1 text-xs leading-relaxed text-mute whitespace-pre-wrap">{text}</p>;
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="break-inside-avoid">
-      <h4 className="sticky top-0 z-10 border-b border-line/60 bg-surface/80 px-5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-mute backdrop-blur-sm">
-        {title}
-      </h4>
-      {children}
-    </section>
-  );
-}
-
-function LinkIcon() {
-  return (
-    <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-    </svg>
   );
 }

@@ -30,7 +30,19 @@ import init, {
   core_default_task_list_id,
   core_normalize_due_date,
   core_resolve_task_list_id,
+  core_order_tasks,
+  core_task_can_move,
+  core_task_complete,
+  core_task_export,
+  core_task_import,
   core_task_keys,
+  core_task_list_can_move,
+  core_task_list_move_plan,
+  core_task_list_remove_plan,
+  core_task_move_plan,
+  core_task_relist_plan,
+  core_task_remove_plan,
+  core_task_reopen,
   core_task_list_keys,
   core_task_list_name_by_id,
   core_task_list_parse,
@@ -76,6 +88,20 @@ import init, {
   core_event_parse,
   core_is_calendar_day,
   core_payload_kind,
+  core_write_batches,
+  core_flush_failure,
+  core_flush_plan,
+  core_local_vault_apply,
+  core_local_vault_read,
+  core_local_vault_write,
+  core_local_view,
+  core_merge_payload,
+  core_outbox_fail,
+  core_outbox_push,
+  core_outbox_read,
+  core_outbox_settle,
+  core_outbox_write,
+  core_write_guard,
   core_account_export_filename,
   core_account_export_parse,
   core_account_export_write,
@@ -214,6 +240,7 @@ import type {
   CoreBookmarkCollectionDraft,
   CoreBookmarkDraft,
   CoreContact,
+  CoreContactAddress,
   CoreContactChannel,
   CoreContactDraft,
   CoreContactFile,
@@ -227,9 +254,14 @@ import type {
   CoreNoteDraft,
   CoreNotebook,
   CoreTask,
+  CoreTaskClock,
+  CoreTaskCompletion,
   CoreTaskDraft,
+  CoreTaskImport,
   CoreTaskList,
   CoreTaskListDraft,
+  CoreTaskOrderItem,
+  CoreTaskPlan,
   CoreAccountSettings,
   CoreAccountSettingsDraft,
   CoreFeatureFlag,
@@ -276,6 +308,15 @@ import type {
   VerifiedRoster,
   WalkCursor,
   WalkStep,
+  FlushFailure,
+  FlushGuard,
+  FlushPlan,
+  FlushWrite,
+  LocalObject,
+  LocalVault,
+  MergeOutcome,
+  Outbox,
+  PendingWrite,
 } from "../pkg/sealbook_wasm.js";
 import { log } from "./log";
 import { PAYLOAD_SCHEMA_VERSION } from "./payload";
@@ -359,11 +400,11 @@ export function pairConfirmationCode(
 }
 
 export function createEnrollment(password: string): Enrollment {
-  return JSON.parse(create_enrollment(password)) as Enrollment;
+  return create_enrollment(password);
 }
 
 export function createDevice(): DeviceOut {
-  return JSON.parse(create_device()) as DeviceOut;
+  return create_device();
 }
 
 export function wrapCkForDevice(
@@ -461,9 +502,7 @@ export function encryptContact(
   collectionId: string,
   plaintext: string,
 ): EncryptedOut {
-  return JSON.parse(
-    encrypt_contact(ck, objectId, collectionId, plaintext),
-  ) as EncryptedOut;
+  return encrypt_contact(ck, objectId, collectionId, plaintext);
 }
 
 export function decryptContact(
@@ -512,9 +551,7 @@ export function sealObject(
   contentType: string,
   payload: string,
 ): EncryptedOut {
-  return JSON.parse(
-    seal_object(ck, objectId, collectionId, contentType, payload),
-  ) as EncryptedOut;
+  return seal_object(ck, objectId, collectionId, contentType, payload);
 }
 
 /** Decrypts an object and opens its envelope. */
@@ -526,9 +563,7 @@ export function openObject(
   ciphertext: string,
   paddedSize: number,
 ): OpenedObject {
-  return JSON.parse(
-    open_object(ck, objectId, collectionId, nonce, ciphertext, paddedSize),
-  ) as OpenedObject;
+  return open_object(ck, objectId, collectionId, nonce, ciphertext, paddedSize);
 }
 
 export function newUuid(): string {
@@ -1719,6 +1754,11 @@ export function corePayloadKind(
   return core_payload_kind(contentType, raw);
 }
 
+/** How many objects each consecutive batch write takes, for payloads of these UTF-8 byte lengths. */
+export function coreWriteBatches(payloadLengths: number[]): number[] {
+  return Array.from(core_write_batches(Uint32Array.from(payloadLengths)));
+}
+
 /** Whether the text is a real calendar day; `Date.parse` accepts `2026-02-30`. */
 export function coreIsCalendarDay(text: string): boolean {
   return core_is_calendar_day(text);
@@ -1751,6 +1791,7 @@ export type {
   CoreAddressBook,
   CoreAddressBookDraft,
   CoreContact,
+  CoreContactAddress,
   CoreContactChannel,
   CoreContactDraft,
   CoreContactProfile,
@@ -1992,7 +2033,17 @@ export function coreBookmarkCollectionTone(
   return core_bookmark_collection_tone(collections, id);
 }
 
-export type { CoreTask, CoreTaskDraft, CoreTaskList, CoreTaskListDraft };
+export type {
+  CoreTask,
+  CoreTaskClock,
+  CoreTaskCompletion,
+  CoreTaskDraft,
+  CoreTaskImport,
+  CoreTaskList,
+  CoreTaskListDraft,
+  CoreTaskOrderItem,
+  CoreTaskPlan,
+};
 
 /** Every key a task writer owns, and every key a task list writer owns. */
 export function coreTaskKeys(): string[] {
@@ -2046,6 +2097,77 @@ export function coreTaskListNameById(
 
 export function coreTaskListTone(lists: CoreTaskList[], id: string): string {
   return core_task_list_tone(lists, id);
+}
+
+export function coreTaskCanMove(tasks: CoreTask[], id: string, parentId?: string): boolean {
+  return core_task_can_move(tasks, id, parentId);
+}
+
+/** Whether a list may move under `parentId`. The default list stays at the top. */
+export function coreTaskListCanMove(
+  lists: CoreTaskList[],
+  id: string,
+  parentId?: string,
+): boolean {
+  return core_task_list_can_move(lists, id, parentId);
+}
+
+export function coreTaskReopen(task: CoreTask): CoreTaskDraft {
+  return core_task_reopen(task);
+}
+
+/**
+ * Ticks a task. A recurring one rolls on and reopens its done subtasks; a
+ * rolled timed one comes back with `local_due` for the caller to store as UTC.
+ */
+export function coreTaskComplete(
+  task: CoreTask,
+  tasks: CoreTask[],
+  clock: CoreTaskClock,
+): CoreTaskCompletion {
+  return core_task_complete(task, tasks, clock);
+}
+
+export function coreTaskRemovePlan(tasks: CoreTask[], id: string): CoreTaskPlan {
+  return core_task_remove_plan(tasks, id);
+}
+
+export function coreTaskMovePlan(tasks: CoreTask[], id: string, parentId?: string): CoreTaskPlan {
+  return core_task_move_plan(tasks, id, parentId);
+}
+
+export function coreTaskRelistPlan(tasks: CoreTask[], id: string, taskListId: string): CoreTaskPlan {
+  return core_task_relist_plan(tasks, id, taskListId);
+}
+
+export function coreTaskListMovePlan(
+  lists: CoreTaskList[],
+  id: string,
+  parentId?: string,
+): CoreTaskPlan {
+  return core_task_list_move_plan(lists, id, parentId);
+}
+
+export function coreTaskListRemovePlan(
+  lists: CoreTaskList[],
+  tasks: CoreTask[],
+  id: string,
+): CoreTaskPlan {
+  return core_task_list_remove_plan(lists, tasks, id);
+}
+
+/** Ids in list order: open, then soonest due, then highest priority, then title. */
+export function coreOrderTasks(items: CoreTaskOrderItem[]): string[] {
+  return [...core_order_tasks(items)];
+}
+
+export function coreTaskExport(tasks: CoreTask[], lists: CoreTaskList[], now: string): string {
+  return core_task_export(tasks, lists, now);
+}
+
+/** The tasks in an export file, parents first. Throws `Malformed` with a sentence. */
+export function coreTaskImport(text: string): CoreTaskImport {
+  return core_task_import(text);
 }
 
 export type { CoreAccountSettings, CoreAccountSettingsDraft, CoreFeatureFlag };
@@ -2151,4 +2273,95 @@ export function coreContactIndex(
     contacts.map(({ id, raw }) => ({ id, raw })),
     books,
   );
+}
+
+// ── Core: offline writes ──
+
+export type {
+  FlushFailure,
+  FlushGuard,
+  FlushPlan,
+  FlushWrite,
+  LocalObject,
+  LocalVault,
+  MergeOutcome,
+  Outbox,
+  PendingWrite,
+};
+
+export function coreLocalVaultWrite(vault: LocalVault): string {
+  return core_local_vault_write(vault);
+}
+
+/** Throws a core `Malformed` for a record a newer build wrote. */
+export function coreLocalVaultRead(raw: string): LocalVault {
+  return core_local_vault_read(raw);
+}
+
+/** Folds walked rows in: per object, the newest revision wins. */
+export function coreLocalVaultApply(
+  vault: LocalVault,
+  rows: LocalObject[],
+  latestRevision: number,
+  keyEpoch: number,
+): LocalVault {
+  return core_local_vault_apply(vault, rows, BigInt(latestRevision), BigInt(keyEpoch));
+}
+
+export function coreOutboxWrite(outbox: Outbox): string {
+  return core_outbox_write(outbox);
+}
+
+/** Throws a core `Malformed` for a record a newer build wrote. */
+export function coreOutboxRead(raw: string): Outbox {
+  return core_outbox_read(raw);
+}
+
+/** Queues a write, combining it with one already queued for the same id. */
+export function coreOutboxPush(outbox: Outbox, write: PendingWrite): Outbox {
+  return core_outbox_push(outbox, write);
+}
+
+/** Takes these ids out of both the queue and the failed list. */
+export function coreOutboxSettle(outbox: Outbox, ids: string[]): Outbox {
+  return core_outbox_settle(outbox, ids);
+}
+
+/** Moves these queued writes to the failed list. */
+export function coreOutboxFail(outbox: Outbox, ids: string[], reason: string): Outbox {
+  return core_outbox_fail(outbox, ids, reason);
+}
+
+/** The live objects to list: the vault with the queued writes laid over it. */
+export function coreLocalView(vault: LocalVault, outbox: Outbox): LocalObject[] {
+  return core_local_view(vault, outbox);
+}
+
+export function coreMergePayload(
+  contentType: string,
+  base: string | null,
+  local: string,
+  remote: string,
+  date: string,
+): MergeOutcome {
+  return core_merge_payload(contentType, base, local, remote, date);
+}
+
+/** What each queued write becomes against a vault just brought up to date. */
+export function coreFlushPlan(outbox: Outbox, vault: LocalVault, date: string): FlushPlan {
+  return core_flush_plan(outbox, vault, date);
+}
+
+/** Throws a core `CollectionBusy` once `attempt` reaches the restart limit. */
+export function coreWriteGuard(
+  writes: FlushWrite[],
+  entries: CoreManifestEntry[],
+  attempt: number,
+): FlushGuard {
+  return core_write_guard(writes, entries, attempt);
+}
+
+/** What a write request's HTTP status means, with 0 for no response. */
+export function coreFlushFailure(status: number): FlushFailure {
+  return core_flush_failure(status);
 }

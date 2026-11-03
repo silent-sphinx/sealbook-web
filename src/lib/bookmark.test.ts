@@ -263,6 +263,20 @@ describe("collection colour", () => {
     expect(parseBookmarkCollection("id", renamed).color).toBeUndefined();
   });
 
+  it("writes hideFromAll only when true, and a rename keeps it unless told otherwise", () => {
+    const plain = JSON.parse(serializeBookmarkCollection("Work")) as Record<string, unknown>;
+    expect("hideFromAll" in plain).toBe(false);
+
+    const hidden = serializeBookmarkCollection("Work", undefined, undefined, undefined, true);
+    expect(parseBookmarkCollection("id", hidden).hideFromAll).toBe(true);
+
+    const renamed = serializeBookmarkCollection("Renamed", undefined, hidden);
+    expect(parseBookmarkCollection("id", renamed).hideFromAll).toBe(true);
+
+    const shown = serializeBookmarkCollection("Work", undefined, hidden, undefined, false);
+    expect(parseBookmarkCollection("id", shown).hideFromAll).toBeUndefined();
+  });
+
   it("a top-level collection's tone is its own colour, or else one hashed from its id", () => {
     const uncoloured = [aCollection("work", "Work")];
     const coloured = [{ ...aCollection("work", "Work"), color: "#123456" }];

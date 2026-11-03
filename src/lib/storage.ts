@@ -1,47 +1,17 @@
 import { b64ToByteArray, b64encode } from "./bytes";
 import { describeError, log } from "./log";
-import { idbClearAttachments, idbDelete, idbGet, idbPut } from "./idb";
-import { DEFAULT_ACCOUNT_SETTINGS, normalizeAccountSettings } from "./accountSettings";
-import type {
-  AccountSettings,
-  AddressBook,
-  Calendar,
-  CalendarEvent,
-  Contact,
-  DeviceState,
-  Note,
-  Notebook,
-  Bookmark,
-  BookmarkCollection,
-  Task,
-  TaskList,
-} from "./types";
+import { idbClearAttachments } from "./idb";
+import { clearLocalStore } from "./localStore";
+import type { DeviceState } from "./types";
 
 const KEY = "sealbook.device";
 /** Where the snapshot used to live, before it outgrew localStorage. */
 const LEGACY_VAULT_KEY = "sealbook.vault";
-const VAULT_RECORD = "snapshot";
 const DOMAIN_KEY = "sealbook.connection-domain";
 /** Read by `attachmentCache.ts`, which derives its key the same way this does. */
 export const ATTACHMENT_CACHE_SALT_KEY = "sealbook.attachment-cache-salt";
 const STORAGE_VERSION = 1;
 const PBKDF2_ITERATIONS = 600_000;
-
-export type VaultSnapshot = {
-  contacts: Contact[];
-  addressBooks: AddressBook[];
-  calendars: Calendar[];
-  calendarEvents: CalendarEvent[];
-  notes: Note[];
-  notebooks: Notebook[];
-  bookmarks: Bookmark[];
-  bookmarkCollections: BookmarkCollection[];
-  tasks: Task[];
-  taskLists: TaskList[];
-  accountSettings: AccountSettings;
-  /** As on `VaultListing`: what a save merges onto, so unknown fields survive. */
-  accountSettingsRaw?: string;
-};
 
 export type DeviceMetadata = Pick<
   DeviceState,
@@ -51,13 +21,6 @@ export type DeviceMetadata = Pick<
 type DeviceEnvelope = {
   version: number;
   metadata: DeviceMetadata;
-  salt: string;
-  iv: string;
-  ciphertext: string;
-};
-
-type VaultEnvelope = {
-  version: number;
   salt: string;
   iv: string;
   ciphertext: string;
@@ -98,65 +61,6 @@ function readStored(): DeviceEnvelope | DeviceState | null {
     log.error("the stored device record is not readable JSON", { reason: describeError(err) });
     return null;
   }
-}
-
-async function readVault(): Promise<VaultEnvelope | null> {
-  // The snapshot moved to IndexedDB when notes raised the per-object ceiling past
-  // what localStorage can hold. Nothing migrates the old item: dropping it costs
-  // one online refresh and avoids carrying a second code path for ever.
-  try {
-    localStorage.removeItem(LEGACY_VAULT_KEY);
-  } catch {
-    // storage unavailable; nothing to drop
-  }
-  const stored = await idbGet<VaultEnvelope>(VAULT_RECORD);
-  if (!stored) return null;
-  return stored.version === STORAGE_VERSION ? stored : null;
-}
-
-/**
- * The shape check for a decrypted snapshot, pure so it can be tested without
- * `crypto.subtle` or a storage area.
- *
- * The four original collections are required: a snapshot missing one is corrupt
- * rather than old. Anything added later defaults to empty, so a snapshot written
- * by an earlier build still opens instead of silently disabling offline mode.
- */
-export function normalizeSnapshot(value: unknown): VaultSnapshot | null {
-  if (!value || typeof value !== "object") return null;
-  const raw = value as Partial<VaultSnapshot>;
-  if (
-    !Array.isArray(raw.contacts) ||
-    !Array.isArray(raw.addressBooks) ||
-    !Array.isArray(raw.calendars) ||
-    !Array.isArray(raw.calendarEvents)
-  ) {
-    return null;
-  }
-  return {
-    contacts: raw.contacts,
-    addressBooks: raw.addressBooks,
-    calendars: raw.calendars,
-    calendarEvents: raw.calendarEvents,
-    notes: Array.isArray(raw.notes) ? raw.notes : [],
-    notebooks: Array.isArray(raw.notebooks) ? raw.notebooks : [],
-    // Absent from every snapshot written before bookmarks existed, so these
-    // default rather than refusing: an account upgrading to this build has to be
-    // able to open the snapshot it already has.
-    bookmarks: Array.isArray(raw.bookmarks) ? raw.bookmarks : [],
-    bookmarkCollections: Array.isArray(raw.bookmarkCollections) ? raw.bookmarkCollections : [],
-    tasks: Array.isArray(raw.tasks) ? raw.tasks : [],
-    taskLists: Array.isArray(raw.taskLists) ? raw.taskLists : [],
-    // A snapshot written before the feature toggles existed carries no settings,
-    // which reads as every feature enabled rather than as none. The whole object
-    // is normalized, not just its flags, so an offline open keeps the contact
-    // mode and the accent the account chose.
-    accountSettings: raw.accountSettings
-      ? normalizeAccountSettings(raw.accountSettings)
-      : DEFAULT_ACCOUNT_SETTINGS,
-    accountSettingsRaw:
-      typeof raw.accountSettingsRaw === "string" ? raw.accountSettingsRaw : undefined,
-  };
 }
 
 function metadataOf(state: DeviceState): DeviceMetadata {
@@ -318,55 +222,6 @@ export async function loadDevice(password: string): Promise<DeviceState | null> 
   }
 }
 
-/** Resolves false when the snapshot could not be stored, so offline is stale. */
-export async function saveVaultSnapshot(
-  snapshot: VaultSnapshot,
-  password: string,
-): Promise<boolean> {
-  if (!password) return false;
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await deriveStorageKey(password, salt);
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    key,
-    new TextEncoder().encode(JSON.stringify(snapshot)),
-  );
-  const envelope: VaultEnvelope = {
-    version: STORAGE_VERSION,
-    salt: b64encode(salt),
-    iv: b64encode(iv),
-    ciphertext: b64encode(new Uint8Array(ciphertext)),
-  };
-  // A full or unavailable storage area must not block normal online use, so a
-  // failed write is reported rather than thrown.
-  const written = await idbPut(VAULT_RECORD, envelope);
-  if (!written) {
-    log.warn("the offline snapshot could not be saved, so offline use will show older data");
-  } else {
-    log.debug("offline snapshot saved", { bytes: envelope.ciphertext.length });
-  }
-  return written;
-}
-
-export async function loadVaultSnapshot(password: string): Promise<VaultSnapshot | null> {
-  const stored = await readVault();
-  if (!stored) return null;
-  try {
-    const salt = Uint8Array.from(b64ToByteArray(stored.salt));
-    const key = await deriveStorageKey(password, salt);
-    const plaintext = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: Uint8Array.from(b64ToByteArray(stored.iv)) },
-      key,
-      Uint8Array.from(b64ToByteArray(stored.ciphertext)),
-    );
-    return normalizeSnapshot(JSON.parse(new TextDecoder().decode(plaintext)));
-  } catch {
-    log.debug("the offline snapshot did not decrypt under this password");
-    return null;
-  }
-}
-
 /**
  * Awaited rather than fired off: the attachment cache holds the account's files,
  * so a sign-out that returns before the store is empty has not signed out.
@@ -381,5 +236,5 @@ export async function clearDevice(): Promise<void> {
     // A throwing storage area must not stop the stores below being emptied.
     log.warn("the stored device record could not be removed", { reason: describeError(err) });
   }
-  await Promise.all([idbDelete(VAULT_RECORD), idbClearAttachments()]);
+  await Promise.all([clearLocalStore(), idbClearAttachments()]);
 }

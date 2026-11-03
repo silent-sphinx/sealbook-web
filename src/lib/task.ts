@@ -1,17 +1,20 @@
 import { ENVELOPE_OVERHEAD, MAX_PADDED_OBJECT_SIZE } from "./bookmark";
 import { recurrenceFrom, recurrenceTo } from "./calendar";
 import { keyFor } from "./calendarModel";
-import { nextOccurrence } from "./recurrence";
 import { localInputToUtc, utcToLocalInput } from "./timezone";
-import { buildTree, canReparent, subtree } from "./tree";
+import { buildTree, subtree } from "./tree";
 import type { TreeNode } from "./tree";
 import type { Task, TaskDraft, TaskList } from "./types";
 import {
   coreIsCalendarDay,
+  coreOrderTasks,
+  coreTaskComplete,
+  coreTaskListCanMove,
   coreTaskListParse,
   coreTaskListTone,
   coreTaskListWrite,
   coreTaskParse,
+  coreTaskReopen,
   coreTaskWrite,
 } from "./wasm";
 import type { CoreTask, CoreTaskDraft, CoreTaskList } from "./wasm";
@@ -95,6 +98,41 @@ function taskFrom(task: CoreTask): Task {
   };
 }
 
+/** A draft core handed back, in this client's shape. */
+export function draftFrom(draft: CoreTaskDraft): TaskDraft {
+  return {
+    title: draft.title,
+    notes: draft.notes || undefined,
+    done: draft.done || undefined,
+    completedAt: draft.completed_at,
+    completions: draft.completions,
+    dueDate: draft.due_date,
+    priority: draft.priority,
+    tags: draft.tags,
+    taskListId: draft.task_list_id,
+    parentId: draft.parent_id,
+    recurrence: draft.recurrence ? recurrenceFrom(draft.recurrence) : undefined,
+    unreadableRecurrence: draft.unreadable_recurrence,
+    recurrenceAnchor: draft.recurrence_anchor,
+    createdAt: draft.created_at,
+    raw: draft.raw,
+  };
+}
+
+/** A listed task as core reads one, for the rules that take whole tasks. */
+export function taskTo(task: Task): CoreTask {
+  const draft = draftTo(taskDraft(task));
+  return {
+    ...draft,
+    id: task.id,
+    title: task.title,
+    derived_title: task.derivedTitle === true,
+    updated_at: task.updatedAt,
+    readable: task.readable ?? true,
+    raw: task.raw ?? "",
+  };
+}
+
 /** The draft an edit starts from: the stored title, never the listed fallback. */
 export function taskDraft(task: Task): TaskDraft {
   const { id: _id, derivedTitle, readable: _readable, ...draft } = task;
@@ -138,7 +176,7 @@ function listFrom(list: CoreTaskList): TaskList {
   };
 }
 
-function listTo(list: TaskList): CoreTaskList {
+export function listTo(list: TaskList): CoreTaskList {
   return {
     id: list.id,
     name: list.name,
@@ -200,56 +238,49 @@ export function dueDayKey(task: Task, timezone: string): string | null {
   return due ? keyFor(dayOf(due, timezone)) : null;
 }
 
-function rolledDueDate(
-  task: Task,
-  now: Date,
-  timezone: string,
-): { dueDate: string; anchor: string } | null {
-  const due = normalizeDueDate(task.dueDate);
-  if (!task.recurrence || !due) return null;
-  const anchor = normalizeDueDate(task.recurrenceAnchor) ?? due;
-  const current = dayOf(due, timezone);
-  const today = dayOf(now.toISOString(), timezone);
-  const next = nextOccurrence(
-    dayOf(anchor, timezone),
-    task.recurrence,
-    current > today ? current : today,
-  );
-  if (!next) return null;
-  const key = keyFor(next);
-  if (isAllDayDue(due)) return { dueDate: key, anchor };
-  const time = utcToLocalInput(due, timezone).slice(10);
-  return { dueDate: localInputToUtc(`${key}${time}`, timezone), anchor };
+export type TaskTick = {
+  draft: TaskDraft;
+  /** True when a recurring task stayed open and moved to its next date. */
+  rolled: boolean;
+  /** Done subtasks the roll reopens, to write after the task. */
+  reopened: { id: string; draft: TaskDraft }[];
+};
+
+/** A stored due value in `timezone`'s wall-clock time. */
+function localValue(value: string | undefined, timezone: string): string | undefined {
+  const due = normalizeDueDate(value);
+  if (!due) return undefined;
+  return isAllDayDue(due) ? due : utcToLocalInput(due, timezone);
 }
 
 /**
- * The draft for ticking a task. A recurring task with a later occurrence stays
- * open and moves its due date on; anything else is marked done.
+ * Ticks a task through core. A recurring task with a later occurrence stays
+ * open, moves its due date on and reopens its done subtasks; anything else is
+ * marked done.
  */
-export function completeTask(
-  task: Task,
-  now: Date,
-  timezone: string,
-): TaskDraft {
-  const doneAt = now.toISOString();
-  const completions = task.recurrence
-    ? [doneAt, ...(task.completions ?? [])].slice(0, MAX_TASK_COMPLETIONS)
-    : task.completions;
-  const rolled = rolledDueDate(task, now, timezone);
-  if (!rolled)
-    return { ...taskDraft(task), done: true, completedAt: doneAt, completions };
+export function tickTask(task: Task, tasks: Task[], now: Date, timezone: string): TaskTick {
+  const result = coreTaskComplete(taskTo(task), tasks.map(taskTo), {
+    now: now.toISOString(),
+    today: utcToLocalInput(now.toISOString(), timezone).slice(0, 10),
+    due_local: localValue(task.dueDate, timezone),
+    anchor_local: localValue(task.recurrenceAnchor, timezone),
+  });
+  const draft = draftFrom(result.task);
+  if (result.local_due) draft.dueDate = localInputToUtc(result.local_due, timezone);
   return {
-    ...taskDraft(task),
-    done: undefined,
-    completedAt: undefined,
-    dueDate: rolled.dueDate,
-    recurrenceAnchor: rolled.anchor,
-    completions,
+    draft,
+    rolled: result.rolled,
+    reopened: result.reopened.map((write) => ({ id: write.id, draft: draftFrom(write.draft) })),
   };
 }
 
+/** The draft for ticking a task on its own; see `tickTask`. */
+export function completeTask(task: Task, now: Date, timezone: string): TaskDraft {
+  return tickTask(task, [task], now, timezone).draft;
+}
+
 export function reopenTask(task: Task): TaskDraft {
-  return { ...taskDraft(task), done: undefined, completedAt: undefined };
+  return draftFrom(coreTaskReopen(taskTo(task)));
 }
 
 export type TaskScope = "today" | "overdue" | "all" | "completed";
@@ -276,22 +307,26 @@ export function inScope(
   );
 }
 
-function dueTime(task: Task): number {
+function dueTime(task: Task): number | undefined {
   const due = normalizeDueDate(task.dueDate);
-  if (!due) return Number.POSITIVE_INFINITY;
-  return Date.parse(isAllDayDue(due) ? `${due}T00:00` : due);
+  if (!due) return undefined;
+  const at = Date.parse(isAllDayDue(due) ? `${due}T00:00` : due);
+  return Number.isNaN(at) ? undefined : at;
 }
 
 /** Open before done, then soonest due, then highest priority, then title. */
 export function sortTasks(tasks: Task[]): Task[] {
-  return [...tasks].sort((a, b) => {
-    if (Boolean(a.done) !== Boolean(b.done)) return a.done ? 1 : -1;
-    const due = dueTime(a) - dueTime(b);
-    if (due !== 0 && !Number.isNaN(due)) return due;
-    const priority = (b.priority ?? 0) - (a.priority ?? 0);
-    if (priority !== 0) return priority;
-    return a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
-  });
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+  const order = coreOrderTasks(
+    tasks.map((task) => ({
+      id: task.id,
+      title: task.title,
+      done: task.done === true,
+      due_at: dueTime(task),
+      priority: task.priority,
+    })),
+  );
+  return order.map((id) => byId.get(id)).filter((task): task is Task => task !== undefined);
 }
 
 export function taskMatches(task: Task, query: string): boolean {
@@ -376,8 +411,7 @@ export function canMoveTaskList(
   id: string,
   parentId: string | null,
 ): boolean {
-  if (id === DEFAULT_TASK_LIST_ID) return parentId === null;
-  return canReparent(lists, id, parentId);
+  return coreTaskListCanMove(lists.map(listTo), id, parentId ?? undefined);
 }
 
 export function taskListTone(lists: TaskList[], id: string): string {

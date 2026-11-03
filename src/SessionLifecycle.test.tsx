@@ -9,9 +9,8 @@
  *
  * The distinction the reconnect turns on is not visible from the lock screen:
  * an offline session holds no collection key and no token, so until
- * `loginAccount` has answered the vault is read-only and Settings is shut. A
- * reconnect that updates neither would leave a live account behind an offline
- * banner for the rest of the session.
+ * `loginAccount` has answered its edits only queue. A reconnect that updates
+ * neither would leave them queued behind an offline banner.
  *
  * `lib/client` is faked as in the contact suites: an online session needs an
  * OPAQUE exchange only the server can answer.
@@ -26,10 +25,10 @@ import {
   enrolDevice,
   setConnectionDomain,
   setOnline,
-  snapshotWritten,
   storeSnapshot,
-  storedSnapshot,
 } from "./test/vault";
+import { currentOutbox, mutateOutbox } from "./lib/outbox";
+import { coreOutboxSettle, type PendingWrite } from "./lib/wasm";
 import { DEFAULT_ACCOUNT_SETTINGS } from "./lib/accountSettings";
 import { DEFAULT_ADDRESS_BOOK_ID } from "./lib/addressBook";
 import { loadDeviceMetadata } from "./lib/storage";
@@ -42,6 +41,8 @@ const PASSWORD = "correct horse battery";
 let served: Contact[] = [];
 const loginAccount = vi.hoisted(() => vi.fn<(state: DeviceState, password: string) => Promise<Session>>());
 const revokeSession = vi.hoisted(() => vi.fn<(session: Session) => Promise<void>>());
+/** What each flush was handed, in place of a server to send it to. */
+let flushed: PendingWrite[][] = [];
 
 vi.mock("./lib/client", async () => {
   const actual = await vi.importActual<typeof import("./lib/client")>("./lib/client");
@@ -49,8 +50,13 @@ vi.mock("./lib/client", async () => {
     ...actual,
     loginAccount,
     revokeSession,
+    flushOutbox: async () => {
+      const writes = currentOutbox().writes;
+      flushed.push(writes);
+      await mutateOutbox((outbox) => coreOutboxSettle(outbox, writes.map((write) => write.id)));
+      return { refused: new Map() };
+    },
     listVault: async () => ({
-      sealed: [],
       addressBooks: [{ id: DEFAULT_ADDRESS_BOOK_ID, name: "Contacts", raw: "{}" }],
       contacts: [...served],
       calendars: [],
@@ -97,8 +103,6 @@ async function openOnline() {
   await screen.findByRole("button", { name: "Unlock" });
   unlock();
   await screen.findByText(served[0]!.name);
-  // The contacts are on screen one derivation before the unlock is finished.
-  await snapshotWritten();
 }
 
 function goOnline() {
@@ -113,25 +117,53 @@ function goOffline() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  flushed = [];
   served = [aContact("Grace Hopper", "c2")];
   loginAccount.mockImplementation(async (state) => aSession(state));
   revokeSession.mockResolvedValue(undefined);
 });
 
 describe("an offline vault", () => {
-  it("says so, and keeps the editing controls out of reach", async () => {
+  it("says so, and keeps what needs the server out of reach", async () => {
     await openOffline([aContact("Ada Lovelace", "c1")]);
 
-    expect(screen.getByRole("status").textContent).toContain("App is offline");
-    // Both reach the server, so neither is offered while it cannot be reached.
+    expect(screen.getByRole("status").textContent).toContain("You're offline");
     expect(screen.queryByRole("button", { name: "Add device" })).toBeNull();
+    expect(screen.getByRole("button", { name: "New contact" })).toBeDefined();
     fireEvent.click(screen.getByRole("button", { name: /Settings/u }));
-    expect(await screen.findByText("Settings are unavailable while offline.")).toBeDefined();
+    fireEvent.click(await screen.findByRole("button", { name: /Sign Out/u }));
+    expect(screen.getByRole("button", { name: "Sign out…" })).toBeDefined();
+  });
+
+  it("queues an edit, then sends it once the browser comes back", async () => {
+    await openOffline([aContact("Ada Lovelace", "c1")]);
+
+    fireEvent.click(screen.getByRole("button", { name: "New contact" }));
+    fireEvent.change(await screen.findByLabelText("Full name"), {
+      target: { value: "Katherine Johnson" },
+    });
+    fireEvent.click(
+      screen
+        .getAllByRole("button", { name: "Add contact" })
+        .find((button) => button.getAttribute("type") === "submit")!,
+    );
+
+    expect(await screen.findByText("1 change waiting to sync.", { exact: false })).toBeDefined();
+    expect(screen.getAllByText("Katherine Johnson").length).toBeGreaterThan(0);
+    expect(flushed).toEqual([]);
+
+    goOnline();
+
+    await waitFor(() => expect(flushed.length).toBeGreaterThan(0));
+    const sent = flushed[0]!;
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.base).toBeUndefined();
+    expect(JSON.parse(sent[0]!.payload)).toMatchObject({ name: { full: "Katherine Johnson" } });
+    await waitFor(() => expect(screen.queryByText(/waiting to sync/u)).toBeNull());
   });
 
   it("logs in again when the browser comes back, and lists what the server has", async () => {
     await openOffline([aContact("Ada Lovelace", "c1")]);
-    const stale = await storedSnapshot();
 
     goOnline();
 
@@ -142,9 +174,6 @@ describe("an offline vault", () => {
     await waitFor(() => expect(screen.queryByText("Ada Lovelace")).toBeNull());
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.getByRole("button", { name: "Add device" })).toBeDefined();
-    // The reconnect rewrites the snapshot behind the listing it has already
-    // shown, and the next test unlocks twice over whatever thread is left.
-    await snapshotWritten(stale);
   });
 
   it("keeps showing the snapshot when the server is still unreachable", async () => {
@@ -157,19 +186,20 @@ describe("an offline vault", () => {
     // Rather than an empty vault or a lock screen, which would both read as
     // having lost the data this device still holds.
     expect(screen.getByText("Ada Lovelace")).toBeDefined();
-    expect(screen.getByRole("status").textContent).toContain("App is offline");
+    expect(screen.getByRole("status").textContent).toContain("You're offline");
   });
 });
 
 describe("going offline with the vault open", () => {
-  it("keeps the vault readable and shuts the writes off", async () => {
+  it("keeps the vault readable and shuts off what needs the server", async () => {
     await openOnline();
 
     goOffline();
     fireEvent.click(screen.getByRole("button", { name: /Settings/u }));
-    await screen.findByText("Settings are unavailable while offline.");
+    fireEvent.click(await screen.findByRole("button", { name: /Devices/u }));
+    await screen.findByText(/needs a connection to the server/u);
 
-    fireEvent.click(screen.getByRole("button", { name: /Contacts/u }));
+    fireEvent.click(screen.getByRole("button", { name: "Contacts" }));
     expect(await screen.findByText("Grace Hopper")).toBeDefined();
   });
 });
@@ -211,13 +241,11 @@ describe("locking", () => {
     await openOnline();
     fireEvent.click(screen.getByRole("button", { name: "Lock" }));
     await screen.findByRole("button", { name: "Unlock" });
-    const first = await storedSnapshot();
 
     unlock();
 
     expect(await screen.findByText("Grace Hopper")).toBeDefined();
     expect(loginAccount).toHaveBeenCalledTimes(2);
-    await snapshotWritten(first);
   });
 });
 
