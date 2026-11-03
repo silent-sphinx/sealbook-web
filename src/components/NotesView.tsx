@@ -61,6 +61,8 @@ type Props = {
   /** Applies one saved note to the vault list, so autosave need not refetch. */
   onSaved: (note: Note) => void;
   readOnly?: boolean;
+  /** Photos need the server, so none are added offline. */
+  offline?: boolean;
   /** Shared with the rest of the shell; the header owns the control. */
   sidebar: Sidebar;
 };
@@ -119,7 +121,7 @@ function fileNameFor(title: string): string {
   return `${base.slice(0, 60)}.md`;
 }
 
-export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved, readOnly, sidebar }: Props) {
+export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved, readOnly, offline = false, sidebar }: Props) {
   const readOnlyMode = readOnly === true;
   const [scope, setScope] = useState<string>(DEFAULT_NOTEBOOK_ID);
   const [search, setSearch] = useState("");
@@ -820,7 +822,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                   editable={!readOnlyMode}
                   onChange={(body) => edit({ body })}
                   resolveAttachment={resolveAttachment}
-                  onUploadImage={readOnlyMode ? undefined : uploadImage}
+                  onUploadImage={readOnlyMode || offline ? undefined : uploadImage}
                   getAttachmentWidth={getAttachmentWidth}
                   onResizeAttachment={readOnlyMode ? undefined : onResizeAttachment}
                   header={

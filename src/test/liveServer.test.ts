@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { putContact } from "../lib/addressBookApi";
 import { listVault, loginAccount, putSealed, registerAccount } from "../lib/client";
 import { putNote } from "../lib/noteApi";
+import { localObjects } from "../lib/outbox";
 import { emptyDraft } from "../lib/contact";
 import { DEFAULT_NOTEBOOK_ID } from "../lib/note";
 import { JSCONTACT_CONTENT_TYPE } from "../lib/addressBook";
@@ -53,7 +54,7 @@ describe.skipIf(!server)("live server scenario", () => {
       expect(listing.notes.map((n) => [n.title, n.body])).toEqual([
         [scenario.note.title, scenario.note.body],
       ]);
-      expect(listing.sealed.length).toBe(scenario.expect.live_objects);
+      expect(localObjects().length).toBe(scenario.expect.live_objects);
     };
     await check(session);
 

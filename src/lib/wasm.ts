@@ -89,6 +89,19 @@ import init, {
   core_is_calendar_day,
   core_payload_kind,
   core_write_batches,
+  core_flush_failure,
+  core_flush_plan,
+  core_local_vault_apply,
+  core_local_vault_read,
+  core_local_vault_write,
+  core_local_view,
+  core_merge_payload,
+  core_outbox_fail,
+  core_outbox_push,
+  core_outbox_read,
+  core_outbox_settle,
+  core_outbox_write,
+  core_write_guard,
   core_account_export_filename,
   core_account_export_parse,
   core_account_export_write,
@@ -294,6 +307,15 @@ import type {
   VerifiedRoster,
   WalkCursor,
   WalkStep,
+  FlushFailure,
+  FlushGuard,
+  FlushPlan,
+  FlushWrite,
+  LocalObject,
+  LocalVault,
+  MergeOutcome,
+  Outbox,
+  PendingWrite,
 } from "../pkg/sealbook_wasm.js";
 import { log } from "./log";
 import { PAYLOAD_SCHEMA_VERSION } from "./payload";
@@ -2249,4 +2271,95 @@ export function coreContactIndex(
     contacts.map(({ id, raw }) => ({ id, raw })),
     books,
   );
+}
+
+// ── Core: offline writes ──
+
+export type {
+  FlushFailure,
+  FlushGuard,
+  FlushPlan,
+  FlushWrite,
+  LocalObject,
+  LocalVault,
+  MergeOutcome,
+  Outbox,
+  PendingWrite,
+};
+
+export function coreLocalVaultWrite(vault: LocalVault): string {
+  return core_local_vault_write(vault);
+}
+
+/** Throws a core `Malformed` for a record a newer build wrote. */
+export function coreLocalVaultRead(raw: string): LocalVault {
+  return core_local_vault_read(raw);
+}
+
+/** Folds walked rows in: per object, the newest revision wins. */
+export function coreLocalVaultApply(
+  vault: LocalVault,
+  rows: LocalObject[],
+  latestRevision: number,
+  keyEpoch: number,
+): LocalVault {
+  return core_local_vault_apply(vault, rows, BigInt(latestRevision), BigInt(keyEpoch));
+}
+
+export function coreOutboxWrite(outbox: Outbox): string {
+  return core_outbox_write(outbox);
+}
+
+/** Throws a core `Malformed` for a record a newer build wrote. */
+export function coreOutboxRead(raw: string): Outbox {
+  return core_outbox_read(raw);
+}
+
+/** Queues a write, combining it with one already queued for the same id. */
+export function coreOutboxPush(outbox: Outbox, write: PendingWrite): Outbox {
+  return core_outbox_push(outbox, write);
+}
+
+/** Takes these ids out of both the queue and the failed list. */
+export function coreOutboxSettle(outbox: Outbox, ids: string[]): Outbox {
+  return core_outbox_settle(outbox, ids);
+}
+
+/** Moves these queued writes to the failed list. */
+export function coreOutboxFail(outbox: Outbox, ids: string[], reason: string): Outbox {
+  return core_outbox_fail(outbox, ids, reason);
+}
+
+/** The live objects to list: the vault with the queued writes laid over it. */
+export function coreLocalView(vault: LocalVault, outbox: Outbox): LocalObject[] {
+  return core_local_view(vault, outbox);
+}
+
+export function coreMergePayload(
+  contentType: string,
+  base: string | null,
+  local: string,
+  remote: string,
+  date: string,
+): MergeOutcome {
+  return core_merge_payload(contentType, base, local, remote, date);
+}
+
+/** What each queued write becomes against a vault just brought up to date. */
+export function coreFlushPlan(outbox: Outbox, vault: LocalVault, date: string): FlushPlan {
+  return core_flush_plan(outbox, vault, date);
+}
+
+/** Throws a core `CollectionBusy` once `attempt` reaches the restart limit. */
+export function coreWriteGuard(
+  writes: FlushWrite[],
+  entries: CoreManifestEntry[],
+  attempt: number,
+): FlushGuard {
+  return core_write_guard(writes, entries, attempt);
+}
+
+/** What a write request's HTTP status means, with 0 for no response. */
+export function coreFlushFailure(status: number): FlushFailure {
+  return core_flush_failure(status);
 }

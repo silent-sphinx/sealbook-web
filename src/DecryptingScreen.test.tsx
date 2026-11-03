@@ -11,10 +11,10 @@
  * OPAQUE exchange only the server can answer.
  */
 
-import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "./test/dom";
-import { aContact, enrolDevice, setConnectionDomain, snapshotWritten } from "./test/vault";
+import { aContact, enrolDevice, setConnectionDomain } from "./test/vault";
 import { DEFAULT_ACCOUNT_SETTINGS } from "./lib/accountSettings";
 import { DEFAULT_ADDRESS_BOOK_ID } from "./lib/addressBook";
 import type { VaultProgress } from "./lib/client";
@@ -43,7 +43,6 @@ vi.mock("./lib/client", async () => {
         release = resolve;
       });
       return {
-        sealed: [],
         addressBooks: [{ id: DEFAULT_ADDRESS_BOOK_ID, name: "Contacts", raw: "{}" }],
         contacts: [aContact("Ada Lovelace", "c1")],
         calendars: [],
@@ -69,7 +68,14 @@ async function startUnlock() {
   fireEvent.change(await screen.findByLabelText("Password"), { target: { value: PASSWORD } });
   fireEvent.click(screen.getByRole("button", { name: "Unlock" }));
   await screen.findByText("Decrypting your Sealbook");
+  // Queued changes are sent first, which opens the stored queue before the read.
+  await waitFor(() => expect(release).not.toBeNull());
 }
+
+beforeEach(() => {
+  release = null;
+  report = null;
+});
 
 describe("the first vault read", () => {
   it("holds the decrypting screen until the vault is listed", async () => {
@@ -82,8 +88,6 @@ describe("the first vault read", () => {
 
     expect(await screen.findByText("Ada Lovelace")).toBeDefined();
     expect(screen.queryByText("Decrypting your Sealbook")).toBeNull();
-    // The list is on screen one derivation before the unlock is finished.
-    await snapshotWritten();
   });
 
   it("says which stage the read has reached", async () => {
@@ -98,7 +102,5 @@ describe("the first vault read", () => {
 
     release!();
     await screen.findByText("Ada Lovelace");
-    // The list is on screen one derivation before the unlock is finished.
-    await snapshotWritten();
   });
 });

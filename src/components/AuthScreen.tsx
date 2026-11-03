@@ -6,6 +6,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { field, focusRing, ghost, primary, btnPrimary, btnSecondary } from "../lib/styles";
 import { passwordStrength } from "../lib/appState";
 import type { DeviceMetadata } from "../lib/storage";
+import { queuedCount } from "../lib/localStore";
 
 export type Mode = "register" | "signin";
 
@@ -108,7 +109,11 @@ export function AuthScreen({
           <ConfirmDialog
             title="Sign out"
             heading="Sign out of this device?"
-            body="This device's keys are removed from this browser. To get back in you'll need to pair from another signed-in device, or use your 24 recovery words."
+            body={
+              queuedCount() > 0
+                ? `${queuedCount()} change${queuedCount() === 1 ? "" : "s"} made on this device have not synced and will be lost. Unlock while connected to send them first. To get back in you'll need to pair from another signed-in device, or use your 24 recovery words.`
+                : "This device's keys are removed from this browser. To get back in you'll need to pair from another signed-in device, or use your 24 recovery words."
+            }
             confirmLabel="Sign out"
             busyLabel="Signing out…"
             onConfirm={() => {

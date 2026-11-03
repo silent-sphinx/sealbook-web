@@ -23,6 +23,8 @@ type Props = {
   error?: string | null;
   onSave: (draft: ContactDraft) => boolean | Promise<boolean>;
   readOnly?: boolean;
+  /** Attachments need the server, so they are read-only offline. */
+  attachmentsReadOnly?: boolean;
   /** Owned by the caller so it can guard navigation while changes are unsaved. */
   editing: boolean;
   onEditingChange: (editing: boolean) => void;
@@ -88,6 +90,7 @@ export function ContactDetailModal({
   error,
   onSave,
   readOnly = false,
+  attachmentsReadOnly = false,
   editing,
   onEditingChange,
   detailed = false,
@@ -556,7 +559,7 @@ export function ContactDetailModal({
           <ContactAttachmentsSection
             session={session}
             attachments={attachments}
-            readOnly={readOnly}
+            readOnly={readOnly || attachmentsReadOnly}
             onAttachmentsChange={handleAttachmentsChange}
           />
 

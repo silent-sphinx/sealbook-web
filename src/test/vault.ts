@@ -6,25 +6,26 @@
  * rather than rejecting when the database is missing, so without the fake a
  * test would read "no snapshot" and pass for the wrong reason.
  *
- * Fixtures go in through the real `saveDevice` and `saveVaultSnapshot`, so the
+ * Fixtures go in through the real `saveDevice` and `saveLocalVault`, so the
  * records a test reads back are ones the app itself wrote, encrypted under the
  * same PBKDF2 and AES-GCM as in a browser.
  */
 
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
-import { afterEach, beforeEach, expect } from "vitest";
-import { waitFor } from "@testing-library/react";
-import { idbGet } from "../lib/idb";
-import { saveConnectionDomain, saveDevice, saveVaultSnapshot, type VaultSnapshot } from "../lib/storage";
-import { DEFAULT_ACCOUNT_SETTINGS } from "../lib/accountSettings";
-import { DEFAULT_ADDRESS_BOOK_ID } from "../lib/addressBook";
+import { afterEach, beforeEach } from "vitest";
+import { closeLocalStore, openLocalStore, saveLocalVault } from "../lib/localStore";
+import { closeOutbox } from "../lib/outbox";
+import { saveConnectionDomain, saveDevice } from "../lib/storage";
+import {
+  ADDRESS_BOOK_CONTENT_TYPE,
+  DEFAULT_ADDRESS_BOOK_ID,
+  JSCONTACT_CONTENT_TYPE,
+} from "../lib/addressBook";
+import type { LocalVault } from "../lib/wasm";
 import type { Contact, DeviceState } from "../lib/types";
 
 export const TEST_SERVER = "https://vault.example.com";
-
-/** As `storage.ts` keys the snapshot record, which it does not export. */
-const VAULT_RECORD = "snapshot";
 
 /**
  * Stand-ins for the key material. Nothing here is used as a key: the unlock
@@ -62,19 +63,28 @@ export function aContact(name: string, id = `contact-${name}`): Contact {
   };
 }
 
-export function aSnapshot(contacts: Contact[] = []): VaultSnapshot {
+/** This device's copy of a vault holding the default address book and `contacts`. */
+export function aSnapshot(contacts: Contact[] = []): LocalVault {
   return {
-    contacts,
-    addressBooks: [{ id: DEFAULT_ADDRESS_BOOK_ID, name: "Contacts", raw: "{}" }],
-    calendars: [],
-    calendarEvents: [],
-    notes: [],
-    notebooks: [],
-    bookmarks: [],
-    bookmarkCollections: [],
-    tasks: [],
-    taskLists: [],
-    accountSettings: DEFAULT_ACCOUNT_SETTINGS,
+    version: 1,
+    latest_revision: contacts.length + 1,
+    key_epoch: 0,
+    objects: [
+      {
+        id: DEFAULT_ADDRESS_BOOK_ID,
+        content_type: ADDRESS_BOOK_CONTENT_TYPE,
+        revision: 1,
+        tombstone: false,
+        payload: JSON.stringify({ name: "Contacts" }),
+      },
+      ...contacts.map((contact, index) => ({
+        id: contact.id,
+        content_type: JSCONTACT_CONTENT_TYPE,
+        revision: index + 2,
+        tombstone: false,
+        payload: contact.raw,
+      })),
+    ],
   };
 }
 
@@ -86,43 +96,17 @@ export async function enrolDevice(
   await saveDevice(state, password);
 }
 
-/** Leaves the browser holding an offline snapshot under the same password. */
+/** Leaves the browser holding a vault copy under `password`. */
 export async function storeSnapshot(
   password: string,
-  snapshot: VaultSnapshot = aSnapshot(),
+  vault: LocalVault = aSnapshot(),
 ): Promise<void> {
-  const stored = await saveVaultSnapshot(snapshot, password);
+  openLocalStore(password);
+  const stored = await saveLocalVault(vault);
+  closeLocalStore();
   if (!stored) {
-    throw new Error("the snapshot fixture was not stored, so the test would not mean anything");
+    throw new Error("the vault fixture was not stored, so the test would not mean anything");
   }
-}
-
-/**
- * The stored snapshot's ciphertext, read without decrypting it.
- *
- * `refresh` saves the snapshot as its last step, after it has already set the
- * contacts (`App.tsx`), so a wait for a contact's name returns while the
- * 600,000-iteration derivation behind that save is still running. Nothing in
- * the DOM marks that tail, but the write it ends in is visible here.
- */
-export async function storedSnapshot(): Promise<string | null> {
-  const stored = await idbGet<{ ciphertext: string }>(VAULT_RECORD);
-  return stored?.ciphertext ?? null;
-}
-
-/**
- * Waits for the snapshot a session writes once it is open, so the derivation
- * behind it does not run on into the next test's own unlocks on the single
- * thread a worker gives them, or past the environment the last test tears down.
- *
- * `before` is the ciphertext from before the action, for the cases where a
- * snapshot is already stored and the rewrite rather than the presence is the
- * signal; the default waits for a first write.
- */
-export async function snapshotWritten(before: string | null = null): Promise<void> {
-  await waitFor(async () => {
-    expect(await storedSnapshot()).not.toBe(before);
-  });
 }
 
 export function setOnline(online: boolean): void {
@@ -178,6 +162,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  closeOutbox();
+  closeLocalStore();
   localStorage.clear();
   sessionStorage.clear();
   // A fresh factory per test, so one test's snapshot is never another's.

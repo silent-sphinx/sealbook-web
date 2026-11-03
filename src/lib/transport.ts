@@ -1,10 +1,24 @@
 import { describeError, elapsed, log, logPath } from "./log";
 
 export class ApiError extends Error {
-  constructor(message: string) {
+  /** The HTTP status, or 0 where the caller did not record one. */
+  readonly status: number;
+
+  constructor(message: string, status = 0) {
     super(message);
     this.name = "ApiError";
+    this.status = status;
   }
+}
+
+/**
+ * The status a failed request ended with, 0 for one that got no answer, or
+ * null for a failure that was not a request's.
+ */
+export function failedStatus(err: unknown): number | null {
+  if (err instanceof ApiError) return err.status;
+  if (err instanceof ServerUnreachableError || err instanceof RequestTimeoutError) return 0;
+  return null;
 }
 
 export const REQUEST_TIMEOUT_MS = 30_000;
@@ -48,7 +62,7 @@ export async function requestText(method: string, url: string, init: RequestInit
   if (status < 200 || status >= 300) {
     const message = errorMessage(text, statusText);
     log.warn("server refused a request", { method, path: logPath(url), status, reason: message });
-    throw new ApiError(message);
+    throw new ApiError(message, status);
   }
   return text;
 }

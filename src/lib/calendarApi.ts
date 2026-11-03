@@ -6,7 +6,7 @@ import {
   serializeEvent,
   sortCalendars,
 } from "./calendar";
-import { putAccountSettings, listVault, putSealed } from "./client";
+import { putAccountSettings, listVaultOrLocal, putSealed } from "./client";
 import type { Calendar, CalendarEvent } from "./types";
 import { DEFAULT_CALENDAR_COLOR } from "./types";
 import { newUuid } from "./wasm";
@@ -49,7 +49,7 @@ export async function ensureDefaultCalendar(
   // to a fixed id: on an account that already has a default calendar it would
   // overwrite it, undoing a rename or a colour. So the absence is confirmed
   // against the vault before anything is written.
-  const listed = await listVault(session);
+  const listed = await listVaultOrLocal(session);
   if (listed.calendars.some((calendar) => calendar.id === DEFAULT_CALENDAR_ID)) {
     return listed.calendars;
   }

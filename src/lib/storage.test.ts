@@ -2,95 +2,15 @@ import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { DEFAULT_ACCOUNT_SETTINGS } from "./accountSettings";
 import { friendlyError } from "./errors";
 import { idbGetAttachment, idbPutAttachment } from "./idb";
 import {
   ATTACHMENT_CACHE_SALT_KEY,
   clearDevice,
   DeviceStorageError,
-  normalizeSnapshot,
   saveDevice,
 } from "./storage";
 import type { DeviceState } from "./types";
-
-const original = {
-  contacts: [],
-  addressBooks: [],
-  calendars: [],
-  calendarEvents: [],
-};
-
-describe("normalizeSnapshot", () => {
-  it("a_snapshot_written_before_notes_still_opens", () => {
-    // Without the defaults an earlier build's snapshot would be discarded and the
-    // user would silently lose offline mode until their next online login.
-    expect(normalizeSnapshot(original)).toEqual({
-      ...original,
-      notes: [],
-      notebooks: [],
-      bookmarks: [],
-      bookmarkCollections: [],
-      tasks: [],
-      taskLists: [],
-      accountSettings: DEFAULT_ACCOUNT_SETTINGS,
-    });
-  });
-
-  it("keeps the tasks it is given and reads a malformed list as empty", () => {
-    const snapshot = { ...original, tasks: [{ id: "t" }], taskLists: "nonsense" };
-    expect(normalizeSnapshot(snapshot)).toMatchObject({ tasks: [{ id: "t" }], taskLists: [] });
-  });
-
-  it("keeps the collections it is given", () => {
-    const snapshot = { ...original, notes: [{ id: "n" }], notebooks: [{ id: "b" }] };
-    expect(normalizeSnapshot(snapshot)).toMatchObject({
-      notes: [{ id: "n" }],
-      notebooks: [{ id: "b" }],
-    });
-  });
-
-  it("rejects a snapshot missing one of the original collections", () => {
-    for (const field of ["contacts", "addressBooks", "calendars", "calendarEvents"] as const) {
-      const broken: Record<string, unknown> = { ...original };
-      delete broken[field];
-      expect(normalizeSnapshot(broken)).toBeNull();
-    }
-  });
-
-  it("keeps the stored feature toggles", () => {
-    const snapshot = { ...original, accountSettings: { features: { notes: false } } };
-    expect(normalizeSnapshot(snapshot)?.accountSettings.features).toEqual({
-      contacts: true,
-      calendar: true,
-      notes: false,
-      bookmarks: true,
-      tasks: true,
-    });
-  });
-
-  it("keeps the stored contact mode and accent, not only the toggles", () => {
-    // These used to be dropped here, so opening the vault offline reset the
-    // address book to basic and the shell to the default accent.
-    const snapshot = {
-      ...original,
-      accountSettings: { features: {}, contactMode: "detailed", accent: "purple" },
-    };
-    expect(normalizeSnapshot(snapshot)?.accountSettings).toMatchObject({
-      contactMode: "detailed",
-      accent: "purple",
-    });
-  });
-
-  it("defaults a wrong-typed new field rather than discarding the old data", () => {
-    expect(normalizeSnapshot({ ...original, notes: "nonsense" })).toMatchObject({ notes: [] });
-  });
-
-  it("rejects a non-object", () => {
-    expect(normalizeSnapshot(null)).toBeNull();
-    expect(normalizeSnapshot("snapshot")).toBeNull();
-  });
-});
 
 describe("saveDevice", () => {
   const stored: Record<string, string> = {};

@@ -7,6 +7,7 @@ import {
   coreErrorOf,
   coreLatestRevisions,
   coreManifestSignRoot,
+  coreLocalVaultApply,
   coreOpenRow,
   corePayloadKind,
   coreRequireKeyEpoch,
@@ -14,14 +15,16 @@ import {
   coreWalkStart,
   newUuid,
   sealedContentType,
+  type LocalObject,
+  type LocalVault,
 } from "./wasm";
+import { emptyVault } from "./localStore";
+import { localObjects, openOutbox, setVault } from "./outbox";
 import type { WalkCursor, WalkOutcome, WalkStep } from "../pkg/sealbook_wasm.js";
 import {
-  ACCOUNT_SETTINGS_CONTENT_TYPE,
   ACCOUNT_SETTINGS_ID,
   DEFAULT_ACCOUNT_SETTINGS,
   parseAccountSettings,
-  serializeAccountSettings,
 } from "./accountSettings";
 import {
   parseAddressBook,
@@ -50,7 +53,7 @@ import {
 import { parseContact, sortContacts } from "./contact";
 import { describeError, log, elapsed } from "./log";
 import { importBatches } from "./vaultImport";
-import { apiRoot, getText, putJson } from "./transport";
+import { apiRoot, failedStatus, getText, putJson } from "./transport";
 import {
   alignKeyEpoch,
   applyWrite,
@@ -88,7 +91,7 @@ import type {
  * The root comes from `applyWrite`, so the signature covers the same value a
  * signature over every entry in the collection would.
  */
-function signNextManifest(
+export function signNextManifest(
   session: Session,
   manifestSeq: number,
   keyEpoch: number,
@@ -104,62 +107,6 @@ function signNextManifest(
     { object_count: objectCount, root },
   );
   return JSON.parse(signed.manifest_json) as ManifestBody;
-}
-
-export async function putSealed(
-  session: Session,
-  id: string,
-  contentType: string,
-  tombstone: boolean,
-  payload: string,
-): Promise<number> {
-  const attempt = async (): Promise<number> => {
-    // Only the bucket this object falls in is read. Reading every entry per
-    // write is what made autosave in a large vault re-download the collection
-    // on each keystroke pause.
-    const state = await manifestBucketState(session, [id]);
-    const { manifest_seq: seq, key_epoch: keyEpoch, latest_revision: latestRevision } = state.plan;
-    await alignKeyEpoch(session, keyEpoch);
-    const revision = latestRevision + 1;
-    const sealed = sealPayload(session, id, contentType, payload, revision);
-    const newEntry = entryFor({
-      id,
-      revision,
-      nonce: sealed.encrypted.nonce,
-      ciphertext: sealed.encrypted.ciphertext,
-      tombstone,
-    });
-    const { objectCount, root } = applyWrite(state, [newEntry]);
-    const manifest = signNextManifest(session, seq + 1, keyEpoch, revision, objectCount, root);
-    const response = await putJson<{ revision: number }>(
-      `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects`,
-      {
-        id,
-        revision,
-        nonce: sealed.encrypted.nonce,
-        ciphertext: sealed.encrypted.ciphertext,
-        padded_size: sealed.encrypted.padded_size,
-        content_type: sealedContentType(),
-        tombstone,
-        manifest,
-      },
-      session.token,
-    );
-    session.latestRevision = response.revision;
-    rememberManifestSeq(session, seq + 1);
-    return response.revision;
-  };
-
-  return serializeVault(session.state.collection_id, async () => {
-    try {
-      return await attempt();
-    } catch (error) {
-      if (error instanceof Error && /stale (revision|manifest)/iu.test(error.message)) {
-        return attempt();
-      }
-      throw error;
-    }
-  });
 }
 
 const MAX_CALENDAR_EVENT_BATCH = 256;
@@ -236,7 +183,6 @@ export async function putCalendarEvents(
 }
 
 export type VaultListing = {
-  sealed: SealedObject[];
   addressBooks: AddressBook[];
   contacts: Contact[];
   calendars: Calendar[];
@@ -284,6 +230,19 @@ export function listVault(
   return serializeVault(session.state.collection_id, () => listVaultInner(session, onProgress));
 }
 
+/** As `listVault`, or this device's copy when the server cannot be reached. */
+export async function listVaultOrLocal(session: Session): Promise<VaultListing> {
+  if (!session.offline) {
+    try {
+      return await listVault(session);
+    } catch (err) {
+      if (failedStatus(err) !== 0) throw err;
+    }
+  }
+  await openOutbox(session.state.collection_id);
+  return listingFrom(localObjects(), 0);
+}
+
 export type ChangesWalk = {
   /** The newest revision of each object, in the order the pages served them. */
   objects: SealedObject[];
@@ -296,6 +255,8 @@ export type ChangesWalk = {
    */
   manifestJson?: string;
   tombstoneFloor: number;
+  /** The rows are the whole collection, not just what changed after `after`. */
+  full: boolean;
 };
 
 /**
@@ -310,11 +271,11 @@ export type ChangesWalk = {
  * advances, when a page means the walk has to start over, and when it is
  * complete. This moves the bytes and keeps the rows.
  */
-export async function walkChanges(session: Session): Promise<ChangesWalk> {
+export async function walkChanges(session: Session, after = 0): Promise<ChangesWalk> {
   const { state, token } = session;
   const started = performance.now();
   let pages = 0;
-  let cursor = coreWalkStart(0);
+  let cursor = coreWalkStart(after);
   let rows: SealedObject[] = [];
   let walk: WalkOutcome | undefined;
   while (!walk) {
@@ -354,6 +315,7 @@ export async function walkChanges(session: Session): Promise<ChangesWalk> {
     latestRevision: walk.latest_revision,
     manifestJson: walk.manifest_json,
     tombstoneFloor: walk.tombstone_floor,
+    full: walk.full,
   };
 }
 
@@ -388,7 +350,29 @@ type OpenedVaultObject = {
 type OpenedVault = {
   opened: OpenedVaultObject[];
   unopened: number;
+  /** Every row this device could open, tombstones included. */
+  vault: LocalVault;
 };
+
+/** A served row as the vault copy holds it, or null when it will not open. */
+export function localObjectOf(
+  collectionKey: string,
+  collectionId: string,
+  row: SealedObject,
+): LocalObject | null {
+  const result = coreOpenRow(collectionKey, collectionId, row);
+  if (result === "Deleted") {
+    return { id: row.id, content_type: "", revision: row.revision, tombstone: true, payload: "" };
+  }
+  if ("Unreadable" in result) return null;
+  return {
+    id: row.id,
+    content_type: result.Object.content_type,
+    revision: row.revision,
+    tombstone: false,
+    payload: result.Object.payload,
+  };
+}
 
 /**
  * The whole collection, verified against the manifest and decrypted, with
@@ -432,18 +416,16 @@ async function openVault(
     // the event loop rather than to a microtask is what lets that paint land.
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
+  const rows: LocalObject[] = [];
   for (const obj of walk.objects) {
-    const result = coreOpenRow(collectionKey, state.collection_id, obj);
-    if (result === "Deleted") continue;
-    if ("Unreadable" in result) {
+    const row = localObjectOf(collectionKey, state.collection_id, obj);
+    if (!row) {
       unopened += 1;
       continue;
     }
-    opened.push({
-      object: obj,
-      contentType: result.Object.content_type,
-      payload: result.Object.payload,
-    });
+    rows.push(row);
+    if (row.tombstone) continue;
+    opened.push({ object: obj, contentType: row.content_type, payload: row.payload });
   }
   if (unopened > 0) {
     // The manifest verified, so these rows are genuine and the failure is local:
@@ -454,7 +436,8 @@ async function openVault(
       key_epoch: session.keyEpoch,
     });
   }
-  return { opened, unopened };
+  const vault = coreLocalVaultApply(emptyVault(), rows, walk.latestRevision, walk.keyEpoch);
+  return { opened, unopened, vault };
 }
 
 export type VaultExport = {
@@ -582,8 +565,14 @@ async function listVaultInner(
   session: Session,
   onProgress?: (progress: VaultProgress) => void,
 ): Promise<VaultListing> {
-  const { opened, unopened } = await openVault(session, onProgress);
-  const sealed: SealedObject[] = [];
+  await openOutbox(session.state.collection_id);
+  const { unopened, vault } = await openVault(session, onProgress);
+  await setVault(vault, unopened === 0);
+  return listingFrom(localObjects(), unopened);
+}
+
+/** The typed listing of the objects this device holds. */
+export function listingFrom(objects: LocalObject[], unopened: number): VaultListing {
   const addressBooks: AddressBook[] = [];
   const contacts: Contact[] = [];
   const calendarEvents: CalendarEvent[] = [];
@@ -599,9 +588,9 @@ async function listVaultInner(
   let accountSettings = DEFAULT_ACCOUNT_SETTINGS;
   let accountSettingsRaw: string | undefined;
   let accountSettingsId: string | undefined;
-  for (const { object: obj, contentType, payload: raw } of opened) {
+  for (const { id, content_type: contentType, payload: raw } of objects) {
+    const obj = { id };
     try {
-      sealed.push(obj);
       switch (corePayloadKind(contentType ?? "", raw)) {
         case "calendar_event":
           calendarEvents.push(parseEvent(obj.id, raw));
@@ -641,16 +630,16 @@ async function listVaultInner(
           }
           break;
         case "contact":
-          contacts.push(parseContact(obj.id, raw, obj.ciphertext, obj.padded_size));
+          contacts.push(parseContact(obj.id, raw, "", 0));
           break;
         default:
           // Not a shape this build knows. Skipping it is the only safe answer: a
           // newer content type read as a contact would be destroyed by its edit
           // or delete.
-          sealed.pop();
+          break;
       }
     } catch {
-      sealed.pop();
+      // unparseable; left out of the listing as an unknown shape is
     }
   }
   log.info("vault opened", {
@@ -667,7 +656,6 @@ async function listVaultInner(
     unopened,
   });
   return {
-    sealed,
     addressBooks: sortAddressBooks(addressBooks),
     contacts: sortContacts(contacts),
     calendars: sortCalendars(calendars),
@@ -683,24 +671,4 @@ async function listVaultInner(
     accountSettingsId,
     unopened,
   };
-}
-
-/**
- * Saves the account settings, at the one well-known object id.
- *
- * There is no delete: the object is a singleton, and a tombstoned one would read
- * back as the default on every client.
- */
-export async function putAccountSettings(
-  session: Session,
-  settings: AccountSettings,
-  previousRaw?: string,
-): Promise<void> {
-  await putSealed(
-    session,
-    ACCOUNT_SETTINGS_ID,
-    ACCOUNT_SETTINGS_CONTENT_TYPE,
-    false,
-    serializeAccountSettings(settings, previousRaw),
-  );
 }

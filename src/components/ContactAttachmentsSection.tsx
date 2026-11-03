@@ -213,7 +213,9 @@ export function ContactAttachmentsSection({
         setLightbox(null);
       } else {
         const nextIndex = Math.min(at, next.length - 1);
-        setLightbox({ index: nextIndex, objectUrl: null, loading: true });
+        // The load effect is keyed on the id, which may already be the one shown.
+        const cached = objectUrlsRef.current.get(next[nextIndex]!.id) ?? null;
+        setLightbox({ index: nextIndex, objectUrl: cached, loading: cached === null });
       }
       // Off the card already, so `sweepOrphanedAttachments` reclaims the bytes
       // if this fails; the viewer is not told about a file it no longer sees.

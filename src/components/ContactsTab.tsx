@@ -131,7 +131,6 @@ export function ContactsTab({
 
   /** The detail pane's own actions, reachable from the row itself. */
   function itemsFor(contact: Contact): MenuItem[] {
-    if (isOffline) return [];
     return [
       {
         label: "Edit contact",
@@ -166,32 +165,28 @@ export function ContactsTab({
             eyebrow="My contacts"
             title="Contacts"
             action={
-              !isOffline ? (
-                <button
-                  type="button"
-                  onClick={onOpenComposer}
-                  aria-label="Add contact"
-                  className={sidebarHeaderAction}
-                >
-                  <PlusIcon className="h-4 w-4" />
-                </button>
-              ) : null
+              <button
+                type="button"
+                onClick={onOpenComposer}
+                aria-label="Add contact"
+                className={sidebarHeaderAction}
+              >
+                <PlusIcon className="h-4 w-4" />
+              </button>
             }
           />
 
           <SidebarSection
             label="Address books"
             action={
-              !isOffline ? (
-                <button
-                  type="button"
-                  onClick={() => onSetCreatingBook(true)}
-                  aria-label="Add address book"
-                  className={sidebarSectionAction}
-                >
-                  <PlusIcon className="h-4 w-4" />
-                </button>
-              ) : null
+              <button
+                type="button"
+                onClick={() => onSetCreatingBook(true)}
+                aria-label="Add address book"
+                className={sidebarSectionAction}
+              >
+                <PlusIcon className="h-4 w-4" />
+              </button>
             }
           >
             <AddressBookList
@@ -204,7 +199,6 @@ export function ContactsTab({
               onCreate={onCreateBook}
               onRename={onRenameBook}
               onDelete={onDeleteBook}
-              readOnly={isOffline}
               busy={busy}
             />
             <div className={sidebarSubgroup}>
@@ -237,16 +231,14 @@ export function ContactsTab({
               </span>
             </div>
             <div className="flex items-center gap-2.5">
-              {!isOffline ? (
-                <button
-                  type="button"
-                  onClick={onOpenComposer}
-                  className={`flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-xs font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] ${focusRing}`}
-                >
-                  <PlusIcon />
-                  New contact
-                </button>
-              ) : null}
+              <button
+                type="button"
+                onClick={onOpenComposer}
+                className={`flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-xs font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] ${focusRing}`}
+              >
+                <PlusIcon />
+                New contact
+              </button>
               <div className="relative min-w-0 flex-1 sm:flex-none">
                 <SearchIcon />
                 <input
@@ -309,12 +301,10 @@ export function ContactsTab({
                     Everything you add here is encrypted on this device before it
                     reaches the server.
                   </p>
-                  {!isOffline ? (
-                    <button type="button" className={`${btnPrimary} mt-5`} onClick={onOpenComposer}>
-                      <PlusIcon />
-                      Add your first contact
-                    </button>
-                  ) : null}
+                  <button type="button" className={`${btnPrimary} mt-5`} onClick={onOpenComposer}>
+                    <PlusIcon />
+                    Add your first contact
+                  </button>
                 </div>
               ) : filtered.length === 0 ? (
                 <div className="flex flex-col items-center px-6 py-12 text-center animate-fade-in-up sm:py-16">
@@ -370,7 +360,7 @@ export function ContactsTab({
                   busy={busy}
                   error={error}
                   onSave={onSaveViewedContact}
-                  readOnly={isOffline}
+                  attachmentsReadOnly={isOffline}
                   detailed={detailedContacts}
                   contacts={contacts}
                   onLinkInSection={onLinkInSection}
