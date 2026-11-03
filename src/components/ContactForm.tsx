@@ -11,17 +11,11 @@ import {
   emptyDraft,
   emptySocial,
   emptyWork,
+  isOngoing,
 } from "../lib/contact";
 import { DEFAULT_ADDRESS_BOOK_ID } from "../lib/addressBook";
 import { emptyProfile, profileOf } from "../lib/contactProfile";
-import {
-  addLink,
-  field,
-  fieldBase,
-  primary,
-  secondary,
-  selectField,
-} from "../lib/styles";
+import { field, fieldBase, primary, secondary, selectField } from "../lib/styles";
 import type {
   AddressBook,
   Contact,
@@ -35,7 +29,17 @@ import type {
   ContactSocial,
   ContactWork,
 } from "../lib/types";
-import { AddIcon, FormSection as Section, RemoveButton, labelClass } from "./FieldControls";
+import {
+  DateRange,
+  EntryCard,
+  EntryList,
+  FieldPair,
+  FormSection as Section,
+  PillInput,
+  ProseField,
+  ValueRow,
+  labelClass,
+} from "./FieldControls";
 import { ContactProfileFields } from "./ContactProfileFields";
 
 type Props = {
@@ -146,6 +150,161 @@ export function ContactForm({
     setDraft((current) => ({ ...current, profile }));
   }
 
+  const identity = (
+    <Section title="Identity" first>
+      <div className="grid gap-3">
+        {addressBooks.length > 0 ? (
+          <label className={labelClass}>
+            Address book
+            <select
+              value={draft.addressBookId}
+              onChange={(e) => patch({ addressBookId: e.target.value })}
+              className={`${selectField} mt-1.5`}
+            >
+              {addressBooks.map((book) => (
+                <option key={book.id} value={book.id}>
+                  {book.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <label className={labelClass}>
+          Full name
+          <input
+            value={draft.name}
+            onChange={(e) => patch({ name: e.target.value })}
+            className={field}
+            autoFocus
+            required
+          />
+        </label>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className={labelClass}>
+            Nickname
+            <input
+              value={draft.nickname ?? ""}
+              onChange={(e) => patch({ nickname: e.target.value })}
+              className={field}
+            />
+          </label>
+          <label className={labelClass}>
+            Pronouns
+            <input
+              value={draft.pronouns ?? ""}
+              onChange={(e) => patch({ pronouns: e.target.value })}
+              placeholder="e.g. they/them"
+              className={field}
+            />
+          </label>
+        </div>
+      </div>
+    </Section>
+  );
+
+  const reach = (
+    <>
+      <Section
+        title="Emails"
+        addLabel="Email"
+        onAdd={() => patch({ emails: [...draft.emails, emptyChannel("home")] })}
+      >
+        {draft.emails.length > 0 ? (
+          <ChannelList
+            channels={draft.emails}
+            noun="Email"
+            inputType="email"
+            onChange={(emails) => patch({ emails })}
+          />
+        ) : null}
+      </Section>
+
+      <Section
+        title="Phones"
+        addLabel="Phone"
+        onAdd={() => patch({ phones: [...draft.phones, emptyChannel("mobile")] })}
+      >
+        {draft.phones.length > 0 ? (
+          <ChannelList
+            channels={draft.phones}
+            noun="Phone"
+            inputType="tel"
+            onChange={(phones) => patch({ phones })}
+          />
+        ) : null}
+      </Section>
+
+      <Section
+        title="Social Profiles"
+        addLabel="Social profile"
+        onAdd={() => patch({ socials: [...(draft.socials ?? []), emptySocial()] })}
+      >
+        {(draft.socials ?? []).length > 0 ? (
+          <SocialList socials={draft.socials ?? []} onChange={(socials) => patch({ socials })} />
+        ) : null}
+      </Section>
+    </>
+  );
+
+  const details = (first: boolean) => (
+    <>
+      <Section
+        title="Addresses"
+        first={first}
+        addLabel="Address"
+        onAdd={() =>
+          patch({
+            addresses: [
+              ...draft.addresses,
+              emptyAddress(draft.addresses.length === 0 ? "home" : "work"),
+            ],
+          })
+        }
+      >
+        {draft.addresses.some((row) => detailed || isOngoing(row)) ? (
+          <AddressList
+            addresses={draft.addresses}
+            detailed={detailed}
+            onChange={(addresses) => patch({ addresses })}
+          />
+        ) : null}
+      </Section>
+
+      <Section
+        title="Dates"
+        addLabel="Date"
+        onAdd={() => patch({ dates: [...(draft.dates ?? []), emptyDate()] })}
+      >
+        {(draft.dates ?? []).length > 0 ? (
+          <DatesList dates={draft.dates ?? []} onChange={(dates) => patch({ dates })} />
+        ) : null}
+      </Section>
+
+      <Section
+        title="Workplace"
+        addLabel="Workplace"
+        onAdd={() => patch({ work: [...draft.work, emptyWork()] })}
+      >
+        {draft.work.some((row) => detailed || isOngoing(row)) ? (
+          <WorkList work={draft.work} detailed={detailed} onChange={(work) => patch({ work })} />
+        ) : null}
+      </Section>
+
+      <Section title="Notes">
+        <ProseField
+          value={draft.notes ?? ""}
+          onChange={(notes) => patch({ notes })}
+          placeholder="Add notes, context, or meeting reminders…"
+          ariaLabel="Notes"
+          max={MAX_CONTACT_NOTES_CHARS}
+          hint={
+            detailed ? undefined : "Keeping history on people? Turn on detailed contacts in Settings."
+          }
+        />
+      </Section>
+    </>
+  );
+
   return (
     <form
       id={formId}
@@ -153,124 +312,25 @@ export function ContactForm({
       autoComplete="off"
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">
-        <div className="mx-auto w-full max-w-3xl">
-        <Section title="Identity" first>
-          {addressBooks.length > 0 ? (
-            <label className={`${labelClass} mb-3`}>
-              Address book
-              <select
-                value={draft.addressBookId}
-                onChange={(e) => patch({ addressBookId: e.target.value })}
-                className={`${selectField} mt-1.5`}
-              >
-                {addressBooks.map((book) => (
-                  <option key={book.id} value={book.id}>
-                    {book.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <div className="grid gap-3 sm:grid-cols-3">
-            <label className={labelClass}>
-              Full name
-              <input
-                value={draft.name}
-                onChange={(e) => patch({ name: e.target.value })}
-                className={field}
-                autoFocus
-                required
-              />
-            </label>
-            <label className={labelClass}>
-              Nickname
-              <input
-                value={draft.nickname ?? ""}
-                onChange={(e) => patch({ nickname: e.target.value })}
-                className={field}
-              />
-            </label>
-            <label className={labelClass}>
-              Pronouns
-              <input
-                value={draft.pronouns ?? ""}
-                onChange={(e) => patch({ pronouns: e.target.value })}
-                placeholder="e.g. they/them"
-                className={field}
-              />
-            </label>
+      <div className="@container min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">
+        <div className="mx-auto grid w-full max-w-6xl gap-x-10 @3xl:grid-cols-2">
+          <div className="min-w-0">
+            {identity}
+            {reach}
+            {detailed ? details(false) : null}
           </div>
-        </Section>
-
-        <Section title="Emails">
-          <ChannelList
-            channels={draft.emails}
-            valuePlaceholder="Email"
-            inputType="email"
-            addLabel="+ Email"
-            onChange={(emails) => patch({ emails })}
-            newChannel={() => emptyChannel("home")}
-          />
-        </Section>
-
-        <Section title="Phones">
-          <ChannelList
-            channels={draft.phones}
-            valuePlaceholder="Phone"
-            inputType="tel"
-            addLabel="+ Phone"
-            onChange={(phones) => patch({ phones })}
-            newChannel={() => emptyChannel("mobile")}
-          />
-        </Section>
-
-        <Section title="Dates">
-          <DatesList
-            dates={draft.dates ?? []}
-            onChange={(dates) => patch({ dates })}
-          />
-        </Section>
-
-        <Section title="Social Profiles">
-          <SocialList
-            socials={draft.socials ?? []}
-            onChange={(socials) => patch({ socials })}
-          />
-        </Section>
-
-        <Section title="Addresses">
-          <AddressList
-            addresses={draft.addresses}
-            onChange={(addresses) => patch({ addresses })}
-          />
-        </Section>
-
-        <Section title="Work">
-          <WorkList work={draft.work} onChange={(work) => patch({ work })} />
-        </Section>
-
-        <Section title="Notes">
-          <div className="grid gap-1.5">
-            <textarea
-              value={draft.notes ?? ""}
-              onChange={(e) => patch({ notes: e.target.value })}
-              placeholder="Add notes, context, or meeting reminders…"
-              rows={3}
-              className={`${fieldBase} h-auto min-h-[5.5rem] py-2.5 resize-y leading-relaxed`}
-            />
-            <NotesCounter length={(draft.notes ?? "").length} detailed={detailed} />
+          <div className={secondColumn}>
+            {detailed ? (
+              <ContactProfileFields
+                profile={draft.profile ?? emptyProfile()}
+                onChange={patchProfile}
+                contacts={contacts}
+                currentContactId={currentContactId}
+              />
+            ) : (
+              details(true)
+            )}
           </div>
-        </Section>
-
-        {detailed ? (
-          <ContactProfileFields
-            profile={draft.profile ?? emptyProfile()}
-            onChange={patchProfile}
-            contacts={contacts}
-            currentContactId={currentContactId}
-          />
-        ) : null}
         </div>
       </div>
 
@@ -283,302 +343,154 @@ export function ContactForm({
         </p>
       ) : null}
 
-      {!hideFooter ? <div className="shrink-0 border-t border-line bg-panel">
-        {error ? (
-          <p role="alert" className="px-5 pt-3 text-sm text-danger">{error}</p>
-        ) : null}
-        <div className="flex gap-3 px-5 py-4">
-          <button
-            type="button"
-            className={`${secondary} flex-1 cursor-pointer`}
-            onClick={onCancel}
-            disabled={busy}
-          >
-            Cancel
-          </button>
-          <button type="submit" disabled={busy} className={`${primary} flex-1 cursor-pointer`}>
-            {busy ? "Please wait…" : (submitLabel ?? (initialDraft ? "Save" : "Add"))}
-          </button>
+      {!hideFooter ? (
+        <div className="shrink-0 border-t border-line bg-panel">
+          {error ? <p role="alert" className="px-5 pt-3 text-sm text-danger">{error}</p> : null}
+          <div className="flex gap-3 px-5 py-4">
+            <button
+              type="button"
+              className={`${secondary} flex-1 cursor-pointer`}
+              onClick={onCancel}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+            <button type="submit" disabled={busy} className={`${primary} flex-1 cursor-pointer`}>
+              {busy ? "Please wait…" : (submitLabel ?? (initialDraft ? "Save" : "Add"))}
+            </button>
+          </div>
         </div>
-      </div> : null}
+      ) : null}
     </form>
   );
 }
 
-/**
- * Appears only as the field fills up: a counter on an empty box reads as a limit
- * the user is meant to aim for.
- */
-function NotesCounter({ length, detailed }: { length: number; detailed: boolean }) {
-  if (length <= MAX_CONTACT_NOTES_CHARS * 0.8) {
-    return null;
-  }
-  const over = length > MAX_CONTACT_NOTES_CHARS;
-  return (
-    <div className="flex flex-wrap items-baseline justify-between gap-2 text-[11px]">
-      {over && !detailed ? (
-        <span className="text-mute">
-          Keeping history on people? Turn on detailed contacts in Settings.
-        </span>
-      ) : (
-        <span />
-      )}
-      <span className={over ? "text-danger" : "text-mute"}>
-        {length.toLocaleString()} / {MAX_CONTACT_NOTES_CHARS.toLocaleString()}
-      </span>
-    </div>
-  );
+// One column below the container breakpoint, where the second column continues
+// the first and so needs the divider a following section would have.
+const secondColumn =
+  "min-w-0 mt-5 border-t border-line pt-4 @3xl:mt-0 @3xl:border-t-0 @3xl:pt-0";
+
+function rowOps<T extends { id: string }>(rows: T[], onChange: (rows: T[]) => void) {
+  return {
+    update: (id: string, partial: Partial<T>) =>
+      onChange(rows.map((row) => (row.id === id ? { ...row, ...partial } : row))),
+    remove: (id: string) => onChange(rows.filter((row) => row.id !== id)),
+  };
 }
 
 function ChannelList({
   channels,
-  valuePlaceholder,
+  noun,
   inputType,
-  addLabel,
   onChange,
-  newChannel,
 }: {
   channels: ContactChannel[];
-  valuePlaceholder: string;
+  noun: string;
   inputType: "email" | "tel";
-  addLabel: string;
   onChange: (channels: ContactChannel[]) => void;
-  newChannel: () => ContactChannel;
 }) {
-  function update(id: string, patch: Partial<ContactChannel>) {
-    onChange(
-      channels.map((channel) =>
-        channel.id === id ? { ...channel, ...patch } : channel,
-      ),
-    );
-  }
-
+  const list = rowOps(channels, onChange);
   return (
-    <div className="grid min-w-0 gap-2">
+    <EntryList>
       {channels.map((channel) => (
-        <div
+        <ValueRow
           key={channel.id}
-          className="grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)_2.5rem] items-start gap-2 sm:grid-cols-[6rem_minmax(0,1fr)_2.5rem]"
-        >
-          <select
-            value={channel.kind}
-            aria-label="Type"
-            onChange={(e) => {
-              const kind = e.target.value as ContactChannelKind;
-              update(channel.id, {
-                kind,
-                label: kind === "custom" ? channel.label : undefined,
-              });
-            }}
-            className={selectField}
-          >
-            {CHANNEL_KINDS.map((kind) => (
-              <option key={kind} value={kind}>
-                {channelKindLabel(kind)}
-              </option>
-            ))}
-          </select>
-          <div className="grid min-w-0 gap-2">
-            <input
-              type={inputType}
-              value={channel.value}
-              onChange={(e) =>
-                update(channel.id, { value: e.target.value })
-              }
-              placeholder={valuePlaceholder}
-              className={fieldBase}
-            />
-            {channel.kind === "custom" ? (
-              <input
-                value={channel.label ?? ""}
-                onChange={(e) =>
-                  update(channel.id, { label: e.target.value })
-                }
-                placeholder="Label"
-                aria-label="Custom label"
-                className={fieldBase}
-              />
-            ) : null}
-          </div>
-          <RemoveButton
-            label={`Remove ${valuePlaceholder.toLowerCase()}`}
-            onClick={() =>
-              onChange(channels.filter((row) => row.id !== channel.id))
-            }
-          />
-        </div>
-      ))}
-      <button
-        type="button"
-        className={`${addLink} inline-flex items-center gap-1.5`}
-        onClick={() => onChange([...channels, newChannel()])}
-      >
-        <AddIcon />
-        {addLabel.replace(/^\+\s*/, "")}
-      </button>
-    </div>
-  );
-}
-
-const ADDRESS_FIELDS: { key: keyof ContactAddress; label: string }[] = [
-  { key: "locality", label: "City / town" },
-  { key: "region", label: "Region / state / province" },
-  { key: "postcode", label: "Postal code" },
-  { key: "country", label: "Country" },
-];
-
-function AddressList({
-  addresses,
-  onChange,
-}: {
-  addresses: ContactAddress[];
-  onChange: (addresses: ContactAddress[]) => void;
-}) {
-  function update(id: string, patch: Partial<ContactAddress>) {
-    onChange(addresses.map((row) => (row.id === id ? { ...row, ...patch } : row)));
-  }
-
-  return (
-    <div className="grid min-w-0 gap-4">
-      {addresses.map((row) => (
-        <div
-          key={row.id}
-          role="group"
-          aria-label={`${channelKindLabel(row.kind, row.label)} address`}
-          className="grid min-w-0 grid-cols-[minmax(0,1fr)_2.5rem] items-start gap-2"
-        >
-          <div className="grid min-w-0 gap-3">
-            <div className="grid min-w-0 gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]">
-              <select
-                value={row.kind}
-                aria-label="Address type"
-                onChange={(e) => {
-                  const kind = e.target.value as ContactChannelKind;
-                  update(row.id, { kind, label: kind === "custom" ? row.label : undefined });
-                }}
-                className={selectField}
-              >
-                {ADDRESS_KINDS.map((kind) => (
-                  <option key={kind} value={kind}>
-                    {channelKindLabel(kind)}
-                  </option>
-                ))}
-              </select>
-              {row.kind === "custom" ? (
-                <input
-                  value={row.label ?? ""}
-                  onChange={(e) => update(row.id, { label: e.target.value })}
-                  placeholder="Label"
-                  aria-label="Custom address label"
-                  className={fieldBase}
-                />
-              ) : null}
-            </div>
-            <label className={labelClass}>
-              Street line 1
-              <input
-                value={row.street1 ?? ""}
-                onChange={(e) => update(row.id, { street1: e.target.value })}
-                className={field}
-              />
-            </label>
-            <label className={labelClass}>
-              Street line 2
-              <input
-                value={row.street2 ?? ""}
-                onChange={(e) => update(row.id, { street2: e.target.value })}
-                className={field}
-              />
-            </label>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {ADDRESS_FIELDS.map(({ key, label }) => (
-                <label key={key} className={labelClass}>
-                  {label}
-                  <input
-                    value={(row[key] as string | undefined) ?? ""}
-                    onChange={(e) => update(row.id, { [key]: e.target.value })}
-                    className={field}
-                  />
-                </label>
+          removeLabel={`Remove ${noun.toLowerCase()}`}
+          onRemove={() => list.remove(channel.id)}
+          kind={
+            <select
+              value={channel.kind}
+              aria-label="Type"
+              onChange={(e) => {
+                const kind = e.target.value as ContactChannelKind;
+                list.update(channel.id, { kind, label: kind === "custom" ? channel.label : undefined });
+              }}
+              className={selectField}
+            >
+              {CHANNEL_KINDS.map((kind) => (
+                <option key={kind} value={kind}>
+                  {channelKindLabel(kind)}
+                </option>
               ))}
-            </div>
-          </div>
-          <RemoveButton
-            label="Remove address"
-            onClick={() => onChange(addresses.filter((item) => item.id !== row.id))}
+            </select>
+          }
+        >
+          <input
+            type={inputType}
+            value={channel.value}
+            onChange={(e) => list.update(channel.id, { value: e.target.value })}
+            placeholder={noun}
+            aria-label={noun}
+            className={fieldBase}
           />
-        </div>
+          {channel.kind === "custom" ? (
+            <PillInput
+              label="Label"
+              value={channel.label ?? ""}
+              ariaLabel="Custom label"
+              onChange={(label) => list.update(channel.id, { label })}
+            />
+          ) : null}
+        </ValueRow>
       ))}
-      <button
-        type="button"
-        className={`${addLink} inline-flex items-center gap-1.5`}
-        onClick={() =>
-          onChange([...addresses, emptyAddress(addresses.length === 0 ? "home" : "work")])
-        }
-      >
-        <AddIcon />
-        Address
-      </button>
-    </div>
+    </EntryList>
   );
 }
 
-function WorkList({
-  work,
+function SocialList({
+  socials,
   onChange,
 }: {
-  work: ContactWork[];
-  onChange: (work: ContactWork[]) => void;
+  socials: ContactSocial[];
+  onChange: (socials: ContactSocial[]) => void;
 }) {
-  function update(id: string, patch: Partial<ContactWork>) {
-    onChange(
-      work.map((row) => (row.id === id ? { ...row, ...patch } : row)),
-    );
-  }
-
+  const list = rowOps(socials, onChange);
   return (
-    <div className="grid min-w-0 gap-2">
-      {work.map((row) => (
-        <div key={row.id} className="flex min-w-0 items-start gap-2">
-          <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2">
+    <EntryList>
+      <datalist id="social-platforms">
+        {SOCIAL_PLATFORMS.map((platform) => (
+          <option key={platform} value={platform} />
+        ))}
+      </datalist>
+      {socials.map((row) => (
+        <ValueRow
+          key={row.id}
+          removeLabel="Remove social profile"
+          onRemove={() => list.remove(row.id)}
+          kind={
             <input
-              value={row.organization}
-              onChange={(e) =>
-                update(row.id, { organization: e.target.value })
-              }
-              placeholder="Workplace"
-              aria-label="Workplace"
+              value={row.platform}
+              onChange={(e) => list.update(row.id, { platform: e.target.value })}
+              placeholder="Platform"
+              aria-label="Social platform"
+              list="social-platforms"
               className={fieldBase}
             />
-            <input
-              value={row.title ?? ""}
-              onChange={(e) =>
-                update(row.id, { title: e.target.value })
-              }
-              placeholder="Occupation"
-              aria-label="Occupation"
-              className={fieldBase}
-            />
-          </div>
-          <RemoveButton
-            label="Remove workplace"
-            onClick={() =>
-              onChange(work.filter((item) => item.id !== row.id))
-            }
+          }
+        >
+          <input
+            value={row.handle}
+            onChange={(e) => list.update(row.id, { handle: e.target.value })}
+            placeholder="Username or handle"
+            aria-label="Username or handle"
+            className={fieldBase}
           />
-        </div>
+        </ValueRow>
       ))}
-      <button
-        type="button"
-        className={`${addLink} inline-flex items-center gap-1.5`}
-        onClick={() => onChange([...work, emptyWork()])}
-      >
-        <AddIcon />
-        Workplace
-      </button>
-    </div>
+    </EntryList>
   );
 }
+
+const SOCIAL_PLATFORMS = [
+  "GitHub",
+  "Twitter / X",
+  "LinkedIn",
+  "Instagram",
+  "Bluesky",
+  "Discord",
+  "Telegram",
+  "Mastodon",
+];
 
 const DATE_KINDS: { kind: ContactDateKind; label: string }[] = [
   { kind: "birthday", label: "Birthday" },
@@ -593,131 +505,198 @@ function DatesList({
   dates: ContactDate[];
   onChange: (dates: ContactDate[]) => void;
 }) {
-  function update(id: string, patch: Partial<ContactDate>) {
-    onChange(
-      dates.map((row) => (row.id === id ? { ...row, ...patch } : row)),
-    );
-  }
-
+  const list = rowOps(dates, onChange);
   return (
-    <div className="grid min-w-0 gap-2">
+    <EntryList>
       {dates.map((row) => (
-        <div
+        <ValueRow
           key={row.id}
-          className="grid min-w-0 grid-cols-[6.5rem_minmax(0,1fr)_2.5rem] items-start gap-2 sm:grid-cols-[7.5rem_minmax(0,1fr)_2.5rem]"
+          removeLabel="Remove date"
+          onRemove={() => list.remove(row.id)}
+          kind={
+            <select
+              value={row.kind}
+              aria-label="Date type"
+              onChange={(e) => {
+                const kind = e.target.value as ContactDateKind;
+                list.update(row.id, { kind, label: kind === "custom" ? row.label : undefined });
+              }}
+              className={selectField}
+            >
+              {DATE_KINDS.map((opt) => (
+                <option key={opt.kind} value={opt.kind}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          }
         >
-          <select
-            value={row.kind}
-            aria-label="Date type"
-            onChange={(e) => {
-              const kind = e.target.value as ContactDateKind;
-              update(row.id, {
-                kind,
-                label: kind === "custom" ? row.label : undefined,
-              });
-            }}
-            className={selectField}
-          >
-            {DATE_KINDS.map((opt) => (
-              <option key={opt.kind} value={opt.kind}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-          <div className="grid min-w-0 gap-2">
-            <input
-              type="date"
-              value={row.date}
-              onChange={(e) => update(row.id, { date: e.target.value })}
-              aria-label="Date"
-              className={fieldBase}
-            />
-            {row.kind === "custom" ? (
-              <input
-                value={row.label ?? ""}
-                onChange={(e) => update(row.id, { label: e.target.value })}
-                placeholder="Label (e.g. Graduation)"
-                aria-label="Custom date label"
-                className={fieldBase}
-              />
-            ) : null}
-          </div>
-          <RemoveButton
-            label="Remove date"
-            onClick={() => onChange(dates.filter((item) => item.id !== row.id))}
+          <input
+            type="date"
+            value={row.date}
+            onChange={(e) => list.update(row.id, { date: e.target.value })}
+            aria-label="Date"
+            className={fieldBase}
           />
-        </div>
+          {row.kind === "custom" ? (
+            <PillInput
+              label="Label"
+              value={row.label ?? ""}
+              placeholder="e.g. Graduation"
+              ariaLabel="Custom date label"
+              onChange={(label) => list.update(row.id, { label })}
+            />
+          ) : null}
+        </ValueRow>
       ))}
-      <button
-        type="button"
-        className={`${addLink} inline-flex items-center gap-1.5`}
-        onClick={() => onChange([...dates, emptyDate()])}
-      >
-        <AddIcon />
-        Date
-      </button>
-    </div>
+    </EntryList>
   );
 }
 
-function SocialList({
-  socials,
+/** Like workplaces, a departed address is kept but shows only with detailed contacts. */
+function AddressList({
+  addresses,
+  detailed,
   onChange,
 }: {
-  socials: ContactSocial[];
-  onChange: (socials: ContactSocial[]) => void;
+  addresses: ContactAddress[];
+  detailed: boolean;
+  onChange: (addresses: ContactAddress[]) => void;
 }) {
-  function update(id: string, patch: Partial<ContactSocial>) {
-    onChange(
-      socials.map((row) => (row.id === id ? { ...row, ...patch } : row)),
-    );
-  }
-
+  const list = rowOps(addresses, onChange);
   return (
-    <div className="grid min-w-0 gap-2">
-      {socials.map((row) => (
-        <div key={row.id} className="flex min-w-0 items-start gap-2">
-          <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-[8.5rem_minmax(0,1fr)]">
-            <input
-              value={row.platform}
-              onChange={(e) => update(row.id, { platform: e.target.value })}
-              placeholder="Platform"
-              aria-label="Social platform"
-              list={`social-platforms-${row.id}`}
-              className={fieldBase}
-            />
-            <datalist id={`social-platforms-${row.id}`}>
-              <option value="GitHub" />
-              <option value="Twitter / X" />
-              <option value="LinkedIn" />
-              <option value="Instagram" />
-              <option value="Bluesky" />
-              <option value="Discord" />
-              <option value="Telegram" />
-              <option value="Mastodon" />
-            </datalist>
-            <input
-              value={row.handle}
-              onChange={(e) => update(row.id, { handle: e.target.value })}
-              placeholder="Username or handle"
-              aria-label="Username or handle"
-              className={fieldBase}
-            />
+    <EntryList>
+      {addresses.filter((row) => detailed || isOngoing(row)).map((row) => (
+        <EntryCard
+          key={row.id}
+          label={`${channelKindLabel(row.kind, row.label)} address`}
+          removeLabel="Remove address"
+          onRemove={() => list.remove(row.id)}
+        >
+          <div className="grid min-w-0 gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]">
+            <select
+              value={row.kind}
+              aria-label="Address type"
+              onChange={(e) => {
+                const kind = e.target.value as ContactChannelKind;
+                list.update(row.id, { kind, label: kind === "custom" ? row.label : undefined });
+              }}
+              className={selectField}
+            >
+              {ADDRESS_KINDS.map((kind) => (
+                <option key={kind} value={kind}>
+                  {channelKindLabel(kind)}
+                </option>
+              ))}
+            </select>
+            {row.kind === "custom" ? (
+              <PillInput
+                label="Label"
+                value={row.label ?? ""}
+                ariaLabel="Custom address label"
+                onChange={(label) => list.update(row.id, { label })}
+              />
+            ) : null}
           </div>
-          <RemoveButton
-            label="Remove social profile"
-            onClick={() => onChange(socials.filter((item) => item.id !== row.id))}
-          />
-        </div>
+          {ADDRESS_FIELDS.map((group, index) => (
+            <div key={index} className={group.length > 1 ? "grid min-w-0 gap-2 sm:grid-cols-2" : "grid min-w-0"}>
+              {group.map(({ key, pill, label }) => (
+                <PillInput
+                  key={key}
+                  label={pill}
+                  ariaLabel={label}
+                  value={(row[key] as string | undefined) ?? ""}
+                  onChange={(value) => list.update(row.id, { [key]: value })}
+                />
+              ))}
+            </div>
+          ))}
+          {detailed ? (
+            <DateRange
+              start={row.start}
+              end={row.end}
+              current={row.current}
+              startLabel="Date moved in"
+              endLabel="Date departed"
+              currentLabel="Current address"
+              onChange={(range) => list.update(row.id, range)}
+            />
+          ) : null}
+        </EntryCard>
       ))}
-      <button
-        type="button"
-        className={`${addLink} inline-flex items-center gap-1.5`}
-        onClick={() => onChange([...socials, emptySocial()])}
-      >
-        <AddIcon />
-        Social Profile
-      </button>
-    </div>
+    </EntryList>
+  );
+}
+
+const ADDRESS_FIELDS: { key: keyof ContactAddress; pill: string; label: string }[][] = [
+  [{ key: "street1", pill: "Street", label: "Street line 1" }],
+  [{ key: "street2", pill: "Line 2", label: "Street line 2" }],
+  [
+    { key: "locality", pill: "City", label: "City / town" },
+    { key: "region", pill: "Region", label: "Region / state / province" },
+  ],
+  [
+    { key: "postcode", pill: "Postcode", label: "Postal code" },
+    { key: "country", pill: "Country", label: "Country" },
+  ],
+];
+
+/**
+ * Without detailed contacts only the ongoing workplaces show; a finished one
+ * is history, which is kept on the draft rather than dropped.
+ */
+function WorkList({
+  work,
+  detailed,
+  onChange,
+}: {
+  work: ContactWork[];
+  detailed: boolean;
+  onChange: (work: ContactWork[]) => void;
+}) {
+  const list = rowOps(work, onChange);
+  return (
+    <EntryList>
+      {work
+        .filter((row) => detailed || isOngoing(row))
+        .map((row) => (
+          <EntryCard key={row.id} removeLabel="Remove workplace" onRemove={() => list.remove(row.id)}>
+            <FieldPair>
+              <PillInput
+                label="Org"
+                value={row.organization}
+                ariaLabel="Workplace"
+                placeholder="Workplace"
+                onChange={(organization) => list.update(row.id, { organization })}
+              />
+              <PillInput
+                label="Role"
+                value={row.title ?? ""}
+                ariaLabel="Occupation"
+                placeholder="Occupation"
+                onChange={(title) => list.update(row.id, { title })}
+              />
+            </FieldPair>
+            {detailed ? (
+              <>
+                <DateRange
+                  start={row.start}
+                  end={row.end}
+                  current={row.current}
+                  currentLabel="Current workplace"
+                  onChange={(range) => list.update(row.id, range)}
+                />
+                <PillInput
+                  label="Note"
+                  value={row.note ?? ""}
+                  placeholder="Optional"
+                  ariaLabel="Workplace note"
+                  onChange={(note) => list.update(row.id, { note })}
+                />
+              </>
+            ) : null}
+          </EntryCard>
+        ))}
+    </EntryList>
   );
 }

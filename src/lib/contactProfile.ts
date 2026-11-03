@@ -34,7 +34,6 @@ export const PROFILE_SECTIONS = [
   "food",
   "music",
   "pets",
-  "career",
   "relationships",
   "timeline",
   "family",
@@ -53,7 +52,6 @@ export const PROFILE_SECTION_LABELS: Record<ProfileSection, string> = {
   food: "Food Likes & Dislikes",
   music: "Music Tastes",
   pets: "Pets",
-  career: "Career History",
   relationships: "Relationship History",
   timeline: "Life Events",
   family: "Family",
@@ -142,8 +140,6 @@ export function sectionIsEmpty(profile: ContactProfile, section: ProfileSection)
       return profile.food.every((row) => !trim(row.value));
     case "timeline":
       return profile.timeline.every((row) => !trim(row.title));
-    case "career":
-      return profile.career.every((row) => !trim(row.organization) && !trim(row.title));
     case "pets":
       return profile.pets.every((row) => !trim(row.name));
     case "relationships":
@@ -271,34 +267,6 @@ export function parseProfile(value: unknown): ContactProfile | undefined {
   }
   const profile = coreContactProfileParse(JSON.stringify(value));
   return profile ? profileFrom(profile) : undefined;
-}
-
-/** How much of a date a value states. Each precision has its own native picker. */
-export type DatePrecision = "year" | "month" | "day";
-
-/** The precision a stored value is written at, or null if it is not an ISO date. */
-export function precisionOf(value: string): DatePrecision | null {
-  if (/^\d{4}$/.test(value)) return "year";
-  if (/^\d{4}-\d{2}$/.test(value)) return "month";
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return "day";
-  return null;
-}
-
-/**
- * Re-cuts a value to a new precision, keeping what the old one already said.
- *
- * Widening invents the first month or day rather than clearing the field: the
- * user asked for the finer precision and is about to set it in the picker, and
- * dropping the year they had typed would be the worse answer.
- */
-export function atPrecision(value: string, precision: DatePrecision): string {
-  const year = /^(\d{4})/.exec(value)?.[1];
-  if (!year) return "";
-  if (precision === "year") return year;
-  const month = /^\d{4}-(\d{2})/.exec(value)?.[1] ?? "01";
-  if (precision === "month") return `${year}-${month}`;
-  const day = /^\d{4}-\d{2}-(\d{2})/.exec(value)?.[1] ?? "01";
-  return `${year}-${month}-${day}`;
 }
 
 /**

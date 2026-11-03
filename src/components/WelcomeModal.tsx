@@ -270,7 +270,7 @@ export function WelcomeModal({ username, onComplete, onDismiss }: Props) {
           <div>
             <p className="text-sm leading-relaxed text-mute">
               Basic keeps the address book to the usual fields. Detailed turns it into a personal
-              relationship manager, with sections for how you met, interests, career, family and
+              relationship manager, with sections for how you met, interests, work history, family and
               life events. Switching back later hides those sections without deleting anything.
             </p>
             <div

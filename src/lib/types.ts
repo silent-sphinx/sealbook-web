@@ -110,13 +110,26 @@ export type ContactAddress = {
   region?: string;
   postcode?: string;
   country?: string;
+  /** Moved in and departed, as partial ISO dates. No departure while `current`. */
+  start?: string;
+  end?: string;
+  current?: boolean;
   extra?: string;
 };
 
+/**
+ * `start` and `end` are partial ISO dates, as on the profile. A current
+ * workplace carries no `end`. A card from before these fields had its dated
+ * jobs in the profile's `career`, which core folds in here on read.
+ */
 export type ContactWork = {
   id: string;
   organization: string;
   title?: string;
+  start?: string;
+  end?: string;
+  current?: boolean;
+  note?: string;
   extra?: string;
 };
 

@@ -1,167 +1,126 @@
 import { useState } from "react";
 
-import { atPrecision, precisionOf, type DatePrecision } from "../lib/contactProfile";
-import { fieldBase, selectField } from "../lib/styles";
-
-const PRECISION_LABELS: Record<DatePrecision, string> = {
-  year: "Year",
-  month: "Month",
-  day: "Day",
-};
-
-const YEAR_MIN = 1900;
-const YEAR_MAX = new Date().getFullYear() + 10;
+const PARTS = /^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$/;
 
 /** Month values are the ISO `01`..`12`; labels follow the viewer's locale. */
 const MONTHS = Array.from({ length: 12 }, (_, index) => ({
   value: String(index + 1).padStart(2, "0"),
-  label: new Date(2000, index, 1).toLocaleDateString(undefined, { month: "long" }),
+  label: new Date(2000, index, 1).toLocaleDateString(undefined, { month: "short" }),
 }));
+
+function daysIn(year: string, month: string): number {
+  if (!month) return 31;
+  return new Date(year.length === 4 ? Number(year) : 2000, Number(month), 0).getDate();
+}
+
+/** The global select chevron is unlayered CSS, so it is cleared inline. */
+const NO_CHEVRON = { backgroundImage: "none" };
+
+const part =
+  "h-full min-w-0 cursor-pointer appearance-none bg-transparent px-1.5 text-sm outline-none transition-colors hover:bg-surface/60 disabled:cursor-not-allowed disabled:hover:bg-transparent";
 
 type Props = {
   label: string;
   value: string;
-  /** Used while the field is empty, so a row opens at its natural precision. */
-  defaultPrecision?: DatePrecision;
-  /**
-   * Shown beside the label. Native month and date inputs take no placeholder, so
-   * a hint about leaving the field blank has nowhere else to go.
-   */
-  hint?: string;
   onChange: (value: string) => void;
 };
 
 /**
- * A date at year, month or day precision, each with its native picker.
+ * A date at year, month or day precision, entered as day, month and year. A
+ * blank day stores `YYYY-MM` and a blank month stores `YYYY`.
  *
- * Precision is read off the stored value rather than held in state, so a value
- * written elsewhere (an import, another device) opens at the precision it was
- * written at. The local state only remembers the choice while the field is
- * empty, which is the one case the value cannot carry.
+ * The year is typed a digit at a time and nothing can be stored without a full
+ * one, so the three parts keep drafts and only commit once the year is
+ * complete. The stored value wins whenever it holds a date, so an edit from
+ * elsewhere shows without a resync.
  */
-export function PartialDateInput({
-  label,
-  value,
-  defaultPrecision = "month",
-  hint,
-  onChange,
-}: Props) {
-  const [pending, setPending] = useState<DatePrecision>(defaultPrecision);
-  const detected = precisionOf(value);
-  const precision = detected ?? pending;
-  // A value from a hand-edited export that is not an ISO date at all. Shown as
-  // text so it is visible and editable rather than swallowed by a picker that
-  // cannot render it.
-  const freeform = value.length > 0 && detected === null;
+export function PartialDateInput({ label, value, onChange }: Props) {
+  const stored = PARTS.exec(value);
+  const freeform = value.length > 0 && stored === null;
+  const [draft, setDraft] = useState(() => ({
+    year: stored?.[1] ?? "",
+    month: stored?.[2] ?? "",
+    day: stored?.[3] ?? "",
+  }));
+  const shown = stored ? { year: stored[1]!, month: stored[2] ?? "", day: stored[3] ?? "" } : draft;
 
-  // The month picker drives one stored `YYYY-MM`, but the year is typed a digit
-  // at a time and a month cannot be stored without a full year. So the two
-  // controls keep their own drafts and only commit a value once the year is
-  // complete: a partial year (`2`, `20`) leaves the stored value empty without
-  // losing what has been typed. The stored value is read back when it holds a
-  // year or month, and the draft fills in only while it does not, so an edit
-  // from elsewhere still wins without a resync.
-  const [yearDraft, setYearDraft] = useState(() => /^(\d{4})/.exec(value)?.[1] ?? "");
-  const [monthDraft, setMonthDraft] = useState(() => /^\d{4}-(\d{2})/.exec(value)?.[1] ?? "01");
-  const currentYear = /^(\d{4})/.exec(value)?.[1] ?? yearDraft;
-  const currentMonth = /^\d{4}-(\d{2})/.exec(value)?.[1] ?? monthDraft;
-
-  function changePrecision(next: DatePrecision) {
-    setPending(next);
-    const recut = atPrecision(value, next);
-    if (recut !== value) onChange(recut);
+  function commit(next: { year: string; month: string; day: string }) {
+    const month = next.month;
+    const day = month && next.day && Number(next.day) <= daysIn(next.year, month) ? next.day : "";
+    const fixed = { year: next.year, month, day };
+    setDraft(fixed);
+    if (fixed.year.length !== 4) {
+      onChange("");
+      return;
+    }
+    onChange([fixed.year, month, day].filter(Boolean).join("-"));
   }
 
-  function commitMonth(year: string, month: string) {
-    onChange(year.length === 4 ? `${year}-${month}` : "");
-  }
+  const days = Array.from({ length: daysIn(shown.year, shown.month) }, (_, index) =>
+    String(index + 1).padStart(2, "0"),
+  );
 
   return (
-    <div className="grid min-w-0 gap-1.5">
-      <span className="text-[11px] uppercase tracking-wider text-mute/80">
+    <div
+      role="group"
+      aria-label={label}
+      className="flex h-10 min-w-0 items-center rounded-lg border border-line bg-bg transition-colors focus-within:border-accent-dim focus-within:ring-1 focus-within:ring-accent-ring"
+    >
+      <span title={label} className="ml-1.5 min-w-0 truncate rounded-md bg-surface px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-mute/80">
         {label}
-        {hint ? <span className="ml-1.5 normal-case tracking-normal text-mute/70">{hint}</span> : null}
       </span>
-      <div className="grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
-        <select
-          value={precision}
-          aria-label={`${label} precision`}
-          onChange={(e) => changePrecision(e.target.value as DatePrecision)}
-          className={selectField}
-        >
-          {(["year", "month", "day"] as DatePrecision[]).map((option) => (
-            <option key={option} value={option}>
-              {PRECISION_LABELS[option]}
-            </option>
-          ))}
-        </select>
-        {freeform ? (
+      {freeform ? (
+        // A value from a hand-edited export that is not an ISO date, kept as
+        // text so it stays visible and editable.
+        <input
+          value={value}
+          aria-label={label}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-full min-w-0 flex-1 bg-transparent px-2.5 text-sm text-text outline-none"
+        />
+      ) : (
+        <div className="ml-auto flex h-full shrink-0 items-center divide-x divide-line/60 pl-1">
+          <select
+            value={shown.day}
+            aria-label={`${label} day`}
+            disabled={!shown.month}
+            title={shown.month ? undefined : "Choose a month first"}
+            onChange={(e) => commit({ ...shown, day: e.target.value })}
+            style={NO_CHEVRON}
+            className={`${part} w-12 shrink-0 text-center ${shown.day ? "text-text" : "text-mute/70"}`}
+          >
+            <option value="">Day</option>
+            {days.map((day) => (
+              <option key={day} value={day}>
+                {Number(day)}
+              </option>
+            ))}
+          </select>
+          <select
+            value={shown.month}
+            aria-label={`${label} month`}
+            onChange={(e) => commit({ ...shown, month: e.target.value })}
+            style={NO_CHEVRON}
+            className={`${part} w-16 shrink-0 text-center ${shown.month ? "text-text" : "text-mute/70"}`}
+          >
+            <option value="">Month</option>
+            {MONTHS.map((month) => (
+              <option key={month.value} value={month.value}>
+                {month.label}
+              </option>
+            ))}
+          </select>
           <input
-            value={value}
-            aria-label={label}
-            onChange={(e) => onChange(e.target.value)}
-            className={fieldBase}
-          />
-        ) : precision === "year" ? (
-          <input
-            type="number"
             inputMode="numeric"
-            min={YEAR_MIN}
-            max={YEAR_MAX}
-            step={1}
-            placeholder="YYYY"
-            value={value}
-            aria-label={label}
-            onChange={(e) => onChange(e.target.value.slice(0, 4))}
-            className={fieldBase}
+            placeholder="Year"
+            maxLength={4}
+            value={shown.year}
+            aria-label={`${label} year`}
+            onChange={(e) => commit({ ...shown, year: e.target.value.replace(/\D/g, "").slice(0, 4) })}
+            className="h-full w-14 shrink-0 bg-transparent px-1.5 text-center text-sm tabular-nums text-text outline-none placeholder:text-mute/70"
           />
-        ) : precision === "month" ? (
-          // A month select plus a year, rather than `<input type="month">`:
-          // browsers without native month support render that as a free-text box,
-          // where a typed value sorts and round-trips as prose.
-          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_5rem] gap-2">
-            <select
-              value={currentMonth}
-              aria-label={`${label} month`}
-              onChange={(e) => {
-                setMonthDraft(e.target.value);
-                commitMonth(currentYear, e.target.value);
-              }}
-              className={selectField}
-            >
-              {MONTHS.map((month) => (
-                <option key={month.value} value={month.value}>
-                  {month.label}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              inputMode="numeric"
-              min={YEAR_MIN}
-              max={YEAR_MAX}
-              step={1}
-              placeholder="YYYY"
-              value={currentYear}
-              aria-label={`${label} year`}
-              onChange={(e) => {
-                const digits = e.target.value.replace(/\D/g, "").slice(0, 4);
-                setYearDraft(digits);
-                commitMonth(digits, currentMonth);
-              }}
-              className={fieldBase}
-            />
-          </div>
-        ) : (
-          <input
-            type="date"
-            value={value}
-            aria-label={label}
-            onChange={(e) => onChange(e.target.value)}
-            className={fieldBase}
-          />
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

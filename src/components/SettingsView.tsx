@@ -1743,7 +1743,7 @@ export function SettingsView({
           <h3 className="text-base font-semibold text-text">Contact detail</h3>
           <p className="mt-1 text-xs leading-relaxed text-mute">
             Detailed contacts turn the address book into a personal relationship manager:
-            how you met, interests, food, music, pets, career and relationship history,
+            how you met, interests, food, music, pets, workplace dates, relationship history,
             life events, family and friends. Switching back to basic hides those sections
             without deleting anything.
           </p>

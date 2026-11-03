@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
-import { addressLines, channelKindLabel, dateKindLabel } from "../lib/contact";
-import type { LinkableSection } from "../lib/contactProfile";
+import { addressLines, channelKindLabel, dateKindLabel, isOngoing } from "../lib/contact";
+import {
+  formatDateRange,
+  lifeEventOrder,
+  type LinkableSection,
+} from "../lib/contactProfile";
 import { optimizeAvatar } from "../lib/image";
 import type { Session } from "../lib/client";
 import type { AddressBook, Contact, ContactDraft, NoteAttachment } from "../lib/types";
@@ -8,7 +12,10 @@ import { Avatar } from "./ContactCard";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ContactForm } from "./ContactForm";
 import { ContactAttachmentsSection } from "./ContactAttachmentsSection";
-import { ContactProfileView } from "./ContactProfileView";
+import { ContactProfileView, profileViewHasContent } from "./ContactProfileView";
+import { CloseIcon, TrashIcon } from "./FieldControls";
+import { EntryRow, FieldRow, HeaderButton, HeaderDivider, PaneSection, ProseBlock } from "./PaneControls";
+import { focusRing } from "../lib/styles";
 import { ContactLinkPicker } from "./ContactLinkPicker";
 
 type Props = {
@@ -48,6 +55,30 @@ function formatTimestamp(iso?: string): string | null {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+/**
+ * Ongoing entries first in the order they were entered, then finished ones
+ * most recent first. Finished ones are history, so they show only with
+ * detailed contacts on.
+ */
+function ongoingFirst<T extends { current?: boolean; end?: string }>(rows: T[], detailed: boolean): T[] {
+  const ongoing = rows.filter(isOngoing);
+  if (!detailed) return ongoing;
+  const finished = rows
+    .filter((row) => !isOngoing(row))
+    .map((row) => ({ row, key: lifeEventOrder(row.end) }))
+    .sort((a, b) => {
+      if (a.key === null) return b.key === null ? 0 : 1;
+      if (b.key === null) return -1;
+      return b.key - a.key;
+    })
+    .map(({ row }) => row);
+  return [...ongoing, ...finished];
+}
+
+function periodOf(row: { start?: string; end?: string; current?: boolean }): string | undefined {
+  return formatDateRange(row.start, row.current ? undefined : row.end) || undefined;
 }
 
 function formatDate(value: string): string {
@@ -164,24 +195,168 @@ export function ContactDetailModal({
     return saved;
   }
 
+  const socials = contact.socials ?? [];
+  const dates = contact.dates ?? [];
+  const addresses = ongoingFirst(
+    contact.addresses.filter((a) => addressLines(a).length > 0),
+    detailed,
+  );
+  const work = ongoingFirst(
+    contact.work.filter((w) => w.organization || w.title),
+    detailed,
+  );
+  const linkProps = {
+    contacts,
+    readOnly,
+    onNavigateToContact,
+    onLinkInSection: onLinkInSection
+      ? (section: LinkableSection) => {
+          setLinkPickerSearch("");
+          setLinkingSection(section);
+        }
+      : undefined,
+    onUnlinkFromSection: onUnlinkFromSection
+      ? (section: LinkableSection, contactId: string) => {
+          void onUnlinkFromSection(section, contactId);
+        }
+      : undefined,
+  };
+  const hasAbout = detailed && profileViewHasContent("about", contact.profile, linkProps);
+  const hasPeople = detailed && profileViewHasContent("people", contact.profile, linkProps);
+
+  const reach =
+    contact.emails.length + contact.phones.length + socials.length > 0 ? (
+      <PaneSection title="Contact">
+        {contact.emails.map((e) => (
+          <FieldRow
+            key={e.id}
+            icon={<MailIcon />}
+            label={channelKindLabel(e.kind, e.label)}
+            value={e.value}
+            href={`mailto:${e.value}`}
+          />
+        ))}
+        {contact.phones.map((p) => (
+          <FieldRow
+            key={p.id}
+            icon={<PhoneIcon />}
+            label={channelKindLabel(p.kind, p.label)}
+            value={p.value}
+            href={`tel:${p.value}`}
+          />
+        ))}
+        {socials.map((s) => {
+          const url = socialUrl(s.platform, s.handle);
+          return (
+            <FieldRow
+              key={s.id}
+              icon={<ProfileIcon />}
+              label={s.platform}
+              value={s.handle}
+              href={url ?? undefined}
+              external
+            />
+          );
+        })}
+      </PaneSection>
+    ) : null;
+
+  const addressSection =
+    addresses.length > 0 ? (
+      <PaneSection title={addresses.length > 1 ? "Addresses" : "Address"}>
+        {addresses.map((a) => {
+          const [first, ...rest] = addressLines(a);
+          return (
+            <EntryRow
+              key={a.id}
+              title={first}
+              inlineMeta={channelKindLabel(a.kind, a.label)}
+              subtitle={rest.length > 0 ? rest.join(", ") : undefined}
+              badge={detailed && a.current ? "Current" : undefined}
+              trailingMeta={detailed ? periodOf(a) : undefined}
+            />
+          );
+        })}
+      </PaneSection>
+    ) : null;
+
+  const detailSection =
+    dates.length > 0 ? (
+      <PaneSection title="Details">
+        {dates.map((d) => (
+          <FieldRow
+            key={d.id}
+            icon={<CalendarIcon />}
+            label={dateKindLabel(d.kind, d.label)}
+            value={formatDate(d.date)}
+          />
+        ))}
+      </PaneSection>
+    ) : null;
+
+  const workSection =
+    work.length > 0 ? (
+      <PaneSection title="Workplace">
+        {work.map((w) => (
+          <EntryRow
+            key={w.id}
+            leading={
+              <span className="flex h-5 w-4 items-center justify-center text-mute/60">
+                <BriefcaseIcon />
+              </span>
+            }
+            title={w.organization || w.title}
+            subtitle={w.organization && w.title ? w.title : undefined}
+            badge={detailed && w.current ? "Current" : undefined}
+            trailingMeta={detailed ? periodOf(w) : undefined}
+            note={detailed ? w.note : undefined}
+          />
+        ))}
+      </PaneSection>
+    ) : null;
+
+  const notesSection = contact.notes ? (
+    <PaneSection title="Notes">
+      <ProseBlock text={contact.notes} />
+    </PaneSection>
+  ) : null;
+
+  const about = hasAbout ? <ContactProfileView part="about" profile={contact.profile} /> : null;
+
+  const people = hasPeople ? (
+    <ContactProfileView part="people" profile={contact.profile} linkProps={linkProps} />
+  ) : null;
+
+  // The about column, when there is one, takes the right and people balance
+  // the left under it; otherwise the contact's own details split across both
+  // so neither column sits empty, and people span the width below.
+  const columns: [ReactNode, ReactNode] = hasAbout
+    ? [<>{reach}{addressSection}{detailSection}{workSection}{notesSection}{people}</>, about]
+    : [<>{reach}{detailSection}{workSection}</>, <>{addressSection}{notesSection}</>];
+  const twoColumns = Boolean(columns[0]) && Boolean(columns[1]);
+
   return (
     <aside
       aria-label={`${contact.name} details`}
       className="flex min-h-[28rem] min-w-0 flex-col overflow-hidden bg-bg animate-fade-in-up max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:h-dvh max-lg:min-h-0 max-lg:max-h-none max-lg:w-screen lg:h-full lg:min-h-0"
     >
-      <div className="relative z-30 shrink-0 overflow-visible border-b border-line px-5 py-4">
-        <div className="flex items-center gap-4 pr-36">
-            <div ref={avatarMenuRef} className="relative z-40 shrink-0">
+      <div
+        className={`relative z-30 shrink-0 overflow-visible border-b px-5 py-4 ${editing ? "border-accent-dim/50 bg-accent/5" : "border-line"}`}
+      >
+        <div className="flex items-start gap-4">
+          <div ref={avatarMenuRef} className="relative z-40 shrink-0">
             <Avatar name={contact.name} avatar={contact.avatar} size="lg" />
-            {!readOnly ? <button
-              type="button"
-              className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-panel bg-surface text-mute shadow-md transition-colors hover:bg-accent/15 hover:text-accent"
-              aria-label="Change profile picture"
-              title="Change profile picture"
-              onClick={() => setAvatarMenuOpen((open) => !open)}
-            >
-              <CameraIcon />
-            </button> : null}
+            {!readOnly ? (
+              <button
+                type="button"
+                className={`absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-bg bg-surface text-mute shadow-md transition-colors hover:bg-elevated hover:text-accent ${focusRing}`}
+                aria-label="Change profile picture"
+                title="Change profile picture"
+                onClick={() => setAvatarMenuOpen((open) => !open)}
+              >
+                <CameraIcon />
+              </button>
+            ) : null}
             {avatarMenuOpen ? (
               <div className="absolute left-0 top-full z-50 mt-2 w-40 overflow-hidden rounded-lg border border-line bg-elevated p-1 shadow-xl">
                 <button
@@ -212,362 +387,128 @@ export function ContactDetailModal({
               onChange={handleAvatarUpload}
             />
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="truncate text-xl font-semibold tracking-tight text-text">
+
+          <div className="min-w-0 flex-1 pt-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h2 className="min-w-0 truncate text-xl font-semibold leading-8 tracking-tight text-text">
                 {contact.name}
               </h2>
               {contact.pronouns ? (
-                <span className="rounded-md border border-line bg-panel px-2 py-0.5 text-xs text-mute font-medium">
+                <span className="rounded-full border border-line px-2 text-xs font-medium leading-[18px] text-mute">
                   {contact.pronouns}
                 </span>
               ) : null}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-mute">
               {contact.nickname ? <span>"{contact.nickname}"</span> : null}
-              {bookName ? <span>{bookName}</span> : null}
+              {bookName ? (
+                <span className="max-w-[12rem] truncate rounded-full border border-line px-2 font-medium leading-[18px]">
+                  {bookName}
+                </span>
+              ) : null}
               {archived ? (
-                <span className="rounded-md border border-line bg-panel px-2 py-0.5 font-medium">
+                <span className="rounded-full border border-line bg-panel px-2 font-medium leading-[18px]">
                   Archived
                 </span>
               ) : null}
+              {editing ? <span className="font-semibold text-accent">Editing contact</span> : null}
             </div>
           </div>
-        </div>
 
-        <div className={`absolute right-4 top-4 flex items-center gap-1.5 ${editing ? "hidden" : ""}`}>
-          <button
-            type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-accent-dim/40 bg-accent/10 text-accent transition-colors hover:border-accent-dim hover:bg-accent/20 disabled:opacity-50"
-            aria-label="Edit contact"
-            title="Edit contact"
-            onClick={() => onEditingChange(true)}
-          >
-            <EditIcon />
-          </button>
-          {!readOnly && onArchive ? (
-            <button
-              type="button"
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-line bg-surface/40 text-mute transition-colors hover:border-line-light hover:text-accent disabled:opacity-50"
-              aria-label={archived ? "Restore contact" : "Archive contact"}
-              title={archived ? "Restore to its address book" : "Move to the Archive"}
-              onClick={onArchive}
-              disabled={busy}
-            >
-              {archived ? <UnarchiveIcon /> : <ArchiveIcon />}
-            </button>
-          ) : null}
-          {!readOnly && onDelete ? (
-            <button
-              type="button"
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-danger/20 bg-danger/5 text-danger/70 transition-colors hover:border-danger/40 hover:bg-danger/10 hover:text-danger disabled:opacity-50"
-              aria-label="Delete contact"
-              title="Delete contact"
-              onClick={onDelete}
-              disabled={busy}
-            >
-              <TrashIcon />
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line bg-surface/40 text-mute transition-colors hover:border-line-light hover:text-text disabled:opacity-50"
-            aria-label="Close contact details"
-            title="Close contact details"
-            onClick={onClose}
-            disabled={busy}
-          >
-            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-              <path d="M6.28 5.22a.75.75 0 1 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06l3.72-3.72 3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-            </svg>
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            {editing ? (
+              <>
+                <button
+                  type="button"
+                  className={`h-8 rounded-lg border border-line bg-surface px-3 text-xs font-medium text-mute transition-colors hover:border-line-light hover:text-text disabled:opacity-50 ${focusRing}`}
+                  onClick={() => onEditingChange(false)}
+                  disabled={busy}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  form="contact-detail-form"
+                  className={`ml-1 h-8 rounded-lg bg-accent px-3.5 text-xs font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 ${focusRing}`}
+                  disabled={busy}
+                >
+                  {busy ? "Saving" : "Save"}
+                </button>
+              </>
+            ) : (
+              <>
+                <HeaderButton label="Edit contact" onClick={() => onEditingChange(true)}>
+                  <EditIcon />
+                </HeaderButton>
+                {!readOnly && onArchive ? (
+                  <HeaderButton
+                    label={archived ? "Restore contact" : "Archive contact"}
+                    onClick={onArchive}
+                    disabled={busy}
+                  >
+                    {archived ? <UnarchiveIcon /> : <ArchiveIcon />}
+                  </HeaderButton>
+                ) : null}
+                {!readOnly && onDelete ? (
+                  <HeaderButton label="Delete contact" onClick={onDelete} disabled={busy} danger>
+                    <TrashIcon />
+                  </HeaderButton>
+                ) : null}
+              </>
+            )}
+            <HeaderDivider />
+            <HeaderButton label="Close contact details" onClick={onClose} disabled={busy}>
+              <CloseIcon />
+            </HeaderButton>
+          </div>
         </div>
       </div>
 
-      {editing ? (
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-accent-dim/50 bg-accent/10 px-5 py-2">
-          <span className="min-w-0 truncate text-xs font-semibold text-accent">
-            Editing contact
-          </span>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              className="h-8 rounded-md border border-line bg-surface px-3 text-xs font-medium text-mute transition-colors hover:border-line-light hover:text-text disabled:opacity-50"
-              onClick={() => onEditingChange(false)}
-              disabled={busy}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              form="contact-detail-form"
-              className="h-8 rounded-md bg-accent px-3.5 text-xs font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
-              disabled={busy}
-            >
-              {busy ? "Saving" : "Save"}
-            </button>
-          </div>
-        </div>
+      {avatarError ? (
+        <p role="alert" className="border-b border-danger/30 bg-danger/10 px-5 py-2.5 text-xs text-danger">
+          {avatarError}
+        </p>
       ) : null}
-
-      {avatarError ? <p role="alert" className="border-b border-danger/30 bg-danger/10 px-5 py-2.5 text-xs text-danger">{avatarError}</p> : null}
 
       {editing ? (
         <>
-          {error ? <p role="alert" className="border-b border-danger/30 bg-danger/10 px-5 py-2.5 text-xs text-danger">{error}</p> : null}
-        <ContactForm
-          formId="contact-detail-form"
-          hideFooter
-          busy={busy}
-          error={error}
-          addressBooks={addressBooks}
-          initialDraft={contact}
-          submitLabel="Save changes"
-          detailed={detailed}
-          contacts={contacts}
-          currentContactId={contact.id}
-          onSubmit={async (draft) => {
-            if (await onSave(draft)) {
-              onEditingChange(false);
-            }
-          }}
-          onCancel={() => onEditingChange(false)}
-        />
+          {error ? (
+            <p role="alert" className="border-b border-danger/30 bg-danger/10 px-5 py-2.5 text-xs text-danger">
+              {error}
+            </p>
+          ) : null}
+          <ContactForm
+            formId="contact-detail-form"
+            hideFooter
+            busy={busy}
+            error={error}
+            addressBooks={addressBooks}
+            initialDraft={contact}
+            submitLabel="Save changes"
+            detailed={detailed}
+            contacts={contacts}
+            currentContactId={contact.id}
+            onSubmit={async (draft) => {
+              if (await onSave(draft)) {
+                onEditingChange(false);
+              }
+            }}
+            onCancel={() => onEditingChange(false)}
+          />
         </>
       ) : (
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          <div className="2xl:columns-2 2xl:gap-6">
-          {/* Emails */}
-          {contact.emails.length > 0 ? (
-            <Section title="Emails">
-              <div>
-                {contact.emails.map((e) => (
-                  <a
-                    key={e.id}
-                    href={`mailto:${e.value}`}
-                    className="group flex items-center justify-between gap-3 border-b border-line/60 px-5 py-2.5 text-sm transition-colors hover:bg-surface/40"
-                  >
-                    <div className="flex min-w-0 flex-1 items-baseline gap-3">
-                      <span className="w-20 shrink-0 truncate text-[11px] font-medium uppercase tracking-wider text-mute/70">
-                        {channelKindLabel(e.kind, e.label)}
-                      </span>
-                      <span className="truncate font-medium text-text transition-colors group-hover:text-accent">
-                        {e.value}
-                      </span>
-                    </div>
-                    <svg
-                      className="h-4 w-4 shrink-0 text-mute/40 transition-colors group-hover:text-accent"
-                      viewBox="0 0 20 20"
-                      fill="currentColor"
-                    >
-                      <path d="M3 4a2 2 0 0 0-2 2v1.161l8.441 4.221a1.25 1.25 0 0 0 1.118 0L19 7.162V6a2 2 0 0 0-2-2H3Z" />
-                      <path d="m19 8.839-7.77 3.885a2.75 2.75 0 0 1-2.46 0L1 8.839V14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.839Z" />
-                    </svg>
-                  </a>
-                ))}
-              </div>
-            </Section>
-          ) : null}
+        <div className="@container min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div
+            className={`grid ${twoColumns ? "@3xl:grid-cols-2 @3xl:[&>*+*]:border-l @3xl:[&>*+*]:border-line/60" : ""}`}
+          >
+            {columns[0] ? <div className="min-w-0">{columns[0]}</div> : null}
+            {columns[1] ? <div className="min-w-0">{columns[1]}</div> : null}
+          </div>
 
-          {/* Phones */}
-          {contact.phones.length > 0 ? (
-            <Section title="Phones">
-              <div>
-                {contact.phones.map((p) => (
-                  <a
-                    key={p.id}
-                    href={`tel:${p.value}`}
-                    className="group flex items-center justify-between gap-3 border-b border-line/60 px-5 py-2.5 text-sm transition-colors hover:bg-surface/40"
-                  >
-                    <div className="flex min-w-0 flex-1 items-baseline gap-3">
-                      <span className="w-20 shrink-0 truncate text-[11px] font-medium uppercase tracking-wider text-mute/70">
-                        {channelKindLabel(p.kind, p.label)}
-                      </span>
-                      <span className="truncate font-medium text-text transition-colors group-hover:text-accent">
-                        {p.value}
-                      </span>
-                    </div>
-                    <svg
-                      className="h-4 w-4 shrink-0 text-mute/40 transition-colors group-hover:text-accent"
-                      viewBox="0 0 20 20"
-                      fill="currentColor"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M2 3.5A1.5 1.5 0 0 1 3.5 2h1.148a1.5 1.5 0 0 1 1.465 1.175l.716 3.223a1.5 1.5 0 0 1-1.052 1.767l-.933.267c-.41.117-.643.555-.48.95a11.542 11.542 0 0 0 6.254 6.254c.395.163.833-.07.95-.48l.267-.933a1.5 1.5 0 0 1 1.767-1.052l3.223.716A1.5 1.5 0 0 1 18 15.352V16.5a1.5 1.5 0 0 1-1.5 1.5H15c-1.149 0-2.263-.15-3.326-.43A13.022 13.022 0 0 1 2.43 8.326 13.019 13.019 0 0 1 2 5V3.5Z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                  </a>
-                ))}
-              </div>
-            </Section>
-          ) : null}
-
-          {/* Dates */}
-          {contact.dates && contact.dates.length > 0 ? (
-            <Section title="Dates">
-              <div>
-                {contact.dates.map((d) => (
-                  <div
-                    key={d.id}
-                    className="flex items-center justify-between gap-3 border-b border-line/60 px-5 py-2.5 text-sm"
-                  >
-                    <div className="flex min-w-0 flex-1 items-baseline gap-3">
-                      <span className="w-20 shrink-0 truncate text-[11px] font-medium uppercase tracking-wider text-mute/70">
-                        {dateKindLabel(d.kind, d.label)}
-                      </span>
-                      <span className="truncate font-medium text-text">
-                        {formatDate(d.date)}
-                      </span>
-                    </div>
-                    <svg
-                      className="h-4 w-4 shrink-0 text-mute/30"
-                      viewBox="0 0 20 20"
-                      fill="currentColor"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M5.75 2a.75.75 0 0 1 .75.75V4h7V2.75a.75.75 0 0 1 1.5 0V4h.25A2.75 2.75 0 0 1 18 6.75v8.5A2.75 2.75 0 0 1 15.25 18H4.75A2.75 2.75 0 0 1 2 15.25v-8.5A2.75 2.75 0 0 1 4.75 4H5V2.75A.75.75 0 0 1 5.75 2Zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75Z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                  </div>
-                ))}
-              </div>
-            </Section>
-          ) : null}
-
-          {/* Social Profiles */}
-          {contact.socials && contact.socials.length > 0 ? (
-            <Section title="Social Profiles">
-              <div>
-                {contact.socials.map((s) => {
-                  const url = socialUrl(s.platform, s.handle);
-                  const Content = (
-                    <>
-                      <div className="flex min-w-0 flex-1 items-baseline gap-3">
-                        <span className="w-20 shrink-0 truncate text-[11px] font-medium uppercase tracking-wider text-mute/70">
-                          {s.platform}
-                        </span>
-                        <span className="truncate font-medium text-text transition-colors group-hover:text-accent">
-                          {s.handle}
-                        </span>
-                      </div>
-                      {url ? (
-                        <svg
-                          className="h-4 w-4 shrink-0 text-mute/40 transition-colors group-hover:text-accent"
-                          viewBox="0 0 20 20"
-                          fill="currentColor"
-                        >
-                          <path
-                            fillRule="evenodd"
-                            d="M4.25 5.5a.75.75 0 0 0-.75.75v8.5c0 .414.336.75.75.75h8.5a.75.75 0 0 0 .75-.75v-4a.75.75 0 0 1 1.5 0v4A2.25 2.25 0 0 1 12.75 17h-8.5A2.25 2.25 0 0 1 2 14.75v-8.5A2.25 2.25 0 0 1 4.25 4h4a.75.75 0 0 1 0 1.5h-4Z"
-                            clipRule="evenodd"
-                          />
-                          <path
-                            fillRule="evenodd"
-                            d="M6.194 12.753a.75.75 0 0 0 1.06 1.06l7.22-7.22v2.657a.75.75 0 0 0 1.5 0v-4.5a.75.75 0 0 0-.75-.75h-4.5a.75.75 0 0 0 0 1.5h2.657l-7.187 7.253Z"
-                            clipRule="evenodd"
-                          />
-                        </svg>
-                      ) : null}
-                    </>
-                  );
-
-                  return url ? (
-                    <a
-                      key={s.id}
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="group flex items-center justify-between gap-3 border-b border-line/60 px-5 py-2.5 text-sm transition-colors hover:bg-surface/40"
-                    >
-                      {Content}
-                    </a>
-                  ) : (
-                    <div
-                      key={s.id}
-                      className="flex items-center justify-between gap-3 border-b border-line/60 px-5 py-2.5 text-sm"
-                    >
-                      {Content}
-                    </div>
-                  );
-                })}
-              </div>
-            </Section>
-          ) : null}
-
-          {/* Work */}
-          {contact.work.length > 0 ? (
-            <Section title="Work">
-              <div>
-                {contact.work.map((w) => (
-                  <div
-                    key={w.id}
-                    className="border-b border-line/60 px-5 py-3 text-sm"
-                  >
-                    <p className="font-medium text-text">{w.organization}</p>
-                    {w.title ? (
-                      <p className="text-xs text-mute mt-0.5">{w.title}</p>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            </Section>
-          ) : null}
-
-          {/* Address */}
-          {contact.addresses.some((a) => addressLines(a).length > 0) ? (
-            <Section title={contact.addresses.length > 1 ? "Addresses" : "Address"}>
-              <div>
-                {contact.addresses.map((a) => {
-                  const lines = addressLines(a);
-                  return lines.length > 0 ? (
-                    <div
-                      key={a.id}
-                      className="flex items-baseline gap-3 border-b border-line/60 px-5 py-3 text-sm"
-                    >
-                      <span className="w-20 shrink-0 truncate text-[11px] font-medium uppercase tracking-wider text-mute/70">
-                        {channelKindLabel(a.kind, a.label)}
-                      </span>
-                      <div className="min-w-0 flex-1 leading-relaxed text-text">
-                        {lines.map((line, idx) => (
-                          <p key={idx}>{line}</p>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null;
-                })}
-              </div>
-            </Section>
-          ) : null}
-
-          {/* Notes */}
-          {contact.notes ? (
-            <Section title="Notes">
-              <div className="border-b border-line/60 px-5 py-3 text-sm leading-relaxed text-text whitespace-pre-wrap">
-                {contact.notes}
-              </div>
-            </Section>
-          ) : null}
-
-          {detailed ? (
-            <ContactProfileView
-              profile={contact.profile}
-              linkProps={{
-                contacts,
-                readOnly,
-                onNavigateToContact,
-                onLinkInSection: onLinkInSection
-                  ? (section) => { setLinkPickerSearch(""); setLinkingSection(section); }
-                  : undefined,
-                onUnlinkFromSection: onUnlinkFromSection
-                  ? (section, contactId) => { void onUnlinkFromSection(section, contactId); }
-                  : undefined,
-              }}
-            />
+          {people && !hasAbout ? (
+            <div className="grid @3xl:auto-cols-fr @3xl:grid-flow-col @3xl:[&>*+*]:border-l @3xl:[&>*+*]:border-line/60">
+              {people}
+            </div>
           ) : null}
 
           <ContactAttachmentsSection
@@ -577,26 +518,21 @@ export function ContactDetailModal({
             onAttachmentsChange={handleAttachmentsChange}
           />
 
-          </div>
+          {contact.createdAt || contact.updatedAt ? (
+            <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 px-5 py-3 text-[11px] text-mute/70">
+              {contact.createdAt ? (
+                <span>
+                  Created: <span className="text-text/70">{formatTimestamp(contact.createdAt)}</span>
+                </span>
+              ) : null}
+              {contact.updatedAt && contact.updatedAt !== contact.createdAt ? (
+                <span>
+                  Modified: <span className="text-text/70">{formatTimestamp(contact.updatedAt)}</span>
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
-
-        {/* Metadata timestamps */}
-        {contact.createdAt || contact.updatedAt ? (
-          <div className="flex shrink-0 flex-wrap items-baseline gap-x-6 gap-y-1 border-t border-line/50 px-5 py-3 text-[11px] text-mute/80">
-            {contact.createdAt ? (
-              <span>
-                Created: <span className="text-text/70">{formatTimestamp(contact.createdAt)}</span>
-              </span>
-            ) : null}
-            {contact.updatedAt && contact.updatedAt !== contact.createdAt ? (
-              <span>
-                Modified: <span className="text-text/70">{formatTimestamp(contact.updatedAt)}</span>
-              </span>
-            ) : null}
-          </div>
-        ) : null}
-
-      </div>
       )}
 
       {confirmRemovePhoto ? (
@@ -633,22 +569,7 @@ export function ContactDetailModal({
   );
 }
 
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="break-inside-avoid">
-      <h4 className="sticky top-0 z-10 border-b border-line/60 bg-surface/80 px-5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-mute backdrop-blur-sm">
-        {title}
-      </h4>
-      {children}
-    </section>
-  );
-}
+const icon = "h-4 w-4";
 
 function CameraIcon() {
   return (
@@ -664,7 +585,7 @@ function CameraIcon() {
 
 function EditIcon() {
   return (
-    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+    <svg className={icon} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
       <path d="m5.433 13.917 1.262-3.155A4 4 0 0 1 7.58 9.42l6.92-6.918a2.121 2.121 0 0 1 3 3l-6.92 6.918c-.383.383-.84.685-1.343.886l-3.154 1.262a.5.5 0 0 1-.65-.65Z" />
       <path d="M3.5 5.75c0-.69.56-1.25 1.25-1.25H10A.75.75 0 0 0 10 3H4.75A2.75 2.75 0 0 0 2 5.75v9.5A2.75 2.75 0 0 0 4.75 18h9.5A2.75 2.75 0 0 0 17 15.25V10a.75.75 0 0 0-1.5 0v5.25c0 .69-.56 1.25-1.25 1.25h-9.5c-.69 0-1.25-.56-1.25-1.25v-9.5Z" />
     </svg>
@@ -673,7 +594,7 @@ function EditIcon() {
 
 function ArchiveIcon() {
   return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg className={icon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M3 4h18v4H3z" />
       <path d="M5 8h14v11a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
       <path d="M10 12h4" />
@@ -683,7 +604,7 @@ function ArchiveIcon() {
 
 function UnarchiveIcon() {
   return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg className={icon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M3 4h18v4H3z" />
       <path d="M5 8h14v11a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
       <path d="M12 17v-5m0 0-2 2m2-2 2 2" />
@@ -691,15 +612,54 @@ function UnarchiveIcon() {
   );
 }
 
-function TrashIcon() {
+function MailIcon() {
   return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 6h18" />
-      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-      <line x1="10" y1="11" x2="10" y2="17" />
-      <line x1="14" y1="11" x2="14" y2="17" />
+    <svg className={icon} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path d="M3 4a2 2 0 0 0-2 2v1.161l8.441 4.221a1.25 1.25 0 0 0 1.118 0L19 7.162V6a2 2 0 0 0-2-2H3Z" />
+      <path d="m19 8.839-7.77 3.885a2.75 2.75 0 0 1-2.46 0L1 8.839V14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.839Z" />
     </svg>
   );
 }
 
+function PhoneIcon() {
+  return (
+    <svg className={icon} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M2 3.5A1.5 1.5 0 0 1 3.5 2h1.148a1.5 1.5 0 0 1 1.465 1.175l.716 3.223a1.5 1.5 0 0 1-1.052 1.767l-.933.267c-.41.117-.643.555-.48.95a11.542 11.542 0 0 0 6.254 6.254c.395.163.833-.07.95-.48l.267-.933a1.5 1.5 0 0 1 1.767-1.052l3.223.716A1.5 1.5 0 0 1 18 15.352V16.5a1.5 1.5 0 0 1-1.5 1.5H15c-1.149 0-2.263-.15-3.326-.43A13.022 13.022 0 0 1 2.43 8.326 13.019 13.019 0 0 1 2 5V3.5Z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function ProfileIcon() {
+  return (
+    <svg className={icon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
+    </svg>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <svg className={icon} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M5.75 2a.75.75 0 0 1 .75.75V4h7V2.75a.75.75 0 0 1 1.5 0V4h.25A2.75 2.75 0 0 1 18 6.75v8.5A2.75 2.75 0 0 1 15.25 18H4.75A2.75 2.75 0 0 1 2 15.25v-8.5A2.75 2.75 0 0 1 4.75 4H5V2.75A.75.75 0 0 1 5.75 2Zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75Z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function BriefcaseIcon() {
+  return (
+    <svg className={icon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="2" y="7" width="20" height="14" rx="2" />
+      <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
+      <path d="M2 13h20" />
+    </svg>
+  );
+}

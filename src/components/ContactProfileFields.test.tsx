@@ -124,13 +124,13 @@ describe("ContactProfileFields, choosing sections", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add section" }));
 
     expect(screen.queryByRole("button", { name: "Pets" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Career History" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Relationship History" })).not.toBeNull();
   });
 
   it("clears a section's data when it is removed", () => {
     const { latest } = mount({ ...emptyProfile(), howWeMet: "At a conference" });
 
-    fireEvent.click(within(sectionFor("How We Met")).getByRole("button", { name: "Remove" }));
+    fireEvent.click(within(sectionFor("How We Met")).getByRole("button", { name: "Remove section" }));
 
     expect(screen.queryByRole("heading", { name: "How We Met" })).toBeNull();
     expect(latest().howWeMet).toBeUndefined();
@@ -176,7 +176,7 @@ describe("ContactProfileFields, choosing sections", () => {
 
     const sections = screen.getAllByRole("heading", { name: "Custom Section" });
     fireEvent.click(
-      within(sections[0]!.closest("section")!).getByRole("button", { name: "Remove" }),
+      within(sections[0]!.closest("section")!).getByRole("button", { name: "Remove section" }),
     );
 
     expect(latest().custom.map((section) => section.id)).toEqual([kept]);
@@ -307,7 +307,7 @@ describe("ContactProfileFields, multi-row sections", () => {
     const { latest } = mount();
     addSection("Pets");
 
-    fireEvent.click(within(sectionFor("Pets")).getByRole("button", { name: "Add" }));
+    fireEvent.click(within(sectionFor("Pets")).getByRole("button", { name: "Add pet" }));
 
     expect(latest().pets).toHaveLength(2);
     expect(screen.getAllByLabelText("Pet name")).toHaveLength(2);
@@ -320,7 +320,7 @@ describe("ContactProfileFields, multi-row sections", () => {
     }));
     mount({ ...emptyProfile(), pets });
 
-    const add = within(sectionFor("Pets")).getByRole("button", { name: "Add" });
+    const add = within(sectionFor("Pets")).getByRole("button", { name: "Add pet" });
     expect((add as HTMLButtonElement).disabled).toBe(true);
     expect(add.getAttribute("title")).toBe(`Up to ${MAX_PROFILE_ENTRIES} entries`);
   });
@@ -370,15 +370,36 @@ describe("ContactProfileFields, multi-row sections", () => {
     expect(latest().relationships[0]!.end).toBeUndefined();
   });
 
-  it("hides the Ended field for a current relationship", () => {
+  it("hides the finish date for a current relationship", () => {
     mount({
       ...emptyProfile(),
       relationships: [{ id: "r1", name: "Grace", kind: "Partner", current: true }],
     });
 
     const box = sectionFor("Relationship History");
-    expect(within(box).queryByText("Ended")).toBeNull();
-    expect(within(box).getByText("Started")).not.toBeNull();
+    expect(within(box).queryByText("Date finished")).toBeNull();
+    expect(within(box).getByText("Date started")).not.toBeNull();
+  });
+
+  it("clears the finish date when a relationship is marked current", () => {
+    const { latest } = mount({
+      ...emptyProfile(),
+      relationships: [{ id: "r1", name: "Grace", kind: "Partner", start: "2015", end: "2019" }],
+    });
+
+    const box = sectionFor("Relationship History");
+    expect(within(box).getByText("Date finished")).not.toBeNull();
+    fireEvent.click(within(box).getByRole("checkbox", { name: "Current partner" }));
+
+    expect(latest().relationships[0]).toMatchObject({ start: "2015", current: true });
+    expect(latest().relationships[0]?.end).toBeUndefined();
+  });
+
+  it("no longer offers Career History, which lives under Workplace", () => {
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Add section" }));
+
+    expect(screen.queryByRole("button", { name: "Career History" })).toBeNull();
   });
 });
 

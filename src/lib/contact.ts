@@ -91,6 +91,14 @@ export function emptyWork(): ContactWork {
   return { id: newId(), organization: "" };
 }
 
+/**
+ * Not finished: current, or with no finish date. Holds for workplaces and
+ * addresses alike, and is what a vCard export lists.
+ */
+export function isOngoing(row: { current?: boolean; end?: string }): boolean {
+  return row.current === true || !row.end;
+}
+
 export function emptyDate(kind: ContactDateKind = "birthday"): ContactDate {
   return { id: newId(), kind, date: "" };
 }
@@ -232,9 +240,13 @@ export function coreDraftOf(draft: ContactDraft): CoreContactDraft {
     emails: draft.emails.map(channelTo),
     phones: draft.phones.map(channelTo),
     addresses: draft.addresses.map(addressTo),
-    work: draft.work.map(({ organization, title, extra }) => ({
+    work: draft.work.map(({ organization, title, start, end, current, note, extra }) => ({
       organization,
       title,
+      start,
+      end: current ? undefined : end,
+      current: current === true,
+      note,
       extra,
     })),
     dates: draft.dates.map(({ kind, label, date, extra }) => ({
@@ -295,8 +307,8 @@ function channelTo({
   return { kind, label, value, extra };
 }
 
-function addressTo({ id: _id, ...address }: ContactAddress): CoreContactAddress {
-  return address;
+function addressTo({ id: _id, end, current, ...address }: ContactAddress): CoreContactAddress {
+  return { ...address, end: current ? undefined : end, current: current === true };
 }
 
 function addressFrom(address: CoreContactAddress, index: number): ContactAddress {
