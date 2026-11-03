@@ -19,6 +19,12 @@ export function serializeCsvContacts(
 ): string {
   return coreCsvWrite(
     (contacts as ContactDraft[]).map((c) => coreDraftOf({ ...c, derivedName: undefined })),
-    addressBooks.map(({ id, name, raw }) => ({ id, name, readable: true, raw: raw ?? "" })),
+    addressBooks.map(({ id, name, archived, raw }) => ({
+      id,
+      name,
+      archived: archived ?? false,
+      readable: true,
+      raw: raw ?? "",
+    })),
   );
 }
