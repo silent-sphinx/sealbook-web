@@ -64,6 +64,7 @@ function aContact(name: string, id: string): Contact {
     work: [],
     dates: [],
     socials: [],
+    addresses: [],
     addressBookId: "default",
     raw: "{}",
     ciphertext: "",

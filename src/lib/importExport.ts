@@ -63,7 +63,7 @@ export function generateExportData(
       pronouns: c.pronouns,
       emails: c.emails,
       phones: c.phones,
-      address: c.address,
+      addresses: c.addresses,
       work: c.work,
       dates: c.dates,
       socials: c.socials,

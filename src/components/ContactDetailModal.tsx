@@ -100,7 +100,6 @@ export function ContactDetailModal({
   onNavigateToContact,
 }: Props) {
   const archived = contact.archived === true;
-  const addresses = addressLines(contact.address);
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
   const [confirmRemovePhoto, setConfirmRemovePhoto] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
@@ -520,12 +519,27 @@ export function ContactDetailModal({
           ) : null}
 
           {/* Address */}
-          {addresses.length > 0 ? (
-            <Section title="Address">
-              <div className="border-b border-line/60 px-5 py-3 text-sm leading-relaxed text-text">
-                {addresses.map((line, idx) => (
-                  <p key={idx}>{line}</p>
-                ))}
+          {contact.addresses.some((a) => addressLines(a).length > 0) ? (
+            <Section title={contact.addresses.length > 1 ? "Addresses" : "Address"}>
+              <div>
+                {contact.addresses.map((a) => {
+                  const lines = addressLines(a);
+                  return lines.length > 0 ? (
+                    <div
+                      key={a.id}
+                      className="flex items-baseline gap-3 border-b border-line/60 px-5 py-3 text-sm"
+                    >
+                      <span className="w-20 shrink-0 truncate text-[11px] font-medium uppercase tracking-wider text-mute/70">
+                        {channelKindLabel(a.kind, a.label)}
+                      </span>
+                      <div className="min-w-0 flex-1 leading-relaxed text-text">
+                        {lines.map((line, idx) => (
+                          <p key={idx}>{line}</p>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null;
+                })}
               </div>
             </Section>
           ) : null}

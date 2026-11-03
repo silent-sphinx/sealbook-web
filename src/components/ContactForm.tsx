@@ -1,10 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
+  ADDRESS_KINDS,
   CHANNEL_KINDS,
   MAX_CONTACT_NOTES_CHARS,
-  addressLines,
   channelKindLabel,
   contactValidationError,
+  emptyAddress,
   emptyChannel,
   emptyDate,
   emptyDraft,
@@ -17,7 +18,6 @@ import {
   addLink,
   field,
   fieldBase,
-  ghost,
   primary,
   secondary,
   selectField,
@@ -65,7 +65,7 @@ function cloneDraft(source?: ContactDraft): ContactDraft {
     work: source.work ? source.work.map((w) => ({ ...w })) : [],
     dates: source.dates ? source.dates.map((d) => ({ ...d })) : [],
     socials: source.socials ? source.socials.map((s) => ({ ...s })) : [],
-    address: source.address ? { ...source.address } : {},
+    addresses: source.addresses ? source.addresses.map((a) => ({ ...a })) : [],
     profile: profileOf(source.profile),
   };
 }
@@ -85,9 +85,6 @@ export function ContactForm({
   onCancel,
 }: Props) {
   const [draft, setDraft] = useState<ContactDraft>(() => cloneDraft(initialDraft));
-  const [showAddress, setShowAddress] = useState(
-    () => Boolean(initialDraft?.address && addressLines(initialDraft.address).length > 0),
-  );
   const [validationError, setValidationError] = useState<string | null>(null);
 
   /*
@@ -149,19 +146,6 @@ export function ContactForm({
     setDraft((current) => ({ ...current, profile }));
   }
 
-  function patchAddress(partial: Partial<ContactAddress>) {
-    setDraft((current) => ({
-      ...current,
-      address: { ...current.address, ...partial },
-    }));
-  }
-
-  function clearAddress() {
-    setDraft((current) => ({ ...current, address: {} }));
-    setShowAddress(false);
-  }
-
-  const addressOpen = showAddress || addressLines(draft.address).length > 0;
   return (
     <form
       id={formId}
@@ -255,91 +239,11 @@ export function ContactForm({
           />
         </Section>
 
-        <Section
-          title="Address"
-          action={
-            addressOpen ? (
-              <button type="button" className={ghost} onClick={clearAddress}>
-                Clear
-              </button>
-            ) : null
-          }
-        >
-          {addressOpen ? (
-            <div className="grid gap-3">
-              <label className={labelClass}>
-                Street line 1
-                <input
-                  value={draft.address?.street1 ?? ""}
-                  onChange={(e) =>
-                    patchAddress({ street1: e.target.value })
-                  }
-                  className={field}
-                />
-              </label>
-              <label className={labelClass}>
-                Street line 2
-                <input
-                  value={draft.address?.street2 ?? ""}
-                  onChange={(e) =>
-                    patchAddress({ street2: e.target.value })
-                  }
-                  className={field}
-                />
-              </label>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className={labelClass}>
-                  City / town
-                  <input
-                    value={draft.address?.locality ?? ""}
-                    onChange={(e) =>
-                      patchAddress({ locality: e.target.value })
-                    }
-                    className={field}
-                  />
-                </label>
-                <label className={labelClass}>
-                  Region / state / province
-                  <input
-                    value={draft.address?.region ?? ""}
-                    onChange={(e) =>
-                      patchAddress({ region: e.target.value })
-                    }
-                    className={field}
-                  />
-                </label>
-                <label className={labelClass}>
-                  Postal code
-                  <input
-                    value={draft.address?.postcode ?? ""}
-                    onChange={(e) =>
-                      patchAddress({ postcode: e.target.value })
-                    }
-                    className={field}
-                  />
-                </label>
-                <label className={labelClass}>
-                  Country
-                  <input
-                    value={draft.address?.country ?? ""}
-                    onChange={(e) =>
-                      patchAddress({ country: e.target.value })
-                    }
-                    className={field}
-                  />
-                </label>
-              </div>
-            </div>
-          ) : (
-            <button
-              type="button"
-              className={`${addLink} inline-flex items-center gap-1.5`}
-              onClick={() => setShowAddress(true)}
-            >
-              <AddIcon />
-              Address
-            </button>
-          )}
+        <Section title="Addresses">
+          <AddressList
+            addresses={draft.addresses}
+            onChange={(addresses) => patch({ addresses })}
+          />
         </Section>
 
         <Section title="Work">
@@ -511,6 +415,109 @@ function ChannelList({
       >
         <AddIcon />
         {addLabel.replace(/^\+\s*/, "")}
+      </button>
+    </div>
+  );
+}
+
+const ADDRESS_FIELDS: { key: keyof ContactAddress; label: string }[] = [
+  { key: "locality", label: "City / town" },
+  { key: "region", label: "Region / state / province" },
+  { key: "postcode", label: "Postal code" },
+  { key: "country", label: "Country" },
+];
+
+function AddressList({
+  addresses,
+  onChange,
+}: {
+  addresses: ContactAddress[];
+  onChange: (addresses: ContactAddress[]) => void;
+}) {
+  function update(id: string, patch: Partial<ContactAddress>) {
+    onChange(addresses.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  }
+
+  return (
+    <div className="grid min-w-0 gap-4">
+      {addresses.map((row) => (
+        <div
+          key={row.id}
+          role="group"
+          aria-label={`${channelKindLabel(row.kind, row.label)} address`}
+          className="grid min-w-0 grid-cols-[minmax(0,1fr)_2.5rem] items-start gap-2"
+        >
+          <div className="grid min-w-0 gap-3">
+            <div className="grid min-w-0 gap-2 sm:grid-cols-[8rem_minmax(0,1fr)]">
+              <select
+                value={row.kind}
+                aria-label="Address type"
+                onChange={(e) => {
+                  const kind = e.target.value as ContactChannelKind;
+                  update(row.id, { kind, label: kind === "custom" ? row.label : undefined });
+                }}
+                className={selectField}
+              >
+                {ADDRESS_KINDS.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {channelKindLabel(kind)}
+                  </option>
+                ))}
+              </select>
+              {row.kind === "custom" ? (
+                <input
+                  value={row.label ?? ""}
+                  onChange={(e) => update(row.id, { label: e.target.value })}
+                  placeholder="Label"
+                  aria-label="Custom address label"
+                  className={fieldBase}
+                />
+              ) : null}
+            </div>
+            <label className={labelClass}>
+              Street line 1
+              <input
+                value={row.street1 ?? ""}
+                onChange={(e) => update(row.id, { street1: e.target.value })}
+                className={field}
+              />
+            </label>
+            <label className={labelClass}>
+              Street line 2
+              <input
+                value={row.street2 ?? ""}
+                onChange={(e) => update(row.id, { street2: e.target.value })}
+                className={field}
+              />
+            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {ADDRESS_FIELDS.map(({ key, label }) => (
+                <label key={key} className={labelClass}>
+                  {label}
+                  <input
+                    value={(row[key] as string | undefined) ?? ""}
+                    onChange={(e) => update(row.id, { [key]: e.target.value })}
+                    className={field}
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+          <RemoveButton
+            label="Remove address"
+            onClick={() => onChange(addresses.filter((item) => item.id !== row.id))}
+          />
+        </div>
+      ))}
+      <button
+        type="button"
+        className={`${addLink} inline-flex items-center gap-1.5`}
+        onClick={() =>
+          onChange([...addresses, emptyAddress(addresses.length === 0 ? "home" : "work")])
+        }
+      >
+        <AddIcon />
+        Address
       </button>
     </div>
   );

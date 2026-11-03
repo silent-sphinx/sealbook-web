@@ -99,6 +99,7 @@ describe("every payload a save writes", () => {
       work: [],
       dates: [],
       socials: [],
+      addresses: [],
       addressBookId: "",
       raw: JSON.stringify({ "@type": "Card", name: { full: "Ada" }, "sealbook:mood": "curious" }),
     };
@@ -115,6 +116,7 @@ describe("every payload a save writes", () => {
       work: [],
       dates: [],
       socials: [],
+      addresses: [],
       addressBookId: "",
       // The stored card had a nickname; this draft has none, so the save clears
       // it instead of merging the old value back in.

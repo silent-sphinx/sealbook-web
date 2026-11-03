@@ -56,6 +56,7 @@ export function aContact(name: string, id = `contact-${name}`): Contact {
     work: [],
     dates: [],
     socials: [],
+    addresses: [],
     addressBookId: DEFAULT_ADDRESS_BOOK_ID,
     raw: JSON.stringify({ "@type": "Card", name: { full: name } }),
     ciphertext: "",

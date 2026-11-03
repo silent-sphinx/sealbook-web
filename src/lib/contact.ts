@@ -23,7 +23,12 @@ import type {
   ContactWork,
 } from "./types";
 import { coreContactParse, coreContactWrite } from "./wasm";
-import type { CoreContact, CoreContactChannel, CoreContactDraft } from "./wasm";
+import type {
+  CoreContact,
+  CoreContactAddress,
+  CoreContactChannel,
+  CoreContactDraft,
+} from "./wasm";
 import { sortByName } from "./order";
 
 export const CHANNEL_KINDS: ContactChannelKind[] = [
@@ -32,6 +37,8 @@ export const CHANNEL_KINDS: ContactChannelKind[] = [
   "mobile",
   "custom",
 ];
+
+export const ADDRESS_KINDS: ContactChannelKind[] = ["home", "work", "custom"];
 
 /** Written only when true, so a reader predating it sees the card it expects. */
 export const CONTACT_ARCHIVED_PROP = "sealbook:archived";
@@ -76,6 +83,10 @@ export function emptyChannel(kind: ContactChannelKind): ContactChannel {
   return { id: newId(), kind, value: "" };
 }
 
+export function emptyAddress(kind: ContactChannelKind = "home"): ContactAddress {
+  return { id: newId(), kind };
+}
+
 export function emptyWork(): ContactWork {
   return { id: newId(), organization: "" };
 }
@@ -101,7 +112,7 @@ export function emptyDraft(
     dates: [],
     socials: [],
     notes: "",
-    address: {},
+    addresses: [],
     addressBookId: resolveAddressBookId(addressBookId),
   };
 }
@@ -180,7 +191,7 @@ function trim(value?: string): string {
   return value?.trim() ?? "";
 }
 
-export function addressLines(address?: ContactAddress): string[] {
+export function addressLines(address?: Partial<ContactAddress>): string[] {
   if (!address) {
     return [];
   }
@@ -220,7 +231,7 @@ export function coreDraftOf(draft: ContactDraft): CoreContactDraft {
     pronouns: draft.pronouns,
     emails: draft.emails.map(channelTo),
     phones: draft.phones.map(channelTo),
-    address: draft.address,
+    addresses: draft.addresses.map(addressTo),
     work: draft.work.map(({ organization, title, extra }) => ({
       organization,
       title,
@@ -260,7 +271,7 @@ export function draftOfCore(draft: CoreContactDraft): ContactDraft {
     phones: draft.phones.map((channel, index) =>
       channelFrom("p", index, channel),
     ),
-    address: draft.address,
+    addresses: draft.addresses.map(addressFrom),
     work: draft.work.map((row, index) => ({ id: `w${index + 1}`, ...row })),
     dates: draft.dates.map((row, index) => ({ id: `d${index + 1}`, ...row })),
     socials: draft.socials.map((row, index) => ({
@@ -282,6 +293,14 @@ function channelTo({
   extra,
 }: ContactChannel): CoreContactChannel {
   return { kind, label, value, extra };
+}
+
+function addressTo({ id: _id, ...address }: ContactAddress): CoreContactAddress {
+  return address;
+}
+
+function addressFrom(address: CoreContactAddress, index: number): ContactAddress {
+  return { id: `a${index + 1}`, ...address };
 }
 
 function channelFrom(
@@ -310,7 +329,7 @@ function draftFrom(card: CoreContact): ContactDraft {
     phones: card.phones.map((channel, index) =>
       channelFrom("p", index, channel),
     ),
-    address: card.address,
+    addresses: card.addresses.map(addressFrom),
     work: card.work.map((row, index) => ({ id: `w${index + 1}`, ...row })),
     dates: card.dates.map((row, index) => ({ id: `d${index + 1}`, ...row })),
     socials: card.socials.map((row, index) => ({

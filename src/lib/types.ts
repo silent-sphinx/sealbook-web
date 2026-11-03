@@ -100,12 +100,17 @@ export type ContactChannel = {
 };
 
 export type ContactAddress = {
+  id: string;
+  /** `home`, `work` or `custom`; the editor does not offer `mobile`. */
+  kind: ContactChannelKind;
+  label?: string;
   street1?: string;
   street2?: string;
   locality?: string;
   region?: string;
   postcode?: string;
   country?: string;
+  extra?: string;
 };
 
 export type ContactWork = {
@@ -241,7 +246,7 @@ export type ContactDraft = {
   pronouns?: string;
   emails: ContactChannel[];
   phones: ContactChannel[];
-  address?: ContactAddress;
+  addresses: ContactAddress[];
   work: ContactWork[];
   dates: ContactDate[];
   socials: ContactSocial[];
