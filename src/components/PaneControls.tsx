@@ -127,7 +127,7 @@ export function EntryRow({
   return (
     <div className="flex min-w-0 items-start gap-3 border-b border-line/60 px-5 py-3 text-sm">
       {leading ? <div className="shrink-0">{leading}</div> : null}
-      <div className="min-w-0 flex-1">
+      <div className={`min-w-0 flex-1 ${leading ? "flex min-h-7 flex-col justify-center" : ""}`}>
         <div className="flex min-w-0 items-baseline justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
             <span className="min-w-0 truncate font-medium text-text">{title}</span>

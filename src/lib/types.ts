@@ -302,6 +302,8 @@ export type Contact = ContactDraft & {
 export type AddressBook = {
   id: string;
   name: string;
+  /** Put away: out of the list and the pickers, its contacts left as they are. */
+  archived?: boolean;
   raw: string;
 };
 
@@ -508,6 +510,8 @@ export type BookmarkCollection = {
    * one of its own. See `collectionTone` in `lib/bookmark`.
    */
   color?: string;
+  /** Keeps this collection, and any nested under it, out of "All Bookmarks". */
+  hideFromAll?: boolean;
   raw: string;
   readable?: boolean;
 };

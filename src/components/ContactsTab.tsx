@@ -1,7 +1,7 @@
 import { useMemo, type MouseEvent as ReactMouseEvent } from "react";
 import { SidebarDrawer, SidebarHeader, SidebarSection, useSidebar } from "./SidebarDrawer";
 import { SplitHandle, useSplitPane } from "./SplitPane";
-import { AddressBookList } from "./AddressBookList";
+import { AddressBookList, ArchivedAddressBooks } from "./AddressBookList";
 import { ContactCard, ContactListSkeleton } from "./ContactCard";
 import { ContactDetailModal } from "./ContactDetailModal";
 import { ContactNetworkMap } from "./ContactNetworkMap";
@@ -9,6 +9,8 @@ import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 import { ArchiveIcon, PlusIcon, SearchIcon, ClearIcon } from "./AppIcons";
 import {
   ARCHIVE_VIEW_NAME,
+  activeAddressBooks,
+  archivedAddressBooks,
   bookNameById,
   isAddressBookVisible,
   resolveAddressBookId,
@@ -37,6 +39,7 @@ interface ContactsTabProps {
   filtered: Contact[];
   addressBooks: AddressBook[];
   hiddenBooks: Set<string>;
+  shownArchivedBooks: Set<string>;
   archivedContacts: Contact[];
   viewingContact: Contact | null;
   editingDetail: boolean;
@@ -60,6 +63,7 @@ interface ContactsTabProps {
   onCreateBook: (name: string) => Promise<string | undefined>;
   onRenameBook: (id: string, name: string) => Promise<void>;
   onDeleteBook: (book: AddressBook) => void;
+  onToggleBookArchived: (book: AddressBook) => Promise<void>;
   onSetSearch: (value: string) => void;
   onSetViewingContact: (contact: Contact | null) => void;
   onSetError: (error: string | null) => void;
@@ -82,6 +86,7 @@ export function ContactsTab({
   filtered,
   addressBooks,
   hiddenBooks,
+  shownArchivedBooks,
   archivedContacts,
   viewingContact,
   editingDetail,
@@ -105,6 +110,7 @@ export function ContactsTab({
   onCreateBook,
   onRenameBook,
   onDeleteBook,
+  onToggleBookArchived,
   onSetSearch,
   onSetViewingContact,
   onSetError,
@@ -190,7 +196,7 @@ export function ContactsTab({
             }
           >
             <AddressBookList
-              books={addressBooks}
+              books={activeAddressBooks(addressBooks)}
               creating={creatingBook}
               onCreateHandled={() => onSetCreatingBook(false)}
               isVisible={(book) => isAddressBookVisible(book, hiddenBooks)}
@@ -199,7 +205,15 @@ export function ContactsTab({
               onCreate={onCreateBook}
               onRename={onRenameBook}
               onDelete={onDeleteBook}
+              onArchive={(book) => onGuardEditing(() => void onToggleBookArchived(book))}
               busy={busy}
+            />
+            <ArchivedAddressBooks
+              books={archivedAddressBooks(addressBooks)}
+              isVisible={(book) => shownArchivedBooks.has(book.id)}
+              onToggleVisible={(id) => onGuardEditing(() => onToggleBookVisibility(id))}
+              onRestore={(book) => onGuardEditing(() => void onToggleBookArchived(book))}
+              onDelete={onDeleteBook}
             />
             <div className={sidebarSubgroup}>
               <button

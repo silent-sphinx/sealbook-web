@@ -30,13 +30,44 @@ export const UNTITLED_ADDRESS_BOOK_NAME = "Untitled Address Book";
 export function serializeAddressBook(
   name: string,
   previousRaw?: string,
+  archived = false,
 ): string {
-  return coreAddressBookWrite({ name, raw: previousRaw });
+  return coreAddressBookWrite({ name, archived, raw: previousRaw });
 }
 
 export function parseAddressBook(id: string, raw: string): AddressBook {
   const book = coreAddressBookParse(id, raw);
-  return { id: book.id, name: book.name, raw: book.raw };
+  return {
+    id: book.id,
+    name: book.name,
+    archived: book.archived || undefined,
+    raw: book.raw,
+  };
+}
+
+export function activeAddressBooks(books: AddressBook[]): AddressBook[] {
+  return books.filter((book) => book.archived !== true);
+}
+
+export function archivedAddressBooks(books: AddressBook[]): AddressBook[] {
+  return books.filter((book) => book.archived === true);
+}
+
+/**
+ * The books whose contacts are out of the list: the ones switched off, and an
+ * archived one unless it is in `shownArchived`. So an archived book can be
+ * switched on for a look without being restored.
+ */
+export function effectiveHiddenBooks(
+  books: AddressBook[],
+  hidden: ReadonlySet<string>,
+  shownArchived: ReadonlySet<string>,
+): Set<string> {
+  const out = new Set(hidden);
+  for (const book of books) {
+    if (book.archived === true && !shownArchived.has(book.id)) out.add(book.id);
+  }
+  return out;
 }
 
 /**
@@ -67,9 +98,14 @@ export function bookNameById(
 }
 
 const HIDDEN_BOOKS_KEY = "sealbook.hidden-address-books";
+const SHOWN_ARCHIVED_BOOKS_KEY = "sealbook.shown-archived-address-books";
 
 function hiddenBooksStorageKey(collectionId: string): string {
   return `${HIDDEN_BOOKS_KEY}.${collectionId}`;
+}
+
+function shownArchivedStorageKey(collectionId: string): string {
+  return `${SHOWN_ARCHIVED_BOOKS_KEY}.${collectionId}`;
 }
 
 /**
@@ -80,9 +116,12 @@ function hiddenBooksStorageKey(collectionId: string): string {
  * localStorage rather than sessionStorage: the choice is meant to survive a
  * reload and a new tab, which is the one thing a filter here is used for.
  */
-export function loadHiddenAddressBooks(collectionId: string): Set<string> {
+export function loadHiddenAddressBooks(
+  collectionId: string,
+  key = hiddenBooksStorageKey,
+): Set<string> {
   try {
-    const stored = localStorage.getItem(hiddenBooksStorageKey(collectionId));
+    const stored = localStorage.getItem(key(collectionId));
     const ids = stored ? JSON.parse(stored) : [];
     return new Set(
       Array.isArray(ids)
@@ -97,10 +136,11 @@ export function loadHiddenAddressBooks(collectionId: string): Set<string> {
 export function storeHiddenAddressBooks(
   collectionId: string,
   hidden: ReadonlySet<string>,
+  key = hiddenBooksStorageKey,
 ): void {
   try {
     localStorage.setItem(
-      hiddenBooksStorageKey(collectionId),
+      key(collectionId),
       JSON.stringify([...hidden]),
     );
   } catch {
@@ -132,4 +172,15 @@ export function pruneHiddenAddressBooks(
 ): Set<string> {
   const known = new Set(books.map((book) => book.id));
   return new Set([...hidden].filter((id) => known.has(id)));
+}
+
+export function loadShownArchivedBooks(collectionId: string): Set<string> {
+  return loadHiddenAddressBooks(collectionId, shownArchivedStorageKey);
+}
+
+export function storeShownArchivedBooks(
+  collectionId: string,
+  shown: ReadonlySet<string>,
+): void {
+  storeHiddenAddressBooks(collectionId, shown, shownArchivedStorageKey);
 }

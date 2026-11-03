@@ -456,10 +456,14 @@ export function ContactDetailModal({
                 ) : null}
               </>
             )}
-            <HeaderDivider />
-            <HeaderButton label="Close contact details" onClick={onClose} disabled={busy}>
-              <CloseIcon />
-            </HeaderButton>
+            {editing ? null : (
+              <>
+                <HeaderDivider />
+                <HeaderButton label="Close contact details" onClick={onClose} disabled={busy}>
+                  <CloseIcon />
+                </HeaderButton>
+              </>
+            )}
           </div>
         </div>
       </div>

@@ -15,7 +15,7 @@ import {
   type LinkableSection,
   type ProfileSection,
 } from "../lib/contactProfile";
-import { addLink, fieldBase, focusRing } from "../lib/styles";
+import { addLink, fieldBase, focusRing, ghost } from "../lib/styles";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import type {
   Contact,
@@ -42,6 +42,7 @@ import {
   TagsInput,
 } from "./FieldControls";
 import { PartialDateInput } from "./PartialDateInput";
+import { Avatar } from "./ContactCard";
 import { ContactLinkPicker } from "./ContactLinkPicker";
 
 /** Sections that add entries through their own field rather than an add button. */
@@ -60,6 +61,10 @@ const ADD_LABELS: Record<Exclude<ProfileSection, "howWeMet">, string> = {
   friends: "Friend",
   colleagues: "Colleague",
 };
+
+function isLinkable(section: ProfileSection): section is LinkableSection {
+  return section === "family" || section === "friends" || section === "colleagues";
+}
 
 /** Long enough to notice, short enough not to linger over the next edit. */
 const FLASH_MS = 1000;
@@ -262,18 +267,27 @@ export function ContactProfileFields({ profile, onChange, contacts, currentConta
           addLabel={hasRows(section) ? ADD_LABELS[section] : undefined}
           addDisabled={sectionCount(section) >= MAX_PROFILE_ENTRIES}
           addDisabledReason={`Up to ${MAX_PROFILE_ENTRIES} entries`}
+          actions={
+            contacts && isLinkable(section) ? (
+              <button
+                type="button"
+                onClick={() => setLinkingSection(section)}
+                aria-label="Link a contact"
+                disabled={sectionCount(section) >= MAX_PROFILE_ENTRIES}
+                className={`${ghost} inline-flex h-7 items-center gap-1 rounded-lg px-2 text-xs font-medium hover:bg-surface disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-mute`}
+              >
+                <LinkIcon />
+                Link Contact
+              </button>
+            ) : undefined
+          }
           onRemoveSection={() => removeSection(section)}
         >
           <SectionBody
             section={section}
             profile={profile}
             patch={patch}
-            onLinkRequest={
-              contacts &&
-              (section === "family" || section === "friends" || section === "colleagues")
-                ? () => setLinkingSection(section as LinkableSection)
-                : undefined
-            }
+            contacts={contacts}
           />
         </FormSection>
       ))}
@@ -362,12 +376,12 @@ function SectionBody({
   section,
   profile,
   patch,
-  onLinkRequest,
+  contacts,
 }: {
   section: ProfileSection;
   profile: ContactProfile;
   patch: (partial: Partial<ContactProfile>) => void;
-  onLinkRequest?: () => void;
+  contacts?: Contact[];
 }) {
   switch (section) {
     case "howWeMet":
@@ -417,7 +431,7 @@ function SectionBody({
           showRelation
           addLabel={ADD_LABELS.family}
           onChange={(family) => patch({ family })}
-          onLinkRequest={onLinkRequest}
+          contacts={contacts}
         />
       );
     case "friends":
@@ -426,7 +440,7 @@ function SectionBody({
           rows={profile.friends}
           addLabel={ADD_LABELS.friends}
           onChange={(friends) => patch({ friends })}
-          onLinkRequest={onLinkRequest}
+          contacts={contacts}
         />
       );
     case "colleagues":
@@ -435,7 +449,7 @@ function SectionBody({
           rows={profile.colleagues}
           addLabel={ADD_LABELS.colleagues}
           onChange={(colleagues) => patch({ colleagues })}
-          onLinkRequest={onLinkRequest}
+          contacts={contacts}
         />
       );
   }
@@ -678,18 +692,57 @@ function PersonRows({
   showRelation = false,
   addLabel,
   onChange,
-  onLinkRequest,
+  contacts,
 }: {
   rows: ContactPerson[];
   showRelation?: boolean;
   addLabel: string;
   onChange: (rows: ContactPerson[]) => void;
-  onLinkRequest?: () => void;
+  contacts?: Contact[];
 }) {
   const list = rowOps(rows, onChange);
   return (
     <EntryList>
-      {rows.map((row) => (
+      {rows.map((row) => {
+        const linked = row.contactId ? contacts?.find((c) => c.id === row.contactId) : undefined;
+        if (row.contactId) {
+          return (
+            <EntryCard
+              key={row.id}
+              label={`Linked ${addLabel.toLowerCase()}`}
+              removeLabel={`Remove ${addLabel.toLowerCase()}`}
+              onRemove={() => list.remove(row.id)}
+            >
+              <div className="flex min-w-0 items-center gap-2.5">
+                <Avatar name={linked?.name ?? row.name} avatar={linked?.avatar} size="sm" />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-text">
+                  {linked?.name ?? row.name}
+                </span>
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-accent-dim/50 bg-accent/10 px-2 text-[11px] font-medium leading-[18px] text-accent">
+                  <LinkIcon />
+                  Linked
+                </span>
+              </div>
+              {showRelation ? (
+                <PillInput
+                  label="Relation"
+                  value={row.relation ?? ""}
+                  placeholder="Mother, brother, nephew…"
+                  ariaLabel="Relation"
+                  onChange={(relation) => list.update(row.id, { relation })}
+                />
+              ) : null}
+              <PillInput
+                label="Note"
+                value={row.note ?? ""}
+                placeholder="Optional"
+                ariaLabel={`${addLabel} note`}
+                onChange={(note) => list.update(row.id, { note })}
+              />
+            </EntryCard>
+          );
+        }
+        return (
         <EntryCard
           key={row.id}
           removeLabel={`Remove ${addLabel.toLowerCase()}`}
@@ -720,17 +773,8 @@ function PersonRows({
             onChange={(note) => list.update(row.id, { note })}
           />
         </EntryCard>
-      ))}
-      {onLinkRequest ? (
-        <button
-          type="button"
-          className={`${addLink} inline-flex items-center gap-1.5`}
-          onClick={onLinkRequest}
-        >
-          <LinkIcon />
-          Link a contact
-        </button>
-      ) : null}
+        );
+      })}
     </EntryList>
   );
 }

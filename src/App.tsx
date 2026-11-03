@@ -89,10 +89,14 @@ import { LINKABLE_SECTIONS, profileOf, type LinkableSection } from "./lib/contac
 import {
   ARCHIVE_VIEW_NAME,
   DEFAULT_ADDRESS_BOOK_ID,
+  activeAddressBooks,
+  effectiveHiddenBooks,
   loadHiddenAddressBooks,
+  loadShownArchivedBooks,
   pruneHiddenAddressBooks,
   resolveAddressBookId,
   storeHiddenAddressBooks,
+  storeShownArchivedBooks,
   visibleAddressBooks,
 } from "./lib/addressBook";
 import { emptyDraft, sortContacts } from "./lib/contact";
@@ -203,6 +207,7 @@ export default function App() {
    * the collection's, and `hiddenBooksCollection` records which one is loaded.
    */
   const [hiddenBooks, setHiddenBooks] = useState<Set<string>>(new Set());
+  const [shownArchivedBooks, setShownArchivedBooks] = useState<Set<string>>(new Set());
   const [hiddenBooksCollection, setHiddenBooksCollection] = useState<string | null>(null);
   /**
    * Whether the list is showing the Archive instead of the address books. A
@@ -408,7 +413,13 @@ export default function App() {
   if (hiddenBooksCollection !== collectionId) {
     setHiddenBooksCollection(collectionId);
     setHiddenBooks(collectionId ? loadHiddenAddressBooks(collectionId) : new Set());
+    setShownArchivedBooks(collectionId ? loadShownArchivedBooks(collectionId) : new Set());
   }
+
+  const listHiddenBooks = useMemo(
+    () => effectiveHiddenBooks(addressBooks, hiddenBooks, shownArchivedBooks),
+    [addressBooks, hiddenBooks, shownArchivedBooks],
+  );
 
   const archivedContacts = useMemo(
     () => contacts.filter((contact) => contact.archived === true),
@@ -441,7 +452,7 @@ export default function App() {
       : contacts.filter(
         (contact) =>
           contact.archived !== true &&
-          !hiddenBooks.has(resolveAddressBookId(contact.addressBookId)),
+          !listHiddenBooks.has(resolveAddressBookId(contact.addressBookId)),
       );
     if (!deferredSearch.trim()) return sortContacts(inBook);
     if (searchIndex === null) return [];
@@ -449,18 +460,18 @@ export default function App() {
     return inBook
       .filter((contact) => rank.has(contact.id))
       .sort((a, b) => (rank.get(a.id) as number) - (rank.get(b.id) as number));
-  }, [archivedContacts, contacts, deferredSearch, hiddenBooks, searchIndex, viewingArchive]);
+  }, [archivedContacts, contacts, deferredSearch, listHiddenBooks, searchIndex, viewingArchive]);
 
   const shownBooks = useMemo(
-    () => visibleAddressBooks(addressBooks, hiddenBooks),
-    [addressBooks, hiddenBooks],
+    () => visibleAddressBooks(addressBooks, listHiddenBooks),
+    [addressBooks, listHiddenBooks],
   );
   /**
    * Where exactly one book is showing it stands in for the whole view: it
    * titles the list and is what a new contact lands in.
    */
   const soleShownBook = shownBooks.length === 1 ? shownBooks[0] : null;
-  const contactsTitle = hiddenBooks.size === 0
+  const contactsTitle = hiddenBooks.size === 0 && shownArchivedBooks.size === 0
     ? "All contacts"
     : soleShownBook
       ? soleShownBook.name
@@ -774,6 +785,12 @@ export default function App() {
       const pruned = pruneHiddenAddressBooks(books, current);
       if (pruned.size === current.size) return current;
       storeHiddenAddressBooks(next.state.collection_id, pruned);
+      return pruned;
+    });
+    setShownArchivedBooks((current) => {
+      const pruned = pruneHiddenAddressBooks(books, current);
+      if (pruned.size === current.size) return current;
+      storeShownArchivedBooks(next.state.collection_id, pruned);
       return pruned;
     });
   }
@@ -1488,14 +1505,17 @@ export default function App() {
       setViewingArchive(false);
       return;
     }
-    setHiddenBooks((current) => {
+    const archived = addressBooks.some((book) => book.id === id && book.archived === true);
+    const update = archived ? setShownArchivedBooks : setHiddenBooks;
+    const store = archived ? storeShownArchivedBooks : storeHiddenAddressBooks;
+    update((current) => {
       const next = new Set(current);
       if (next.has(id)) {
         next.delete(id);
       } else {
         next.add(id);
       }
-      if (session) storeHiddenAddressBooks(session.state.collection_id, next);
+      if (session) store(session.state.collection_id, next);
       return next;
     });
   }
@@ -1506,15 +1526,23 @@ export default function App() {
     if (session) storeHiddenAddressBooks(session.state.collection_id, new Set());
   }
 
-  /** Drops a deleted book's toggle, so a later book cannot inherit it. */
+  /**
+   * Drops a book's recorded toggle, so a deleted book cannot be inherited by a
+   * later one and an archived or restored one starts at its group's default.
+   */
   function forgetBookVisibility(id: string) {
-    setHiddenBooks((current) => {
-      if (!current.has(id)) return current;
-      const next = new Set(current);
-      next.delete(id);
-      if (session) storeHiddenAddressBooks(session.state.collection_id, next);
-      return next;
-    });
+    for (const [update, store] of [
+      [setHiddenBooks, storeHiddenAddressBooks],
+      [setShownArchivedBooks, storeShownArchivedBooks],
+    ] as const) {
+      update((current) => {
+        if (!current.has(id)) return current;
+        const next = new Set(current);
+        next.delete(id);
+        if (session) store(session.state.collection_id, next);
+        return next;
+      });
+    }
   }
 
   async function onCreateBook(name: string): Promise<string | undefined> {
@@ -1541,7 +1569,22 @@ export default function App() {
     setError(null);
     try {
       const previous = addressBooks.find((book) => book.id === id);
-      await putAddressBook(session, name, id, previous?.raw);
+      await putAddressBook(session, name, id, previous?.raw, previous?.archived === true);
+      await refreshAfterSave(session);
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onToggleBookArchived(book: AddressBook): Promise<void> {
+    if (!session || book.id === DEFAULT_ADDRESS_BOOK_ID) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await putAddressBook(session, book.name, book.id, book.raw, book.archived !== true);
+      forgetBookVisibility(book.id);
       await refreshAfterSave(session);
     } catch (err) {
       setError(friendlyError(err));
@@ -2006,7 +2049,8 @@ export default function App() {
           contacts={contacts}
           filtered={filtered}
           addressBooks={addressBooks}
-          hiddenBooks={hiddenBooks}
+          hiddenBooks={listHiddenBooks}
+          shownArchivedBooks={shownArchivedBooks}
           archivedContacts={archivedContacts}
           viewingContact={viewingContact}
           editingDetail={editingDetail}
@@ -2029,6 +2073,7 @@ export default function App() {
           onShowAllBooks={showAllBooks}
           onCreateBook={onCreateBook}
           onRenameBook={onRenameBook}
+          onToggleBookArchived={onToggleBookArchived}
           onDeleteBook={onDeleteBook}
           onSetSearch={setSearch}
           onSetViewingContact={(c) => setViewingContact(c)}
@@ -2052,7 +2097,11 @@ export default function App() {
             busy={busy}
             error={error}
             addressBooks={addressBooks}
-            initialDraft={emptyDraft(soleShownBook?.id ?? DEFAULT_ADDRESS_BOOK_ID)}
+            initialDraft={emptyDraft(
+              soleShownBook && soleShownBook.archived !== true
+                ? soleShownBook.id
+                : DEFAULT_ADDRESS_BOOK_ID,
+            )}
             submitLabel="Add contact"
             detailed={detailedContacts}
             onSubmit={onAdd}
@@ -2094,7 +2143,7 @@ export default function App() {
       {contactsEnabled && deletingAddressBook ? (
         <DeleteAddressBookModal
           book={deletingAddressBook}
-          destinationBooks={addressBooks.filter((book) => book.id !== deletingAddressBook.id)}
+          destinationBooks={activeAddressBooks(addressBooks).filter((book) => book.id !== deletingAddressBook.id)}
           contactCount={contacts.filter(
             (contact) => resolveAddressBookId(contact.addressBookId) === deletingAddressBook.id,
           ).length}

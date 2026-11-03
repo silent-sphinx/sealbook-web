@@ -184,17 +184,33 @@ export function BookmarksView({
    * nested under it: a subcollection's own links are reached by drilling into
    * its grid card instead, so the two views never show the same bookmark twice.
    */
+  const hiddenFromAll = useMemo(() => {
+    const hidden = new Set<string>();
+    const walk = (nodes: typeof collectionTree, inherited: boolean) => {
+      for (const node of nodes) {
+        const hide = inherited || node.item.hideFromAll === true;
+        if (hide) hidden.add(node.item.id);
+        walk(node.children, hide);
+      }
+    };
+    walk(collectionTree, false);
+    return hidden;
+  }, [collectionTree]);
+
   const visible = useMemo(() => {
     const scoped =
       scope === ALL
-        ? bookmarks
+        ? bookmarks.filter(
+            (bookmark) =>
+              !hiddenFromAll.has(resolveCollectionId(bookmark.collectionId)),
+          )
         : bookmarks.filter(
             (bookmark) => resolveCollectionId(bookmark.collectionId) === scope,
           );
     return sortBookmarks(
       scoped.filter((bookmark) => bookmarkMatches(bookmark, deferredSearch)),
     );
-  }, [bookmarks, scope, deferredSearch]);
+  }, [bookmarks, scope, deferredSearch, hiddenFromAll]);
 
   const countByCollection = useMemo(() => {
     const counts = new Map<string, number>();
@@ -384,6 +400,12 @@ export function BookmarksView({
         onSelect: () => startCreateUnder(collection.id),
       },
       { label: "Rename collection", onSelect: () => startRename(collection) },
+      {
+        label: collection.hideFromAll
+          ? "Show in All Bookmarks"
+          : "Hide from All Bookmarks",
+        onSelect: () => void toggleHideFromAll(collection),
+      },
     ];
     // The default collection is renamable but not deletable: every bookmark
     // without a collection resolves to its reserved id.
@@ -444,6 +466,27 @@ export function BookmarksView({
       );
       await onRefresh();
       setRenamingId(null);
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleHideFromAll(collection: BookmarkCollection) {
+    setSaving(true);
+    setError(null);
+    try {
+      await putBookmarkCollection(
+        session,
+        collection.name,
+        collection.parentId,
+        collection.id,
+        collection.raw,
+        collection.color,
+        !collection.hideFromAll,
+      );
+      await onRefresh();
     } catch (err) {
       setError(friendlyError(err));
     } finally {

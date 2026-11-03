@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   ADDRESS_KINDS,
   CHANNEL_KINDS,
@@ -77,7 +77,7 @@ function cloneDraft(source?: ContactDraft): ContactDraft {
 export function ContactForm({
   busy,
   error,
-  addressBooks,
+  addressBooks: allBooks,
   initialDraft,
   submitLabel,
   formId,
@@ -90,6 +90,11 @@ export function ContactForm({
 }: Props) {
   const [draft, setDraft] = useState<ContactDraft>(() => cloneDraft(initialDraft));
   const [validationError, setValidationError] = useState<string | null>(null);
+  const ownBookId = initialDraft?.addressBookId;
+  const addressBooks = useMemo(
+    () => allBooks.filter((book) => book.archived !== true || book.id === ownBookId),
+    [allBooks, ownBookId],
+  );
 
   /*
    * The photo is the one field edited from outside this form: the detail pane

@@ -14,6 +14,7 @@ export function FormSection({
   addDisabled,
   addDisabledReason,
   onRemoveSection,
+  actions,
   className,
   ref,
   children,
@@ -26,6 +27,8 @@ export function FormSection({
   addDisabled?: boolean;
   addDisabledReason?: string;
   onRemoveSection?: () => void;
+  /** Extra header buttons, placed beside Add. */
+  actions?: ReactNode;
   className?: string;
   ref?: Ref<HTMLElement>;
   children?: ReactNode;
@@ -41,6 +44,7 @@ export function FormSection({
           {title}
         </h3>
         <div className="flex shrink-0 items-center gap-1">
+          {actions}
           {onAdd ? (
             <button
               type="button"

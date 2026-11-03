@@ -22,6 +22,8 @@ type Props<T extends Container> = {
   onCreate: (name: string) => Promise<unknown> | void;
   onRename: (id: string, name: string) => Promise<unknown> | void;
   onDelete: (item: T) => void;
+  /** Adds an archive action to every row but the protected one. */
+  onArchive?: (item: T) => void;
   /** Leading mark for a row; the book icon when not given. */
   renderIcon?: (item: T) => ReactNode;
   /**
@@ -86,6 +88,16 @@ function PencilIcon() {
   );
 }
 
+function ArchiveBoxIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 3.5h12v3H2z" />
+      <path d="M3.5 6.5v6h9v-6" />
+      <path d="M6.5 9h3" />
+    </svg>
+  );
+}
+
 function TrashIcon() {
   return (
     <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -115,6 +127,7 @@ export function ContainerList<T extends Container>({
   onCreate,
   onRename,
   onDelete,
+  onArchive,
   renderIcon,
   renderMeta,
   renderUnder,
@@ -178,6 +191,12 @@ export function ContainerList<T extends Container>({
     const actions: MenuItem[] = [
       { label: `Rename ${kindLabel}`, onSelect: () => startRename(book) },
     ];
+    if (book.id !== protectedId && onArchive) {
+      actions.push({
+        label: `Archive ${kindLabel}`,
+        onSelect: () => onArchive(book),
+      });
+    }
     if (book.id !== protectedId) {
       actions.push({
         label: `Delete ${kindLabel}`,
@@ -272,6 +291,17 @@ export function ContainerList<T extends Container>({
                   >
                     <PencilIcon />
                   </button>
+                  {book.id === protectedId || !onArchive ? null : (
+                    <button
+                      type="button"
+                      onClick={() => onArchive(book)}
+                      title={`Archive ${kindLabel}`}
+                      aria-label={`Archive ${book.name}`}
+                      className={`${sidebarRowAction} hover:text-text`}
+                    >
+                      <ArchiveBoxIcon />
+                    </button>
+                  )}
                   {book.id === protectedId ? null : (
                     <button
                       type="button"

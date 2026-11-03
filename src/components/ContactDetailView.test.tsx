@@ -160,7 +160,7 @@ describe("the contact detail pane", () => {
 
     expect(screen.getByRole("button", { name: "Save" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "Close contact details" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Close contact details" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit contact" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete contact" })).toBeNull();
   });

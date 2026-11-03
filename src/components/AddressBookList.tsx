@@ -1,5 +1,8 @@
+import { useState } from "react";
 import { ALL_ADDRESS_BOOKS, DEFAULT_ADDRESS_BOOK_ID } from "../lib/addressBook";
-import { ContainerList } from "./ContainerList";
+import { ContainerList, VisibilityBox } from "./ContainerList";
+import { ContextMenu, useContextMenu } from "./ContextMenu";
+import { focusRing, sidebarCount, sidebarMark, sidebarRowState, sidebarSubgroup } from "../lib/styles";
 import type { AddressBook } from "../lib/types";
 
 type Props = {
@@ -13,6 +16,7 @@ type Props = {
   onCreate: (name: string) => Promise<unknown> | void;
   onRename: (id: string, name: string) => Promise<unknown> | void;
   onDelete: (book: AddressBook) => void;
+  onArchive?: (book: AddressBook) => void;
   /** Given together with `onToggleVisible`, rows tick visibility on and off. */
   isVisible?: (book: AddressBook) => boolean;
   onToggleVisible?: (id: string) => void;
@@ -34,5 +38,93 @@ export function AddressBookList({ books, selectedId, onSelect, ...rest }: Props)
       kindLabel="address book"
       {...rest}
     />
+  );
+}
+
+type ArchivedProps = {
+  books: AddressBook[];
+  isVisible: (book: AddressBook) => boolean;
+  onToggleVisible: (id: string) => void;
+  onRestore: (book: AddressBook) => void;
+  onDelete: (book: AddressBook) => void;
+  readOnly?: boolean;
+};
+
+function ChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m6 3.5 4.5 4.5L6 12.5" />
+    </svg>
+  );
+}
+
+function RestoreIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 3.5h12v3H2z" />
+      <path d="M3.5 6.5v6h9v-6" />
+      <path d="M8 11.5V8m-1.5 1.5L8 8l1.5 1.5" />
+    </svg>
+  );
+}
+
+/** Archived books, collapsed under the live ones as the calendar list has them. */
+export function ArchivedAddressBooks({ books, isVisible, onToggleVisible, onRestore, onDelete, readOnly = false }: ArchivedProps) {
+  const [open, setOpen] = useState(false);
+  const menu = useContextMenu();
+  if (books.length === 0) return null;
+  return (
+    <div className={sidebarSubgroup}>
+      <ContextMenu state={menu.menu} onClose={menu.close} />
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${sidebarRowState(false)} ${focusRing}`}
+      >
+        <span className={sidebarMark}><ChevronIcon open={open} /></span>
+        <span className="min-w-0 flex-1 truncate font-medium">Archived address books</span>
+        <span className={`shrink-0 ${sidebarCount}`}>{books.length}</span>
+      </button>
+      {open ? (
+        <div className="mt-0.5 space-y-0.5">
+          {books.map((book) => {
+            const shown = isVisible(book);
+            return (
+              <div
+                key={book.id}
+                className="group -mx-2 flex items-center rounded-lg pr-2 transition-colors hover:bg-surface/40"
+                onContextMenu={(event) => menu.open(event, readOnly ? [] : [
+                  { label: "Restore address book", onSelect: () => onRestore(book) },
+                  { label: "Delete address book", danger: true, onSelect: () => onDelete(book) },
+                ])}
+              >
+                <button
+                  type="button"
+                  onClick={() => onToggleVisible(book.id)}
+                  aria-pressed={shown}
+                  title={`${shown ? "Hide" : "Show"} ${book.name}`}
+                  className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing}`}
+                >
+                  <span className={sidebarMark}><VisibilityBox shown={shown} /></span>
+                  <span className={`min-w-0 flex-1 truncate font-medium ${shown ? "text-text" : "text-mute"}`}>{book.name}</span>
+                </button>
+                {readOnly ? null : (
+                  <button
+                    type="button"
+                    onClick={() => onRestore(book)}
+                    title="Restore address book"
+                    aria-label={`Restore ${book.name} address book`}
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-accent transition-colors hover:bg-elevated ${focusRing}`}
+                  >
+                    <RestoreIcon />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
   );
 }
