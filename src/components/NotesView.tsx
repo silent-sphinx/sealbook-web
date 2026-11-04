@@ -42,6 +42,7 @@ import {
   sidebarSectionAction,
 } from "../lib/styles";
 import type { Note, NoteAttachment, NoteDraft, Notebook } from "../lib/types";
+import type { OutboxState } from "../lib/outbox";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ContainerList } from "./ContainerList";
 import { NoteTreeList } from "./NoteTreeList";
@@ -68,6 +69,8 @@ type Props = {
   readOnly?: boolean;
   /** Photos need the server, so none are added offline. */
   offline?: boolean;
+  /** The write queue, so a note's footer can say whether its write has left this device. */
+  outbox?: OutboxState;
   /** Shared with the rest of the shell; the header owns the control. */
   sidebar: Sidebar;
 };
@@ -126,7 +129,7 @@ function fileNameFor(title: string): string {
   return `${base.slice(0, 60)}.md`;
 }
 
-export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved, readOnly, offline = false, sidebar }: Props) {
+export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved, readOnly, offline = false, outbox, sidebar }: Props) {
   const readOnlyMode = readOnly === true;
   const [scope, setScope] = useState<string>(DEFAULT_NOTEBOOK_ID);
   const [search, setSearch] = useState("");
@@ -181,6 +184,16 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
       setScope(notebooks[0].id);
     }
   }, [notebooks, scope]);
+
+  const refusal = outbox?.failed.find((entry) => entry.write.id === selectedId)?.reason;
+  const saveLabel =
+    saveState !== "clean"
+      ? SAVE_LABEL[saveState]
+      : refusal
+        ? `Not saved: ${refusal}`
+        : selectedId && outbox?.queued.includes(selectedId)
+          ? "Saved on this device"
+          : SAVE_LABEL.clean;
 
   // An edit that has not reached the vault must survive a reload attempt, and a
   // write cannot be awaited from `beforeunload`.
@@ -912,20 +925,20 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                 ) : (
                   <>
                     <span
-                      className={`flex shrink-0 items-center gap-1.5 ${saveState === "failed" ? "text-danger" : ""}`}
+                      className={`flex shrink-0 items-center gap-1.5 ${saveLabel.startsWith("Not saved") ? "text-danger" : ""}`}
                       aria-live="polite"
                     >
                       <span
                         aria-hidden="true"
                         className={`h-1.5 w-1.5 rounded-full ${
-                          saveState === "failed"
+                          saveLabel.startsWith("Not saved")
                             ? "bg-danger"
                             : saveState === "clean"
                               ? "bg-note-new"
                               : "bg-note"
                         }`}
                       />
-                      {SAVE_LABEL[saveState]}
+                      {saveLabel}
                     </span>
                     <button
                       type="button"

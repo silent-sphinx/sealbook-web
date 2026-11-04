@@ -19,6 +19,7 @@ import "../test/dom";
 import { DEFAULT_NOTEBOOK_ID, serializeNote } from "../lib/note";
 import { useSidebar } from "./SidebarDrawer";
 import type { Session } from "../lib/client";
+import type { OutboxState } from "../lib/outbox";
 import type { Note, NoteAttachment, NoteDraft, Notebook } from "../lib/types";
 
 /** The faked vault, read back by `onRefresh` as the server's copy would be. */
@@ -127,7 +128,9 @@ const DEFAULT_BOOK: Notebook = {
 function Harness({ readOnly }: { readOnly?: boolean }) {
   const [vault, setVault] = useState({ notes, notebooks });
   const sidebar = useSidebar();
+  const [outbox, setOutbox] = useState<OutboxState>(IDLE_OUTBOX);
   syncVault = (next) => setVault((current) => ({ ...current, notes: next }));
+  setOutboxState = setOutbox;
   return (
     <NotesView
       session={SESSION}
@@ -135,6 +138,7 @@ function Harness({ readOnly }: { readOnly?: boolean }) {
       notebooks={vault.notebooks}
       busy={false}
       readOnly={readOnly}
+      outbox={outbox}
       sidebar={sidebar}
       onRefresh={async () => {
         refreshes += 1;
@@ -152,6 +156,8 @@ function Harness({ readOnly }: { readOnly?: boolean }) {
   );
 }
 
+const IDLE_OUTBOX: OutboxState = { pending: 0, queued: [], failed: [], signIn: false };
+let setOutboxState: (state: OutboxState) => void = () => {};
 let refreshes = 0;
 let syncVault: (notes: Note[]) => void = () => {};
 
@@ -565,6 +571,34 @@ describe("NotesView, the editor", () => {
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]!.draft.title).toBe("Shopping list");
     expect(titleField().value).toBe("Recipes");
+  });
+
+  it("says a note is only saved on this device while its write is queued", async () => {
+    mount({ notes: [aNote({ id: "a", title: "Trip" })] });
+    await openNote("Trip");
+    fireEvent.change(titleField(), { target: { value: "Trips" } });
+    await screen.findByText("Saved");
+
+    act(() => setOutboxState({ ...IDLE_OUTBOX, pending: 1, queued: ["a"] }));
+    expect(screen.getByText("Saved on this device")).toBeTruthy();
+
+    act(() => setOutboxState(IDLE_OUTBOX));
+    expect(screen.getByText("Saved")).toBeTruthy();
+  });
+
+  it("ignores a queued write for another note", async () => {
+    mount({ notes: [aNote({ id: "a", title: "Trip" })] });
+    await openNote("Trip");
+    act(() => setOutboxState({ ...IDLE_OUTBOX, pending: 1, queued: ["b"] }));
+    expect(screen.getByText("Saved")).toBeTruthy();
+  });
+
+  it("shows the refusal when the outbox moved this note's write to failed", async () => {
+    mount({ notes: [aNote({ id: "a", title: "Trip" })] });
+    await openNote("Trip");
+    const write = { id: "a", content_type: "", tombstone: false, payload: "{}", queued_at: "" };
+    act(() => setOutboxState({ ...IDLE_OUTBOX, failed: [{ write, reason: "the server refused it" }] }));
+    expect(screen.getByText("Not saved: the server refused it")).toBeTruthy();
   });
 
   it("drops a photo entry the body no longer shows when the editor is closed", async () => {

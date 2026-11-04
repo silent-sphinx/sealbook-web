@@ -19,6 +19,8 @@ import {
 
 export type OutboxState = {
   pending: number;
+  /** Ids of the objects with a write waiting in the queue. */
+  queued: string[];
   failed: Outbox["failed"];
   /** Set once a flush is refused for an expired session. */
   signIn: boolean;
@@ -66,7 +68,7 @@ export function flushLock(collectionId: string): string {
 }
 
 function state(): OutboxState {
-  return { pending: outbox.writes.length, failed: outbox.failed, signIn };
+  return { pending: outbox.writes.length, queued: outbox.writes.map((write) => write.id), failed: outbox.failed, signIn };
 }
 
 function notify(): void {

@@ -244,7 +244,7 @@ export default function App() {
   const [activeTabState, setActiveTabState] = useState<MainTab>(loadLastTab);
   const [timezone, setTimezoneState] = useState(loadTimezone);
   const [online, setOnline] = useState(() => navigator.onLine);
-  const [outboxState, setOutboxState] = useState<OutboxState>({ pending: 0, failed: [], signIn: false });
+  const [outboxState, setOutboxState] = useState<OutboxState>({ pending: 0, queued: [], failed: [], signIn: false });
   const [notices, setNotices] = useState<{ id: number; text: string }[]>([]);
   const [reviewingOutbox, setReviewingOutbox] = useState(false);
   const [loadingVault, setLoadingVault] = useState(false);
@@ -2018,6 +2018,7 @@ export default function App() {
             onRefresh={() => refresh(session)}
             onSaved={applySavedNote}
             offline={isOffline}
+            outbox={outboxState}
             sidebar={sidebar}
           />
         </div>
