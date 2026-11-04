@@ -51,7 +51,7 @@ vi.mock("./lib/importExport", async () => {
   return { ...actual, triggerDownload };
 });
 
-import { SettingsView } from "./components/SettingsView";
+import { SettingsHarness } from "./test/settings";
 
 const WORK_ID = "calendar-work";
 
@@ -85,7 +85,7 @@ const onRefresh = vi.fn<() => Promise<void>>();
 
 function mount(events: CalendarEvent[] = []) {
   const view = render(
-    <SettingsView
+    <SettingsHarness
       session={session}
       contacts={[]}
       addressBooks={[]}
@@ -205,8 +205,8 @@ describe("importing into an existing calendar", () => {
     await pick(input, "work.ics", ics({ uid: "a", summary: "Standup" }, { uid: "b", summary: "Retro" }));
     await screen.findByText(/2 events found/u);
 
-    fireEvent.change(screen.getByLabelText("Target Calendar"), { target: { value: WORK_ID } });
-    fireEvent.click(screen.getByRole("button", { name: "Import 2 Events" }));
+    fireEvent.change(screen.getByLabelText("Target calendar"), { target: { value: WORK_ID } });
+    fireEvent.click(screen.getByRole("button", { name: "Import 2 events" }));
 
     await waitFor(() => expect(putCalendarEvents).toHaveBeenCalledTimes(1));
     const batch = putCalendarEvents.mock.calls[0]![1];
@@ -224,14 +224,14 @@ describe("importing into an existing calendar", () => {
     await pick(input, "work.ics", ics({ uid: "a", summary: "Standup" }));
     await screen.findByText(/1 event found/u);
 
-    fireEvent.click(screen.getByRole("button", { name: "Import 1 Event" }));
+    fireEvent.click(screen.getByRole("button", { name: "Import 1 event" }));
 
     expect(await screen.findByText(/Import failed: Too many tries\. Wait a moment\./u)).toBeDefined();
     // Nothing was written, so there is nothing to take back out.
     expect(deleteCalendarEvent).not.toHaveBeenCalled();
     expect(deleteCalendar).not.toHaveBeenCalled();
     // The file stays picked, so a retry does not need choosing again.
-    expect(screen.getByRole("button", { name: "Import 1 Event" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Import 1 event" })).toBeDefined();
   });
 });
 
@@ -243,9 +243,9 @@ describe("importing into a calendar created for the file", () => {
     await pick(input, "trips.ics", ics({ uid: "a", summary: "Flight" }));
     await screen.findByText(/1 event found/u);
 
-    fireEvent.click(screen.getByRole("button", { name: "+ Create new calendar" }));
-    fireEvent.change(screen.getByLabelText("Target Calendar"), { target: { value: "Travel" } });
-    fireEvent.click(screen.getByRole("button", { name: "Import 1 Event" }));
+    fireEvent.click(screen.getByRole("button", { name: "New calendar" }));
+    fireEvent.change(screen.getByLabelText("Target calendar"), { target: { value: "Travel" } });
+    fireEvent.click(screen.getByRole("button", { name: "Import 1 event" }));
 
     await waitFor(() => expect(putCalendarEvents).toHaveBeenCalledTimes(1));
     expect(putCalendar).toHaveBeenCalledWith(session, { name: "Travel", color: DEFAULT_CALENDAR_COLOR });
@@ -264,9 +264,9 @@ describe("importing into a calendar created for the file", () => {
     await pick(input, "many.ics", ics(...many));
     await screen.findByText(/300 events found/u);
 
-    fireEvent.click(screen.getByRole("button", { name: "+ Create new calendar" }));
-    fireEvent.change(screen.getByLabelText("Target Calendar"), { target: { value: "Travel" } });
-    fireEvent.click(screen.getByRole("button", { name: "Import 300 Events" }));
+    fireEvent.click(screen.getByRole("button", { name: "New calendar" }));
+    fireEvent.change(screen.getByLabelText("Target calendar"), { target: { value: "Travel" } });
+    fireEvent.click(screen.getByRole("button", { name: "Import 300 events" }));
 
     await waitFor(() => expect(screen.getByText(/Import failed/u)).toBeDefined());
     // The first batch did land, so a half-imported calendar is what the
@@ -281,8 +281,8 @@ describe("exporting", () => {
   it("writes the chosen calendar's events as ICS", async () => {
     mount([anEvent("event-1", "Standup", WORK_ID), anEvent("event-2", "Dentist", DEFAULT_CALENDAR_ID)]);
 
-    fireEvent.change(screen.getByLabelText("Source Calendar"), { target: { value: WORK_ID } });
-    fireEvent.click(screen.getByRole("button", { name: "Export 1 Event" }));
+    fireEvent.change(screen.getByLabelText("Source calendar"), { target: { value: WORK_ID } });
+    fireEvent.click(screen.getByRole("button", { name: "Export 1 event" }));
 
     await waitFor(() => expect(triggerDownload).toHaveBeenCalledTimes(1));
     const [filename, mime, body] = triggerDownload.mock.calls[0]!;
@@ -295,8 +295,8 @@ describe("exporting", () => {
   it("writes every calendar's events as JSON when asked for one", async () => {
     mount([anEvent("event-1", "Standup", WORK_ID), anEvent("event-2", "Dentist", DEFAULT_CALENDAR_ID)]);
 
-    fireEvent.change(screen.getByLabelText("Export Format"), { target: { value: "json" } });
-    fireEvent.click(screen.getByRole("button", { name: "Export 2 Events" }));
+    fireEvent.change(screen.getByLabelText("Export format"), { target: { value: "json" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export 2 events" }));
 
     await waitFor(() => expect(triggerDownload).toHaveBeenCalledTimes(1));
     const [filename, mime, body] = triggerDownload.mock.calls[0]!;
@@ -309,9 +309,9 @@ describe("exporting", () => {
   it("offers no export when the calendar chosen is empty", () => {
     mount([anEvent("event-1", "Standup", WORK_ID)]);
 
-    fireEvent.change(screen.getByLabelText("Source Calendar"), { target: { value: DEFAULT_CALENDAR_ID } });
+    fireEvent.change(screen.getByLabelText("Source calendar"), { target: { value: DEFAULT_CALENDAR_ID } });
 
-    expect(screen.getByRole("button", { name: "Export 0 Events" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Export 0 events" }).hasAttribute("disabled")).toBe(true);
     expect(triggerDownload).not.toHaveBeenCalled();
   });
 });

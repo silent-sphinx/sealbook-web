@@ -15,7 +15,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "./test/dom";
 import { aDeviceState } from "./test/vault";
 import { DEFAULT_ACCOUNT_SETTINGS, withFeature } from "./lib/accountSettings";
@@ -27,7 +27,8 @@ vi.mock("./lib/client", async () => {
   return { ...actual, listDevices: async () => [] };
 });
 
-import { SettingsView, type SettingsSection } from "./components/SettingsView";
+import type { SettingsSection } from "./components/SettingsView";
+import { SettingsHarness } from "./test/settings";
 
 const session = {
   state: aDeviceState({ username: "ada" }),
@@ -46,7 +47,7 @@ const onSaveAccountSettings = vi.fn<(settings: AccountSettings) => Promise<void>
  */
 function mount(settings: AccountSettings, initialSection?: SettingsSection) {
   render(
-    <SettingsView
+    <SettingsHarness
       session={session}
       contacts={[]}
       addressBooks={[]}
@@ -73,7 +74,7 @@ function mount(settings: AccountSettings, initialSection?: SettingsSection) {
 }
 
 function section(name: string) {
-  fireEvent.click(screen.getByRole("button", { name: new RegExp(name, "u") }));
+  fireEvent.click(screen.getByRole("button", { name }));
 }
 
 const onlyNotes = withFeature(
@@ -94,7 +95,7 @@ beforeEach(() => {
 describe("turning a feature off", () => {
   it("writes the whole settings object with that one flag flipped", async () => {
     mount(DEFAULT_ACCOUNT_SETTINGS);
-    section("Feature settings");
+    section("Features");
 
     fireEvent.click(screen.getByRole("switch", { name: "Bookmarks enabled" }));
 
@@ -112,7 +113,7 @@ describe("turning a feature off", () => {
   it("leaves the switch where it was when the write fails", async () => {
     onSaveAccountSettings.mockRejectedValue(new Error("unauthorized"));
     mount(DEFAULT_ACCOUNT_SETTINGS);
-    section("Feature settings");
+    section("Features");
 
     fireEvent.click(screen.getByRole("switch", { name: "Notes enabled" }));
 
@@ -123,7 +124,7 @@ describe("turning a feature off", () => {
 
   it("will not offer to turn off the last one left", () => {
     mount(onlyNotes);
-    section("Feature settings");
+    section("Features");
 
     const last = screen.getByRole("switch", { name: "Notes enabled" });
     expect(last.getAttribute("aria-checked")).toBe("true");
@@ -140,12 +141,14 @@ describe("the settings a disabled feature would own", () => {
     mount(onlyNotes);
 
     const nav = screen.getByRole("navigation", { name: "Settings sections" });
-    expect(nav.textContent).toContain("Notes settings");
-    expect(nav.textContent).not.toContain("Contacts settings");
-    expect(nav.textContent).not.toContain("Calendar settings");
+    const rows = within(nav).getAllByRole("button").map((row) => row.textContent);
+    expect(rows).toContain("Notes");
+    expect(rows).not.toContain("Contacts");
+    expect(rows).not.toContain("Calendar");
     // Account, features and appearance are not a feature's own page, so they stay.
-    expect(nav.textContent).toContain("Account settings");
-    expect(nav.textContent).toContain("Feature settings");
+    expect(rows).toContain("Username");
+    expect(rows).toContain("Features");
+    expect(rows).toContain("Appearance");
   });
 
   it("fall back to the account page when asked for directly", () => {
@@ -153,14 +156,14 @@ describe("the settings a disabled feature would own", () => {
     // be one the account has since turned off.
     mount(onlyNotes, "calendar");
 
-    expect(screen.getByRole("heading", { name: "Account settings", level: 2 })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Username", level: 1 })).toBeDefined();
     expect(screen.queryByText("Calendar timezone")).toBeNull();
   });
 
   it("open normally while the feature is on", () => {
     mount(DEFAULT_ACCOUNT_SETTINGS, "calendar");
 
-    expect(screen.getByRole("heading", { name: "Calendar settings", level: 2 })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Calendar", level: 1 })).toBeDefined();
     expect(screen.getByText("Calendar timezone")).toBeDefined();
   });
 });
@@ -190,7 +193,7 @@ describe("the accent", () => {
 describe("the contact detail level", () => {
   it("is saved with the rest of the settings when it changes", async () => {
     mount(DEFAULT_ACCOUNT_SETTINGS);
-    section("Contacts settings");
+    section("Contacts");
 
     fireEvent.click(screen.getByRole("radio", { name: /Detailed/u }));
 
@@ -205,7 +208,7 @@ describe("the contact detail level", () => {
 
   it("writes nothing when the mode already in use is picked", () => {
     mount(DEFAULT_ACCOUNT_SETTINGS);
-    section("Contacts settings");
+    section("Contacts");
 
     fireEvent.click(screen.getByRole("radio", { name: /Basic/u }));
 

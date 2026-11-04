@@ -115,7 +115,7 @@ describe("importing tasks", () => {
   it("can create the list it imports into", async () => {
     mount();
     choose(file);
-    fireEvent.click(await screen.findByRole("button", { name: "+ Create new list" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New list" }));
     const importButton = screen.getByRole("button", { name: "Import 2 tasks" }) as HTMLButtonElement;
     expect(importButton.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Target list"), { target: { value: "Imported" } });

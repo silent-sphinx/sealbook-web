@@ -51,7 +51,7 @@ vi.mock("./lib/storage", async () => {
   return { ...actual, clearDevice };
 });
 
-import { SettingsView } from "./components/SettingsView";
+import { SettingsHarness } from "./test/settings";
 
 const session = {
   state: aDeviceState({ username: "ada", device_id: THIS_DEVICE }),
@@ -79,7 +79,7 @@ const handlers = {
 
 function mount(page: string) {
   render(
-    <SettingsView
+    <SettingsHarness
       session={session}
       contacts={[]}
       addressBooks={[]}
@@ -102,12 +102,12 @@ function mount(page: string) {
       onSaveAccountSettings={async () => undefined}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: new RegExp(page, "u") }));
+  fireEvent.click(screen.getByRole("button", { name: page }));
 }
 
 /** The one message the page under test shows, or null while it shows none. */
 function message(): string | null {
-  return screen.queryByRole("alert")?.textContent ?? null;
+  return (screen.queryByRole("alert") ?? screen.queryByRole("status"))?.textContent ?? null;
 }
 
 beforeEach(() => {
@@ -119,13 +119,13 @@ beforeEach(() => {
 
 describe("changing the username", () => {
   function fill(name: string, password: string) {
-    fireEvent.change(screen.getByLabelText("New Username"), { target: { value: name } });
-    fireEvent.change(screen.getByLabelText("Current Password (to confirm)"), { target: { value: password } });
-    fireEvent.click(screen.getByRole("button", { name: "Update Username" }));
+    fireEvent.change(screen.getByLabelText("New username"), { target: { value: name } });
+    fireEvent.change(screen.getByLabelText("Current password"), { target: { value: password } });
+    fireEvent.click(screen.getByRole("button", { name: "Update username" }));
   }
 
   it("refuses the name the account already has", async () => {
-    mount("Update Your Username");
+    mount("Username");
     fill("ada", "correct horse battery");
 
     expect(await screen.findByText("New username cannot be identical to current username.")).toBeDefined();
@@ -133,7 +133,7 @@ describe("changing the username", () => {
   });
 
   it("refuses a name outside the length the server accepts", async () => {
-    mount("Update Your Username");
+    mount("Username");
     fill("ad", "correct horse battery");
 
     expect(await screen.findByText("Username must be between 3 and 64 characters.")).toBeDefined();
@@ -145,7 +145,7 @@ describe("changing the username", () => {
 
   it("persists the device under the password that was confirmed", async () => {
     changeUsername.mockResolvedValue(rotated);
-    mount("Update Your Username");
+    mount("Username");
     fill("ada.lovelace", "correct horse battery");
 
     await waitFor(() => expect(changeUsername).toHaveBeenCalledWith(session, "ada.lovelace", "correct horse battery"));
@@ -153,13 +153,13 @@ describe("changing the username", () => {
     expect(handlers.onSessionUpdate).toHaveBeenCalledWith(rotated);
     expect(await screen.findByText('Username successfully updated to "ada.lovelace".')).toBeDefined();
     // Cleared, so the password is not left sitting in a live input.
-    expect((screen.getByLabelText("Current Password (to confirm)") as HTMLInputElement).value).toBe("");
-    expect((screen.getByLabelText("New Username") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Current password") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("New username") as HTMLInputElement).value).toBe("");
   });
 
   it("keeps the session as it was when the server refuses", async () => {
     changeUsername.mockRejectedValue(new Error("username taken"));
-    mount("Update Your Username");
+    mount("Username");
     fill("grace", "correct horse battery");
 
     // Reported through `friendlyError`, so the server's wording never reaches
@@ -172,14 +172,14 @@ describe("changing the username", () => {
 
 describe("changing the password", () => {
   function fill(current: string, next: string, confirm: string) {
-    fireEvent.change(screen.getByLabelText("Current Password"), { target: { value: current } });
-    fireEvent.change(screen.getByLabelText("New Password"), { target: { value: next } });
-    fireEvent.change(screen.getByLabelText("Confirm New Password"), { target: { value: confirm } });
-    fireEvent.click(screen.getByRole("button", { name: "Change Password" }));
+    fireEvent.change(screen.getByLabelText("Current password"), { target: { value: current } });
+    fireEvent.change(screen.getByLabelText("New password"), { target: { value: next } });
+    fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: confirm } });
+    fireEvent.click(screen.getByRole("button", { name: "Change password" }));
   }
 
   it("refuses one shorter than the minimum", async () => {
-    mount("Change Your Password");
+    mount("Password");
     fill("correct horse battery", "short", "short");
 
     expect(await screen.findByText("Password must be at least 8 characters long.")).toBeDefined();
@@ -187,7 +187,7 @@ describe("changing the password", () => {
   });
 
   it("refuses one the confirmation does not match", async () => {
-    mount("Change Your Password");
+    mount("Password");
     fill("correct horse battery", "a new password", "a new pasword");
 
     expect(await screen.findByText("New passwords do not match.")).toBeDefined();
@@ -196,7 +196,7 @@ describe("changing the password", () => {
 
   it("re-saves this device under the new password, not the old one", async () => {
     changePassword.mockResolvedValue(rotated);
-    mount("Change Your Password");
+    mount("Password");
     fill("correct horse battery", "a new password", "a new password");
 
     await waitFor(() =>
@@ -206,7 +206,7 @@ describe("changing the password", () => {
     expect(handlers.onPersistSession).toHaveBeenCalledWith(rotated, "a new password");
     expect(handlers.onSessionUpdate).toHaveBeenCalledWith(rotated);
     expect(await screen.findByText(/Password updated successfully/u)).toBeDefined();
-    expect((screen.getByLabelText("New Password") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("New password") as HTMLInputElement).value).toBe("");
   });
 });
 
@@ -225,7 +225,7 @@ describe("revoking another device", () => {
   }
 
   it("offers no revoke for the device being used", async () => {
-    mount("Manage Paired Devices");
+    mount("Devices");
 
     expect(await screen.findByText("This device")).toBeDefined();
     // One other device, so exactly one button: this one cannot revoke itself.
@@ -233,7 +233,7 @@ describe("revoking another device", () => {
   });
 
   it("asks for the password before it will rotate", async () => {
-    mount("Manage Paired Devices");
+    mount("Devices");
     fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
     fireEvent.click(within(screen.getByRole("dialog", { name: "Revoke device" })).getByRole("button", { name: "Revoke device" }));
 
@@ -243,7 +243,7 @@ describe("revoking another device", () => {
 
   it("rotates the vault key away from the revoked device", async () => {
     revokeDevice.mockResolvedValue({ session: rotated, phrase: aPhrase() });
-    mount("Manage Paired Devices");
+    mount("Devices");
 
     await revoke("correct horse battery");
 
@@ -259,7 +259,7 @@ describe("revoking another device", () => {
 
   it("shows the replacement phrase on the devices page the revoke happened on", async () => {
     revokeDevice.mockResolvedValue({ session: rotated, phrase: aPhrase() });
-    mount("Manage Paired Devices");
+    mount("Devices");
 
     await revoke("correct horse battery");
 
@@ -272,9 +272,9 @@ describe("revoking another device", () => {
 
 describe("generating a new recovery phrase", () => {
   function openDialog() {
-    mount("Generate New Recovery Codes");
-    fireEvent.click(screen.getByRole("button", { name: "Generate New Codes" }));
-    return screen.getByRole("dialog", { name: "Generate New Recovery Words?" });
+    mount("Recovery phrase");
+    fireEvent.click(screen.getByRole("button", { name: "Generate new phrase…" }));
+    return screen.getByRole("dialog", { name: "Generate a new recovery phrase?" });
   }
 
   it("will not rotate until the password is given", () => {
@@ -282,7 +282,7 @@ describe("generating a new recovery phrase", () => {
 
     // The rotation re-wraps the vault key, so there is nothing to do without it.
     expect(
-      within(dialog).getByRole("button", { name: "Yes, Generate New Codes" }).hasAttribute("disabled"),
+      within(dialog).getByRole("button", { name: "Generate new phrase" }).hasAttribute("disabled"),
     ).toBe(true);
     expect(rotatePhrase).not.toHaveBeenCalled();
   });
@@ -295,7 +295,7 @@ describe("generating a new recovery phrase", () => {
     fireEvent.change(within(dialog).getByPlaceholderText("Current password"), {
       target: { value: "correct horse battery" },
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Yes, Generate New Codes" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Generate new phrase" }));
 
     await waitFor(() =>
       expect(rotatePhrase).toHaveBeenCalledWith(session, "correct horse battery", expect.any(Function)),
@@ -309,7 +309,7 @@ describe("generating a new recovery phrase", () => {
 
 describe("signing out", () => {
   it("warns harder when nothing else is signed in", async () => {
-    mount("Sign Out");
+    mount("Sign out");
 
     expect(
       await screen.findByText(/This is the only device signed in to ada\./u),
@@ -318,7 +318,7 @@ describe("signing out", () => {
 
   it("names the way back in when another device is signed in", async () => {
     listDevices.mockResolvedValue([aDeviceSummary(THIS_DEVICE), aDeviceSummary(OTHER_DEVICE)]);
-    mount("Sign Out");
+    mount("Sign out");
 
     expect(
       await screen.findByText(/another device that is still signed in, or your 24 recovery words/u),
@@ -326,7 +326,7 @@ describe("signing out", () => {
   });
 
   it("signs out only once the dialog is confirmed", async () => {
-    mount("Sign Out");
+    mount("Sign out");
 
     fireEvent.click(screen.getByRole("button", { name: "Sign out…" }));
     const dialog = screen.getByRole("dialog", { name: "Sign out" });
@@ -343,13 +343,13 @@ describe("signing out", () => {
 
 describe("deleting the account", () => {
   function openDialog() {
-    mount("Delete Account");
-    fireEvent.click(screen.getByRole("button", { name: "Delete Account…" }));
+    mount("Delete account");
+    fireEvent.click(screen.getByRole("button", { name: "Delete account…" }));
   }
 
   it("keeps the button disabled until the username is typed exactly", () => {
     openDialog();
-    const confirm = screen.getByRole("button", { name: "Permanently Delete Account" });
+    const confirm = screen.getByRole("button", { name: "Delete account permanently" });
     const typed = screen.getByPlaceholderText("ada");
 
     fireEvent.change(screen.getByPlaceholderText("Current password"), {
@@ -373,7 +373,7 @@ describe("deleting the account", () => {
     fireEvent.change(screen.getByPlaceholderText("Current password"), {
       target: { value: "correct horse battery" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Permanently Delete Account" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete account permanently" }));
 
     await waitFor(() => expect(handlers.onAccountDeleted).toHaveBeenCalledTimes(1));
     expect(deleteAccount).toHaveBeenCalledWith(session, "correct horse battery");
@@ -386,7 +386,7 @@ describe("deleting the account", () => {
 
     fireEvent.change(screen.getByPlaceholderText("ada"), { target: { value: "ada" } });
     fireEvent.change(screen.getByPlaceholderText("Current password"), { target: { value: "wrong" } });
-    fireEvent.click(screen.getByRole("button", { name: "Permanently Delete Account" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete account permanently" }));
 
     expect(await screen.findByText("Wrong password.")).toBeDefined();
     // Clearing them on a failed delete would lock the account out of a vault

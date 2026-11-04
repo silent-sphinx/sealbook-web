@@ -21,6 +21,9 @@ export const btnSecondary =
   `${btnBase} border border-line bg-surface px-4 py-2 text-mute font-medium hover:border-line-light hover:text-text`;
 export const btnDanger =
   `${btnBase} bg-danger px-4 py-2 text-bg hover:brightness-110`;
+export const fieldLabel = "block text-xs font-medium text-text";
+export const textAction =
+  `rounded text-[11px] font-medium text-accent transition-colors hover:underline disabled:opacity-50 ${focusRing}`;
 export const ghost =
   `text-sm text-mute transition-colors duration-150 hover:text-accent ${focusRing}`;
 export const addLink = `${ghost} justify-self-start`;

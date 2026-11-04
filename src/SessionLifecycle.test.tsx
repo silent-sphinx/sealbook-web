@@ -17,7 +17,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "./test/dom";
 import {
   aContact,
@@ -131,7 +131,7 @@ describe("an offline vault", () => {
     expect(screen.queryByRole("button", { name: "Add device" })).toBeNull();
     expect(screen.getByRole("button", { name: "New contact" })).toBeDefined();
     fireEvent.click(screen.getByRole("button", { name: /Settings/u }));
-    fireEvent.click(await screen.findByRole("button", { name: /Sign Out/u }));
+    fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
     expect(screen.getByRole("button", { name: "Sign out…" })).toBeDefined();
   });
 
@@ -196,10 +196,11 @@ describe("going offline with the vault open", () => {
 
     goOffline();
     fireEvent.click(screen.getByRole("button", { name: /Settings/u }));
-    fireEvent.click(await screen.findByRole("button", { name: /Devices/u }));
+    fireEvent.click(await screen.findByRole("button", { name: "Devices" }));
     await screen.findByText(/needs a connection to the server/u);
 
-    fireEvent.click(screen.getByRole("button", { name: "Contacts" }));
+    const tabs = screen.getByRole("navigation", { name: "Main Navigation" });
+    fireEvent.click(within(tabs).getByRole("button", { name: "Contacts" }));
     expect(await screen.findByText("Grace Hopper")).toBeDefined();
   });
 });
@@ -254,9 +255,11 @@ describe("signing out", () => {
     await openOnline();
 
     fireEvent.click(screen.getByRole("button", { name: /Settings/u }));
-    fireEvent.click(await screen.findByRole("button", { name: /Sign Out/u }));
+    fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
     fireEvent.click(screen.getByRole("button", { name: "Sign out…" }));
-    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Sign out" })).getByRole("button", { name: "Sign out" }),
+    );
 
     // Not a lock: the stored device is gone, so the lock screen has nothing to
     // ask for and the app is back to setting one up.

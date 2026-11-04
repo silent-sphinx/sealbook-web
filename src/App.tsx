@@ -1989,7 +1989,7 @@ export default function App() {
       </div>
 
       {activeTab === "settings" ? (
-        <main className={`${shell} px-4 pb-24 pt-6 sm:px-5`}>
+        <div>
           <SettingsView
             session={session}
             contacts={contacts}
@@ -2021,8 +2021,9 @@ export default function App() {
             accountSettings={accountSettings}
             onSaveAccountSettings={onSaveAccountSettings}
             initialSection={settingsSection ?? undefined}
+            sidebar={sidebar}
           />
-        </main>
+        </div>
       ) : activeTab === "calendar" ? (
         <div>
           <CalendarView session={session} calendars={calendars} events={calendarEvents} contacts={contacts} busy={busy} timezone={timezone} onRefresh={() => refresh(session)} sidebar={sidebar} dueTasks={isFeatureEnabled(accountSettings, "tasks") ? tasks : undefined} onOpenTask={(id) => guardEditing(() => { setTaskFocusId(id); setActiveTab("tasks"); })} />
