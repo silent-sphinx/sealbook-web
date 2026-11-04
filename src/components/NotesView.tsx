@@ -23,7 +23,9 @@ import {
   emptyNoteDraft,
   noteDraftWritable,
   payloadFitsObjectLimit,
-  noteMatches,
+  buildSearchIndex,
+  indexMatches,
+  notebookNameById,
   notePreview,
   noteWordCount,
   parseNote,
@@ -207,11 +209,13 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
 
   const tree = useMemo(() => buildNoteTree(notes, scope), [notes, scope]);
 
-  /** Search flattens the tree, since a hit may be anywhere within it. */
-  const flatMatches = useMemo(() => {
-    const scoped = notes.filter((note) => resolveNotebookId(note.notebookId) === scope);
-    return sortNotes(scoped.filter((note) => noteMatches(note, deferredSearch)));
-  }, [notes, scope, deferredSearch]);
+  const searchIndex = useMemo(() => buildSearchIndex(notes), [notes]);
+
+  /** Search spans every notebook and flattens the tree, since a hit may be anywhere. */
+  const flatMatches = useMemo(
+    () => sortNotes(notes.filter((note) => indexMatches(searchIndex.get(note.id), deferredSearch))),
+    [notes, searchIndex, deferredSearch],
+  );
 
   const countedBody = useDeferredValue(draft?.body ?? "");
   const words = useMemo(() => noteWordCount(countedBody), [countedBody]);
@@ -610,6 +614,9 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                 </span>
                 <span className="w-full truncate text-[11px] text-mute">
                   {notePreview(note.body, 60) || "Empty note"}
+                </span>
+                <span className="w-full truncate text-[10px] text-mute">
+                  {notebookNameById(notebooks, note.notebookId)}
                 </span>
               </button>
             </li>

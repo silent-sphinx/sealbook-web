@@ -363,6 +363,18 @@ describe("NotesView, finding a note", () => {
     expect(screen.queryByText("Shopping")).toBeNull();
   });
 
+  it("searches every notebook and names the one a hit is in", async () => {
+    mount({
+      notebooks: [{ id: "work", name: "Work", raw: "{}" }],
+      notes: [aNote({ id: "w", title: "Standup", notebookId: "work", body: "hinges" })],
+    });
+
+    fireEvent.change(screen.getByLabelText("Search notes"), { target: { value: "hinges" } });
+
+    await waitFor(() => expect(screen.getByText("Standup")).not.toBeNull());
+    expect(screen.getAllByText("Work").length).toBeGreaterThan(0);
+  });
+
   it("names the search that matched nothing", async () => {
     mount({ notes: [aNote({ id: "a", title: "Shopping" })] });
 

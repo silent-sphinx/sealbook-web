@@ -225,6 +225,25 @@ export function emptyNoteDraft(notebookId: string): NoteDraft {
   return { title: "", body: "", notebookId: resolveNotebookId(notebookId) };
 }
 
+export type SearchEntry = { title: string; body: string };
+
+/** Lowercased title and body per note, so a keystroke does not lowercase them all again. */
+export function buildSearchIndex(notes: Note[]): Map<string, SearchEntry> {
+  return new Map(
+    notes.map((note) => [
+      note.id,
+      { title: note.title.toLowerCase(), body: note.body.toLowerCase() },
+    ]),
+  );
+}
+
+export function indexMatches(entry: SearchEntry | undefined, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  if (!entry) return false;
+  return entry.title.includes(needle) || entry.body.includes(needle);
+}
+
 export function noteMatches(note: Note, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;

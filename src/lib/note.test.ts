@@ -5,6 +5,8 @@ import {
   DEFAULT_NOTEBOOK_NAME,
   emptyNoteDraft,
   noteMatches,
+  buildSearchIndex,
+  indexMatches,
   notePreview,
   noteWordCount,
   notebookNameById,
@@ -198,5 +200,15 @@ describe("notebookTone", () => {
       Array.from({ length: 40 }, (_, index) => notebookTone(`notebook-${index}`)),
     );
     expect(seen.size).toBeGreaterThan(3);
+  });
+});
+
+describe("indexMatches", () => {
+  it("agrees with noteMatches", () => {
+    const subject = parseNote("n", serializeNote({ title: "Weekly Plan", body: "Okapi", notebookId: "d" }));
+    const index = buildSearchIndex([subject]).get("n");
+    for (const query of ["  ", "WEEKLY", "okapi", "quetzal"]) {
+      expect(indexMatches(index, query)).toBe(noteMatches(subject, query));
+    }
   });
 });
