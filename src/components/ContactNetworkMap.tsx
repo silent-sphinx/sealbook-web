@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import {
   buildContactNetwork,
   NetworkSimulation,
+  nodeRadius,
   PRESETTLE_ITERATIONS,
   type ContactNetworkEdge,
   type NetworkPoint,
@@ -12,8 +13,6 @@ import { focusRing, iconButton } from "../lib/styles";
 
 /** For a pane with no box to measure, such as one that is hidden. */
 const FALLBACK_SIZE = { width: 320, height: 320 };
-const MIN_NODE_RADIUS = 14;
-const MAX_NODE_RADIUS = 30;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 4;
 const DEFAULT_VIEW = { x: 0, y: 0, scale: 1 };
@@ -269,9 +268,6 @@ export function ContactNetworkMap({
   }, [pane.width, pane.height]);
 
   const isEmpty = graph.nodes.length === 0;
-
-  const nodeRadius = (degree: number) =>
-    Math.min(Math.max(MIN_NODE_RADIUS + degree * 3, MIN_NODE_RADIUS), MAX_NODE_RADIUS);
 
   const isHighlighted = (edge: ContactNetworkEdge) =>
     hoveredNodeId !== null &&

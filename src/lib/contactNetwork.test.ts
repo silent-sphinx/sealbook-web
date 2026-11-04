@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import {
   NetworkSimulation,
+  nodeRadius,
   type ContactNetworkGraph,
   type NetworkPoint,
 } from "./contactNetwork";
@@ -40,6 +41,42 @@ function settle(sim: NetworkSimulation, limit = 5000): number {
 function distance(a: NetworkPoint, b: NetworkPoint): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
+
+describe("NetworkSimulation cluster separation", () => {
+  it("keeps separate clusters and their avatars from overlapping", () => {
+    const clusters = [
+      ["a1", "a2", "a3", "a4"],
+      ["b1", "b2", "b3"],
+      ["c1", "c2", "c3", "c4"],
+    ];
+    const graph = graphOf(
+      clusters.flat(),
+      clusters.flatMap((ids) => ids.slice(1).map((id): [string, string] => [ids[0], id])),
+    );
+    const sim = new NetworkSimulation(graph, 700, 500);
+    expect(settle(sim)).toBeLessThan(5000);
+
+    const radius = nodeRadius(0);
+    for (const id of clusters.flat()) {
+      const p = sim.getPosition(id)!;
+      const atCorner = (p.x <= MARGIN + 1 || p.x >= 700 - MARGIN - 1) && (p.y <= MARGIN + 1 || p.y >= 500 - MARGIN - 1);
+      expect(atCorner).toBe(false);
+    }
+    const owner = (id: string) => id[0];
+    const ids = clusters.flat();
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const a = sim.getPosition(ids[i])!;
+        const b = sim.getPosition(ids[j])!;
+        const distance = Math.hypot(a.x - b.x, a.y - b.y);
+        expect(distance).toBeGreaterThan(radius * 2 - 1);
+        if (owner(ids[i]) !== owner(ids[j])) {
+          expect(distance).toBeGreaterThan(radius * 2 + 4);
+        }
+      }
+    }
+  });
+});
 
 describe("NetworkSimulation", () => {
   it("seeds a node with no position yet on the ring around the centre", () => {

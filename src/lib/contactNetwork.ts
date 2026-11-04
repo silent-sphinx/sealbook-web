@@ -120,6 +120,20 @@ const TARGET_RADIUS_FACTOR = 0.45;
 const MIN_CENTER_STRENGTH = 0.001;
 const MAX_CENTER_STRENGTH = 0.05;
 
+const MIN_NODE_RADIUS = 14;
+const MAX_NODE_RADIUS = 30;
+/** Clear space kept between two avatars. */
+const NODE_GAP = 4;
+const COLLISION_STRENGTH = 0.03;
+/** Share of a cluster overlap corrected per step, and the most any node is moved by it. */
+const CLUSTER_PUSH_RATE = 0.5;
+const CLUSTER_PUSH_MAX = 6;
+
+/** Drawn radius of a node, which the simulation also uses to keep avatars and clusters apart. */
+export function nodeRadius(degree: number): number {
+  return Math.min(Math.max(MIN_NODE_RADIUS + degree * 3, MIN_NODE_RADIUS), MAX_NODE_RADIUS);
+}
+
 /** Synchronous steps run when a simulation is first created, so the initial layout doesn't visibly spring into place. */
 export const PRESETTLE_ITERATIONS = 250;
 
@@ -140,6 +154,13 @@ export class NetworkSimulation {
   private velocities = new Float64Array(0);
   private forces = new Float64Array(0);
   private pinned = new Uint8Array(0);
+  private radii = new Float64Array(0);
+  private previous = new Float64Array(0);
+  /** Connected group each node belongs to, as an index into the cluster arrays. */
+  private clusterOf = new Int32Array(0);
+  private clusterCount = 0;
+  private clusterPx = new Float64Array(0);
+  private clusterPy = new Float64Array(0);
   private indexById = new Map<string, number>();
   /** Edge endpoints as index pairs into `positions`, resolved once per graph rather than per step. */
   private edgePairs = new Int32Array(0);
@@ -175,10 +196,12 @@ export class NetworkSimulation {
     const positions = new Float64Array(count * 2);
     const velocities = new Float64Array(count * 2);
     const pinned = new Uint8Array(count);
+    const radii = new Float64Array(count);
     const indexById = new Map<string, number>();
 
     graph.nodes.forEach((node, index) => {
       indexById.set(node.id, index);
+      radii[index] = nodeRadius(node.degree);
       const previous = this.indexById.get(node.id);
       if (previous === undefined) {
         const angle = (2 * Math.PI * index) / Math.max(count, 1);
@@ -199,6 +222,32 @@ export class NetworkSimulation {
       edgePairs[index * 2 + 1] = indexById.get(edge.target) ?? -1;
     });
 
+    const parent = Int32Array.from({ length: count }, (_, i) => i);
+    const find = (i: number): number => {
+      while (parent[i] !== i) {
+        parent[i] = parent[parent[i]];
+        i = parent[i];
+      }
+      return i;
+    };
+    for (let e = 0; e < edgePairs.length; e += 2) {
+      if (edgePairs[e] < 0 || edgePairs[e + 1] < 0) continue;
+      parent[find(edgePairs[e])] = find(edgePairs[e + 1]);
+    }
+    const clusterIds = new Map<number, number>();
+    const clusterOf = new Int32Array(count);
+    for (let i = 0; i < count; i++) {
+      const root = find(i);
+      if (!clusterIds.has(root)) clusterIds.set(root, clusterIds.size);
+      clusterOf[i] = clusterIds.get(root)!;
+    }
+
+    this.radii = radii;
+    this.previous = new Float64Array(count * 2);
+    this.clusterOf = clusterOf;
+    this.clusterCount = clusterIds.size;
+    this.clusterPx = new Float64Array(clusterIds.size);
+    this.clusterPy = new Float64Array(clusterIds.size);
     this.count = count;
     this.positions = positions;
     this.velocities = velocities;
@@ -253,8 +302,9 @@ export class NetworkSimulation {
 
   /** Advances the simulation by one step. Returns whether anything is still moving. */
   step(): boolean {
-    const { count, positions, velocities, forces, pinned, edgePairs, repel, springLength } = this;
+    const { count, positions, velocities, forces, pinned, edgePairs, repel, springLength, radii } = this;
     forces.fill(0);
+    this.previous.set(positions);
 
     for (let i = 0; i < count; i++) {
       const a = i * 2;
@@ -267,7 +317,9 @@ export class NetworkSimulation {
         const dx = ax - positions[b];
         const dy = ay - positions[b + 1];
         const distance = Math.max(Math.sqrt(dx * dx + dy * dy), MIN_DISTANCE);
-        const scale = repel / (distance * distance * distance);
+        let scale = repel / (distance * distance * distance);
+        const minGap = radii[i] + radii[j] + NODE_GAP;
+        if (distance < minGap) scale += ((minGap - distance) * COLLISION_STRENGTH) / distance;
         const fx = dx * scale;
         const fy = dy * scale;
         fax += fx;
@@ -303,7 +355,6 @@ export class NetworkSimulation {
     const maxY = this.height - MARGIN;
     const centerStrength = this.centerStrength;
     const settleSpeed = SETTLE_SPEED * SETTLE_SPEED;
-    let moving = false;
 
     for (let i = 0; i < count; i++) {
       if (pinned[i]) continue;
@@ -317,9 +368,63 @@ export class NetworkSimulation {
       positions[a] = Math.min(Math.max(positions[a] + vx, MARGIN), maxX);
       positions[a + 1] = Math.min(Math.max(positions[a + 1] + vy, MARGIN), maxY);
 
-      if (vx * vx + vy * vy > settleSpeed) moving = true;
     }
 
-    return moving;
+    this.separateClusters();
+
+    for (let i = 0; i < count; i++) {
+      if (pinned[i]) continue;
+      const a = i * 2;
+      const dx = positions[a] - this.previous[a];
+      const dy = positions[a + 1] - this.previous[a + 1];
+      if (dx * dx + dy * dy > settleSpeed) return true;
+    }
+    return false;
+  }
+
+  /** Pushes a whole cluster away when one of its avatars would touch another cluster's, so groups never overlap but may sit close. */
+  private separateClusters(): void {
+    const { count, clusterCount, clusterOf, positions, radii } = this;
+    if (clusterCount < 2) return;
+    const { clusterPx: px, clusterPy: py } = this;
+    px.fill(0);
+    py.fill(0);
+
+    for (let i = 0; i < count; i++) {
+      for (let j = i + 1; j < count; j++) {
+        const a = clusterOf[i];
+        const b = clusterOf[j];
+        if (a === b) continue;
+        let dx = positions[i * 2] - positions[j * 2];
+        let dy = positions[i * 2 + 1] - positions[j * 2 + 1];
+        let distance = Math.hypot(dx, dy);
+        const overlap = radii[i] + radii[j] + NODE_GAP - distance;
+        if (overlap <= 0) continue;
+        if (distance < MIN_DISTANCE) {
+          dx = 1;
+          dy = 0;
+          distance = 1;
+        }
+        const push = Math.min((overlap / 2) * CLUSTER_PUSH_RATE, CLUSTER_PUSH_MAX);
+        const fx = (dx / distance) * push;
+        const fy = (dy / distance) * push;
+        px[a] += fx;
+        py[a] += fy;
+        px[b] -= fx;
+        py[b] -= fy;
+      }
+    }
+
+    const maxX = this.width - MARGIN;
+    const maxY = this.height - MARGIN;
+    for (let i = 0; i < count; i++) {
+      if (this.pinned[i]) continue;
+      const c = clusterOf[i];
+      if (px[c] === 0 && py[c] === 0) continue;
+      this.velocities[i * 2] = 0;
+      this.velocities[i * 2 + 1] = 0;
+      positions[i * 2] = Math.min(Math.max(positions[i * 2] + px[c], MARGIN), maxX);
+      positions[i * 2 + 1] = Math.min(Math.max(positions[i * 2 + 1] + py[c], MARGIN), maxY);
+    }
   }
 }
