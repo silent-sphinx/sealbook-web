@@ -77,7 +77,7 @@ describe("every payload a save writes", () => {
 
   it("keeps an unknown field on a notebook", () => {
     const previous = JSON.stringify({ "@type": "Notebook", name: "old", icon: "folder" });
-    expect(parsed(serializeNotebook("new", previous)).icon).toBe("folder");
+    expect(parsed(serializeNotebook("new", undefined, previous)).icon).toBe("folder");
   });
 
   it("keeps an unknown field on an address book", () => {

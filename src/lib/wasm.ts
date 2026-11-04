@@ -1661,8 +1661,8 @@ export function coreNotebookParse(id: string, raw: string): CoreNotebook {
   return core_notebook_parse(id, raw);
 }
 
-export function coreNotebookWrite(name: string, previousRaw?: string): string {
-  return core_notebook_write(name, previousRaw);
+export function coreNotebookWrite(name: string, color?: string, previousRaw?: string): string {
+  return core_notebook_write(name, color, previousRaw);
 }
 
 /**
@@ -1677,9 +1677,9 @@ export function coreNotebookNameById(
   return core_notebook_name_by_id(notebooks, notebookId);
 }
 
-/** A notebook's colour, derived from its id. */
-export function coreNotebookTone(id: string): string {
-  return core_notebook_tone(id);
+/** A notebook's stored colour, or one derived from its id. */
+export function coreNotebookTone(id: string, color?: string): string {
+  return core_notebook_tone(id, color);
 }
 
 export type {

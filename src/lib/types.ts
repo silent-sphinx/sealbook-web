@@ -456,6 +456,8 @@ export type Note = NoteDraft & { id: string; raw: string; readable?: boolean };
 export type Notebook = {
   id: string;
   name: string;
+  /** Explicit colour; absent means one derived from the id. See `notebookTone`. */
+  color?: string;
   raw: string;
   /** As `Note.readable`. */
   readable?: boolean;

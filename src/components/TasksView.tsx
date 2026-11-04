@@ -298,9 +298,11 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     setError(null);
   }
 
-  function startAdd(parentId?: string) {
+  function startAdd(parentId?: string, inList?: string) {
     const parent = parentId ? tasks.find((task) => task.id === parentId) : undefined;
-    const listId = parent ? resolveTaskListId(parent.taskListId) : isSmart ? DEFAULT_TASK_LIST_ID : scope;
+    const listId = parent
+      ? resolveTaskListId(parent.taskListId)
+      : (inList ?? (isSmart ? DEFAULT_TASK_LIST_ID : scope));
     const initial = emptyTaskDraft(listId, parentId);
     if (!parent && scope === "today") {
       initial.dueDate = utcToLocalInput(new Date().toISOString(), timezone).slice(0, 10);

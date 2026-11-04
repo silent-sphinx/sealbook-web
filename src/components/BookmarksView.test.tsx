@@ -163,9 +163,16 @@ function selectCollection(name: string): void {
   );
 }
 
+/** The bookmark list beside the sidebar, which repeats the open collection's links. */
+function board(): HTMLElement {
+  const section = [...document.querySelectorAll("section")].find((node) => !node.closest("aside"));
+  if (!section) throw new Error("no bookmark list");
+  return section as HTMLElement;
+}
+
 /** The bookmark form, once "New bookmark" has opened it. */
 function openForm(): void {
-  fireEvent.click(screen.getByRole("button", { name: /New bookmark|New$/ }));
+  fireEvent.click(within(board()).getByRole("button", { name: /New bookmark|New$/ }));
 }
 
 function fillForm(values: { url?: string; title?: string; tags?: string; notes?: string }): void {
@@ -512,28 +519,28 @@ describe("BookmarksView, nested collections", () => {
     raw: "{}",
   };
 
-  it("shows a collection's children as a grid above its own links", () => {
+  it("shows only top-level collections in the grid, and only on All bookmarks", () => {
     mount({ collections: [DEFAULT_COLLECTION, parent, child] });
 
-    selectCollection("Reading");
+    expect(within(board()).getByText("Collections")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Open Reading" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Open Papers" })).toBeNull();
 
-    expect(screen.getByText("Subcollections")).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Open Papers" })).not.toBeNull();
+    selectCollection("Reading");
+    expect(within(board()).queryByText("Collections")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open Papers" })).toBeNull();
   });
 
-  it("drills into a child from its card", () => {
+  it("opens a collection from its card", () => {
     mount({
       collections: [DEFAULT_COLLECTION, parent, child],
-      bookmarks: [aBookmark({ id: "b1", title: "A paper", collectionId: child.id })],
+      bookmarks: [aBookmark({ id: "b1", title: "A link", collectionId: parent.id })],
     });
 
-    selectCollection("Reading");
-    expect(screen.queryByText("A paper")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open Reading" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Open Papers" }));
-
-    expect(screen.getByRole("heading", { name: "Papers" })).not.toBeNull();
-    expect(screen.getByText("A paper")).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Reading" })).not.toBeNull();
+    expect(within(board()).getByText("A link")).not.toBeNull();
   });
 
   it("hides the grid during a search, which does not filter it", async () => {
@@ -542,12 +549,11 @@ describe("BookmarksView, nested collections", () => {
       bookmarks: [aBookmark({ id: "b1", title: "Rust book", collectionId: parent.id })],
     });
 
-    selectCollection("Reading");
-    expect(screen.getByText("Subcollections")).not.toBeNull();
+    expect(within(board()).getByText("Collections")).not.toBeNull();
 
     fireEvent.change(screen.getByLabelText("Search bookmarks"), { target: { value: "rust" } });
 
-    await waitFor(() => expect(screen.queryByText("Subcollections")).toBeNull());
+    await waitFor(() => expect(within(board()).queryByText("Collections")).toBeNull());
   });
 
   it("lists every collection, indented, in the form's picker", () => {
@@ -567,7 +573,8 @@ describe("BookmarksView, nested collections", () => {
       bookmarks: [aBookmark({ id: "b1", title: "A paper", collectionId: child.id })],
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete Papers" }));
+    selectCollection("Reading");
+    fireEvent.click(within(sidebar()).getByRole("button", { name: "Delete Papers" }));
     const dialog = screen.getByRole("dialog", { name: "Delete collection" });
     expect(dialog.textContent).toContain("are kept and move up one level");
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
@@ -588,7 +595,8 @@ describe("BookmarksView, nested collections", () => {
     };
     mount({ collections: [DEFAULT_COLLECTION, parent, child, grandchild] });
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete Papers" }));
+    selectCollection("Reading");
+    fireEvent.click(within(sidebar()).getByRole("button", { name: "Delete Papers" }));
     fireEvent.click(
       within(screen.getByRole("dialog", { name: "Delete collection" })).getByRole("button", {
         name: "Delete",
@@ -633,6 +641,46 @@ describe("BookmarksView, nested collections", () => {
 
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: "All bookmarks" })).not.toBeNull(),
+    );
+  });
+});
+
+describe("BookmarksView, the sidebar", () => {
+  const parent: BookmarkCollection = { id: "collection-parent", name: "Reading", raw: "{}" };
+  const child: BookmarkCollection = {
+    id: "collection-child",
+    name: "Papers",
+    parentId: parent.id,
+    raw: "{}",
+  };
+
+  it("opens a collection to its subcollections, without its bookmarks", () => {
+    mount({
+      collections: [DEFAULT_COLLECTION, parent, child],
+      bookmarks: [aBookmark({ id: "b1", title: "Rust book", collectionId: parent.id })],
+    });
+
+    selectCollection("Reading");
+    const side = within(sidebar());
+    expect(side.getByRole("button", { name: /^Papers/ })).not.toBeNull();
+    expect(side.queryByRole("button", { name: "Rust book" })).toBeNull();
+    expect(side.queryByRole("button", { name: "New bookmark" })).toBeNull();
+  });
+
+  it("recolours a top-level collection from its context menu, but not a nested one", async () => {
+    mount({ collections: [DEFAULT_COLLECTION, parent, child] });
+    selectCollection("Reading");
+    fireEvent.contextMenu(within(sidebar()).getByRole("button", { name: /^Papers/ }));
+    expect(screen.queryByRole("menuitem", { name: "Change colour" })).toBeNull();
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    fireEvent.contextMenu(within(sidebar()).getByRole("button", { name: /^Reading/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Change colour" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Collection colour" })).getByRole("button", { name: "Deep teal" }));
+    await waitFor(() =>
+      expect(collectionWrites).toEqual([
+        { name: "Reading", parentId: undefined, id: parent.id, color: "#4fae9f" },
+      ]),
     );
   });
 });

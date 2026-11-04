@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { focusRing, sidebarMark, sidebarNameInput, sidebarRowAction, sidebarRowState } from "../lib/styles";
+import { CollectionIcon } from "./AppIcons";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 
 /** Anything with a name that groups other objects: an address book, a notebook. */
@@ -68,15 +69,6 @@ export function VisibilityBox({ shown }: { shown: boolean }) {
         </svg>
       ) : null}
     </span>
-  );
-}
-
-function BookIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 2.75h7.5a1.75 1.75 0 0 1 1.75 1.75v8.75H4.75A1.75 1.75 0 0 1 3 11.5V2.75Z" />
-      <path d="M3 11.5a1.75 1.75 0 0 1 1.75-1.75h7.5" />
-    </svg>
   );
 }
 
@@ -223,7 +215,7 @@ export function ContainerList<T extends Container>({
           aria-current={selectedId === allId ? "true" : undefined}
           className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${sidebarRowState(selectedId === allId)}`}
         >
-          <span className={sidebarMark}><BookIcon /></span>
+          <span className={sidebarMark}><CollectionIcon kind="book" /></span>
           <span className="min-w-0 flex-1 truncate font-medium">{allLabel}</span>
         </button>
       ) : null}
@@ -268,7 +260,7 @@ export function ContainerList<T extends Container>({
               className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${(toggling ? shown : selected) ? "text-text" : "text-mute"}`}
             >
               <span className={sidebarMark}>
-                {toggling ? <VisibilityBox shown={shown} /> : renderIcon ? renderIcon(book) : <BookIcon />}
+                {toggling ? <VisibilityBox shown={shown} /> : renderIcon ? renderIcon(book) : <CollectionIcon kind="book" />}
               </span>
               <span className="min-w-0 flex-1 truncate font-medium">{book.name}</span>
             </button>

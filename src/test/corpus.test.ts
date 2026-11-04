@@ -61,8 +61,9 @@ const operations: Record<string, (args: any[]) => unknown> = {
   "bookmark_collection.tone": ([collections, id]) => coreBookmarkCollectionTone(collections, id),
   "note.write": ([draft, now]) => coreNoteWrite(draft, now),
   "note.parse": ([id, raw]) => coreNoteParse(id, raw),
-  "notebook.tone": ([id]) => coreNotebookTone(id),
-  "notebook.write": ([name, previous]) => coreNotebookWrite(name, previous ?? undefined),
+  "notebook.tone": ([id, color]) => coreNotebookTone(id, color ?? undefined),
+  "notebook.write": ([name, color, previous]) =>
+    coreNotebookWrite(name, color ?? undefined, previous ?? undefined),
   "notebook.parse": ([id, raw]) => coreNotebookParse(id, raw),
   "calendar.write": ([draft]) => coreCalendarWrite(draft),
   "calendar.parse": ([id, raw]) => coreCalendarParse(id, raw),

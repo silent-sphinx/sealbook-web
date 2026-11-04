@@ -82,6 +82,13 @@ describe("notebooks", () => {
     });
   });
 
+  it("keeps a colour through a rename that passes it back", () => {
+    const stored = serializeNotebook("Work", "#ff8800");
+    const renamed = parseNotebook("b", serializeNotebook("Home", "#ff8800", stored));
+    expect(renamed).toMatchObject({ name: "Home", color: "#ff8800" });
+    expect(notebookTone("b", renamed.color)).toBe("#ff8800");
+  });
+
   it("matches the id reserved in the Rust protocol crate", () => {
     expect(DEFAULT_NOTEBOOK_ID).toBe("00000000-0000-0000-0000-000000000002");
   });

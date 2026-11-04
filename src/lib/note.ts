@@ -114,8 +114,8 @@ function noteFrom(note: CoreNote): Note {
   };
 }
 
-export function serializeNotebook(name: string, previousRaw?: string): string {
-  return coreNotebookWrite(name, previousRaw);
+export function serializeNotebook(name: string, color?: string, previousRaw?: string): string {
+  return coreNotebookWrite(name, color, previousRaw);
 }
 
 export function parseNotebook(id: string, raw: string): Notebook {
@@ -126,6 +126,7 @@ function notebookFrom(notebook: CoreNotebook): Notebook {
   return {
     id: notebook.id,
     name: notebook.name,
+    color: notebook.color ?? undefined,
     raw: notebook.raw,
     readable: notebook.readable,
   };
@@ -160,6 +161,7 @@ export function notebookNameById(
     notebooks.map((notebook) => ({
       id: notebook.id,
       name: notebook.name,
+      color: notebook.color,
       readable: notebook.readable ?? true,
       raw: notebook.raw,
     })),
