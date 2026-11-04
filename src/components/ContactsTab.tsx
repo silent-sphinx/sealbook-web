@@ -12,6 +12,7 @@ import {
   activeAddressBooks,
   archivedAddressBooks,
   bookNameById,
+  bookToneById,
   isAddressBookVisible,
   resolveAddressBookId,
 } from "../lib/addressBook";
@@ -62,6 +63,7 @@ interface ContactsTabProps {
   onShowAllBooks: () => void;
   onCreateBook: (name: string) => Promise<string | undefined>;
   onRenameBook: (id: string, name: string) => Promise<void>;
+  onRecolorBook: (book: AddressBook, color: string) => Promise<void>;
   onDeleteBook: (book: AddressBook) => void;
   onToggleBookArchived: (book: AddressBook) => Promise<void>;
   onSetSearch: (value: string) => void;
@@ -109,6 +111,7 @@ export function ContactsTab({
   onShowAllBooks,
   onCreateBook,
   onRenameBook,
+  onRecolorBook,
   onDeleteBook,
   onToggleBookArchived,
   onSetSearch,
@@ -204,6 +207,7 @@ export function ContactsTab({
               onShowAll={() => onGuardEditing(onShowAllBooks)}
               onCreate={onCreateBook}
               onRename={onRenameBook}
+              onRecolor={onRecolorBook}
               onDelete={onDeleteBook}
               onArchive={(book) => onGuardEditing(() => void onToggleBookArchived(book))}
               busy={busy}
@@ -343,6 +347,7 @@ export function ContactsTab({
                           ? undefined
                           : bookNameById(addressBooks, card.addressBookId)
                       }
+                      bookTone={bookToneById(addressBooks, card.addressBookId)}
                       onSelect={(contact) =>
                         onGuardEditing(() => {
                           onSetError(null);
@@ -365,6 +370,7 @@ export function ContactsTab({
                   session={session}
                   contact={viewingContact}
                   bookName={bookNameById(addressBooks, viewingContact.addressBookId)}
+                  bookTone={bookToneById(addressBooks, viewingContact.addressBookId)}
                   onDelete={() => onPromptDelete(viewingContact)}
                   onArchive={() => void onToggleArchive(viewingContact)}
                   onClose={() => onGuardEditing(() => onSetViewingContact(null))}

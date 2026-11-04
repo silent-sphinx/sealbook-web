@@ -58,6 +58,12 @@ export const sidebarGutter = "flex h-7 w-4 shrink-0 items-center justify-center"
 export const sidebarChildren = "ml-2 mt-0.5 space-y-0.5 border-l border-line pl-2";
 /** A secondary group at the foot of a section, such as an archive. */
 export const sidebarSubgroup = "mt-2.5 border-t border-line pt-2.5";
+/** A pill tinted in a container's colour. */
+export const tonePill = (tone: string) => ({
+  color: `color-mix(in srgb, ${tone} 55%, var(--color-mute))`,
+  borderColor: `color-mix(in srgb, ${tone} 22%, transparent)`,
+  backgroundColor: `color-mix(in srgb, ${tone} 6%, transparent)`,
+});
 export const sidebarCount = "pr-1 text-[10px] tabular-nums text-mute/70";
 export const sidebarNameInput =
   "h-8 w-full min-w-0 rounded-lg border border-accent-dim bg-bg px-2 text-xs text-text outline-none ring-1 ring-accent-ring placeholder:text-mute/60";

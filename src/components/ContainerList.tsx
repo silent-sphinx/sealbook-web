@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { focusRing, sidebarMark, sidebarNameInput, sidebarRowAction, sidebarRowState } from "../lib/styles";
 import { CollectionIcon } from "./AppIcons";
+import { ColourPalette, type PaletteState } from "./ColourPalette";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 
 /** Anything with a name that groups other objects: an address book, a notebook. */
@@ -25,6 +26,10 @@ type Props<T extends Container> = {
   onDelete: (item: T) => void;
   /** Adds an archive action to every row but the protected one. */
   onArchive?: (item: T) => void;
+  /** A row's colour, which tints its visibility tick. */
+  tone?: (item: T) => string;
+  /** Adds a colour choice to every row's context menu. */
+  onRecolor?: (item: T, color: string) => Promise<unknown> | void;
   /** Leading mark for a row; the book icon when not given. */
   renderIcon?: (item: T) => ReactNode;
   /**
@@ -57,11 +62,12 @@ type Props<T extends Container> = {
  * hollow square when it is hidden. Takes the leading slot the icon holds in
  * selection mode, so a row carries one mark rather than two.
  */
-export function VisibilityBox({ shown }: { shown: boolean }) {
+export function VisibilityBox({ shown, tone }: { shown: boolean; tone?: string }) {
   return (
     <span
       aria-hidden="true"
       className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border-2 transition-colors duration-150 ${shown ? "border-accent bg-accent" : "border-line-light"}`}
+      style={tone ? (shown ? { borderColor: tone, backgroundColor: tone } : { borderColor: tone }) : undefined}
     >
       {shown ? (
         <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" stroke="var(--color-bg)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -120,6 +126,8 @@ export function ContainerList<T extends Container>({
   onRename,
   onDelete,
   onArchive,
+  tone,
+  onRecolor,
   renderIcon,
   renderMeta,
   renderUnder,
@@ -176,6 +184,10 @@ export function ContainerList<T extends Container>({
   }
 
   const menu = useContextMenu();
+  const [palette, setPalette] = useState<PaletteState>(null);
+  const recoloring = useRef<T | null>(null);
+  const menuAt = useRef({ x: 0, y: 0 });
+  const closePalette = useCallback(() => setPalette(null), []);
 
   /** The same actions the row's own buttons carry, for the context menu. */
   function itemsFor(book: T): MenuItem[] {
@@ -183,6 +195,15 @@ export function ContainerList<T extends Container>({
     const actions: MenuItem[] = [
       { label: `Rename ${kindLabel}`, onSelect: () => startRename(book) },
     ];
+    if (onRecolor && tone) {
+      actions.push({
+        label: "Change colour",
+        onSelect: () => {
+          recoloring.current = book;
+          setPalette({ ...menuAt.current, current: tone(book) });
+        },
+      });
+    }
     if (book.id !== protectedId && onArchive) {
       actions.push({
         label: `Archive ${kindLabel}`,
@@ -208,6 +229,17 @@ export function ContainerList<T extends Container>({
   return (
     <div className="mt-2.5 space-y-0.5">
       <ContextMenu state={menu.menu} onClose={menu.close} />
+      {onRecolor && tone && !readOnly ? (
+        <ColourPalette
+          state={palette}
+          label={`${kindLabel.charAt(0).toUpperCase()}${kindLabel.slice(1)} colour`}
+          onPick={(hex) => {
+            const target = recoloring.current;
+            if (target) void onRecolor(target, hex);
+          }}
+          onClose={closePalette}
+        />
+      ) : null}
       {showAll && !toggling ? (
         <button
           type="button"
@@ -249,7 +281,14 @@ export function ContainerList<T extends Container>({
           <div key={book.id}>
           <div
             className={`${rowBase} ${selected && !toggling ? "bg-surface" : "hover:bg-surface/40"}`}
-            onContextMenu={(event) => menu.open(event, itemsFor(book))}
+            onContextMenu={(event) => {
+              const box = event.currentTarget.getBoundingClientRect();
+              menuAt.current =
+                event.clientX === 0 && event.clientY === 0
+                  ? { x: box.left, y: box.bottom }
+                  : { x: event.clientX, y: event.clientY };
+              menu.open(event, itemsFor(book));
+            }}
           >
             <button
               type="button"
@@ -260,7 +299,7 @@ export function ContainerList<T extends Container>({
               className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${(toggling ? shown : selected) ? "text-text" : "text-mute"}`}
             >
               <span className={sidebarMark}>
-                {toggling ? <VisibilityBox shown={shown} /> : renderIcon ? renderIcon(book) : <CollectionIcon kind="book" />}
+                {toggling ? <VisibilityBox shown={shown} tone={tone?.(book)} /> : renderIcon ? renderIcon(book) : <CollectionIcon kind="book" />}
               </span>
               <span className="min-w-0 flex-1 truncate font-medium">{book.name}</span>
             </button>

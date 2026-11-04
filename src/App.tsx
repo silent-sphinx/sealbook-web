@@ -1591,7 +1591,21 @@ export default function App() {
     setError(null);
     try {
       const previous = addressBooks.find((book) => book.id === id);
-      await putAddressBook(session, name, id, previous?.raw, previous?.archived === true);
+      await putAddressBook(session, name, id, previous?.raw, previous?.archived === true, previous?.color);
+      await refreshAfterSave(session);
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onRecolorBook(book: AddressBook, color: string): Promise<void> {
+    if (!session) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await putAddressBook(session, book.name, book.id, book.raw, book.archived === true, color);
       await refreshAfterSave(session);
     } catch (err) {
       setError(friendlyError(err));
@@ -1605,7 +1619,7 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
-      await putAddressBook(session, book.name, book.id, book.raw, book.archived !== true);
+      await putAddressBook(session, book.name, book.id, book.raw, book.archived !== true, book.color);
       forgetBookVisibility(book.id);
       await refreshAfterSave(session);
     } catch (err) {
@@ -2103,6 +2117,7 @@ export default function App() {
           onShowAllBooks={showAllBooks}
           onCreateBook={onCreateBook}
           onRenameBook={onRenameBook}
+          onRecolorBook={onRecolorBook}
           onToggleBookArchived={onToggleBookArchived}
           onDeleteBook={onDeleteBook}
           onSetSearch={setSearch}

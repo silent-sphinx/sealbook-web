@@ -304,6 +304,7 @@ export type AddressBook = {
   name: string;
   /** Put away: out of the list and the pickers, its contacts left as they are. */
   archived?: boolean;
+  color?: string;
   raw: string;
 };
 

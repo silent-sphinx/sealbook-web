@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ALL_ADDRESS_BOOKS, DEFAULT_ADDRESS_BOOK_ID } from "../lib/addressBook";
+import { addressBookTone, ALL_ADDRESS_BOOKS, DEFAULT_ADDRESS_BOOK_ID } from "../lib/addressBook";
 import { ContainerList, VisibilityBox } from "./ContainerList";
 import { ContextMenu, useContextMenu } from "./ContextMenu";
 import { focusRing, sidebarCount, sidebarMark, sidebarRowState, sidebarSubgroup } from "../lib/styles";
@@ -15,6 +15,7 @@ type Props = {
   onSelect?: (id: string) => void;
   onCreate: (name: string) => Promise<unknown> | void;
   onRename: (id: string, name: string) => Promise<unknown> | void;
+  onRecolor?: (book: AddressBook, color: string) => Promise<unknown> | void;
   onDelete: (book: AddressBook) => void;
   onArchive?: (book: AddressBook) => void;
   /** Given together with `onToggleVisible`, rows tick visibility on and off. */
@@ -36,6 +37,7 @@ export function AddressBookList({ books, selectedId, onSelect, ...rest }: Props)
       allLabel="All contacts"
       protectedId={DEFAULT_ADDRESS_BOOK_ID}
       kindLabel="address book"
+      tone={addressBookTone}
       {...rest}
     />
   );
@@ -106,7 +108,7 @@ export function ArchivedAddressBooks({ books, isVisible, onToggleVisible, onRest
                   title={`${shown ? "Hide" : "Show"} ${book.name}`}
                   className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing}`}
                 >
-                  <span className={sidebarMark}><VisibilityBox shown={shown} /></span>
+                  <span className={sidebarMark}><VisibilityBox shown={shown} tone={addressBookTone(book)} /></span>
                   <span className={`min-w-0 flex-1 truncate font-medium ${shown ? "text-text" : "text-mute"}`}>{book.name}</span>
                 </button>
                 {readOnly ? null : (

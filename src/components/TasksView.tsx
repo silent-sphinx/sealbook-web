@@ -31,6 +31,7 @@ import {
   sortTasks,
   taskDraft,
   taskListNameById,
+  taskListTone,
   taskMatches,
   taskTo,
   tickTask,
@@ -181,6 +182,10 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
   const searching = deferredSearch.trim() !== "";
   const listRows = useMemo(() => flattenTree(buildTaskListTree(taskLists)), [taskLists]);
   const counts = useMemo(() => childCounts(tasks), [tasks]);
+  const listTones = useMemo(
+    () => new Map(taskLists.map((list) => [list.id, taskListTone(taskLists, list.id)])),
+    [taskLists],
+  );
 
   const smartCounts = useMemo(() => {
     const open = tasks.filter((task) => !task.done);
@@ -449,9 +454,12 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     activeId: selectedId ?? undefined,
     // Only a smart view or a search mixes lists, and only with a second list is
     // the pill worth the row's width.
-    listNameFor:
+    listFor:
       isSmart && taskLists.length > 1
-        ? (task) => taskListNameById(taskLists, task.taskListId)
+        ? (task) => ({
+            name: taskListNameById(taskLists, task.taskListId),
+            tone: listTones.get(task.taskListId) ?? taskListTone(taskLists, task.taskListId),
+          })
         : undefined,
     onToggleDone: (task) => void toggleDone(task),
     onSelect: (task) => {
