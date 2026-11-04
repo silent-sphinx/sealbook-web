@@ -12,7 +12,7 @@
  * only the server can answer.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "../test/dom";
@@ -148,8 +148,10 @@ function Harness() {
   const [vault, setVault] = useState({ notes, notebooks });
   const sidebar = useSidebar();
   const [outbox, setOutbox] = useState<OutboxState>(IDLE_OUTBOX);
-  syncVault = (next) => setVault((current) => ({ ...current, notes: next }));
-  setOutboxState = setOutbox;
+  useEffect(() => {
+    syncVault = (next) => setVault((current) => ({ ...current, notes: next }));
+    setOutboxState = setOutbox;
+  }, []);
   return (
     <NotesView
       session={SESSION}

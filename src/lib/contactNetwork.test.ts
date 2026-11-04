@@ -69,10 +69,8 @@ describe("NetworkSimulation cluster separation", () => {
         const a = sim.getPosition(ids[i])!;
         const b = sim.getPosition(ids[j])!;
         const distance = Math.hypot(a.x - b.x, a.y - b.y);
-        expect(distance).toBeGreaterThan(radius * 2 - 1);
-        if (owner(ids[i]) !== owner(ids[j])) {
-          expect(distance).toBeGreaterThan(radius * 2 + 4);
-        }
+        const gap = owner(ids[i]) === owner(ids[j]) ? -1 : 4;
+        expect(distance).toBeGreaterThan(radius * 2 + gap);
       }
     }
   });

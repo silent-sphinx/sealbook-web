@@ -153,6 +153,8 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   // edit is not overwritten by a refresh.
   const [draft, setDraft] = useState<NoteDraft | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("clean");
+  const saveStateRef = useRef(saveState);
+  saveStateRef.current = saveState;
   // The note the editor is on, including one not yet written to the vault.
   const editingId = useRef<string | null>(null);
   const savedThisSession = useRef(false);
@@ -344,7 +346,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     const stored = vaultObject(id);
     const held = baseRef.current.object;
     if (!stored || !held || stored.revision === held.revision) return;
-    if (saveState !== "clean" || autosaver.queued()) return;
+    if (saveStateRef.current !== "clean" || autosaverRef.current?.queued()) return;
     baseRef.current = { id, object: stored };
     reloadFrom(parseNote(id, stored.payload));
   }, [notes]);
