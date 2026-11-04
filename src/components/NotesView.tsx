@@ -46,6 +46,8 @@ import type { OutboxState } from "../lib/outbox";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ContainerList } from "./ContainerList";
 import { NoteTreeList } from "./NoteTreeList";
+import { NotebookPages } from "./NotebookPages";
+import { NotesOverview } from "./NotesOverview";
 import { ContextMenu, useContextMenu } from "./ContextMenu";
 import { SidebarDrawer, SidebarHeader, SidebarSection, type Sidebar } from "./SidebarDrawer";
 
@@ -72,6 +74,8 @@ type Props = {
   outbox?: OutboxState;
   /** Shared with the rest of the shell; the header owns the control. */
   sidebar: Sidebar;
+  /** Bumped by the shell when the Notes tab is clicked while already open. */
+  homeSignal?: number;
 };
 
 /** Idle time before an edit is written, and the cap for a continuous typist. */
@@ -134,8 +138,9 @@ function exportMarkdown(draft: NoteDraft): string {
   return title ? `# ${title}\n\n${draft.body}` : draft.body;
 }
 
-export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved, offline = false, outbox, sidebar }: Props) {
+export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved, offline = false, outbox, sidebar, homeSignal = 0 }: Props) {
   const [scope, setScope] = useState<string>(DEFAULT_NOTEBOOK_ID);
+  const [browsing, setBrowsing] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -385,6 +390,21 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     sidebar.close();
     if (parentId) setExpanded((current) => new Set([...current, parentId]));
   }
+
+  async function goHome() {
+    setBrowsing(null);
+    setSearch("");
+    await closeEditor();
+  }
+
+  const goHomeRef = useRef(goHome);
+  goHomeRef.current = goHome;
+  const seenSignal = useRef(homeSignal);
+  useEffect(() => {
+    if (seenSignal.current === homeSignal) return;
+    seenSignal.current = homeSignal;
+    void goHomeRef.current();
+  }, [homeSignal]);
 
   async function closeEditor() {
     pruneUnshown();
@@ -665,6 +685,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     </button>
   );
 
+  const browsingNotebook = notebooks.find((notebook) => notebook.id === browsing) ?? null;
   const editorOpen = draft !== null;
   const notesInDeletingNotebook = deletingNotebook
     ? notes.filter((note) => resolveNotebookId(note.notebookId) === deletingNotebook.id).length
@@ -687,6 +708,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
           <SidebarHeader
             eyebrow="My notes"
             title="Notes"
+            onTitleClick={() => void goHome()}
             action={
               <button
                 type="button"
@@ -735,7 +757,10 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
               kindLabel="notebook"
               creating={creatingNotebook}
               onCreateHandled={() => setCreatingNotebook(false)}
-              onSelect={(id) => setScope(id)}
+              onSelect={(id) => {
+                setScope(id);
+                setBrowsing(id);
+              }}
               onCreate={(name) => createNotebook(name)}
               onRename={(id, name) => renameNotebook(id, name)}
               onDelete={(notebook) => setDeletingNotebook(notebook)}
@@ -884,10 +909,25 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
               </footer>
             </>
           ) : (
-            <div className="hidden h-full flex-col items-center justify-center gap-3 text-mute lg:flex">
-              <Icon name="notes" className="h-7 w-7 text-mute/35" />
-              <p className="text-sm">Select a note to read or edit it.</p>
-            </div>
+            browsingNotebook ? (
+              <NotebookPages
+                notebook={browsingNotebook}
+                notes={notes}
+                onBack={() => setBrowsing(null)}
+                onOpenNote={openNote}
+                onNewNote={() => newNote()}
+              />
+            ) : (
+              <NotesOverview
+                notebooks={notebooks}
+                notes={notes}
+                onOpenNotebook={(id) => {
+                  setScope(id);
+                  setBrowsing(id);
+                }}
+                onOpenNote={openNote}
+              />
+            )
           )}
         </section>
       </div>

@@ -238,13 +238,13 @@ describe("NotesView, the notebook sidebar", () => {
 
     await waitFor(() => expect(ensured).toBe(1));
     expect(refreshes).toBe(1);
-    await waitFor(() => expect(screen.getByText("Default Notebook")).not.toBeNull());
+    await waitFor(() => expect(screen.getAllByText("Default Notebook")[0]).not.toBeNull());
   });
 
   it("leaves the vault alone when one already exists", async () => {
     mount({ notebooks: [DEFAULT_BOOK] });
 
-    await waitFor(() => expect(screen.getByText("Default Notebook")).not.toBeNull());
+    await waitFor(() => expect(screen.getAllByText("Default Notebook")[0]).not.toBeNull());
     expect(ensured).toBe(0);
     expect(refreshes).toBe(0);
   });
@@ -260,7 +260,7 @@ describe("NotesView, the notebook sidebar", () => {
       ],
     });
 
-    const row = screen.getByText("Work").closest("div")?.parentElement;
+    const row = screen.getAllByText("Work")[0].closest("div")?.parentElement;
     expect(within(row as HTMLElement).getByText("1")).not.toBeNull();
   });
 
@@ -273,7 +273,7 @@ describe("NotesView, the notebook sidebar", () => {
     fireEvent.submit(field.closest("form") as HTMLFormElement);
 
     await waitFor(() => expect(notebookWrites).toEqual([{ name: "Work", id: undefined, previousRaw: undefined }]));
-    await waitFor(() => expect(screen.getByText("Work")).not.toBeNull());
+    await waitFor(() => expect(screen.getAllByText("Work")[0]).not.toBeNull());
   });
 
   it("renames a notebook with its stored payload, so nothing in it is dropped", async () => {
@@ -337,6 +337,55 @@ describe("NotesView, the notebook sidebar", () => {
 });
 
 describe("NotesView, finding a note", () => {
+  it("shows notebooks and the most recently modified notes when no note is open", () => {
+    mount({
+      notebooks: [{ id: "work", name: "Work", raw: "{}" }],
+      notes: [
+        aNote({ id: "old", title: "Older", updatedAt: "2026-01-01T00:00:00Z" }),
+        aNote({ id: "new", title: "Newer", updatedAt: "2026-06-01T00:00:00Z" }),
+      ],
+    });
+
+    expect(screen.getByRole("button", { name: "Work, 0 notes" })).not.toBeNull();
+    const recent = screen.getByRole("heading", { name: "Recently modified" }).parentElement as HTMLElement;
+    const titles = within(recent).getAllByRole("button").map((button) => button.textContent);
+    expect(titles[0]).toContain("Newer");
+    expect(titles[1]).toContain("Older");
+  });
+
+  it("opens a notebook's pages in the main pane, and goes back to all notebooks", () => {
+    mount({
+      notebooks: [{ id: "work", name: "Work", raw: "{}" }],
+      notes: [
+        aNote({ id: "a", title: "Standup", notebookId: "work" }),
+        aNote({ id: "b", title: "Elsewhere" }),
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Work, 1 note" }));
+    const back = screen.getByRole("button", { name: "All notebooks" });
+    const pane = back.closest("div") as HTMLElement;
+    expect(within(pane).getByText("Standup")).not.toBeNull();
+    expect(within(pane).queryByText("Elsewhere")).toBeNull();
+
+    fireEvent.click(back);
+    expect(screen.getByRole("heading", { name: "Recently modified" })).not.toBeNull();
+  });
+
+  it("returns to the notes home when the sidebar title is clicked", async () => {
+    mount({
+      notebooks: [{ id: "work", name: "Work", raw: "{}" }],
+      notes: [aNote({ id: "a", title: "Standup", notebookId: "work" })],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Work, 1 note" }));
+    expect(screen.getByRole("button", { name: "All notebooks" })).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Notes" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "All notebooks" })).toBeNull());
+    expect(screen.getByRole("heading", { name: "Recently modified" })).not.toBeNull();
+  });
+
   it("lists the selected notebook's notes as a tree", () => {
     mount({
       notes: [aNote({ id: "parent", title: "Parent" }), aNote({ id: "child", title: "Child", parentId: "parent" })],
@@ -359,8 +408,9 @@ describe("NotesView, finding a note", () => {
 
     fireEvent.change(screen.getByLabelText("Search notes"), { target: { value: "hinges" } });
 
-    await waitFor(() => expect(screen.getByText("Hardware")).not.toBeNull());
-    expect(screen.queryByText("Shopping")).toBeNull();
+    const sidebar = document.querySelector("aside") as HTMLElement;
+    await waitFor(() => expect(within(sidebar).getByText("Hardware")).not.toBeNull());
+    expect(within(sidebar).queryByText("Shopping")).toBeNull();
   });
 
   it("searches every notebook and names the one a hit is in", async () => {
@@ -371,7 +421,7 @@ describe("NotesView, finding a note", () => {
 
     fireEvent.change(screen.getByLabelText("Search notes"), { target: { value: "hinges" } });
 
-    await waitFor(() => expect(screen.getByText("Standup")).not.toBeNull());
+    await waitFor(() => expect(screen.getAllByText("Standup")[0]).not.toBeNull());
     expect(screen.getAllByText("Work").length).toBeGreaterThan(0);
   });
 

@@ -205,16 +205,30 @@ export function SidebarDrawer({ title, sidebar, children }: Props) {
 type SidebarHeaderProps = {
   eyebrow: string;
   title: string;
+  /** Makes the title a button, for views whose title is also their home. */
+  onTitleClick?: () => void;
   /** The view's primary action, e.g. the calendar and contacts "add" buttons. */
   action?: ReactNode;
 };
 
 /** The eyebrow and title every sidebar opens with, shared so the two stay the same size everywhere. */
-export function SidebarHeader({ eyebrow, title, action }: SidebarHeaderProps) {
+export function SidebarHeader({ eyebrow, title, onTitleClick, action }: SidebarHeaderProps) {
   const heading = (
     <div>
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">{eyebrow}</p>
-      <h2 className="mt-1 text-lg font-semibold">{title}</h2>
+      <h2 className="mt-1 text-lg font-semibold">
+        {onTitleClick ? (
+          <button
+            type="button"
+            onClick={onTitleClick}
+            className={`rounded transition-colors hover:text-accent ${focusRing}`}
+          >
+            {title}
+          </button>
+        ) : (
+          title
+        )}
+      </h2>
     </div>
   );
   if (!action) return heading;

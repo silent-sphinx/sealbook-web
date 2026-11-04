@@ -200,6 +200,7 @@ export default function App() {
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [bookmarkCollections, setBookmarkCollections] = useState<BookmarkCollection[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [notesHome, setNotesHome] = useState(0);
   const [taskFocusId, setTaskFocusId] = useState<string | undefined>();
   const [taskLists, setTaskLists] = useState<TaskList[]>([]);
   const [accountSettings, setAccountSettings] = useState<AccountSettings>(DEFAULT_ACCOUNT_SETTINGS);
@@ -1924,7 +1925,12 @@ export default function App() {
                       ? "text-bg"
                       : "text-mute hover:text-text hover:bg-surface/50"
                     }`}
-                  onClick={() => guardEditing(() => setActiveTab(tab.id))}
+                  onClick={() =>
+                    guardEditing(() => {
+                      if (tab.id === "notes" && activeTab === "notes") setNotesHome((n) => n + 1);
+                      setActiveTab(tab.id);
+                    })
+                  }
                 >
                   {tab.icon}
                   {/* Five tabs of icon-and-label do not fit a phone, so below
@@ -2033,6 +2039,7 @@ export default function App() {
             offline={isOffline}
             outbox={outboxState}
             sidebar={sidebar}
+            homeSignal={notesHome}
           />
         </div>
       ) : activeTab === "bookmarks" ? (
