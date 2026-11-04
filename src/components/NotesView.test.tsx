@@ -393,6 +393,24 @@ describe("NotesView, finding a note", () => {
 });
 
 describe("NotesView, the editor", () => {
+  it("opens an ancestor from its breadcrumb", async () => {
+    mount({
+      notes: [
+        aNote({ id: "parent", title: "Shopping" }),
+        aNote({ id: "child", title: "Hardware", parentId: "parent" }),
+      ],
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Expand Shopping" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hardware" }));
+    const crumbs = await screen.findByRole("navigation", { name: "Breadcrumb" });
+
+    fireEvent.click(within(crumbs).getByRole("button", { name: "Shopping" }));
+
+    await waitFor(() =>
+      expect(within(screen.getByRole("navigation", { name: "Breadcrumb" })).queryByRole("button")).toBeNull(),
+    );
+  });
+
   it("opens a note into the editor", async () => {
     mount({ notes: [aNote({ id: "a", title: "Shopping", body: "Bread" })] });
 

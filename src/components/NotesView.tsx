@@ -128,6 +128,12 @@ function fileNameFor(title: string): string {
   return `${base.slice(0, 60)}.md`;
 }
 
+/** The note as a file: its title as the heading, then the body. */
+function exportMarkdown(draft: NoteDraft): string {
+  const title = draft.title.trim();
+  return title ? `# ${title}\n\n${draft.body}` : draft.body;
+}
+
 export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved, offline = false, outbox, sidebar }: Props) {
   const [scope, setScope] = useState<string>(DEFAULT_NOTEBOOK_ID);
   const [search, setSearch] = useState("");
@@ -224,8 +230,8 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     () =>
       selectedId
         ? ancestorsOf(notes, selectedId)
-            .map((id) => notes.find((note) => note.id === id)?.title ?? "")
-            .filter(Boolean)
+            .map((id) => notes.find((note) => note.id === id))
+            .filter((note): note is Note => !!note && !!note.title)
             .reverse()
         : [],
     [notes, selectedId],
@@ -763,9 +769,15 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                   <Icon name="back" className="h-3.5 w-3.5" />
                 </button>
                 <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-xs text-mute">
-                  {breadcrumb.map((title) => (
-                    <span key={title} className="flex min-w-0 shrink items-center gap-1">
-                      <span className="max-w-[8rem] truncate">{title}</span>
+                  {breadcrumb.map((crumb) => (
+                    <span key={crumb.id} className="flex min-w-0 shrink items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openNote(crumb)}
+                        className={`max-w-[8rem] truncate rounded hover:text-text ${focusRing}`}
+                      >
+                        {crumb.title}
+                      </button>
                       <span aria-hidden="true" className="text-mute/50">/</span>
                     </span>
                   ))}
@@ -788,19 +800,23 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                 </select>
                 <button
                   type="button"
-                  onClick={() => triggerDownload(fileNameFor(draft.title), "text/markdown", draft.body)}
+                  onClick={() => triggerDownload(fileNameFor(draft.title), "text/markdown", exportMarkdown(draft))}
                   title="Export as Markdown"
                   aria-label="Export as Markdown"
                   className={editorAction}
                 >
                   <Icon name="download" className="h-3.5 w-3.5" />
                 </button>
-                {selected ? (
+                {selectedId ? (
                   <button
                     type="button"
-                    onClick={() => setConfirmDelete(selected)}
+                    onClick={() =>
+                      setConfirmDelete(
+                        selected ?? { ...draft, id: selectedId, raw: draft.raw ?? "" },
+                      )
+                    }
                     title="Delete note"
-                    aria-label={`Delete ${selected.title}`}
+                    aria-label={`Delete ${draft.title}`}
                     className={`${editorAction} hover:text-danger`}
                   >
                     <Icon name="trash" className="h-3.5 w-3.5" />
