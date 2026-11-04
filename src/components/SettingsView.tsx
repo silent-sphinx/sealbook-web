@@ -47,6 +47,7 @@ import type {
   Notebook,
 } from "../lib/types";
 import { allTimezones, utcOffsetLabel } from "../lib/timezone";
+import type { WeekStart } from "../lib/calendarModel";
 import { PAGE_GROUPS, pageForSection, type SettingsPage, type SettingsSection } from "../lib/settingsModel";
 import { CheckIcon, CopyIcon } from "./AppIcons";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -101,6 +102,8 @@ type Props = {
   onCreateBookmarkCollection?: (name: string) => Promise<string | undefined>;
   timezone: string;
   onTimezoneChange: (timezone: string) => void;
+  weekStart: WeekStart;
+  onWeekStartChange: (weekStart: WeekStart) => void;
   accountSettings: AccountSettings;
   /** Rejects when the write fails, so the toggle can report it and stay put. */
   onSaveAccountSettings: (settings: AccountSettings) => Promise<void>;
@@ -136,6 +139,8 @@ export function SettingsView({
   onCreateBookmarkCollection,
   timezone,
   onTimezoneChange,
+  weekStart,
+  onWeekStartChange,
   accountSettings,
   onSaveAccountSettings,
   initialSection,
@@ -943,6 +948,21 @@ export function SettingsView({
                         {zone} [{utcOffsetLabel(zone)}]
                       </option>
                     ))}
+                  </select>
+                }
+              />
+              <SettingsRow
+                label={<label htmlFor={`${ids}-week-start`}>First day of the week</label>}
+                description="The day the month, week and year views open each week on."
+                control={
+                  <select
+                    id={`${ids}-week-start`}
+                    value={weekStart}
+                    onChange={(event) => onWeekStartChange(event.target.value === "1" ? 1 : 0)}
+                    className={`${selectField} w-44 sm:w-64`}
+                  >
+                    <option value={1}>Monday</option>
+                    <option value={0}>Sunday</option>
                   </select>
                 }
               />

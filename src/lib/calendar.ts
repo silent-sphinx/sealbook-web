@@ -1,4 +1,5 @@
-import type { Calendar, CalendarEvent, RecurrenceRule } from "./types";
+import { DEFAULT_CALENDAR_COLOR, type Calendar, type CalendarEvent, type RecurrenceRule } from "./types";
+import { COLLECTION_PALETTE } from "./collectionPalette";
 import {
   coreCalendarNameById,
   coreCalendarParse,
@@ -172,6 +173,12 @@ export function calendarNameById(
 
 export function sortCalendars(calendars: Calendar[]): Calendar[] {
   return sortContainers(DEFAULT_CALENDAR_ID, calendars);
+}
+
+/** The first base palette tone no calendar uses yet, so a new one stands apart. */
+export function nextCalendarColor(calendars: Calendar[]): string {
+  const used = new Set(calendars.map((calendar) => calendar.color.toLowerCase()));
+  return COLLECTION_PALETTE[1].find((swatch) => !used.has(swatch.hex))?.hex ?? DEFAULT_CALENDAR_COLOR;
 }
 
 /** The calendars in play: an archived one is out of the list and the pickers. */

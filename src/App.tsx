@@ -125,12 +125,15 @@ import {
   loadLastTab,
   loadOnboarding,
   loadTimezone,
+  loadWeekStart,
   rememberBrowserTimezone,
   saveLastTab,
   saveOnboarding,
+  saveWeekStart,
   TIMEZONE_KEY,
   type MainTab,
 } from "./lib/appState";
+import type { WeekStart } from "./lib/calendarModel";
 import {
   btnSecondary,
   focusRing,
@@ -247,6 +250,7 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [activeTabState, setActiveTabState] = useState<MainTab>(loadLastTab);
   const [timezone, setTimezoneState] = useState(loadTimezone);
+  const [weekStart, setWeekStartState] = useState(loadWeekStart);
   const [online, setOnline] = useState(() => navigator.onLine);
   const [outboxState, setOutboxState] = useState<OutboxState>({ pending: 0, queued: [], failed: [], signIn: false });
   const [notices, setNotices] = useState<{ id: number; text: string }[]>([]);
@@ -339,6 +343,11 @@ export default function App() {
   function setOnboarding(pending: boolean) {
     setOnboardingState(pending);
     saveOnboarding(pending);
+  }
+
+  function setWeekStart(value: WeekStart) {
+    setWeekStartState(value);
+    saveWeekStart(value);
   }
 
   function setTimezone(value: string) {
@@ -2032,6 +2041,8 @@ export default function App() {
             pendingChanges={outboxState.pending + outboxState.failed.length}
             timezone={timezone}
             onTimezoneChange={setTimezone}
+            weekStart={weekStart}
+            onWeekStartChange={setWeekStart}
             accountSettings={accountSettings}
             onSaveAccountSettings={onSaveAccountSettings}
             initialSection={settingsSection ?? undefined}
@@ -2040,7 +2051,7 @@ export default function App() {
         </div>
       ) : activeTab === "calendar" ? (
         <div>
-          <CalendarView session={session} calendars={calendars} events={calendarEvents} contacts={contacts} busy={busy} timezone={timezone} onRefresh={() => refresh(session)} sidebar={sidebar} dueTasks={isFeatureEnabled(accountSettings, "tasks") ? tasks : undefined} onOpenTask={(id) => guardEditing(() => { setTaskFocusId(id); setActiveTab("tasks"); })} />
+          <CalendarView session={session} calendars={calendars} events={calendarEvents} contacts={contacts} busy={busy} timezone={timezone} weekStart={weekStart} onRefresh={() => refresh(session)} sidebar={sidebar} dueTasks={isFeatureEnabled(accountSettings, "tasks") ? tasks : undefined} onOpenTask={(id) => guardEditing(() => { setTaskFocusId(id); setActiveTab("tasks"); })} />
         </div>
       ) : activeTab === "notes" ? (
         <div>

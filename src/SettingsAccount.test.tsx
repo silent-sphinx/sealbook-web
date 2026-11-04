@@ -98,6 +98,8 @@ function mount(page: string) {
       onRefresh={handlers.onRefresh}
       timezone="Europe/London"
       onTimezoneChange={() => undefined}
+      weekStart={0}
+      onWeekStartChange={() => undefined}
       accountSettings={DEFAULT_ACCOUNT_SETTINGS}
       onSaveAccountSettings={async () => undefined}
     />,

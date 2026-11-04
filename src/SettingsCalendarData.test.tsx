@@ -104,6 +104,8 @@ function mount(events: CalendarEvent[] = []) {
       onRefresh={onRefresh}
       timezone="Europe/London"
       onTimezoneChange={() => undefined}
+      weekStart={0}
+      onWeekStartChange={() => undefined}
       accountSettings={DEFAULT_ACCOUNT_SETTINGS}
       onSaveAccountSettings={async () => undefined}
       initialSection="calendar"

@@ -22,6 +22,7 @@ import { aDeviceState } from "./test/vault";
 import { DEFAULT_CALENDAR_ID } from "./lib/calendar";
 import { HIDDEN_CALENDARS } from "./lib/calendarVisibility";
 import { DEFAULT_CALENDAR_COLOR } from "./lib/types";
+import { COLLECTION_PALETTE } from "./lib/collectionPalette";
 import type { Calendar, CalendarEvent } from "./lib/types";
 import type { Session } from "./lib/client";
 
@@ -139,9 +140,17 @@ function mount() {
   render(<Harness />);
 }
 
-/** The confirm dialogs reuse their action's label, which the calendar dialog behind them also carries. */
 function confirmIn(dialog: string, label: string) {
   fireEvent.click(within(screen.getByRole("dialog", { name: dialog })).getByRole("button", { name: label }));
+}
+
+function rowOf(name: string): HTMLElement {
+  return screen.getByTitle(new RegExp(`^(Hide|Show) ${name}$`)).parentElement!;
+}
+
+function chooseFromMenu(name: string, item: string) {
+  fireEvent.contextMenu(rowOf(name));
+  fireEvent.click(screen.getByRole("menuitem", { name: item }));
 }
 
 beforeEach(() => {
@@ -153,23 +162,39 @@ beforeEach(() => {
 });
 
 describe("creating and editing a calendar", () => {
-  it("writes the name and colour the dialog was given", async () => {
+  it("writes the name typed into the sidebar, in a colour no calendar uses yet", async () => {
     mount();
 
     fireEvent.click(screen.getByRole("button", { name: "Add calendar" }));
-    fireEvent.change(await screen.findByPlaceholderText("Personal"), { target: { value: "Work" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create calendar" }));
+    const input = screen.getByRole("textbox", { name: "New calendar name" });
+    fireEvent.change(input, { target: { value: "Work" } });
+    fireEvent.submit(input);
 
     await waitFor(() => expect(writes.length).toBe(1));
     expect(writes[0]).toMatchObject({
       kind: "putCalendar",
       id: undefined,
-      draft: { name: "Work", color: DEFAULT_CALENDAR_COLOR, favorite: false, archived: false },
+      draft: { name: "Work", favorite: false, archived: false },
     });
+    const color = writes[0]!.draft!.color as string;
+    expect(color).not.toBe(DEFAULT_CALENDAR_COLOR);
+    expect(COLLECTION_PALETTE.flat().some((swatch) => swatch.hex === color)).toBe(true);
     expect(await screen.findByTitle("Hide Work")).toBeDefined();
   });
 
-  it("carries the stored fields an edit does not touch", async () => {
+  it("writes nothing when the new name is abandoned", () => {
+    mount();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add calendar" }));
+    const input = screen.getByRole("textbox", { name: "New calendar name" });
+    fireEvent.change(input, { target: { value: "Work" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    expect(screen.queryByRole("textbox", { name: "New calendar name" })).toBeNull();
+    expect(writes).toEqual([]);
+  });
+
+  it("renames in place, carrying the stored fields a rename does not touch", async () => {
     calendars = [
       aCalendar(DEFAULT_CALENDAR_ID, "Calendar"),
       aCalendar(WORK_ID, "Work", {
@@ -179,18 +204,50 @@ describe("creating and editing a calendar", () => {
     ];
     mount();
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit Work calendar" }));
-    fireEvent.change(await screen.findByPlaceholderText("Personal"), { target: { value: "Work, renamed" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    chooseFromMenu("Work", "Rename calendar");
+    const input = screen.getByRole("textbox", { name: "Rename Work" });
+    fireEvent.change(input, { target: { value: "Work, renamed" } });
+    fireEvent.submit(input);
 
     await waitFor(() => expect(writes.length).toBe(1));
     const write = writes[0]!;
     expect(write).toMatchObject({ kind: "putCalendar", id: WORK_ID });
-    // The favourite flag and the carry are not on the dialog, so losing them
-    // here would unfavourite the calendar and drop a newer client's fields.
+    // Losing these would unfavourite the calendar and drop a newer client's fields.
     expect(write.draft!.name).toBe("Work, renamed");
     expect(write.draft!.favorite).toBe(true);
     expect(write.draft!.raw).toContain("syncToken");
+  });
+
+  it("recolours from the palette", async () => {
+    calendars = [aCalendar(DEFAULT_CALENDAR_ID, "Calendar"), aCalendar(WORK_ID, "Work")];
+    mount();
+
+    chooseFromMenu("Work", "Change colour");
+    const palette = screen.getByRole("dialog", { name: "Calendar colour" });
+    fireEvent.click(within(palette).getByRole("button", { name: "Green" }));
+
+    await waitFor(() => expect(writes.length).toBe(1));
+    expect(writes[0]).toMatchObject({ kind: "putCalendar", id: WORK_ID, draft: { name: "Work", color: "#9ece6a" } });
+  });
+});
+
+describe("the calendar sections", () => {
+  it("lists favourites in their own section, each section by name with the default first", () => {
+    calendars = [
+      aCalendar("calendar-zoo", "Zoo"),
+      aCalendar(DEFAULT_CALENDAR_ID, "Calendar"),
+      aCalendar("calendar-bills", "Bills"),
+      aCalendar("calendar-yoga", "Yoga", { favorite: true }),
+      aCalendar("calendar-art", "Art", { favorite: true }),
+    ];
+    mount();
+
+    const names = (label: string) =>
+      within(screen.getByText(label).closest("div.mt-6") as HTMLElement)
+        .getAllByTitle(/^(Hide|Show) /)
+        .map((button) => button.getAttribute("title")!.replace(/^(Hide|Show) /, ""));
+    expect(names("Favourites")).toEqual(["Art", "Yoga"]);
+    expect(names("Calendars")).toEqual(["Calendar", "Bills", "Zoo"]);
   });
 });
 
@@ -207,8 +264,7 @@ describe("deleting a calendar", () => {
   it("takes its events with it, and them first", async () => {
     mount();
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit Work calendar" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Delete calendar" }));
+    chooseFromMenu("Work", "Delete calendar");
     confirmIn("Delete calendar", "Delete calendar");
 
     await waitFor(() => expect(writes.length).toBe(3));
@@ -224,8 +280,7 @@ describe("deleting a calendar", () => {
   it("leaves the calendar in place when only its events are purged", async () => {
     mount();
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit Work calendar" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Purge Events" }));
+    chooseFromMenu("Work", "Purge events");
     confirmIn("Purge Events", "Purge Events");
 
     await waitFor(() => expect(writes.length).toBe(2));
@@ -233,12 +288,12 @@ describe("deleting a calendar", () => {
     expect(calendars.some((calendar) => calendar.id === WORK_ID)).toBe(true);
   });
 
-  it("offers no delete for the default calendar", async () => {
+  it("offers no delete for the default calendar", () => {
     mount();
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit Calendar calendar" }));
-    await screen.findByPlaceholderText("Personal");
-    expect(screen.queryByRole("button", { name: "Delete calendar" })).toBeNull();
+    fireEvent.contextMenu(rowOf("Calendar"));
+    expect(screen.getByRole("menuitem", { name: "Rename calendar" })).toBeDefined();
+    expect(screen.queryByRole("menuitem", { name: "Delete calendar" })).toBeNull();
   });
 });
 

@@ -66,6 +66,8 @@ function mount(settings: AccountSettings, initialSection?: SettingsSection) {
       onRefresh={async () => undefined}
       timezone="Europe/London"
       onTimezoneChange={() => undefined}
+      weekStart={0}
+      onWeekStartChange={() => undefined}
       accountSettings={settings}
       onSaveAccountSettings={onSaveAccountSettings}
       initialSection={initialSection}

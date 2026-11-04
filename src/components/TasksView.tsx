@@ -571,7 +571,7 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search tasks"
                   aria-label="Search tasks"
-                  className="h-8 w-full rounded-xl border border-line bg-panel pl-8 pr-7 text-xs text-text outline-none transition-colors duration-150 placeholder:text-mute/60 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring sm:w-52"
+                  className="h-8 w-full rounded-xl border border-line bg-panel pl-8 pr-7 text-xs text-text outline-none transition-all duration-150 placeholder:text-mute/60 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring sm:w-52 sm:focus:w-72"
                 />
                 {search ? (
                   <button
