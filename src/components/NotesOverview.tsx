@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-import { notePreview, resolveNotebookId, sortNotes } from "../lib/note";
+import { notebookTone, notePreview, resolveNotebookId, sortNotes } from "../lib/note";
 import { focusRing } from "../lib/styles";
 import type { Note, Notebook } from "../lib/types";
 
@@ -20,6 +20,7 @@ function day(iso: string | undefined): string {
 }
 
 function NotebookCover({ notebook, count, onOpen }: { notebook: Notebook; count: number; onOpen: () => void }) {
+  const tone = notebookTone(notebook.id, notebook.color);
   return (
     <button
       type="button"
@@ -27,9 +28,13 @@ function NotebookCover({ notebook, count, onOpen }: { notebook: Notebook; count:
       aria-label={`${notebook.name}, ${count} ${count === 1 ? "note" : "notes"}`}
       className={`group relative flex aspect-[3/4] w-full overflow-hidden rounded-r-xl rounded-l-sm border border-line bg-surface text-left shadow-md shadow-black/30 transition-transform hover:-translate-y-0.5 ${focusRing}`}
     >
-      <span aria-hidden="true" className="w-3 shrink-0 bg-accent-dim/70" />
+      <span aria-hidden="true" className="w-3 shrink-0 opacity-80" style={{ backgroundColor: tone }} />
       <span aria-hidden="true" className="absolute inset-y-0 left-3 w-px bg-black/30" />
-      <span aria-hidden="true" className="absolute inset-y-4 right-3 w-1.5 rounded-sm bg-accent-dim/40" />
+      <span
+        aria-hidden="true"
+        className="absolute inset-y-4 right-3 w-1.5 rounded-sm opacity-50"
+        style={{ backgroundColor: tone }}
+      />
       <span className="flex min-w-0 flex-1 flex-col justify-between p-3 pr-6">
         <span className="rounded-sm border border-line bg-bg/60 px-2 py-2 text-sm font-medium leading-snug text-text [overflow-wrap:anywhere]">
           {notebook.name}

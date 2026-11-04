@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { useId, useState } from "react";
 
 import type { Session } from "../lib/client";
 import { friendlyError } from "../lib/errors";
@@ -12,7 +12,18 @@ import {
 } from "../lib/task";
 import { newTaskId, putTask, putTaskList } from "../lib/taskApi";
 import { generateTaskExportData, parseTaskImport, type TaskImportResult } from "../lib/taskExport";
-import { btnPrimary, btnSecondary, field, focusRing, selectField } from "../lib/styles";
+import { btnPrimary, btnSecondary, fieldLabel, selectField } from "../lib/styles";
+import {
+  FileDrop,
+  ImportPreview,
+  ImportProgress,
+  ImportReview,
+  NoticeLine,
+  SettingsGroup,
+  TargetPicker,
+  actionRow,
+  type Notice,
+} from "./SettingsKit";
 import type { Task, TaskList } from "../lib/types";
 
 const MAX_IMPORT_FILE_BYTES = 32 * 1024 * 1024;
@@ -24,8 +35,6 @@ type Props = {
   onRefresh: () => Promise<void>;
 };
 
-type Message = { type: "success" | "error"; text: string } | null;
-
 function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
@@ -34,26 +43,9 @@ function readError(err: unknown): string {
   return err instanceof Error ? err.message : friendlyError(err);
 }
 
-function Banner({ message }: { message: Message }) {
-  if (!message) return null;
-  return (
-    <div
-      role={message.type === "error" ? "alert" : "status"}
-      className={`rounded-lg px-3 py-2 text-xs font-medium ${
-        message.type === "success"
-          ? "border border-accent/20 bg-accent/10 text-accent"
-          : "border border-danger/20 bg-danger/10 text-danger"
-      }`}
-    >
-      {message.text}
-    </div>
-  );
-}
 
 export function TasksImportExportSection({ session, tasks, taskLists, onRefresh }: Props) {
   const ids = useId();
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [dragActive, setDragActive] = useState(false);
   const [importFile, setImportFile] = useState<{ name: string } | null>(null);
   const [parsed, setParsed] = useState<TaskImportResult | null>(null);
   const [targetListId, setTargetListId] = useState<string>(taskLists[0]?.id ?? DEFAULT_TASK_LIST_ID);
@@ -61,9 +53,9 @@ export function TasksImportExportSection({ session, tasks, taskLists, onRefresh 
   const [newListName, setNewListName] = useState("");
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
-  const [importMsg, setImportMsg] = useState<Message>(null);
+  const [importMsg, setImportMsg] = useState<Notice>(null);
   const [exportListFilter, setExportListFilter] = useState<string>(ALL_TASK_LISTS);
-  const [exportMsg, setExportMsg] = useState<Message>(null);
+  const [exportMsg, setExportMsg] = useState<Notice>(null);
 
   const exportTasks = sortTasks(
     exportListFilter === ALL_TASK_LISTS
@@ -104,26 +96,6 @@ export function TasksImportExportSection({ session, tasks, taskLists, onRefresh 
     };
     reader.onerror = () => setImportMsg({ type: "error", text: "Failed to read file from disk." });
     reader.readAsText(file);
-  }
-
-  function onFileInputChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (file) handleFileRead(file);
-    event.target.value = "";
-  }
-
-  function handleDrag(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    event.stopPropagation();
-    setDragActive(event.type === "dragenter" || event.type === "dragover");
-  }
-
-  function handleDrop(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    event.stopPropagation();
-    setDragActive(false);
-    const file = event.dataTransfer.files?.[0];
-    if (file) handleFileRead(file);
   }
 
   function resetImport() {
@@ -194,159 +166,55 @@ export function TasksImportExportSection({ session, tasks, taskLists, onRefresh 
     }
   }
 
+  const creating = creatingList || taskLists.length === 0;
+
   return (
-    <section className="space-y-8 rounded-2xl border border-line bg-panel/75 p-4 shadow-sm backdrop-blur-md sm:p-6">
-      <div>
-        <h3 className="text-base font-semibold text-text">Import &amp; Export Tasks</h3>
-        <p className="mt-1 text-xs leading-relaxed text-mute">
-          Move tasks in and out of Sealbook as a JSON backup that keeps due dates, repeats,
-          priorities, tags and subtasks intact.
-        </p>
-      </div>
-
-      <div className="space-y-5 rounded-xl border border-line/80 bg-bg/50 p-4 sm:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h4 className="text-sm font-semibold text-text">Import Tasks</h4>
-          <span className="font-mono text-[11px] text-mute">.json</span>
-        </div>
-
+    <>
+      <SettingsGroup
+        title="Import tasks"
+        meta=".json"
+        description="Restore a Sealbook task export with its due dates, repeats, priorities, tags and subtasks, or bring in any JSON list of tasks."
+      >
         {!importFile || !parsed ? (
-          <div
-            role="button"
-            tabIndex={0}
-            aria-label="Choose a tasks file to import, or drop one here"
-            onDragEnter={handleDrag}
-            onDragLeave={handleDrag}
-            onDragOver={handleDrag}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter" && event.key !== " ") return;
-              event.preventDefault();
-              fileInputRef.current?.click();
-            }}
-            className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-5 text-center sm:p-7 transition-all ${focusRing} ${
-              dragActive
-                ? "scale-[0.99] border-accent bg-accent/10"
-                : "border-line/80 hover:border-line-light hover:bg-surface/30"
-            }`}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".json,application/json"
-              aria-label="Tasks file"
-              onChange={onFileInputChange}
-              className="hidden"
-            />
-            <p className="text-xs font-medium text-text">Click to select a file or drag it here</p>
-            <p className="mt-1 text-[11px] text-mute">
-              A Sealbook task export (.json), or any JSON array of objects with a title
-            </p>
-          </div>
+          <FileDrop
+            label="Choose a tasks file to import, or drop one here"
+            accept=".json,application/json"
+            formats=".json"
+            hint="A Sealbook task export, or any JSON array of objects with a title"
+            inputLabel="Tasks file"
+            onFile={handleFileRead}
+          />
         ) : (
-          <div className="animate-fade-in space-y-4 rounded-xl border border-accent/30 bg-surface/40 p-4">
-            <div className="flex items-center justify-between gap-3 border-b border-line/60 pb-3">
-              <div className="min-w-0">
-                <p className="truncate text-xs font-semibold text-text">
-                  {importFile.name}
-                </p>
-                <p className="mt-0.5 text-[11px] font-medium text-accent">
-                  {plural(parsed.tasks.length, "task")} found
-                  {parsed.skipped > 0 ? ` · ${parsed.skipped} skipped` : ""}
-                </p>
-              </div>
-              <button
-                type="button"
-                disabled={importing}
-                onClick={resetImport}
-                className="cursor-pointer text-xs text-mute hover:text-text"
-              >
-                Change file
-              </button>
-            </div>
-
-            <div className="space-y-2 pt-1">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <label htmlFor={`${ids}-target`} className="text-xs font-medium text-text">
-                  Target list
-                </label>
-                <button
-                  type="button"
-                  disabled={importing}
-                  onClick={() => setCreatingList(!creatingList)}
-                  className="cursor-pointer text-[11px] text-accent hover:underline"
-                >
-                  {creatingList ? "Select existing list" : "+ Create new list"}
-                </button>
-              </div>
-              {creatingList || taskLists.length === 0 ? (
-                <input
-                  id={`${ids}-target`}
-                  type="text"
-                  value={newListName}
-                  onChange={(event) => setNewListName(event.target.value)}
-                  placeholder="e.g. Imported, Work, Groceries"
-                  className={field}
-                  disabled={importing}
-                  autoFocus
-                />
-              ) : (
-                <select
-                  id={`${ids}-target`}
-                  value={targetListId}
-                  onChange={(event) => setTargetListId(event.target.value)}
-                  disabled={importing}
-                  className={selectField}
-                >
-                  {taskLists.map((list) => (
-                    <option key={list.id} value={list.id}>
-                      {list.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-
-            <div className="rounded-lg border border-line/70 bg-bg/70 p-3">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-mute">
-                Preview (first {Math.min(parsed.tasks.length, 3)} of {parsed.tasks.length})
-              </p>
-              <div className="space-y-1.5 text-xs">
-                {parsed.tasks.slice(0, 3).map((entry, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between gap-3 border-b border-line/40 py-1 last:border-0"
-                  >
-                    <span className="min-w-0 flex-1 truncate font-medium text-text">
-                      {entry.draft.title}
-                    </span>
-                    <span className="font-mono text-[11px] text-mute">
-                      {entry.draft.dueDate ? entry.draft.dueDate.slice(0, 10) : ""}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {importing && progress ? (
-              <div className="space-y-1.5 pt-1">
-                <div className="flex justify-between text-[11px] text-mute">
-                  <span>Encrypting &amp; uploading tasks…</span>
-                  <span className="font-mono font-medium text-accent">
-                    {progress.current} / {progress.total}
-                  </span>
-                </div>
-                <div className="h-2 w-full overflow-hidden rounded-full border border-line bg-surface">
-                  <div
-                    className="h-full bg-accent transition-all duration-150"
-                    style={{ width: `${(progress.current / progress.total) * 100}%` }}
-                  />
-                </div>
-              </div>
-            ) : null}
-
-            <div className="flex flex-wrap justify-end gap-2.5 pt-2">
+          <ImportReview
+            fileName={importFile.name}
+            summary={`${plural(parsed.tasks.length, "task")} found${parsed.skipped > 0 ? ` · ${parsed.skipped} skipped` : ""}`}
+            busy={importing}
+            onChangeFile={resetImport}
+          >
+            <TargetPicker
+              id={`${ids}-target`}
+              label="Target list"
+              noun="list"
+              creating={creating}
+              canCreate
+              onToggle={() => setCreatingList(!creatingList)}
+              disabled={importing}
+              name={newListName}
+              onName={setNewListName}
+              placeholder="e.g. Imported, Work, Groceries"
+              value={targetListId}
+              onValue={setTargetListId}
+              options={taskLists}
+            />
+            <ImportPreview
+              rows={parsed.tasks.slice(0, 3).map((entry) => ({
+                primary: entry.draft.title,
+                secondary: entry.draft.dueDate ? entry.draft.dueDate.slice(0, 10) : undefined,
+              }))}
+              total={parsed.tasks.length}
+            />
+            {importing ? <ImportProgress label="Encrypting and uploading tasks…" progress={progress} /> : null}
+            <div className={actionRow}>
               <button type="button" disabled={importing} onClick={resetImport} className={btnSecondary}>
                 Cancel
               </button>
@@ -361,27 +229,25 @@ export function TasksImportExportSection({ session, tasks, taskLists, onRefresh 
                   : `Import ${plural(parsed.tasks.length, "task")}`}
               </button>
             </div>
-          </div>
+          </ImportReview>
         )}
+        <NoticeLine notice={importMsg} />
+      </SettingsGroup>
 
-        <Banner message={importMsg} />
-      </div>
-
-      <div className="space-y-5 rounded-xl border border-line/80 bg-bg/50 p-4 sm:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h4 className="text-sm font-semibold text-text">Export Tasks</h4>
-          <span className="font-mono text-[11px] text-mute">{plural(exportTasks.length, "task")}</span>
-        </div>
-
+      <SettingsGroup
+        title="Export tasks"
+        meta={plural(exportTasks.length, "task")}
+        description="A JSON backup that keeps due dates, repeats, priorities, tags and subtasks, which you can restore here."
+      >
         <div>
-          <label htmlFor={`${ids}-source`} className="mb-1 block text-xs font-medium text-text">
+          <label htmlFor={`${ids}-source`} className={fieldLabel}>
             Source list
           </label>
           <select
             id={`${ids}-source`}
             value={exportListFilter}
             onChange={(event) => setExportListFilter(event.target.value)}
-            className={selectField}
+            className={`${selectField} mt-1.5`}
           >
             <option value={ALL_TASK_LISTS}>All lists ({tasks.length})</option>
             {taskLists.map((list) => (
@@ -391,15 +257,13 @@ export function TasksImportExportSection({ session, tasks, taskLists, onRefresh 
             ))}
           </select>
         </div>
-
-        <Banner message={exportMsg} />
-
-        <div className="flex justify-end pt-1">
+        <NoticeLine notice={exportMsg} />
+        <div className={actionRow}>
           <button type="button" disabled={exportTasks.length === 0} onClick={runExport} className={btnPrimary}>
             Export {plural(exportTasks.length, "task")}
           </button>
         </div>
-      </div>
-    </section>
+      </SettingsGroup>
+    </>
   );
 }

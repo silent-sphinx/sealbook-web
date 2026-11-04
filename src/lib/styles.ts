@@ -21,6 +21,9 @@ export const btnSecondary =
   `${btnBase} border border-line bg-surface px-4 py-2 text-mute font-medium hover:border-line-light hover:text-text`;
 export const btnDanger =
   `${btnBase} bg-danger px-4 py-2 text-bg hover:brightness-110`;
+export const fieldLabel = "block text-xs font-medium text-text";
+export const textAction =
+  `rounded text-[11px] font-medium text-accent transition-colors hover:underline disabled:opacity-50 ${focusRing}`;
 export const ghost =
   `text-sm text-mute transition-colors duration-150 hover:text-accent ${focusRing}`;
 export const addLink = `${ghost} justify-self-start`;
@@ -55,6 +58,12 @@ export const sidebarGutter = "flex h-7 w-4 shrink-0 items-center justify-center"
 export const sidebarChildren = "ml-2 mt-0.5 space-y-0.5 border-l border-line pl-2";
 /** A secondary group at the foot of a section, such as an archive. */
 export const sidebarSubgroup = "mt-2.5 border-t border-line pt-2.5";
+/** A pill tinted in a container's colour. */
+export const tonePill = (tone: string) => ({
+  color: `color-mix(in srgb, ${tone} 55%, var(--color-mute))`,
+  borderColor: `color-mix(in srgb, ${tone} 22%, transparent)`,
+  backgroundColor: `color-mix(in srgb, ${tone} 6%, transparent)`,
+});
 export const sidebarCount = "pr-1 text-[10px] tabular-nums text-mute/70";
 export const sidebarNameInput =
   "h-8 w-full min-w-0 rounded-lg border border-accent-dim bg-bg px-2 text-xs text-text outline-none ring-1 ring-accent-ring placeholder:text-mute/60";

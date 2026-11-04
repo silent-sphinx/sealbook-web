@@ -1,4 +1,4 @@
-import { useId, useState, useRef, type ChangeEvent, type DragEvent } from "react";
+import { useId, useState } from "react";
 import type { AddressBook, Contact, ContactDraft } from "../lib/types";
 import type { Session } from "../lib/client";
 import { deleteAddressBook, deleteContact, putContact } from "../lib/client";
@@ -12,13 +12,18 @@ import {
   triggerDownload,
   type ExportFormat,
 } from "../lib/importExport";
+import { btnPrimary, btnSecondary, fieldLabel, selectField } from "../lib/styles";
 import {
-  btnPrimary,
-  btnSecondary,
-  field,
-  selectField,
-  focusRing,
-} from "../lib/styles";
+  FileDrop,
+  ImportPreview,
+  ImportProgress,
+  ImportReview,
+  NoticeLine,
+  SettingsGroup,
+  TargetPicker,
+  actionRow,
+  type Notice,
+} from "./SettingsKit";
 
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -37,9 +42,6 @@ export function ImportExportSection({
   onRefresh,
   onCreateBook,
 }: Props) {
-  // Import State
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [dragActive, setDragActive] = useState(false);
   const [importFile, setImportFile] = useState<{ name: string; size: number } | null>(null);
   const [parsedFormat, setParsedFormat] = useState<string | null>(null);
   const [parsedContacts, setParsedContacts] = useState<ContactDraft[]>([]);
@@ -53,14 +55,12 @@ export function ImportExportSection({
   const [newBookName, setNewBookName] = useState("");
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<{ current: number; total: number } | null>(null);
-  const [importMsg, setImportMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [importMsg, setImportMsg] = useState<Notice>(null);
 
-  // Export State
   const [exportBookFilter, setExportBookFilter] = useState<string>("ALL");
   const [exportFormat, setExportFormat] = useState<ExportFormat>("vcf");
-  const [exportMsg, setExportMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [exportMsg, setExportMsg] = useState<Notice>(null);
 
-  // Filtered contacts for export
   const exportContacts = sortContacts(
     exportBookFilter === "ALL"
       ? contacts
@@ -69,7 +69,6 @@ export function ImportExportSection({
         ),
   );
 
-  // File loading and parsing
   function handleFileRead(file: File) {
     setImportMsg(null);
     if (file.size > MAX_IMPORT_FILE_BYTES) {
@@ -105,34 +104,6 @@ export function ImportExportSection({
       setImportMsg({ type: "error", text: "Failed to read file from disk." });
     };
     reader.readAsText(file);
-  }
-
-  function onFileInputChange(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) {
-      handleFileRead(file);
-    }
-    e.target.value = "";
-  }
-
-  function handleDrag(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
-    }
-  }
-
-  function handleDrop(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      handleFileRead(file);
-    }
   }
 
   function resetImport() {
@@ -234,333 +205,136 @@ export function ImportExportSection({
     }
   }
 
+  const contactCount = (count: number) => `${count} contact${count === 1 ? "" : "s"}`;
+  const books = addressBooks
+    .filter((book) => book.archived !== true)
+    .map((book) => ({
+      id: book.id,
+      name: book.id === DEFAULT_ADDRESS_BOOK_ID ? `${book.name} (default)` : book.name,
+    }));
+
   return (
-    <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6 space-y-8">
-      <div>
-        <h3 className="text-base font-semibold text-text">
-          Import & Export Contacts
-        </h3>
-        <p className="mt-1 text-xs text-mute leading-relaxed">
-          Migrate contacts from iOS, Android, Google, or Outlook using standard
-          vCard (.vcf) or CSV formats, or export encrypted backups.
-        </p>
-      </div>
-
-      {/* SUB-SECTION 1: IMPORT */}
-      <div className="rounded-xl border border-line/80 bg-bg/50 p-4 space-y-5 sm:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent/15 text-accent text-xs font-bold">
-              ↓
-            </span>
-            <h4 className="text-sm font-semibold text-text">Import Contacts</h4>
-          </div>
-          <span className="text-[11px] text-mute font-mono">
-            .vcf, .csv, .json
-          </span>
-        </div>
-
-        {/* Dropzone / File Picker */}
+    <>
+      <SettingsGroup
+        title="Import contacts"
+        meta=".vcf, .csv, .json"
+        description="Bring contacts in from iOS, Android, Google or Outlook as vCard or CSV, or restore a Sealbook JSON backup."
+      >
         {!importFile ? (
-          // The file input below is `display: none`, so it is not in the
-          // accessibility tree and cannot be tabbed to. This zone is the only
-          // way to pick a file, so it carries the button semantics and the
-          // keyboard activation itself.
-          <div
-            role="button"
-            tabIndex={0}
-            aria-label="Choose a contacts file to import, or drop one here"
-            onDragEnter={handleDrag}
-            onDragLeave={handleDrag}
-            onDragOver={handleDrag}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter" && event.key !== " ") return;
-              event.preventDefault();
-              fileInputRef.current?.click();
-            }}
-            className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-5 text-center sm:p-7 transition-all cursor-pointer ${focusRing} ${
-              dragActive
-                ? "border-accent bg-accent/10 scale-[0.99]"
-                : "border-line/80 hover:border-line-light hover:bg-surface/30"
-            }`}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".vcf,.vcard,.csv,.json,text/vcard,text/csv,application/json"
-              onChange={onFileInputChange}
-              className="hidden"
-            />
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-surface border border-line text-accent mb-2">
-              <svg
-                className="h-5 w-5"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M9.25 13.25a.75.75 0 0 0 1.5 0V4.56l2.22 2.22a.75.75 0 1 0 1.06-1.06l-3.5-3.5a.75.75 0 0 0-1.06 0l-3.5 3.5a.75.75 0 0 0 1.06 1.06l2.22-2.22v8.69ZM3.5 14.25a.75.75 0 0 1 .75.75v1.5c0 .414.336.75.75.75h10a.75.75 0 0 0 .75-.75V15a.75.75 0 0 1 1.5 0v1.5A2.25 2.25 0 0 1 15 18.75H5A2.25 2.25 0 0 1 2.75 16.5V15a.75.75 0 0 1 .75-.75Z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </div>
-            <p className="text-xs font-medium text-text">
-              Click to select file or drag & drop here
-            </p>
-            <p className="mt-1 text-[11px] text-mute">
-              Supports Apple Contacts / Google vCard (.vcf), Spreadsheets (.csv), or Sealbook (.json)
-            </p>
-          </div>
+          <FileDrop
+            label="Choose a contacts file to import, or drop one here"
+            accept=".vcf,.vcard,.csv,.json,text/vcard,text/csv,application/json"
+            formats=".vcf .csv .json"
+            hint="Apple Contacts or Google vCard, a spreadsheet as CSV, or a Sealbook backup"
+            onFile={handleFileRead}
+          />
         ) : (
-          /* File Preview & Address Book Selection */
-          <div className="space-y-4 rounded-xl border border-accent/30 bg-surface/40 p-4 animate-fade-in">
-            <div className="flex items-center justify-between gap-3 border-b border-line/60 pb-3">
-              <div className="min-w-0">
-                <p className="truncate text-xs font-semibold text-text">
-                  {importFile.name}
-                </p>
-                <p className="text-[11px] text-accent font-medium mt-0.5">
-                  Detected {parsedFormat} · {parsedContacts.length} contact
-                  {parsedContacts.length === 1 ? "" : "s"} found
-                  {skippedContacts ? ` · ${skippedContacts} unreadable and skipped` : ""}
-                </p>
-              </div>
-              <button
-                type="button"
-                disabled={importing}
-                onClick={resetImport}
-                className="shrink-0 text-xs text-mute hover:text-text cursor-pointer"
-              >
-                Change file
-              </button>
-            </div>
-
-            {/* Address Book Selection Prompt */}
-            <div className="space-y-2 pt-1">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <label htmlFor={`${ids}-target-book`} className="text-xs font-medium text-text">
-                  Target Address Book
-                </label>
-                {onCreateBook && (
-                  <button
-                    type="button"
-                    disabled={importing}
-                    onClick={() => setIsCreatingBook(!isCreatingBook)}
-                    className="text-[11px] text-accent hover:underline cursor-pointer"
-                  >
-                    {isCreatingBook ? "Select existing book" : "+ Create new address book"}
-                  </button>
-                )}
-              </div>
-
-              {isCreatingBook ? (
-                <input
-                  id={`${ids}-target-book`}
-                  type="text"
-                  value={newBookName}
-                  onChange={(e) => setNewBookName(e.target.value)}
-                  placeholder="e.g. Work Contacts, Family, Archive"
-                  className={field}
-                  disabled={importing}
-                  autoFocus
-                />
-              ) : (
-                <select
-                  id={`${ids}-target-book`}
-                  value={targetBookId}
-                  onChange={(e) => setTargetBookId(e.target.value)}
-                  disabled={importing}
-                  className={selectField}
-                >
-                  {addressBooks.filter((book) => book.archived !== true).map((book) => (
-                    <option key={book.id} value={book.id}>
-                      {book.name} {book.id === DEFAULT_ADDRESS_BOOK_ID ? "(Default)" : ""}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-
-            {/* Sample Contact Preview */}
-            <div className="rounded-lg border border-line/70 bg-bg/70 p-3">
-              <p className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
-                Preview (First {Math.min(parsedContacts.length, 3)} of{" "}
-                {parsedContacts.length})
-              </p>
-              <div className="space-y-1.5 text-xs">
-                {parsedContacts.slice(0, 3).map((contact, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between gap-3 py-1 border-b border-line/40 last:border-0"
-                  >
-                    <span className="min-w-0 flex-1 truncate font-medium text-text">
-                      {contact.name}
-                    </span>
-                    <span className="min-w-0 truncate font-mono text-[11px] text-mute">
-                      {contact.emails.find((e) => e.value)?.value ||
-                        contact.phones.find((p) => p.value)?.value ||
-                        "No direct channels"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Progress Bar */}
-            {importing && importProgress && (
-              <div className="space-y-1.5 pt-1">
-                <div className="flex justify-between text-[11px] text-mute">
-                  <span>Encrypting & uploading contacts…</span>
-                  <span className="font-mono font-medium text-accent">
-                    {importProgress.current} / {importProgress.total}
-                  </span>
-                </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-surface border border-line">
-                  <div
-                    className="h-full bg-accent transition-all duration-150"
-                    style={{
-                      width: `${(importProgress.current / importProgress.total) * 100}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Action Buttons */}
-            <div className="flex flex-wrap justify-end gap-2.5 pt-2">
-              <button
-                type="button"
-                disabled={importing}
-                onClick={resetImport}
-                className={btnSecondary}
-              >
+          <ImportReview
+            fileName={importFile.name}
+            summary={`Detected ${parsedFormat} · ${contactCount(parsedContacts.length)} found${
+              skippedContacts ? ` · ${skippedContacts} unreadable and skipped` : ""
+            }`}
+            busy={importing}
+            onChangeFile={resetImport}
+          >
+            <TargetPicker
+              id={`${ids}-target-book`}
+              label="Target address book"
+              noun="address book"
+              creating={isCreatingBook}
+              canCreate={Boolean(onCreateBook)}
+              onToggle={() => setIsCreatingBook(!isCreatingBook)}
+              disabled={importing}
+              name={newBookName}
+              onName={setNewBookName}
+              placeholder="e.g. Work, Family, Archive"
+              value={targetBookId}
+              onValue={setTargetBookId}
+              options={books}
+            />
+            <ImportPreview
+              rows={parsedContacts.slice(0, 3).map((contact) => ({
+                primary: contact.name,
+                secondary:
+                  contact.emails.find((e) => e.value)?.value ||
+                  contact.phones.find((p) => p.value)?.value ||
+                  "No direct channels",
+              }))}
+              total={parsedContacts.length}
+            />
+            {importing ? <ImportProgress label="Encrypting and uploading contacts…" progress={importProgress} /> : null}
+            <div className={actionRow}>
+              <button type="button" disabled={importing} onClick={resetImport} className={btnSecondary}>
                 Cancel
               </button>
               <button
                 type="button"
-                disabled={
-                  importing ||
-                  (isCreatingBook && !newBookName.trim()) ||
-                  parsedContacts.length === 0
-                }
-                onClick={handleExecuteImport}
+                disabled={importing || (isCreatingBook && !newBookName.trim()) || parsedContacts.length === 0}
+                onClick={() => void handleExecuteImport()}
                 className={btnPrimary}
               >
                 {importing
                   ? `Importing (${importProgress?.current || 0}/${parsedContacts.length})…`
-                  : `Import ${parsedContacts.length} Contact${
-                      parsedContacts.length === 1 ? "" : "s"
-                    }`}
+                  : `Import ${contactCount(parsedContacts.length)}`}
               </button>
             </div>
-          </div>
+          </ImportReview>
         )}
+        <NoticeLine notice={importMsg} />
+      </SettingsGroup>
 
-        {importMsg && (
-          <div
-            className={`rounded-lg px-3 py-2 text-xs font-medium ${
-              importMsg.type === "success"
-                ? "bg-accent/10 text-accent border border-accent/20"
-                : "bg-danger/10 text-danger border border-danger/20"
-            }`}
-          >
-            {importMsg.text}
-          </div>
-        )}
-      </div>
-
-      {/* SUB-SECTION 2: EXPORT */}
-      <div className="rounded-xl border border-line/80 bg-bg/50 p-4 space-y-5 sm:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent/15 text-accent text-xs font-bold">
-              ↑
-            </span>
-            <h4 className="text-sm font-semibold text-text">Export Contacts</h4>
-          </div>
-          <span className="text-[11px] text-mute font-mono">
-            {exportContacts.length} contact{exportContacts.length === 1 ? "" : "s"}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Source Address Book */}
+      <SettingsGroup
+        title="Export contacts"
+        meta={contactCount(exportContacts.length)}
+        description="vCard opens in any contacts app, CSV in a spreadsheet. JSON keeps everything Sealbook stores, for a backup you can restore here."
+      >
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label htmlFor={`${ids}-source-book`} className="block text-xs font-medium text-text mb-1">
-              Source Address Book
+            <label htmlFor={`${ids}-source-book`} className={fieldLabel}>
+              Source address book
             </label>
             <select
               id={`${ids}-source-book`}
               value={exportBookFilter}
               onChange={(e) => setExportBookFilter(e.target.value)}
-              className={selectField}
+              className={`${selectField} mt-1.5`}
             >
-              <option value="ALL">
-                All Address Books ({contacts.length})
-              </option>
-              {addressBooks.map((book) => {
-                const count = contacts.filter(
-                  (c) => resolveAddressBookId(c.addressBookId) === book.id,
-                ).length;
-                return (
-                  <option key={book.id} value={book.id}>
-                    {book.name} ({count})
-                  </option>
-                );
-              })}
+              <option value="ALL">All address books ({contacts.length})</option>
+              {addressBooks.map((book) => (
+                <option key={book.id} value={book.id}>
+                  {book.name} ({contacts.filter((c) => resolveAddressBookId(c.addressBookId) === book.id).length})
+                </option>
+              ))}
             </select>
           </div>
-
-          {/* Export Format */}
           <div>
-            <label htmlFor={`${ids}-export-format`} className="block text-xs font-medium text-text mb-1">
-              Export Format
+            <label htmlFor={`${ids}-export-format`} className={fieldLabel}>
+              Export format
             </label>
             <select
               id={`${ids}-export-format`}
               value={exportFormat}
               onChange={(e) => setExportFormat(e.target.value as ExportFormat)}
-              className={selectField}
+              className={`${selectField} mt-1.5`}
             >
-              <option value="vcf">
-                vCard (.vcf) · Apple, Google, Android, Outlook
-              </option>
-              <option value="csv">
-                CSV (.csv) · Excel, Spreadsheets
-              </option>
-              <option value="json">
-                JSON (.json) · Lossless Full Backup
-              </option>
+              <option value="vcf">vCard (.vcf) · Apple, Google, Android, Outlook</option>
+              <option value="csv">CSV (.csv) · Excel, spreadsheets</option>
+              <option value="json">JSON (.json) · lossless full backup</option>
             </select>
           </div>
         </div>
-
-        {exportMsg && (
-          <div
-            className={`rounded-lg px-3 py-2 text-xs font-medium ${
-              exportMsg.type === "success"
-                ? "bg-accent/10 text-accent border border-accent/20"
-                : "bg-danger/10 text-danger border border-danger/20"
-            }`}
-          >
-            {exportMsg.text}
-          </div>
-        )}
-
-        <div className="flex justify-end pt-1">
+        <NoticeLine notice={exportMsg} />
+        <div className={actionRow}>
           <button
             type="button"
             disabled={exportContacts.length === 0}
             onClick={handleExecuteExport}
             className={btnPrimary}
           >
-            Export {exportContacts.length} Contact
-            {exportContacts.length === 1 ? "" : "s"}
+            Export {contactCount(exportContacts.length)}
           </button>
         </div>
-      </div>
-    </section>
+      </SettingsGroup>
+    </>
   );
 }

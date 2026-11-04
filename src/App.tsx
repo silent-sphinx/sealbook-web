@@ -125,12 +125,15 @@ import {
   loadLastTab,
   loadOnboarding,
   loadTimezone,
+  loadWeekStart,
   rememberBrowserTimezone,
   saveLastTab,
   saveOnboarding,
+  saveWeekStart,
   TIMEZONE_KEY,
   type MainTab,
 } from "./lib/appState";
+import type { WeekStart } from "./lib/calendarModel";
 import {
   btnSecondary,
   focusRing,
@@ -247,6 +250,7 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [activeTabState, setActiveTabState] = useState<MainTab>(loadLastTab);
   const [timezone, setTimezoneState] = useState(loadTimezone);
+  const [weekStart, setWeekStartState] = useState(loadWeekStart);
   const [online, setOnline] = useState(() => navigator.onLine);
   const [outboxState, setOutboxState] = useState<OutboxState>({ pending: 0, queued: [], failed: [], signIn: false });
   const [notices, setNotices] = useState<{ id: number; text: string }[]>([]);
@@ -339,6 +343,11 @@ export default function App() {
   function setOnboarding(pending: boolean) {
     setOnboardingState(pending);
     saveOnboarding(pending);
+  }
+
+  function setWeekStart(value: WeekStart) {
+    setWeekStartState(value);
+    saveWeekStart(value);
   }
 
   function setTimezone(value: string) {
@@ -1591,7 +1600,21 @@ export default function App() {
     setError(null);
     try {
       const previous = addressBooks.find((book) => book.id === id);
-      await putAddressBook(session, name, id, previous?.raw, previous?.archived === true);
+      await putAddressBook(session, name, id, previous?.raw, previous?.archived === true, previous?.color);
+      await refreshAfterSave(session);
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onRecolorBook(book: AddressBook, color: string): Promise<void> {
+    if (!session) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await putAddressBook(session, book.name, book.id, book.raw, book.archived === true, color);
       await refreshAfterSave(session);
     } catch (err) {
       setError(friendlyError(err));
@@ -1605,7 +1628,7 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
-      await putAddressBook(session, book.name, book.id, book.raw, book.archived !== true);
+      await putAddressBook(session, book.name, book.id, book.raw, book.archived !== true, book.color);
       forgetBookVisibility(book.id);
       await refreshAfterSave(session);
     } catch (err) {
@@ -1989,7 +2012,7 @@ export default function App() {
       </div>
 
       {activeTab === "settings" ? (
-        <main className={`${shell} px-4 pb-24 pt-6 sm:px-5`}>
+        <div>
           <SettingsView
             session={session}
             contacts={contacts}
@@ -2018,14 +2041,17 @@ export default function App() {
             pendingChanges={outboxState.pending + outboxState.failed.length}
             timezone={timezone}
             onTimezoneChange={setTimezone}
+            weekStart={weekStart}
+            onWeekStartChange={setWeekStart}
             accountSettings={accountSettings}
             onSaveAccountSettings={onSaveAccountSettings}
             initialSection={settingsSection ?? undefined}
+            sidebar={sidebar}
           />
-        </main>
+        </div>
       ) : activeTab === "calendar" ? (
         <div>
-          <CalendarView session={session} calendars={calendars} events={calendarEvents} contacts={contacts} busy={busy} timezone={timezone} onRefresh={() => refresh(session)} sidebar={sidebar} dueTasks={isFeatureEnabled(accountSettings, "tasks") ? tasks : undefined} onOpenTask={(id) => guardEditing(() => { setTaskFocusId(id); setActiveTab("tasks"); })} />
+          <CalendarView session={session} calendars={calendars} events={calendarEvents} contacts={contacts} busy={busy} timezone={timezone} weekStart={weekStart} onRefresh={() => refresh(session)} sidebar={sidebar} dueTasks={isFeatureEnabled(accountSettings, "tasks") ? tasks : undefined} onOpenTask={(id) => guardEditing(() => { setTaskFocusId(id); setActiveTab("tasks"); })} />
         </div>
       ) : activeTab === "notes" ? (
         <div>
@@ -2102,6 +2128,7 @@ export default function App() {
           onShowAllBooks={showAllBooks}
           onCreateBook={onCreateBook}
           onRenameBook={onRenameBook}
+          onRecolorBook={onRecolorBook}
           onToggleBookArchived={onToggleBookArchived}
           onDeleteBook={onDeleteBook}
           onSetSearch={setSearch}

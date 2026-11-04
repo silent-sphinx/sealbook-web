@@ -1,5 +1,5 @@
 import type { AddressBook } from "./types";
-import { coreAddressBookParse, coreAddressBookWrite } from "./wasm";
+import { coreAddressBookParse, coreAddressBookTone, coreAddressBookWrite } from "./wasm";
 import { sortContainers } from "./order";
 
 export const JSCONTACT_CONTENT_TYPE = "application/jscontact+json";
@@ -31,8 +31,9 @@ export function serializeAddressBook(
   name: string,
   previousRaw?: string,
   archived = false,
+  color?: string,
 ): string {
-  return coreAddressBookWrite({ name, archived, raw: previousRaw });
+  return coreAddressBookWrite({ name, archived, color, raw: previousRaw });
 }
 
 export function parseAddressBook(id: string, raw: string): AddressBook {
@@ -41,6 +42,7 @@ export function parseAddressBook(id: string, raw: string): AddressBook {
     id: book.id,
     name: book.name,
     archived: book.archived || undefined,
+    color: book.color,
     raw: book.raw,
   };
 }
@@ -95,6 +97,15 @@ export function bookNameById(
   return (
     books.find((book) => book.id === id)?.name ?? DEFAULT_ADDRESS_BOOK_NAME
   );
+}
+
+export function addressBookTone(book: AddressBook): string {
+  return coreAddressBookTone(book.id, book.color);
+}
+
+export function bookToneById(books: AddressBook[], addressBookId?: string): string {
+  const id = resolveAddressBookId(addressBookId);
+  return coreAddressBookTone(id, books.find((book) => book.id === id)?.color);
 }
 
 const HIDDEN_BOOKS_KEY = "sealbook.hidden-address-books";

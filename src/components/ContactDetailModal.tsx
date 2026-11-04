@@ -15,13 +15,14 @@ import { ContactAttachmentsSection } from "./ContactAttachmentsSection";
 import { ContactProfileView, profileViewHasContent } from "./ContactProfileView";
 import { CloseIcon, TrashIcon } from "./FieldControls";
 import { EntryRow, FieldRow, HeaderButton, HeaderDivider, PaneSection, ProseBlock } from "./PaneControls";
-import { focusRing } from "../lib/styles";
+import { focusRing, tonePill } from "../lib/styles";
 import { ContactLinkPicker } from "./ContactLinkPicker";
 
 type Props = {
   session: Session;
   contact: Contact;
   bookName?: string;
+  bookTone?: string;
   onDelete?: () => void;
   onArchive?: () => void;
   onClose: () => void;
@@ -113,6 +114,7 @@ export function ContactDetailModal({
   session,
   contact,
   bookName,
+  bookTone,
   onDelete,
   onArchive,
   onClose,
@@ -402,7 +404,10 @@ export function ContactDetailModal({
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-mute">
               {contact.nickname ? <span>"{contact.nickname}"</span> : null}
               {bookName ? (
-                <span className="max-w-[12rem] truncate rounded-full border border-line px-2 font-medium leading-[18px]">
+                <span
+                  className="max-w-[12rem] truncate rounded-full border border-line px-2 font-medium leading-[18px]"
+                  style={bookTone ? tonePill(bookTone) : undefined}
+                >
                   {bookName}
                 </span>
               ) : null}

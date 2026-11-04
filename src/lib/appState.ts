@@ -1,5 +1,6 @@
 import { browserTimezone } from "./timezone";
 import { ONBOARDING_KEY } from "./onboarding";
+import type { WeekStart } from "./calendarModel";
 
 export const MAIN_TABS = ["contacts", "calendar", "notes", "bookmarks", "tasks", "settings"] as const;
 
@@ -7,6 +8,7 @@ export type MainTab = (typeof MAIN_TABS)[number];
 
 export const LAST_TAB_KEY = "sealbook.last-tab";
 export const TIMEZONE_KEY = "sealbook.timezone";
+export const WEEK_START_KEY = "sealbook.week-start";
 export const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 export const IDLE_WARNING_MS = IDLE_TIMEOUT_MS - 60 * 1000;
 export const IDLE_BURST_THROTTLE_MS = 1000;
@@ -26,6 +28,22 @@ export function loadTimezone(): string {
     return localStorage.getItem(TIMEZONE_KEY) || browserTimezone();
   } catch {
     return browserTimezone();
+  }
+}
+
+export function loadWeekStart(): WeekStart {
+  try {
+    return localStorage.getItem(WEEK_START_KEY) === "1" ? 1 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function saveWeekStart(weekStart: WeekStart): void {
+  try {
+    localStorage.setItem(WEEK_START_KEY, String(weekStart));
+  } catch {
+    // storage unavailable; keep the choice for this session only
   }
 }
 

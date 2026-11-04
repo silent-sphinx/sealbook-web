@@ -4,7 +4,7 @@ import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 import { TaskIcon } from "./TaskIcon";
 import { dueLabel, isOverdue, priorityLabel } from "../lib/task";
 import type { ChildCount, TaskTreeNode } from "../lib/taskTree";
-import { focusRing } from "../lib/styles";
+import { focusRing, tonePill } from "../lib/styles";
 import type { Task } from "../lib/types";
 
 const DRAG_TYPE = "application/x-sealbook-task";
@@ -32,7 +32,7 @@ export type TaskActions = {
   highlightId?: string;
   activeId?: string;
   /** Left out when every row shares one list, so the pill is not repeated. */
-  listNameFor?: (task: Task) => string | undefined;
+  listFor?: (task: Task) => { name: string; tone: string } | undefined;
   onToggleDone: (task: Task) => void;
   onSelect: (task: Task) => void;
   onEdit: (task: Task) => void;
@@ -68,8 +68,8 @@ function itemsFor(task: Task, actions: TaskActions): MenuItem[] {
 
 function TaskRow(props: RowProps) {
   const { task, depth = 0, lead, className = "", dropLine, dragProps, menu, ...actions } = props;
-  const { now, timezone, readOnly, counts, highlightId, activeId, listNameFor, onToggleDone, onSelect, onAddChild, onDelete } = actions;
-  const listName = listNameFor?.(task);
+  const { now, timezone, readOnly, counts, highlightId, activeId, listFor, onToggleDone, onSelect, onAddChild, onDelete } = actions;
+  const list = listFor?.(task);
   const current = activeId === task.id || highlightId === task.id;
   const due = dueLabel(task, now, timezone);
   const overdue = isOverdue(task, now, timezone);
@@ -149,9 +149,12 @@ function TaskRow(props: RowProps) {
             </span>
           ) : null}
         </span>
-        {listName ? (
-          <span className="max-w-[10rem] shrink-0 truncate rounded-full border border-line px-2 text-[11px] font-medium leading-[18px] text-mute">
-            {listName}
+        {list ? (
+          <span
+            className="max-w-[10rem] shrink-0 truncate rounded-full border px-2 text-[11px] font-medium leading-[18px]"
+            style={tonePill(list.tone)}
+          >
+            {list.name}
           </span>
         ) : null}
       </button>

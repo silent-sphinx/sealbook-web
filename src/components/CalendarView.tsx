@@ -9,16 +9,15 @@ import {
 } from "../lib/client";
 import type { Calendar, CalendarEvent, Contact, RecurrenceRule, Task } from "../lib/types";
 import { dueTaskMarks } from "../lib/taskCalendar";
-import { DEFAULT_CALENDAR_COLOR } from "../lib/types";
-import { DEFAULT_CALENDAR_ID, UNTITLED_EVENT_TITLE, activeCalendars, archivedCalendars, isCalendarVisible, visibleCalendarIds } from "../lib/calendar";
+import { DEFAULT_CALENDAR_ID, UNTITLED_EVENT_TITLE, activeCalendars, archivedCalendars, isCalendarVisible, nextCalendarColor, visibleCalendarIds } from "../lib/calendar";
 import { friendlyError } from "../lib/errors";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SidebarDrawer, SidebarHeader, SidebarSection, type Sidebar } from "./SidebarDrawer";
 import { Modal } from "./Modal";
 import { localInputToUtc, utcToLocalInput } from "../lib/timezone";
-import { btnDanger, btnPrimary, field, focusRing, sidebarHeaderAction, sidebarMark, sidebarSectionAction } from "../lib/styles";
+import { btnDanger, btnPrimary, focusRing, sidebarHeaderAction, sidebarMark } from "../lib/styles";
 import { VisibilityBox } from "./ContainerList";
-import { CalendarList } from "./CalendarSidebar";
+import { CalendarSections } from "./CalendarSidebar";
 import { DayView as ExtractedDayView, MonthGrid as ExtractedMonthGrid, WeekView as ExtractedWeekView, YearView as ExtractedYearView } from "./CalendarViews";
 import {
   dateFromKey,
@@ -31,6 +30,8 @@ import {
   shiftEndWithStart,
   spanCoversDay,
   weekDays,
+  weekdayLabels,
+  type WeekStart,
 } from "../lib/calendarModel";
 import { searchEvents, type SearchResult } from "../lib/calendarSearch";
 import {
@@ -164,6 +165,7 @@ export function CalendarView({
   contacts,
   busy,
   timezone,
+  weekStart = 0,
   onRefresh,
   readOnly,
   sidebar,
@@ -176,6 +178,7 @@ export function CalendarView({
   contacts: Contact[];
   busy: boolean;
   timezone: string;
+  weekStart?: WeekStart;
   onRefresh: () => Promise<void>;
   readOnly?: boolean;
   /** Shared with the rest of the shell; the header owns the control. */
@@ -191,7 +194,6 @@ export function CalendarView({
   const [mode, setMode] = useState<ViewMode>("month");
   const [search, setSearch] = useState("");
   const [composer, setComposer] = useState(false);
-  const [calendarComposer, setCalendarComposer] = useState(false);
   const [editingCalendar, setEditingCalendar] = useState<Calendar | null>(null);
   const [showTasks, setShowTasks] = useState(() => loadCalendarFlag(session.state.collection_id, TASKS_OVERLAY, true));
   const taskMarks = useMemo(
@@ -205,8 +207,6 @@ export function CalendarView({
   const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(() => loadCalendarIds(session.state.collection_id, HIDDEN_CALENDARS));
   const [shownArchivedIds, setShownArchivedIds] = useState<Set<string>>(() => loadCalendarIds(session.state.collection_id, SHOWN_ARCHIVED_CALENDARS));
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
-  const [calendarName, setCalendarName] = useState("");
-  const [calendarColor, setCalendarColor] = useState(DEFAULT_CALENDAR_COLOR);
   const [eventCalendarId, setEventCalendarId] = useState("");
   const [title, setTitle] = useState("");
   const [start, setStart] = useState(`${todayKey}T09:00`);
@@ -259,9 +259,16 @@ export function CalendarView({
     })();
   }, [calendars, onRefresh, readOnlyMode, session]);
 
-  const days = useMemo(() => monthDays(month), [month]);
+  const days = useMemo(() => monthDays(month, weekStart), [month, weekStart]);
   const activeCals = useMemo(() => activeCalendars(calendars), [calendars]);
   const archivedCals = useMemo(() => archivedCalendars(calendars), [calendars]);
+  const eventCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const event of events) {
+      if (event.calendarId) counts.set(event.calendarId, (counts.get(event.calendarId) ?? 0) + 1);
+    }
+    return counts;
+  }, [events]);
   const visibleIds = useMemo(
     () => visibleCalendarIds(calendars, hiddenCalendarIds, shownArchivedIds),
     [calendars, hiddenCalendarIds, shownArchivedIds],
@@ -291,7 +298,7 @@ export function CalendarView({
     return current && current.archived === true ? [...activeCals, current] : activeCals;
   }, [activeCals, calendars, eventCalendarId]);
   const selectedDate = useMemo(() => dateFromKey(selected), [selected]);
-  const week = useMemo(() => weekDays(selectedDate), [selectedDate]);
+  const week = useMemo(() => weekDays(selectedDate, weekStart), [selectedDate, weekStart]);
   const yearMonths = useMemo(
     () => Array.from({ length: 12 }, (_, index) => new Date(month.getFullYear(), index, 1)),
     [month],
@@ -425,22 +432,6 @@ export function CalendarView({
       storeCalendarIds(session.state.collection_id, group, next);
       return next;
     });
-  }
-
-  function openNewCalendar() {
-    setEditingCalendar(null);
-    setCalendarName("");
-    setCalendarColor(DEFAULT_CALENDAR_COLOR);
-    setError(null);
-    setCalendarComposer(true);
-  }
-
-  function openEditCalendar(calendar: Calendar) {
-    setEditingCalendar(calendar);
-    setCalendarName(calendar.name);
-    setCalendarColor(calendar.color);
-    setError(null);
-    setCalendarComposer(true);
   }
 
   function selectDay(day: Date) {
@@ -628,47 +619,29 @@ export function CalendarView({
     }
   }
 
-  async function saveCalendar() {
-    if (!calendarName.trim() || saving) return;
+  /** Writes a calendar with `changes` applied, keeping every field it does not touch. */
+  async function writeCalendar(calendar: Calendar | null, changes: Partial<Omit<Calendar, "id">>): Promise<boolean> {
+    if (saving) return false;
     setError(null);
     setSaving(true);
     try {
       await putCalendar(
         session,
         {
-          name: calendarName.trim(),
-          color: calendarColor,
-          favorite: editingCalendar?.favorite ?? false,
-          archived: editingCalendar?.archived ?? false,
-          raw: editingCalendar?.raw,
+          name: calendar?.name ?? "",
+          color: calendar?.color ?? nextCalendarColor(calendars),
+          favorite: calendar?.favorite ?? false,
+          archived: calendar?.archived ?? false,
+          raw: calendar?.raw,
+          ...changes,
         },
-        editingCalendar?.id,
+        calendar?.id,
       );
       await onRefresh();
-      setCalendarName("");
-      setCalendarColor(DEFAULT_CALENDAR_COLOR);
-      setEditingCalendar(null);
-      setCalendarComposer(false);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function toggleFavorite(calendar: Calendar) {
-    if (saving) return;
-    setError(null);
-    setSaving(true);
-    try {
-      await putCalendar(
-        session,
-        { name: calendar.name, color: calendar.color, favorite: !calendar.favorite, archived: calendar.archived, raw: calendar.raw },
-        calendar.id,
-      );
-      await onRefresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      return false;
     } finally {
       setSaving(false);
     }
@@ -689,20 +662,8 @@ export function CalendarView({
       setError(`“${calendar.name}” is your only calendar in use. Create or restore another one before archiving it.`);
       return;
     }
-    setError(null);
-    setSaving(true);
-    try {
-      await putCalendar(
-        session,
-        { name: calendar.name, color: calendar.color, favorite: calendar.favorite, archived: archiving, raw: calendar.raw },
-        calendar.id,
-      );
+    if (await writeCalendar(calendar, { archived: archiving })) {
       forgetCalendarToggle(calendar.id, archiving ? HIDDEN_CALENDARS : SHOWN_ARCHIVED_CALENDARS);
-      await onRefresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -723,7 +684,6 @@ export function CalendarView({
       await deleteCalendar(session, calendarId);
       setDeleteProgress({ current: calendarEvents.length + 1, total: calendarEvents.length + 1 });
       setEditingCalendar(null);
-      setCalendarComposer(false);
       await onRefresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -745,6 +705,7 @@ export function CalendarView({
         await deleteCalendarEvent(session, calendarEvents[index].id);
         setDeleteProgress({ current: index + 1, total: calendarEvents.length });
       }
+      setEditingCalendar(null);
       await onRefresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -766,13 +727,26 @@ export function CalendarView({
             title="Calendar"
             action={!readOnlyMode ? <button type="button" onClick={() => openNewTask()} className={sidebarHeaderAction} aria-label="Create event"><Icon name="plus" /></button> : null}
           />
-          <MiniMonth month={month} selected={selected} events={miniEvents} spans={miniSpans} onSelect={(day) => { selectDay(day); sidebar.close(); }} />
-          <SidebarSection
-            label="Calendars"
-            action={!readOnlyMode ? <button type="button" onClick={openNewCalendar} className={sidebarSectionAction} aria-label="Add calendar"><Icon name="plus" className="h-3 w-3" /></button> : null}
-          >
-            <CalendarList calendars={activeCals} archived={archivedCals} isVisible={(calendar) => isCalendarVisible(calendar, hiddenCalendarIds, shownArchivedIds)} readOnly={readOnlyMode} canArchive={activeCals.length > 1} onToggle={toggleCalendar} onShowAll={showAllCalendars} onToggleFavorite={(calendar) => void toggleFavorite(calendar)} onToggleArchived={(calendar) => void toggleArchived(calendar)} onEdit={openEditCalendar} onCreate={openNewCalendar} />
-          </SidebarSection>
+          <MiniMonth month={month} days={days} weekStart={weekStart} selected={selected} events={miniEvents} spans={miniSpans} onSelect={(day) => { selectDay(day); sidebar.close(); }} />
+          <CalendarSections
+            calendars={activeCals}
+            archived={archivedCals}
+            isVisible={(calendar) => isCalendarVisible(calendar, hiddenCalendarIds, shownArchivedIds)}
+            eventCounts={eventCounts}
+            readOnly={readOnlyMode}
+            canArchive={activeCals.length > 1}
+            busy={busy || saving}
+            error={composer ? null : error}
+            onToggle={toggleCalendar}
+            onShowAll={showAllCalendars}
+            onCreate={(name) => writeCalendar(null, { name })}
+            onRename={(calendar, name) => writeCalendar(calendar, { name })}
+            onRecolor={(calendar, color) => writeCalendar(calendar, { color })}
+            onToggleFavorite={(calendar) => void writeCalendar(calendar, { favorite: !calendar.favorite })}
+            onToggleArchived={(calendar) => void toggleArchived(calendar)}
+            onPurge={(calendar) => { setEditingCalendar(calendar); setConfirmPurgeEvents(true); }}
+            onDelete={(calendar) => { setEditingCalendar(calendar); setConfirmDeleteCalendar(true); }}
+          />
           {dueTasks ? (
             <SidebarSection label="Tasks">
               <label className={`mt-2.5 -mx-2 flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-xs font-medium transition-colors hover:bg-surface/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent-ring ${showTasks ? "text-text" : "text-mute hover:text-text"}`}>
@@ -800,19 +774,18 @@ export function CalendarView({
             </div>
           </header>
           {mode === "month" ? (
-            <ExtractedMonthGrid month={month} days={days} selected={selected} todayKey={todayKey} events={visibleEvents} spans={spans} calendars={calendars} onSelect={selectDay} onAdd={readOnlyMode ? () => undefined : (day) => openNewTask(day)} onEdit={editOccurrence} taskMarks={taskMarks} onOpenTask={onOpenTask} />
+            <ExtractedMonthGrid month={month} days={days} weekStart={weekStart} selected={selected} todayKey={todayKey} events={visibleEvents} spans={spans} calendars={calendars} onSelect={selectDay} onAdd={readOnlyMode ? () => undefined : (day) => openNewTask(day)} onEdit={editOccurrence} taskMarks={taskMarks} onOpenTask={onOpenTask} />
           ) : mode === "day" ? (
             <ExtractedDayView day={selectedDate} events={visibleEvents} spans={spans} calendars={calendars} timezone={timezone} todayKey={todayKey} nowMinutes={nowMinutes} onAdd={readOnlyMode ? () => undefined : openNewTask} onEdit={editOccurrence} taskMarks={taskMarks} onOpenTask={onOpenTask} />
           ) : mode === "week" ? (
             <ExtractedWeekView days={week} selected={selected} todayKey={todayKey} events={visibleEvents} spans={spans} calendars={calendars} timezone={timezone} nowMinutes={nowMinutes} onSelect={selectDay} onAdd={readOnlyMode ? () => undefined : openNewTask} onEdit={editOccurrence} taskMarks={taskMarks} onOpenTask={onOpenTask} />
           ) : (
-            <ExtractedYearView months={yearMonths} today={today} selected={selected} events={visibleEvents} spans={spans} onOpenDay={openDay} />
+            <ExtractedYearView months={yearMonths} weekStart={weekStart} today={today} selected={selected} events={visibleEvents} spans={spans} onOpenDay={openDay} />
           )}
         </section>
       </div>
 
       {composer ? <TaskDialog editing={editingEvent !== null} title={title} start={start} end={end} notes={notes} location={location} participants={participants} contacts={contacts} allDay={allDay} calendarId={eventCalendarId} calendars={composerCalendars} repeatChoice={repeatChoice} customFrequency={customFrequency} customInterval={customInterval} repeatEnd={repeatEnd} repeatCount={repeatCount} repeatUntil={repeatUntil} minRepeatUntil={start.slice(0, 10)} busy={busy} saving={saving} removing={removingEvent} error={error} onClose={() => { if (!saving && !removingEvent) closeTaskDialog(); }} onSave={() => void saveEvent()} onDelete={editingEvent ? () => void removeEvent() : undefined} onTitleChange={setTitle} onStartChange={updateStart} onEndChange={setEnd} onNotesChange={setNotes} onLocationChange={setLocation} onParticipantsChange={setParticipants} onAllDayChange={setAllDay} onCalendarChange={setEventCalendarId} onRepeatChange={touched(setRepeatChoice)} onCustomFrequencyChange={touched(setCustomFrequency)} onCustomIntervalChange={touched(setCustomInterval)} onRepeatEndChange={touched(setRepeatEnd)} onRepeatCountChange={touched(setRepeatCount)} onRepeatUntilChange={touched(setRepeatUntil)} /> : null}
-      {calendarComposer ? <CalendarDialog editing={editingCalendar !== null} name={calendarName} color={calendarColor} busy={busy || purgingEvents} saving={saving} error={error} eventCount={editingCalendar ? events.filter((event) => event.calendarId === editingCalendar.id).length : 0} onClose={() => { if (saving) return; setCalendarComposer(false); setEditingCalendar(null); }} onSave={() => void saveCalendar()} onDelete={editingCalendar && editingCalendar.id !== DEFAULT_CALENDAR_ID ? () => setConfirmDeleteCalendar(true) : undefined} onPurge={editingCalendar ? () => setConfirmPurgeEvents(true) : undefined} onNameChange={setCalendarName} onColorChange={setCalendarColor} /> : null}
       {confirmDeleteCalendar && editingCalendar ? (
         <ConfirmDialog
           title="Delete calendar"
@@ -825,7 +798,7 @@ export function CalendarView({
           })()}
           confirmLabel="Delete calendar"
           onConfirm={() => void removeCalendar()}
-          onClose={() => setConfirmDeleteCalendar(false)}
+          onClose={() => { setConfirmDeleteCalendar(false); setEditingCalendar(null); }}
         />
       ) : null}
       {confirmPurgeEvents && editingCalendar ? (
@@ -835,7 +808,7 @@ export function CalendarView({
           body={`This permanently deletes all ${events.filter((event) => event.calendarId === editingCalendar.id).length} event${events.filter((event) => event.calendarId === editingCalendar.id).length === 1 ? "" : "s"} in this calendar. The calendar itself will remain.`}
           confirmLabel="Purge Events"
           onConfirm={() => void purgeEvents()}
-          onClose={() => setConfirmPurgeEvents(false)}
+          onClose={() => { setConfirmPurgeEvents(false); setEditingCalendar(null); }}
         />
       ) : null}
       {deletingCalendar ? <ImportProgressModal title="Deleting calendar" description="Removing events and calendar data. Keep this window open." current={deleteProgress.current} total={deleteProgress.total} /> : null}
@@ -1086,80 +1059,11 @@ function TaskDialog({ editing, title, start, end, notes, location, participants,
   );
 }
 
-function CalendarDialog({ editing, name, color, busy, saving, error, eventCount, onClose, onSave, onDelete, onPurge, onNameChange, onColorChange }: { editing: boolean; name: string; color: string; busy: boolean; saving: boolean; error: string | null; eventCount: number; onClose: () => void; onSave: () => void; onDelete?: () => void; onPurge?: () => void; onNameChange: (value: string) => void; onColorChange: (value: string) => void }) {
-  return (
-    <Modal title={editing ? "Edit calendar" : "Create calendar"} onClose={onClose}>
-      <div className="space-y-4 p-6">
-        <label className="block text-xs font-medium text-mute">
-          Name
-          <input
-            autoFocus
-            value={name}
-            onChange={(event) => onNameChange(event.target.value)}
-            placeholder="Personal"
-            className={field}
-          />
-        </label>
-
-        <label className="block text-xs font-medium text-mute">
-          Colour
-          <div className="mt-1.5 flex items-center gap-3">
-            <input
-              type="color"
-              value={color}
-              onChange={(event) => onColorChange(event.target.value)}
-              className="h-10 w-14 cursor-pointer rounded-md border border-line bg-bg p-1"
-              aria-label="Calendar colour"
-            />
-            <span className="font-mono text-xs text-mute">{color}</span>
-          </div>
-        </label>
-
-        {error ? (
-          <p role="alert" className="text-xs text-danger">
-            {error}
-          </p>
-        ) : null}
-
-        <div className="flex items-center justify-between gap-3 pt-1">
-          <div>
-            {onPurge ? (
-              <button type="button" onClick={onPurge} disabled={busy || saving || eventCount === 0} className={btnDanger}>
-                Purge Events
-              </button>
-            ) : null}
-            {onDelete ? (
-              <button
-                type="button"
-                onClick={onDelete}
-                disabled={busy || saving}
-                className={`${btnDanger} ml-2`}
-              >
-                Delete calendar
-              </button>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={busy || saving || !name.trim()}
-            aria-busy={saving}
-            className={btnPrimary}
-          >
-            {saving ? "Saving…" : editing ? "Save changes" : "Create calendar"}
-          </button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
 function ImportProgressModal({ title, description, current, total }: { title: string; description: string; current: number; total: number }) {
   const percent = total > 0 ? Math.round((current / total) * 100) : 0;
   return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-md"><section role="dialog" aria-modal="true" className="w-full max-w-sm rounded-2xl border border-line bg-panel p-6 shadow-2xl shadow-black/50"><h3 className="text-base font-semibold text-text">{title}</h3><p className="mt-1 text-xs text-mute">{description}</p><div className="mt-5 h-2 overflow-hidden rounded-full bg-surface"><div className="h-full rounded-full bg-accent transition-all" style={{ width: `${percent}%` }} /></div><p className="mt-2 text-right text-[11px] tabular-nums text-mute">{total ? `${current} of ${total}` : "Preparing..."}</p></section></div>;
 }
 
-function MiniMonth({ month, selected, events, spans, onSelect }: { month: Date; selected: string; events: CalendarEvent[]; spans: Map<string, EventSpan>; onSelect: (day: Date) => void }) {
-  const days = monthDays(month);
-  return <div className="mt-5"><div className="mb-3 flex items-center justify-between text-xs font-semibold"><span>{month.toLocaleDateString([], { month: "long", year: "numeric" })}</span><span className="text-[10px] uppercase tracking-[0.14em] text-mute">{month.toLocaleDateString([], { month: "short" })}</span></div><div className="grid grid-cols-7 gap-y-1 text-center text-[10px] text-mute">{["S", "M", "T", "W", "T", "F", "S"].map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}{days.map((day) => { const key = keyFor(day); const marked = events.some((event) => { const span = spans.get(event.id); return span ? spanCoversDay(span, day) : false; }); return <button key={key} type="button" onClick={() => onSelect(day)} className={`relative flex h-6 items-center justify-center rounded-full text-[11px] transition-colors ${day.getMonth() === month.getMonth() ? "text-text" : "text-mute/40"} ${selected === key ? "bg-accent font-semibold text-bg" : "hover:bg-surface"}`}><span>{day.getDate()}</span>{marked && selected !== key ? <i className="absolute bottom-0.5 h-0.5 w-0.5 rounded-full bg-accent" /> : null}</button>; })}</div></div>;
+function MiniMonth({ month, days, weekStart, selected, events, spans, onSelect }: { month: Date; days: Date[]; weekStart: WeekStart; selected: string; events: CalendarEvent[]; spans: Map<string, EventSpan>; onSelect: (day: Date) => void }) {
+  return <div className="mt-5"><div className="mb-3 flex items-center justify-between text-xs font-semibold"><span>{month.toLocaleDateString([], { month: "long", year: "numeric" })}</span><span className="text-[10px] uppercase tracking-[0.14em] text-mute">{month.toLocaleDateString([], { month: "short" })}</span></div><div className="grid grid-cols-7 gap-y-1 text-center text-[10px] text-mute">{weekdayLabels(weekStart, "narrow").map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}{days.map((day) => { const key = keyFor(day); const marked = events.some((event) => { const span = spans.get(event.id); return span ? spanCoversDay(span, day) : false; }); return <button key={key} type="button" onClick={() => onSelect(day)} className={`relative flex h-6 items-center justify-center rounded-full text-[11px] transition-colors ${day.getMonth() === month.getMonth() ? "text-text" : "text-mute/40"} ${selected === key ? "bg-accent font-semibold text-bg" : "hover:bg-surface"}`}><span>{day.getDate()}</span>{marked && selected !== key ? <i className="absolute bottom-0.5 h-0.5 w-0.5 rounded-full bg-accent" /> : null}</button>; })}</div></div>;
 }

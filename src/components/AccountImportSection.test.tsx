@@ -152,8 +152,8 @@ describe("AccountImportSection", () => {
     await pick(input, file("backup.json", bundle(one)));
     fireEvent.click(screen.getByRole("button", { name: /^Import 1 item$/u }));
 
-    await waitFor(() => screen.getByRole("alert"));
-    expect(screen.getByRole("alert").textContent).toMatch(/1 already in this vault was left alone/u);
+    await waitFor(() => screen.getByRole("status"));
+    expect(screen.getByRole("status").textContent).toMatch(/1 already in this vault was left alone/u);
   });
 
   it("reports a failed import and keeps the file", async () => {

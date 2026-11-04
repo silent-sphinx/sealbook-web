@@ -31,6 +31,7 @@ import {
   sortTasks,
   taskDraft,
   taskListNameById,
+  taskListTone,
   taskMatches,
   taskTo,
   tickTask,
@@ -181,6 +182,10 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
   const searching = deferredSearch.trim() !== "";
   const listRows = useMemo(() => flattenTree(buildTaskListTree(taskLists)), [taskLists]);
   const counts = useMemo(() => childCounts(tasks), [tasks]);
+  const listTones = useMemo(
+    () => new Map(taskLists.map((list) => [list.id, taskListTone(taskLists, list.id)])),
+    [taskLists],
+  );
 
   const smartCounts = useMemo(() => {
     const open = tasks.filter((task) => !task.done);
@@ -298,9 +303,11 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     setError(null);
   }
 
-  function startAdd(parentId?: string) {
+  function startAdd(parentId?: string, inList?: string) {
     const parent = parentId ? tasks.find((task) => task.id === parentId) : undefined;
-    const listId = parent ? resolveTaskListId(parent.taskListId) : isSmart ? DEFAULT_TASK_LIST_ID : scope;
+    const listId = parent
+      ? resolveTaskListId(parent.taskListId)
+      : (inList ?? (isSmart ? DEFAULT_TASK_LIST_ID : scope));
     const initial = emptyTaskDraft(listId, parentId);
     if (!parent && scope === "today") {
       initial.dueDate = utcToLocalInput(new Date().toISOString(), timezone).slice(0, 10);
@@ -447,9 +454,12 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     activeId: selectedId ?? undefined,
     // Only a smart view or a search mixes lists, and only with a second list is
     // the pill worth the row's width.
-    listNameFor:
+    listFor:
       isSmart && taskLists.length > 1
-        ? (task) => taskListNameById(taskLists, task.taskListId)
+        ? (task) => ({
+            name: taskListNameById(taskLists, task.taskListId),
+            tone: listTones.get(task.taskListId) ?? taskListTone(taskLists, task.taskListId),
+          })
         : undefined,
     onToggleDone: (task) => void toggleDone(task),
     onSelect: (task) => {
@@ -561,7 +571,7 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search tasks"
                   aria-label="Search tasks"
-                  className="h-8 w-full rounded-xl border border-line bg-panel pl-8 pr-7 text-xs text-text outline-none transition-colors duration-150 placeholder:text-mute/60 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring sm:w-52"
+                  className="h-8 w-full rounded-xl border border-line bg-panel pl-8 pr-7 text-xs text-text outline-none transition-all duration-150 placeholder:text-mute/60 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring sm:w-52 sm:focus:w-72"
                 />
                 {search ? (
                   <button

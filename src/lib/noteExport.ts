@@ -33,6 +33,7 @@ function notebooksOf(notebooks: Notebook[]) {
   return notebooks.map((notebook) => ({
     id: notebook.id,
     name: notebook.name,
+    color: notebook.color,
     readable: notebook.readable ?? true,
     raw: notebook.raw,
   }));

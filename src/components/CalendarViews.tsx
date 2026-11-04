@@ -12,6 +12,9 @@ import {
   keyFor,
   monthDays,
   sameDay,
+  weekdayIndex,
+  weekdayLabels,
+  type WeekStart,
   timedEventsForDay,
 } from "../lib/calendarModel";
 
@@ -40,6 +43,7 @@ function TaskChip({ mark, onOpen }: { mark: TaskMark; onOpen?: (id: string) => v
 type MonthGridProps = {
   month: Date;
   days: Date[];
+  weekStart: WeekStart;
   selected: string;
   todayKey: string;
   events: CalendarEvent[];
@@ -96,14 +100,14 @@ function eventSegmentStyle(span: EventSpan, day: Date, color: string): CSSProper
   };
 }
 
-export function MonthGrid({ month, days, selected, todayKey, events, spans, calendars, onSelect, onAdd, onEdit, taskMarks, onOpenTask }: MonthGridProps) {
+export function MonthGrid({ month, days, weekStart, selected, todayKey, events, spans, calendars, onSelect, onAdd, onEdit, taskMarks, onOpenTask }: MonthGridProps) {
   const daySlotsMap = useMemo(() => buildDaySlots(days, events, spans), [days, events, spans]);
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-x-auto">
       <div className="flex min-w-[720px] flex-1 flex-col">
         <div className="grid grid-cols-7 border-b border-line bg-panel/40">
-          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day, index) => <div key={day} className={`py-2.5 text-center text-[11px] font-semibold uppercase tracking-[0.14em] ${index === 0 || index === 6 ? "text-mute/60" : "text-mute"}`}>{day}</div>)}
+          {weekdayLabels(weekStart).map((day) => <div key={day} className={`py-2.5 text-center text-[11px] font-semibold uppercase tracking-[0.14em] ${day === "Sun" || day === "Sat" ? "text-mute/60" : "text-mute"}`}>{day}</div>)}
         </div>
         <div className="grid flex-1 grid-cols-7 grid-rows-6">
           {days.map((day) => {
@@ -123,7 +127,7 @@ export function MonthGrid({ month, days, selected, todayKey, events, spans, cale
                     if (!span) return <span key={`missing-${slotIndex}`} className="block h-4 w-full" />;
                     const color = calendars.find((calendar) => calendar.id === event.calendarId)?.color;
                     const startsHere = span.startKey === key;
-                    const showText = startsHere || day.getDay() === 0 || !span.bar;
+                    const showText = startsHere || weekdayIndex(day, weekStart) === 0 || !span.bar;
                     return (
                       <span key={event.id} role="button" tabIndex={0} onClick={(click) => { click.stopPropagation(); onEdit(event); }} onKeyDown={(keyEvent) => { if (keyEvent.key === "Enter" || keyEvent.key === " ") { keyEvent.preventDefault(); keyEvent.stopPropagation(); onEdit(event); } }} className={eventSegmentClass(span, day)} style={eventSegmentStyle(span, day, color ?? DEFAULT_CALENDAR_COLOR)}>
                         {!span.bar && <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle" style={{ backgroundColor: color ?? DEFAULT_CALENDAR_COLOR }} />}
@@ -207,7 +211,7 @@ function AllDayStrip({ days, events, spans, calendars, taskMarks, onEdit, onOpen
   const rows = days.reduce((most, day) => Math.max(most, (slots.get(keyFor(day)) ?? []).filter(Boolean).length), 0);
   const markRows = days.reduce((most, day) => Math.max(most, taskMarks?.get(keyFor(day))?.length ?? 0), 0);
   if (rows === 0 && markRows === 0) return null;
-  return <div className="flex shrink-0 border-b border-line"><div className="w-16 shrink-0 border-r border-line py-1.5 pr-2 text-right text-[10px] uppercase tracking-[0.14em] text-mute">All day</div><div className="grid min-w-0 flex-1" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}>{days.map((day) => { const key = keyFor(day); const daySlots = slots.get(key) ?? []; return <div key={key} className="min-w-0 space-y-0.5 border-r border-line p-1.5 last:border-r-0">{Array.from({ length: rows }, (_, index) => { const event = daySlots[index]; if (!event) return <span key={`empty-${index}`} className="block h-4 w-full" />; const span = spans.get(event.id); if (!span) return <span key={`missing-${index}`} className="block h-4 w-full" />; const color = calendars.find((calendar) => calendar.id === event.calendarId)?.color ?? DEFAULT_CALENDAR_COLOR; const showText = span.startKey === key || day.getDay() === 0; return <span key={event.id} role="button" tabIndex={0} onClick={() => onEdit(event)} onKeyDown={(keyEvent) => { if (keyEvent.key === "Enter" || keyEvent.key === " ") { keyEvent.preventDefault(); onEdit(event); } }} className={eventSegmentClass(span, day)} style={eventSegmentStyle(span, day, color)}>{showText ? event.title : "\u00A0"}</span>; })}{(taskMarks?.get(key) ?? []).map((mark) => <TaskChip key={mark.id} mark={mark} onOpen={onOpenTask} />)}</div>; })}</div></div>;
+  return <div className="flex shrink-0 border-b border-line"><div className="w-16 shrink-0 border-r border-line py-1.5 pr-2 text-right text-[10px] uppercase tracking-[0.14em] text-mute">All day</div><div className="grid min-w-0 flex-1" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}>{days.map((day) => { const key = keyFor(day); const daySlots = slots.get(key) ?? []; return <div key={key} className="min-w-0 space-y-0.5 border-r border-line p-1.5 last:border-r-0">{Array.from({ length: rows }, (_, index) => { const event = daySlots[index]; if (!event) return <span key={`empty-${index}`} className="block h-4 w-full" />; const span = spans.get(event.id); if (!span) return <span key={`missing-${index}`} className="block h-4 w-full" />; const color = calendars.find((calendar) => calendar.id === event.calendarId)?.color ?? DEFAULT_CALENDAR_COLOR; const showText = span.startKey === key || key === keyFor(days[0]); return <span key={event.id} role="button" tabIndex={0} onClick={() => onEdit(event)} onKeyDown={(keyEvent) => { if (keyEvent.key === "Enter" || keyEvent.key === " ") { keyEvent.preventDefault(); onEdit(event); } }} className={eventSegmentClass(span, day)} style={eventSegmentStyle(span, day, color)}>{showText ? event.title : "\u00A0"}</span>; })}{(taskMarks?.get(key) ?? []).map((mark) => <TaskChip key={mark.id} mark={mark} onOpen={onOpenTask} />)}</div>; })}</div></div>;
 }
 
 export function DayView({ day, events, spans, calendars, timezone, todayKey, nowMinutes, onAdd, onEdit, taskMarks, onOpenTask }: TimelineProps & { day: Date }) {
@@ -221,13 +225,13 @@ export function WeekView({ days, selected, onSelect, ...timeline }: TimelineProp
   return <div className="flex min-h-0 flex-1 flex-col overflow-x-auto"><div className="flex min-w-[760px] min-h-0 flex-1 flex-col"><div className="flex shrink-0 border-b border-line"><div className="w-16 shrink-0 border-r border-line" /><div className="grid min-w-0 flex-1" style={{ gridTemplateColumns: "repeat(7, minmax(0, 1fr))" }}>{days.map((day) => { const key = keyFor(day); const isToday = key === timeline.todayKey; const isSelected = key === selected; return <button key={key} type="button" onClick={() => onSelect(day)} className={`flex flex-col items-center gap-1 border-r border-line py-2 transition-colors last:border-r-0 hover:bg-surface/30 ${isSelected ? "bg-surface/20" : ""}`}><span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">{day.toLocaleDateString([], { weekday: "short" })}</span><span className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-sm ${isToday ? "bg-accent font-semibold text-bg" : isSelected ? "font-semibold text-text" : "text-text"}`}>{day.getDate()}</span></button>; })}</div></div><AllDayStrip days={days} events={timeline.events} spans={timeline.spans} calendars={timeline.calendars} taskMarks={timeline.taskMarks} onEdit={timeline.onEdit} onOpenTask={timeline.onOpenTask} /><div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto"><div className="flex"><HourGutter />{days.map((day) => <DayColumn key={keyFor(day)} day={day} {...timeline} />)}</div></div></div></div>;
 }
 
-function YearMonth({ month, today, selected, markedDays, onOpenDay }: { month: Date; today: Date; selected: string; markedDays: Set<string>; onOpenDay: (day: Date) => void }) {
-  const cells = useMemo(() => monthDays(month), [month]);
+function YearMonth({ month, weekStart, today, selected, markedDays, onOpenDay }: { month: Date; weekStart: WeekStart; today: Date; selected: string; markedDays: Set<string>; onOpenDay: (day: Date) => void }) {
+  const cells = useMemo(() => monthDays(month, weekStart), [month, weekStart]);
   const isCurrentMonth = month.getMonth() === today.getMonth() && month.getFullYear() === today.getFullYear();
-  return <div><p className={`mb-2 text-sm font-semibold ${isCurrentMonth ? "text-accent" : "text-text"}`}>{month.toLocaleDateString([], { month: "long" })}</p><div className="grid grid-cols-7 gap-y-0.5 text-center text-[10px]">{["S", "M", "T", "W", "T", "F", "S"].map((label, index) => <span key={`${label}-${index}`} className="pb-1 font-semibold text-mute/70">{label}</span>)}{cells.map((day) => { const key = keyFor(day); if (day.getMonth() !== month.getMonth()) return <span key={key} />; const isToday = sameDay(day, today); const isSelected = key === selected; const marked = markedDays.has(key); return <button key={key} type="button" onClick={() => onOpenDay(day)} className={`relative mx-auto flex h-6 w-6 items-center justify-center rounded-full text-[11px] transition-colors ${isToday ? "bg-accent font-semibold text-bg" : isSelected ? "bg-surface font-medium text-text" : "text-text hover:bg-surface"}`}>{day.getDate()}{marked && !isToday ? <i className="absolute bottom-0 h-1 w-1 rounded-full bg-accent" /> : null}</button>; })}</div></div>;
+  return <div><p className={`mb-2 text-sm font-semibold ${isCurrentMonth ? "text-accent" : "text-text"}`}>{month.toLocaleDateString([], { month: "long" })}</p><div className="grid grid-cols-7 gap-y-0.5 text-center text-[10px]">{weekdayLabels(weekStart, "narrow").map((label, index) => <span key={`${label}-${index}`} className="pb-1 font-semibold text-mute/70">{label}</span>)}{cells.map((day) => { const key = keyFor(day); if (day.getMonth() !== month.getMonth()) return <span key={key} />; const isToday = sameDay(day, today); const isSelected = key === selected; const marked = markedDays.has(key); return <button key={key} type="button" onClick={() => onOpenDay(day)} className={`relative mx-auto flex h-6 w-6 items-center justify-center rounded-full text-[11px] transition-colors ${isToday ? "bg-accent font-semibold text-bg" : isSelected ? "bg-surface font-medium text-text" : "text-text hover:bg-surface"}`}>{day.getDate()}{marked && !isToday ? <i className="absolute bottom-0 h-1 w-1 rounded-full bg-accent" /> : null}</button>; })}</div></div>;
 }
 
-export function YearView({ months, today, selected, events, spans, onOpenDay }: { months: Date[]; today: Date; selected: string; events: CalendarEvent[]; spans: Map<string, EventSpan>; onOpenDay: (day: Date) => void }) {
+export function YearView({ months, weekStart, today, selected, events, spans, onOpenDay }: { months: Date[]; weekStart: WeekStart; today: Date; selected: string; events: CalendarEvent[]; spans: Map<string, EventSpan>; onOpenDay: (day: Date) => void }) {
   const markedDays = useMemo(() => {
     const marked = new Set<string>();
     for (const event of events) {
@@ -243,5 +247,5 @@ export function YearView({ months, today, selected, events, spans, onOpenDay }: 
     }
     return marked;
   }, [events, spans]);
-  return <div className="min-h-0 flex-1 overflow-y-auto p-5 lg:p-6"><div className="grid gap-x-7 gap-y-7 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">{months.map((month) => <YearMonth key={month.getMonth()} month={month} today={today} selected={selected} markedDays={markedDays} onOpenDay={onOpenDay} />)}</div></div>;
+  return <div className="min-h-0 flex-1 overflow-y-auto p-5 lg:p-6"><div className="grid gap-x-7 gap-y-7 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">{months.map((month) => <YearMonth key={month.getMonth()} month={month} weekStart={weekStart} today={today} selected={selected} markedDays={markedDays} onOpenDay={onOpenDay} />)}</div></div>;
 }

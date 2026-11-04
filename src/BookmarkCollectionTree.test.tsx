@@ -8,7 +8,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import "./test/dom";
 import { aContact, enrolDevice, setConnectionDomain } from "./test/vault";
 import { DEFAULT_ACCOUNT_SETTINGS } from "./lib/accountSettings";
@@ -133,7 +133,6 @@ describe("adding a collection versus a subcollection", () => {
       target: { value: "Work" },
     });
     fireEvent.submit(screen.getByLabelText("New collection name").closest("form") ?? document.body);
-    fireEvent.keyDown(screen.getByLabelText("New collection name"), { key: "Enter" });
 
     await screen.findAllByRole("button", { name: "Work" });
     const call = putBookmarkCollection.mock.calls.find((call) => call[1] === "Work");
@@ -146,14 +145,16 @@ describe("adding a collection versus a subcollection", () => {
     fireEvent.change(screen.getByLabelText("New collection name"), {
       target: { value: "Work" },
     });
-    fireEvent.keyDown(screen.getByLabelText("New collection name"), { key: "Enter" });
+    fireEvent.submit(screen.getByLabelText("New collection name").closest("form") ?? document.body);
     const workButton = await screen.findByRole("button", { name: "Work" });
 
     fireEvent.click(screen.getByRole("button", { name: "Add subcollection under Work" }));
     fireEvent.change(screen.getByLabelText("New subcollection under Work"), {
       target: { value: "Research" },
     });
-    fireEvent.keyDown(screen.getByLabelText("New subcollection under Work"), { key: "Enter" });
+    fireEvent.submit(
+      screen.getByLabelText("New subcollection under Work").closest("form") ?? document.body,
+    );
 
     await screen.findAllByRole("button", { name: "Research" });
     const call = putBookmarkCollection.mock.calls.find((call) => call[1] === "Research");
@@ -163,20 +164,22 @@ describe("adding a collection versus a subcollection", () => {
   });
 });
 
-describe("expand and collapse", () => {
-  it("collapsing a collection hides its children, the toggle reveals them again", async () => {
+describe("opening a collection", () => {
+  it("shows its subcollections only while it or one under it is selected", async () => {
     vault.collections.push(
       { id: "work", name: "Work", raw: "{}" },
       { id: "research", name: "Research", parentId: "work", raw: "{}" },
     );
     await unlock();
+    const sidebar = () => document.querySelector("aside") as HTMLElement;
 
-    await screen.findByText("Research");
-    fireEvent.click(screen.getByRole("button", { name: "Collapse Work" }));
-    expect(screen.queryByText("Research")).toBeNull();
+    expect(within(sidebar()).queryByRole("button", { name: "Research" })).toBeNull();
+    fireEvent.click(within(sidebar()).getByRole("button", { name: "Work" }));
+    fireEvent.click(within(sidebar()).getByRole("button", { name: "Research" }));
+    expect(within(sidebar()).getByRole("button", { name: "Work" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Expand Work" }));
-    expect(screen.getByText("Research")).toBeTruthy();
+    fireEvent.click(within(sidebar()).getByRole("button", { name: DEFAULT_BOOKMARK_COLLECTION_NAME }));
+    expect(within(sidebar()).queryByRole("button", { name: "Research" })).toBeNull();
   });
 });
 
@@ -205,7 +208,7 @@ describe("dragging a collection onto another", () => {
       { id: "research", name: "Research", parentId: "work", raw: "{}" },
     );
     await unlock();
-    await screen.findByText("Research");
+    fireEvent.click(screen.getByRole("button", { name: "Work" }));
 
     const transfer = new FakeDataTransfer();
     fireEvent(dragRow("Research"), dragEvent("dragstart", transfer));

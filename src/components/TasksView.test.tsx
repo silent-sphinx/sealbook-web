@@ -141,6 +141,13 @@ function sidebar(): HTMLElement {
   return aside as HTMLElement;
 }
 
+/** The task list beside the sidebar, which repeats the open list's tasks. */
+function board(): HTMLElement {
+  const section = [...document.querySelectorAll("section")].find((node) => !node.closest("aside"));
+  if (!section) throw new Error("no task board");
+  return section as HTMLElement;
+}
+
 function pick(name: string): void {
   fireEvent.click(within(sidebar()).getByRole("button", { name: new RegExp(`^${name}\\d*$`) }));
 }
@@ -151,7 +158,7 @@ function tick(title: string): void {
 
 /** Opens a parent's dropdown; subtasks are hidden until it is clicked. */
 function expand(title: string): void {
-  fireEvent.click(screen.getByRole("button", { name: `Expand ${title}` }));
+  fireEvent.click(within(board()).getByRole("button", { name: `Expand ${title}` }));
 }
 
 function field(label: string): HTMLElement {
@@ -286,7 +293,7 @@ describe("TasksView, ticking a task", () => {
 describe("TasksView, the form", () => {
   it("refuses a task with no title", () => {
     mount();
-    fireEvent.click(screen.getByRole("button", { name: /New/ }));
+    fireEvent.click(within(board()).getByRole("button", { name: /New/ }));
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     expect(screen.getByRole("alert").textContent).toBe("Give the task a title.");
     expect(writes).toEqual([]);
@@ -294,7 +301,7 @@ describe("TasksView, the form", () => {
 
   it("refuses a repeat with no due date", () => {
     mount();
-    fireEvent.click(screen.getByRole("button", { name: /New/ }));
+    fireEvent.click(within(board()).getByRole("button", { name: /New/ }));
     fireEvent.change(field("Title"), { target: { value: "Water" } });
     fireEvent.change(field("Repeat"), { target: { value: "weekly" } });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
@@ -305,7 +312,7 @@ describe("TasksView, the form", () => {
   it("writes what was entered, into the list that is open", async () => {
     mount({ taskLists: [DEFAULT_LIST, parseTaskList("work", serializeTaskList("Work"))] });
     pick("Work");
-    fireEvent.click(screen.getByRole("button", { name: /New/ }));
+    fireEvent.click(within(board()).getByRole("button", { name: /New/ }));
     fireEvent.change(field("Title"), { target: { value: "  Ship it  " } });
     fireEvent.change(field("Due date"), { target: { value: day(2) } });
     fireEvent.change(field("Priority"), { target: { value: "3" } });
@@ -336,7 +343,7 @@ describe("TasksView, the form", () => {
         }),
       ],
     });
-    fireEvent.click(screen.getByRole("button", { name: /^water/ }));
+    fireEvent.click(within(board()).getByRole("button", { name: /^water/ }));
     fireEvent.click(screen.getByRole("button", { name: "Edit this task" }));
     fireEvent.change(field("Notes"), { target: { value: "jug" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -350,7 +357,7 @@ describe("TasksView, the form", () => {
       tasks: [aTask("deploy", { taskListId: "work" })],
     });
     pick("Work");
-    fireEvent.click(screen.getByRole("button", { name: "Add subtask to deploy" }));
+    fireEvent.click(within(board()).getByRole("button", { name: "Add subtask to deploy" }));
     fireEvent.change(field("Title"), { target: { value: "tag release" } });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     await waitFor(() => expect(writes).toHaveLength(1));
@@ -363,7 +370,7 @@ describe("TasksView, the form", () => {
       tasks: [aTask("parent"), aTask("child", { parentId: "parent" })],
     });
     pick("Default Task List");
-    fireEvent.click(screen.getByRole("button", { name: /^parent/ }));
+    fireEvent.click(within(board()).getByRole("button", { name: /^parent/ }));
     fireEvent.click(screen.getByRole("button", { name: "Edit this task" }));
     fireEvent.change(field("List"), { target: { value: "work" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -386,7 +393,7 @@ describe("TasksView, deleting", () => {
     });
     pick("Default Task List");
     expand("grand");
-    fireEvent.click(screen.getByRole("button", { name: "Delete middle" }));
+    fireEvent.click(within(board()).getByRole("button", { name: "Delete middle" }));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(deletes).toEqual(["middle"]));
     expect(writes).toHaveLength(1);
@@ -436,16 +443,21 @@ describe("TasksView, lists", () => {
         parseTaskList("deep", serializeTaskList("Deep", "work")),
       ],
     });
-    expect(within(sidebar()).queryByLabelText("Change colour for Deep")).toBeNull();
-    fireEvent.change(within(sidebar()).getByLabelText("Change colour for Work"), {
-      target: { value: "#123456" },
-    });
+    pick("Work");
+    fireEvent.contextMenu(within(sidebar()).getByRole("button", { name: /^Deep/ }));
+    expect(screen.queryByRole("menuitem", { name: "Change colour" })).toBeNull();
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    fireEvent.contextMenu(within(sidebar()).getByRole("button", { name: /^Work/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Change colour" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "List colour" })).getByRole("button", { name: "Deep teal" }));
     await waitFor(() =>
-      expect(listWrites).toEqual([{ name: "Work", parentId: undefined, id: "work", color: "#123456" }]),
+      expect(listWrites).toEqual([{ name: "Work", parentId: undefined, id: "work", color: "#4fae9f" }]),
     );
-    await waitFor(() =>
-      expect((within(sidebar()).getByLabelText("Change colour for Work") as HTMLInputElement).value).toBe("#123456"),
-    );
+    const tint = (name: RegExp) =>
+      (within(sidebar()).getByRole("button", { name }).querySelector("span") as HTMLElement).style.color;
+    await waitFor(() => expect(tint(/^Work/)).toBe("rgb(79, 174, 159)"));
+    expect(tint(/^Deep/)).toBe("rgb(79, 174, 159)");
   });
 });
 
@@ -455,9 +467,10 @@ describe("TasksView, read only", () => {
     pick("Default Task List");
     expect(screen.queryByRole("button", { name: /New/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete water" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add subtask to water" })).toBeNull();
     expect((screen.getByRole("checkbox", { name: "Complete water" }) as HTMLInputElement).disabled).toBe(true);
     expect(within(sidebar()).queryByRole("button", { name: "Add list" })).toBeNull();
-    expect(within(sidebar()).queryByLabelText("Change colour for Default Task List")).toBeNull();
+    expect(screen.queryByLabelText("List colour")).toBeNull();
   });
 });
 
@@ -526,12 +539,14 @@ describe("TasksView, drag and drop", () => {
 
   it("refuses a drop on its own descendant", () => {
     mount({ taskLists: lists() });
+    pick("Work");
     drag(rowOf(listButton("Work")), rowOf(listButton("Deep")));
     expect(listWrites).toEqual([]);
   });
 
   it("brings a nested list back to the top level", async () => {
     mount({ taskLists: lists() });
+    pick("Work");
     const transfer = new FakeDataTransfer();
     fireEvent(rowOf(listButton("Deep")), dragEvent("dragstart", transfer));
     const zone = await screen.findByText("Move to top level");
@@ -543,7 +558,7 @@ describe("TasksView, drag and drop", () => {
   it("nests a task under another task", async () => {
     mount({ tasks: [aTask("alpha"), aTask("beta")] });
     pick("Default Task List");
-    const handle = (title: string) => screen.getByRole("button", { name: new RegExp(`^${title}`) });
+    const handle = (title: string) => within(board()).getByRole("button", { name: new RegExp(`^${title}`) });
     drag(rowOf(handle("beta")), rowOf(handle("alpha")));
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]).toMatchObject({ id: "beta", draft: { parentId: "alpha" } });
@@ -553,7 +568,7 @@ describe("TasksView, drag and drop", () => {
     mount({ tasks: [aTask("alpha"), aTask("beta", { parentId: "alpha" }), aTask("gamma")] });
     pick("Default Task List");
     expand("alpha");
-    const handle = (title: string) => screen.getByRole("button", { name: new RegExp(`^${title}`) });
+    const handle = (title: string) => within(board()).getByRole("button", { name: new RegExp(`^${title}`) });
     dragAt(rowOf(handle("gamma")), rowOf(handle("beta")), 38);
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]).toMatchObject({ id: "gamma", draft: { parentId: "alpha" } });
@@ -563,7 +578,7 @@ describe("TasksView, drag and drop", () => {
     mount({ tasks: [aTask("alpha"), aTask("beta", { parentId: "alpha" }), aTask("gamma")] });
     pick("Default Task List");
     expand("alpha");
-    const handle = (title: string) => screen.getByRole("button", { name: new RegExp(`^${title}`) });
+    const handle = (title: string) => within(board()).getByRole("button", { name: new RegExp(`^${title}`) });
     dragAt(rowOf(handle("beta")), rowOf(handle("gamma")), 2);
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]).toMatchObject({ id: "beta", draft: { parentId: undefined } });
@@ -579,7 +594,7 @@ describe("TasksView, drag and drop", () => {
       ],
     });
     pick("All tasks");
-    const handle = (title: string) => screen.getByRole("button", { name: new RegExp(`^${title}`) });
+    const handle = (title: string) => within(board()).getByRole("button", { name: new RegExp(`^${title}`) });
     drag(rowOf(handle("beta")), rowOf(handle("alpha")));
     await waitFor(() => expect(writes).toHaveLength(2));
     expect(writes[0]).toMatchObject({ id: "beta", draft: { parentId: "alpha", taskListId: "work" } });
@@ -590,7 +605,7 @@ describe("TasksView, drag and drop", () => {
     mount({ tasks: [aTask("alpha"), aTask("beta", { parentId: "alpha" })] });
     pick("Default Task List");
     expand("alpha");
-    const handle = (title: string) => screen.getByRole("button", { name: new RegExp(`^${title}`) });
+    const handle = (title: string) => within(board()).getByRole("button", { name: new RegExp(`^${title}`) });
     drag(rowOf(handle("alpha")), rowOf(handle("beta")));
     expect(writes).toEqual([]);
   });
@@ -629,7 +644,7 @@ describe("TasksView, showing a write", () => {
 });
 
 describe("TasksView, the detail pane", () => {
-  const row = (title: string) => screen.getByRole("button", { name: new RegExp(`^${title}`) });
+  const row = (title: string) => within(board()).getByRole("button", { name: new RegExp(`^${title}`) });
   const pane = (title: string) => screen.getByRole("region", { name: `${title} details` });
 
   it("shows the selected task's details beside the list", () => {
@@ -687,7 +702,7 @@ describe("TasksView, the detail pane", () => {
   it("shows a task it has just saved", async () => {
     mount({ tasks: [] });
     pick("Default Task List");
-    fireEvent.click(screen.getByRole("button", { name: /New/ }));
+    fireEvent.click(within(board()).getByRole("button", { name: /New/ }));
     fireEvent.change(field("Title"), { target: { value: "tag release" } });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     await waitFor(() => expect(writes).toHaveLength(1));
@@ -733,7 +748,7 @@ describe("TasksView, the list pills", () => {
   it("names the list on the detail pane", () => {
     mount({ tasks: seed(), taskLists: lists() });
     pick("Work");
-    fireEvent.click(screen.getByRole("button", { name: "invoices" }));
+    fireEvent.click(within(board()).getByRole("button", { name: "invoices" }));
     const pane = screen.getByRole("region", { name: "invoices details" });
     expect(within(pane).getByText("Work")).not.toBeNull();
   });
@@ -765,7 +780,7 @@ describe("TasksView, the subtask dropdown", () => {
     mount({ tasks: [aTask("parent"), aTask("child", { parentId: "parent" })] });
     pick("Default Task List");
     expand("parent");
-    fireEvent.click(screen.getByRole("button", { name: "Collapse parent" }));
+    fireEvent.click(within(board()).getByRole("button", { name: "Collapse parent" }));
     expect(titles()).toEqual(["Complete parent"]);
   });
 
@@ -781,31 +796,42 @@ describe("TasksView, the subtask dropdown", () => {
     mount({ tasks: [aTask("parent"), aTask("child", { parentId: "parent" })] });
     fireEvent.change(screen.getByLabelText("Search tasks"), { target: { value: "child" } });
     expect(titles()).toEqual(["Complete child"]);
-    expect(screen.queryByRole("button", { name: "Expand child" })).toBeNull();
+    expect(within(board()).queryByRole("button", { name: "Expand child" })).toBeNull();
   });
 
   it("gives a leaf task no arrow", () => {
     mount({ tasks: [aTask("alone")] });
     pick("Default Task List");
-    expect(screen.queryByRole("button", { name: "Expand alone" })).toBeNull();
+    expect(within(board()).queryByRole("button", { name: "Expand alone" })).toBeNull();
   });
 
   it("opens the parent when a subtask is added to it", async () => {
     mount({ tasks: [aTask("parent"), aTask("child", { parentId: "parent" })] });
     pick("Default Task List");
-    fireEvent.click(screen.getByRole("button", { name: "Add subtask to parent" }));
+    fireEvent.click(within(board()).getByRole("button", { name: "Add subtask to parent" }));
     fireEvent.change(field("Title"), { target: { value: "second" } });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     await waitFor(() => expect(writes).toHaveLength(1));
-    expect(screen.getByRole("button", { name: "Collapse parent" })).not.toBeNull();
+    expect(within(board()).getByRole("button", { name: "Collapse parent" })).not.toBeNull();
   });
 
   it("opens the parent when a task is dropped on it", async () => {
     mount({ tasks: [aTask("alpha"), aTask("beta")] });
     pick("Default Task List");
-    const handle = (title: string) => screen.getByRole("button", { name: new RegExp(`^${title}`) });
+    const handle = (title: string) => within(board()).getByRole("button", { name: new RegExp(`^${title}`) });
     drag(rowOf(handle("beta")), rowOf(handle("alpha")));
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(titles()).toEqual(["Complete alpha", "Complete beta"]);
+  });
+});
+
+describe("TasksView, the sidebar", () => {
+  it("lists only the lists, never their tasks", () => {
+    mount({ tasks: [aTask("parent"), aTask("child", { parentId: "parent" })] });
+    pick("Default Task List");
+    const side = within(sidebar());
+    expect(side.queryByRole("button", { name: "parent" })).toBeNull();
+    expect(side.queryByRole("button", { name: "Expand parent" })).toBeNull();
+    expect(side.queryByRole("button", { name: "New task" })).toBeNull();
   });
 });

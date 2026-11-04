@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_ADDRESS_BOOK_ID,
   DEFAULT_ADDRESS_BOOK_NAME,
+  addressBookTone,
   bookNameById,
+  bookToneById,
   isAddressBookVisible,
   loadHiddenAddressBooks,
   parseAddressBook,
@@ -62,6 +64,22 @@ describe("parseAddressBook", () => {
     const parsed = parseAddressBook("b1", "not json");
     expect(parsed.name).toBe("Untitled Address Book");
     expect(parsed.raw).toBe("not json");
+  });
+});
+
+describe("address book colour", () => {
+  it("round-trips a colour, and a rename without one clears it", () => {
+    const coloured = serializeAddressBook("Work", undefined, false, "#9ece6a");
+    expect(parseAddressBook("b", coloured).color).toBe("#9ece6a");
+    const cleared = serializeAddressBook("Work", coloured);
+    expect(parseAddressBook("b", cleared).color).toBeUndefined();
+  });
+
+  it("tones a book by its stored colour, or one derived from its id", () => {
+    const work = { ...book("b", "Work"), color: "#9ece6a" };
+    expect(addressBookTone(work)).toBe("#9ece6a");
+    expect(bookToneById([work], "b")).toBe("#9ece6a");
+    expect(addressBookTone(book("b", "Work"))).toMatch(/^#[0-9a-f]{6}$/i);
   });
 });
 

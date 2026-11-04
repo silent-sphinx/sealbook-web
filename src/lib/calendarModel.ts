@@ -71,10 +71,26 @@ export function spanCoversDay(span: EventSpan, day: Date): boolean {
   return dayKey >= span.startKey && dayKey <= span.endKey;
 }
 
-export function monthDays(month: Date): Date[] {
+/** `Date.getDay()` of the day a calendar week opens on: 0 Sunday, 1 Monday. */
+export type WeekStart = 0 | 1;
+
+const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** The weekday column headings, opening on `weekStart`. */
+export function weekdayLabels(weekStart: WeekStart, length: "short" | "narrow" = "short"): string[] {
+  const labels = [...WEEKDAY_SHORT.slice(weekStart), ...WEEKDAY_SHORT.slice(0, weekStart)];
+  return length === "narrow" ? labels.map((label) => label[0]) : labels;
+}
+
+/** How far `day` sits into a week that opens on `weekStart`. */
+export function weekdayIndex(day: Date, weekStart: WeekStart): number {
+  return (day.getDay() - weekStart + 7) % 7;
+}
+
+export function monthDays(month: Date, weekStart: WeekStart = 0): Date[] {
   const first = new Date(month.getFullYear(), month.getMonth(), 1);
   const start = new Date(first);
-  start.setDate(1 - first.getDay());
+  start.setDate(1 - weekdayIndex(first, weekStart));
   return Array.from({ length: 42 }, (_, index) => {
     const day = new Date(start);
     day.setDate(start.getDate() + index);
@@ -87,9 +103,9 @@ export function dateFromKey(key: string): Date {
   return new Date(year, month - 1, day);
 }
 
-export function weekDays(day: Date): Date[] {
+export function weekDays(day: Date, weekStart: WeekStart = 0): Date[] {
   const start = new Date(day);
-  start.setDate(day.getDate() - day.getDay());
+  start.setDate(day.getDate() - weekdayIndex(day, weekStart));
   return Array.from({ length: 7 }, (_, index) => {
     const entry = new Date(start);
     entry.setDate(start.getDate() + index);

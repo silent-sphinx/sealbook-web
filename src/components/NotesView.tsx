@@ -28,6 +28,7 @@ import {
   notebookNameById,
   notePreview,
   noteWordCount,
+  notebookTone,
   parseNote,
   resolveNotebookId,
   serializeNote,
@@ -36,15 +37,13 @@ import {
 import { ancestorsOf, buildNoteTree, canReparent, noteSubtree } from "../lib/noteTree";
 import {
   focusRing,
-  sidebarChildren,
-  sidebarGutter,
   sidebarHeaderAction,
   sidebarSectionAction,
 } from "../lib/styles";
 import type { Note, NoteDraft, Notebook } from "../lib/types";
 import type { OutboxState } from "../lib/outbox";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { ContainerList } from "./ContainerList";
+import { CollectionSidebar, SidebarAddRow } from "./CollectionSidebar";
 import { NoteTreeList } from "./NoteTreeList";
 import { NotebookPages } from "./NotebookPages";
 import { NotesOverview } from "./NotesOverview";
@@ -154,6 +153,8 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   // edit is not overwritten by a refresh.
   const [draft, setDraft] = useState<NoteDraft | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("clean");
+  const saveStateRef = useRef(saveState);
+  saveStateRef.current = saveState;
   // The note the editor is on, including one not yet written to the vault.
   const editingId = useRef<string | null>(null);
   const savedThisSession = useRef(false);
@@ -345,7 +346,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     const stored = vaultObject(id);
     const held = baseRef.current.object;
     if (!stored || !held || stored.revision === held.revision) return;
-    if (saveState !== "clean" || autosaver.queued()) return;
+    if (saveStateRef.current !== "clean" || autosaverRef.current?.queued()) return;
     baseRef.current = { id, object: stored };
     reloadFrom(parseNote(id, stored.payload));
   }, [notes]);
@@ -545,7 +546,17 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     setError(null);
     try {
       const previous = notebooks.find((notebook) => notebook.id === id);
-      await putNotebook(session, name, id, previous?.raw);
+      await putNotebook(session, name, id, previous?.raw, previous?.color);
+      await onRefresh();
+    } catch (err) {
+      setError(friendlyError(err));
+    }
+  }
+
+  async function recolorNotebook(notebook: Notebook, color: string) {
+    setError(null);
+    try {
+      await putNotebook(session, notebook.name, notebook.id, notebook.raw, color);
       await onRefresh();
     } catch (err) {
       setError(friendlyError(err));
@@ -667,23 +678,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
       />
     );
 
-  /** Sits at the foot of the notebook's own contents, where what it adds goes. */
-  const addNoteRow = (
-    <button
-      type="button"
-      onClick={() => newNote()}
-      title="New note"
-      className={`list-row -mx-2 flex w-[calc(100%+1rem)] items-center rounded-lg pr-2 text-left transition-colors hover:bg-surface/40 ${focusRing}`}
-      style={{ paddingLeft: "0.5rem" }}
-    >
-      <span className={`${sidebarGutter} text-note-new`}>
-        <Icon name="plus" className="h-3.5 w-3.5" />
-      </span>
-      <span className="py-2 pl-2.5 text-xs text-mute transition-colors group-hover:text-text">
-        New note
-      </span>
-    </button>
-  );
+  const addNoteRow = <SidebarAddRow label="New note" onClick={() => newNote()} />;
 
   const browsingNotebook = notebooks.find((notebook) => notebook.id === browsing) ?? null;
   const editorOpen = draft !== null;
@@ -748,13 +743,14 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
               </button>
             }
           >
-            <ContainerList
-              items={notebooks}
+            <CollectionSidebar
+              collections={notebooks}
               selectedId={scope}
-              allId={DEFAULT_NOTEBOOK_ID}
-              allLabel="All notes"
-              protectedId={DEFAULT_NOTEBOOK_ID}
+              icon="book"
               kindLabel="notebook"
+              tone={(notebook) => notebookTone(notebook.id, notebook.color)}
+              protectedId={DEFAULT_NOTEBOOK_ID}
+              counts={countByNotebook}
               creating={creatingNotebook}
               onCreateHandled={() => setCreatingNotebook(false)}
               onSelect={(id) => {
@@ -762,20 +758,15 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                 setBrowsing(id);
               }}
               onCreate={(name) => createNotebook(name)}
-              onRename={(id, name) => renameNotebook(id, name)}
+              onRename={(notebook, name) => renameNotebook(notebook.id, name)}
+              onRecolor={(notebook, color) => recolorNotebook(notebook, color)}
               onDelete={(notebook) => setDeletingNotebook(notebook)}
-              renderMeta={(notebook) => countByNotebook.get(notebook.id) || ""}
-              /* The notes are drawn inside their notebook, under its own row, so
-                 the two read as one thing rather than as two stacked lists. */
-              renderUnder={(notebook) =>
-                notebook.id === scope ? (
-                  <div className={`${sidebarChildren} mb-1`}>
-                    {notebookContents}
-                    {addNoteRow}
-                  </div>
-                ) : null
-              }
-              showAll={false}
+              renderContents={() => (
+                <>
+                  {notebookContents}
+                  {addNoteRow}
+                </>
+              )}
               busy={busy}
             />
           </SidebarSection>

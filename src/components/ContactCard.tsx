@@ -1,15 +1,18 @@
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
+import { tonePill } from "../lib/styles";
 import type { Contact } from "../lib/types";
 
 export function ContactCard({
   contact,
   bookName,
+  bookTone,
   selected = false,
   onSelect,
   onContextMenu,
 }: {
   contact: Contact;
   bookName?: string;
+  bookTone?: string;
   selected?: boolean;
   onSelect?: (contact: Contact) => void;
   onContextMenu?: (event: ReactMouseEvent, contact: Contact) => void;
@@ -47,7 +50,10 @@ export function ContactCard({
         </div>
 
         {bookName ? (
-          <span className="max-w-[35%] shrink-0 truncate rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium text-mute">
+          <span
+            className="max-w-[35%] shrink-0 truncate rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium text-mute"
+            style={bookTone ? tonePill(bookTone) : undefined}
+          >
             {bookName}
           </span>
         ) : null}

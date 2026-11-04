@@ -36,8 +36,9 @@ export async function putAddressBook(
   id = newUuid(),
   previousRaw?: string,
   archived = false,
+  color?: string,
 ): Promise<string> {
-  const plaintext = serializeAddressBook(name, previousRaw, archived);
+  const plaintext = serializeAddressBook(name, previousRaw, archived, color);
   await putSealed(session, id, ADDRESS_BOOK_CONTENT_TYPE, false, plaintext);
   return id;
 }

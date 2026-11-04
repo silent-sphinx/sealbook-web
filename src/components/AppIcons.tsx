@@ -181,3 +181,43 @@ export function UploadIcon() {
     </svg>
   );
 }
+
+const COLLECTION_PATHS = {
+  book: [
+    "M3 2.75h7.5a1.75 1.75 0 0 1 1.75 1.75v8.75H4.75A1.75 1.75 0 0 1 3 11.5V2.75Z",
+    "M3 11.5a1.75 1.75 0 0 1 1.75-1.75h7.5",
+  ],
+  tasks: [
+    "m2.75 4.5 1.25 1.25 2.25-2.5",
+    "m2.75 10.5 1.25 1.25 2.25-2.5",
+    "M8.75 4.75h4.5M8.75 10.75h4.5",
+  ],
+  bookmark: ["M4.5 2.5h7v11L8 10.75 4.5 13.5v-11Z"],
+} as const;
+
+export type CollectionKind = keyof typeof COLLECTION_PATHS;
+
+export function CollectionIcon({
+  kind,
+  className = "h-3.5 w-3.5",
+}: {
+  kind: CollectionKind;
+  className?: string;
+}) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {COLLECTION_PATHS[kind].map((d) => (
+        <path key={d} d={d} />
+      ))}
+    </svg>
+  );
+}

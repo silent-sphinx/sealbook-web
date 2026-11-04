@@ -1,26 +1,6 @@
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type DragEvent,
-  type FormEvent,
-} from "react";
+import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
 import type { DeviceSummary, Session } from "../lib/client";
-import {
-  changePassword,
-  changeUsername,
-  deleteCalendar,
-  deleteCalendarEvent,
-  deleteAccount,
-  putCalendar,
-  putCalendarEvents,
-  listDevices,
-  revokeDevice,
-  rotatePhrase,
-} from "../lib/client";
+import { changePassword, changeUsername, deleteAccount, listDevices, revokeDevice, rotatePhrase } from "../lib/client";
 import {
   ACCENTS,
   ACCENT_COLORS,
@@ -37,9 +17,6 @@ import {
   withContactMode,
   withFeature,
 } from "../lib/accountSettings";
-import { ConfirmDialog } from "./ConfirmDialog";
-import { formatIcs, parseCalendarImport } from "../lib/ics";
-import { triggerDownload } from "../lib/importExport";
 import { formatRecoveryWordsFile } from "../lib/phrase";
 import { clearDevice } from "../lib/storage";
 import { friendlyError } from "../lib/errors";
@@ -48,8 +25,10 @@ import {
   btnPrimary,
   btnSecondary,
   field,
+  fieldLabel,
   focusRing,
   selectField,
+  sidebarRowState,
 } from "../lib/styles";
 import type {
   AccentKey,
@@ -67,92 +46,35 @@ import type {
   Note,
   Notebook,
 } from "../lib/types";
-import { DEFAULT_CALENDAR_COLOR } from "../lib/types";
 import { allTimezones, utcOffsetLabel } from "../lib/timezone";
+import type { WeekStart } from "../lib/calendarModel";
+import { PAGE_GROUPS, pageForSection, type SettingsPage, type SettingsSection } from "../lib/settingsModel";
+import { CheckIcon, CopyIcon } from "./AppIcons";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { Modal } from "./Modal";
+import { PasswordField } from "./PasswordField";
+import { SidebarDrawer, SidebarHeader, SidebarSection, type Sidebar } from "./SidebarDrawer";
 import { AccountExportSection } from "./AccountExportSection";
 import { AccountImportSection } from "./AccountImportSection";
+import { BookmarksImportExportSection } from "./BookmarksImportExportSection";
+import { CalendarImportExportSection } from "./CalendarImportExportSection";
 import { ImportExportSection } from "./ImportExportSection";
 import { NotesImportExportSection } from "./NotesImportExportSection";
-import { BookmarksImportExportSection } from "./BookmarksImportExportSection";
 import { TasksImportExportSection } from "./TasksImportExportSection";
-import { PasswordField } from "./PasswordField";
-import { SECTIONS, type SettingsSection } from "../lib/settingsModel";
+import {
+  Callout,
+  NoticeLine,
+  SettingsGroup,
+  SettingsList,
+  SettingsMark,
+  SettingsOption,
+  SettingsRow,
+  Switch,
+  actionRow,
+  type Notice,
+} from "./SettingsKit";
 
 export type { SettingsSection } from "../lib/settingsModel";
-
-const MAX_CALENDAR_FILE_BYTES = 5 * 1024 * 1024;
-const MAX_CALENDAR_EVENTS = 1_000;
-
-type AccountPage =
-  | "username"
-  | "password"
-  | "devices"
-  | "recovery"
-  | "data"
-  | "signout"
-  | "delete";
-
-const ACCOUNT_PAGES: { id: AccountPage; label: string; description: string; danger?: boolean }[] = [
-  {
-    id: "username",
-    label: "Update Your Username",
-    description: "Change the name you sign in with.",
-  },
-  {
-    id: "password",
-    label: "Change Your Password",
-    description: "Update your password and re-wrap your encryption keys.",
-  },
-  {
-    id: "devices",
-    label: "Manage Paired Devices",
-    description: "See every device signed in to this account, and revoke ones you no longer use.",
-  },
-  {
-    id: "recovery",
-    label: "Generate New Recovery Codes",
-    description: "Replace your 24-word recovery phrase and rotate your vault key.",
-  },
-  {
-    id: "data",
-    label: "Export & Import Account Data",
-    description: "Download a decrypted backup of your vault, or restore one from a backup file.",
-  },
-  {
-    id: "signout",
-    label: "Sign Out",
-    description: "Remove this device's keys from this browser.",
-  },
-  {
-    id: "delete",
-    label: "Delete Account",
-    description: "Permanently erase your account and everything in it.",
-    danger: true,
-  },
-];
-
-function ChevronIcon({
-  direction = "right",
-  className = "h-3.5 w-3.5",
-}: {
-  direction?: "left" | "right";
-  className?: string;
-}) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d={direction === "left" ? "M9.5 3.5 5 8l4.5 4.5" : "m6.5 3.5 5 5-5 5"} />
-    </svg>
-  );
-}
 
 type Props = {
   session: Session;
@@ -180,12 +102,18 @@ type Props = {
   onCreateBookmarkCollection?: (name: string) => Promise<string | undefined>;
   timezone: string;
   onTimezoneChange: (timezone: string) => void;
+  weekStart: WeekStart;
+  onWeekStartChange: (weekStart: WeekStart) => void;
   accountSettings: AccountSettings;
   /** Rejects when the write fails, so the toggle can report it and stay put. */
   onSaveAccountSettings: (settings: AccountSettings) => Promise<void>;
   /** Read once on mount; the view unmounts whenever the Settings tab is left. */
   initialSection?: SettingsSection;
+  sidebar: Sidebar;
 };
+
+/** Narrow enough that a label and its field read as one line of sight. */
+const formColumn = "max-w-sm space-y-4";
 
 export function SettingsView({
   session,
@@ -211,99 +139,62 @@ export function SettingsView({
   onCreateBookmarkCollection,
   timezone,
   onTimezoneChange,
+  weekStart,
+  onWeekStartChange,
   accountSettings,
   onSaveAccountSettings,
   initialSection,
+  sidebar,
 }: Props) {
-  const [activeSectionState, setActiveSection] = useState<SettingsSection>(
-    initialSection ?? "account",
-  );
-  const [accountPage, setAccountPage] = useState<AccountPage | null>(null);
-  // Calendar import state
-  const icsInputRef = useRef<HTMLInputElement | null>(null);
+  const [pageState, setPage] = useState<SettingsPage>(pageForSection(initialSection ?? "account"));
   // Prefix for the ids that tie this view's labels to their controls.
   const ids = useId();
-  const [icsDragActive, setIcsDragActive] = useState(false);
-  const [icsFile, setIcsFile] = useState<{ name: string; size: number } | null>(null);
-  const [parsedIcsFormat, setParsedIcsFormat] = useState<string | null>(null);
-  const [parsedEvents, setParsedEvents] = useState<Omit<CalendarEvent, "id">[]>([]);
-  const [skippedEvents, setSkippedEvents] = useState(0);
-  const [droppedRules, setDroppedRules] = useState(0);
-  const [icsCalendarId, setIcsCalendarId] = useState("");
-  const [isCreatingCalendar, setIsCreatingCalendar] = useState(false);
-  const [newCalendarName, setNewCalendarName] = useState("");
-  const [importingIcs, setImportingIcs] = useState(false);
-  const [icsProgress, setIcsProgress] = useState<{ current: number; total: number } | null>(null);
-  const [icsImportMsg, setIcsImportMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  // Calendar export state
-  const [exportCalendarId, setExportCalendarId] = useState("all");
-  const [calendarExportFormat, setCalendarExportFormat] = useState<"ics" | "json">("ics");
-  const [icsExportMsg, setIcsExportMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
-
-  // Username state
   const [newUsername, setNewUsername] = useState("");
   const [usernamePassword, setUsernamePassword] = useState("");
   const [usernameBusy, setUsernameBusy] = useState(false);
-  const [usernameMsg, setUsernameMsg] = useState<{
-    type: "success" | "error";
-    text: string;
-  } | null>(null);
+  const [usernameMsg, setUsernameMsg] = useState<Notice>(null);
 
-  // Password state
   const [passwordCurrent, setPasswordCurrent] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordBusy, setPasswordBusy] = useState(false);
-  const [passwordMsg, setPasswordMsg] = useState<{
-    type: "success" | "error";
-    text: string;
-  } | null>(null);
+  const [passwordMsg, setPasswordMsg] = useState<Notice>(null);
 
-  // Recovery phrase state
   const [phraseBusy, setPhraseBusy] = useState(false);
   const [newWords, setNewWords] = useState<string[] | null>(null);
   const [devices, setDevices] = useState<DeviceSummary[] | null>(null);
-  const [devicesMsg, setDevicesMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [devicesMsg, setDevicesMsg] = useState<Notice>(null);
   const [revokeTarget, setRevokeTarget] = useState<DeviceSummary | null>(null);
   const [revokePassword, setRevokePassword] = useState("");
   const [revokeError, setRevokeError] = useState<string | null>(null);
   const [revokeBusy, setRevokeBusy] = useState(false);
   const [revokeProgress, setRevokeProgress] = useState({ done: 0, total: 0 });
   const [copiedPhrase, setCopiedPhrase] = useState(false);
-  const [phraseMsg, setPhraseMsg] = useState<{
-    type: "success" | "error";
-    text: string;
-  } | null>(null);
+  const [phraseMsg, setPhraseMsg] = useState<Notice>(null);
   const [showPhraseConfirm, setShowPhraseConfirm] = useState(false);
   // Rotating the phrase rotates the vault key, which needs the password to
   // re-wrap it, so this is no longer a one-click action.
   const [phrasePassword, setPhrasePassword] = useState("");
   const [phraseProgress, setPhraseProgress] = useState({ done: 0, total: 0 });
 
-  // Feature toggle state
   const [featureBusy, setFeatureBusy] = useState<FeatureKey | null>(null);
-  const [featureMsg, setFeatureMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [featureMsg, setFeatureMsg] = useState<Notice>(null);
 
-  // Accent state
   const [accentBusy, setAccentBusy] = useState<AccentKey | null>(null);
-  const [accentMsg, setAccentMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [accentMsg, setAccentMsg] = useState<Notice>(null);
 
-  // Contact mode state
   const [contactModeBusy, setContactModeBusy] = useState(false);
-  const [contactModeMsg, setContactModeMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [contactModeMsg, setContactModeMsg] = useState<Notice>(null);
 
-  // Sign out state
   const [signOutConfirm, setSignOutConfirm] = useState(false);
 
-  // Delete account state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deletePassword, setDeletePassword] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // Handlers
   async function handleToggleFeature(feature: FeatureKey, enabled: boolean) {
     const next = withFeature(accountSettings, feature, enabled);
     if (next === accountSettings) {
@@ -501,7 +392,7 @@ export function SettingsView({
       setRevokePassword("");
       setDevicesMsg({
         type: "success",
-        text: "Device revoked and the vault key rotated. Save the new recovery phrase below — your previous one no longer works.",
+        text: "Device revoked and the vault key rotated. Save the new recovery phrase below; your previous one no longer works.",
       });
       await loadDevices();
       await onRefresh();
@@ -626,344 +517,310 @@ export function SettingsView({
     }
   }
 
-  // Events selected for export, mirroring the contacts export filter.
-  const exportEvents = exportCalendarId === "all"
-    ? calendarEvents
-    : calendarEvents.filter((event) => event.calendarId === exportCalendarId);
-
-  function handleIcsFileRead(file: File) {
-    setIcsImportMsg(null);
-    if (file.size > MAX_CALENDAR_FILE_BYTES) {
-      setIcsImportMsg({ type: "error", text: "Calendar files must be 5 MB or smaller." });
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result;
-      if (typeof content !== "string" || !content.trim()) {
-        setIcsImportMsg({ type: "error", text: `File "${file.name}" is empty.` });
-        return;
-      }
-      try {
-        const trimmed = content.trimStart();
-        const { events, skipped, droppedRules: dropped = 0 } = parseCalendarImport(content, timezone, icsCalendarId);
-        if (events.length === 0) {
-          setIcsImportMsg({
-            type: "error",
-            text: skipped.length
-              ? `No calendar events in "${file.name}" could be used: ${skipped.length} could not be read.`
-              : `No calendar events could be parsed from "${file.name}". Ensure it is a valid .ics or .json file.`,
-          });
-          return;
-        }
-        if (events.length > MAX_CALENDAR_EVENTS) {
-          setIcsImportMsg({ type: "error", text: "Calendar files may contain at most 1,000 events." });
-          return;
-        }
-        setIcsCalendarId((current) => current || calendars[0]?.id || "");
-        setIcsFile({ name: file.name, size: file.size });
-        setParsedIcsFormat(trimmed.startsWith("[") || trimmed.startsWith("{") ? "JSON" : "ICS");
-        setParsedEvents(events);
-        setSkippedEvents(skipped.length);
-        setDroppedRules(dropped);
-      } catch (err) {
-        setIcsImportMsg({ type: "error", text: `Failed to parse file: ${friendlyError(err)}` });
-      }
-    };
-    reader.onerror = () => {
-      setIcsImportMsg({ type: "error", text: "Failed to read file from disk." });
-    };
-    reader.readAsText(file);
-  }
-
-  function onIcsInputChange(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) {
-      handleIcsFileRead(file);
-    }
-    e.target.value = "";
-  }
-
-  function handleIcsDrag(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setIcsDragActive(true);
-    } else if (e.type === "dragleave") {
-      setIcsDragActive(false);
-    }
-  }
-
-  function handleIcsDrop(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    e.stopPropagation();
-    setIcsDragActive(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      handleIcsFileRead(file);
-    }
-  }
-
-  function resetIcsImport() {
-    setIcsFile(null);
-    setParsedIcsFormat(null);
-    setParsedEvents([]);
-    setSkippedEvents(0);
-    setDroppedRules(0);
-    setIcsProgress(null);
-    setIsCreatingCalendar(false);
-    setNewCalendarName("");
-  }
-
-  async function createIcsCalendar(name: string): Promise<string> {
-    const id = await putCalendar(session, { name, color: DEFAULT_CALENDAR_COLOR });
-    setIcsCalendarId(id);
-    return id;
-  }
-
-  async function handleExecuteIcsImport() {
-    if (parsedEvents.length === 0) return;
-
-    setImportingIcs(true);
-    setIcsImportMsg(null);
-    setIcsProgress({ current: 0, total: parsedEvents.length });
-    const importedEventIds: string[] = [];
-    let createdCalendarId: string | undefined;
-
-    try {
-      let finalCalendarId = icsCalendarId;
-      const creatingName = newCalendarName.trim();
-
-      if (isCreatingCalendar && creatingName) {
-        finalCalendarId = await createIcsCalendar(creatingName);
-        createdCalendarId = finalCalendarId;
-      }
-
-      for (let offset = 0; offset < parsedEvents.length; offset += 256) {
-        const batch = parsedEvents.slice(offset, offset + 256).map((event) => ({
-          ...event,
-          calendarId: finalCalendarId,
-        }));
-        importedEventIds.push(...await putCalendarEvents(session, batch));
-        setIcsProgress({ current: Math.min(offset + batch.length, parsedEvents.length), total: parsedEvents.length });
-      }
-
-      await onRefresh();
-
-      const calendarName = isCreatingCalendar && creatingName
-        ? creatingName
-        : calendars.find((calendar) => calendar.id === finalCalendarId)?.name ?? "your calendar";
-      setIcsImportMsg({
-        type: "success",
-        text: `Successfully imported ${parsedEvents.length} event${
-          parsedEvents.length === 1 ? "" : "s"
-        } into "${calendarName}".${
-          skippedEvents ? ` ${skippedEvents} could not be read and were skipped.` : ""
-        }${
-          droppedRules
-            ? ` ${droppedRules} repeat${droppedRules === 1 ? "s" : ""} by a rule that is not supported, so ${
-                droppedRules === 1 ? "it was" : "they were"
-              } imported once.`
-            : ""
-        }`,
-      });
-
-      resetIcsImport();
-    } catch (err) {
-      await Promise.allSettled(importedEventIds.map((id) => deleteCalendarEvent(session, id)));
-      if (createdCalendarId) await deleteCalendar(session, createdCalendarId);
-      if (importedEventIds.length > 0 || createdCalendarId) await onRefresh();
-      setIcsImportMsg({ type: "error", text: `Import failed: ${friendlyError(err)}` });
-    } finally {
-      setImportingIcs(false);
-      setIcsProgress(null);
-    }
-  }
-
-  function exportCalendar() {
-    if (exportEvents.length === 0) {
-      setIcsExportMsg({
-        type: "error",
-        text: "No events available to export in the selected calendar.",
-      });
-      return;
-    }
-    setIcsExportMsg(null);
-    try {
-      const name = exportCalendarId === "all"
-        ? "Sealbook"
-        : calendars.find((calendar) => calendar.id === exportCalendarId)?.name ?? "Sealbook";
-      const stamp = new Date().toISOString().slice(0, 10);
-      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "calendar";
-      const filename = `${slug}-${stamp}.${calendarExportFormat}`;
-      if (calendarExportFormat === "json") {
-        triggerDownload(filename, "application/json", JSON.stringify(exportEvents, null, 2));
-      } else {
-        triggerDownload(filename, "text/calendar;charset=utf-8", formatIcs(exportEvents, name));
-      }
-      setIcsExportMsg({
-        type: "success",
-        text: `Exported ${exportEvents.length} event${
-          exportEvents.length === 1 ? "" : "s"
-        } as "${filename}".`,
-      });
-    } catch (err) {
-      setIcsExportMsg({ type: "error", text: `Export failed: ${friendlyError(err)}` });
-    }
-  }
-
   // A disabled feature keeps no settings page: its import, export, and display
   // options are for a tab that is not there. Derived rather than corrected in an
   // effect, so the page being read cannot be one that has just gone away.
-  const sections = SECTIONS.filter(
-    (section) =>
-      section.id === "account" ||
-      section.id === "features" ||
-      section.id === "appearance" ||
-      isFeatureEnabled(accountSettings, section.id),
-  );
-  const activeSection = sections.some((section) => section.id === activeSectionState)
-    ? activeSectionState
-    : "account";
+  const groups = PAGE_GROUPS.map((group) => ({
+    ...group,
+    pages: group.pages.filter((meta) => !meta.feature || isFeatureEnabled(accountSettings, meta.feature)),
+  })).filter((group) => group.pages.length > 0);
+  const pages = groups.flatMap((group) => group.pages);
+  const page = pages.find((meta) => meta.id === pageState) ?? pages[0];
   // Until the list loads, the milder warning is still true, so it is the default.
   const onlyDevice =
     devices !== null &&
     !devices.some((device) => device.device_id !== session.state.device_id);
-  const accountPageMeta =
-    activeSection === "account"
-      ? ACCOUNT_PAGES.find((item) => item.id === accountPage) ?? null
-      : null;
-  const serverOnly =
-    offline &&
-    activeSection !== "features" &&
-    activeSection !== "appearance" &&
-    !(activeSection === "account" && (accountPage === null || accountPage === "signout"));
+  const serverOnly = offline && !page.local;
+
+  function open(id: SettingsPage) {
+    setPage(id);
+    sidebar.close();
+  }
 
   const recoveryPhraseCard = newWords ? (
-    <div className="mt-6 rounded-xl border border-accent/30 bg-bg/70 p-5 animate-fade-in">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wider text-accent">
-          Active 24-Word Recovery Phrase
+    <div className="animate-fade-in overflow-hidden rounded-xl border border-accent/30 bg-panel/40">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">
+          New recovery phrase
         </span>
-        <span className="text-[11px] text-mute">
-          Save immediately; old codes are invalid
-        </span>
+        <span className="text-[11px] text-mute">Save it now. The previous phrase no longer works.</span>
       </div>
-
-      <ol className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-3">
+      <ol className="grid grid-cols-2 gap-x-4 gap-y-1.5 px-4 py-4 text-xs sm:grid-cols-3">
         {newWords.map((word, index) => (
-          <li
-            key={`${index}-${word}`}
-            className="flex items-center gap-2 font-mono bg-panel/50 px-2.5 py-1.5 rounded-md border border-line/60"
-          >
-            <span className="w-5 text-right text-mute/70 select-none text-[10px]">
-              {index + 1}
-            </span>
-            <span className="text-text font-medium">{word}</span>
+          <li key={`${index}-${word}`} className="flex items-center gap-2 font-mono">
+            <span className="w-5 select-none text-right text-[10px] tabular-nums text-mute/70">{index + 1}</span>
+            <span className="font-medium text-text">{word}</span>
           </li>
         ))}
       </ol>
-
-      <div className="mt-5 flex flex-wrap gap-2.5">
-        <button
-          type="button"
-          className={btnSecondary}
-          onClick={copyWords}
-        >
-          {copiedPhrase ? "✓ Copied!" : "📋 Copy All"}
+      <div className="flex flex-wrap gap-2 border-t border-line px-4 py-3">
+        <button type="button" className={btnSecondary} onClick={copyWords}>
+          {copiedPhrase ? <CheckIcon /> : <CopyIcon />}
+          {copiedPhrase ? "Copied" : "Copy all"}
         </button>
-        <button
-          type="button"
-          className={btnSecondary}
-          onClick={downloadWords}
-        >
-          ⬇ Download .txt
+        <button type="button" className={btnSecondary} onClick={downloadWords}>
+          Download .txt
         </button>
-        <button
-          type="button"
-          className={btnSecondary}
-          onClick={printWords}
-        >
-          🖨 Print / PDF
+        <button type="button" className={btnSecondary} onClick={printWords}>
+          Print
         </button>
       </div>
     </div>
   ) : null;
 
-  return (
-    <div className="grid gap-5 animate-fade-in-up lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-8">
-      <aside className="h-fit min-w-0 rounded-2xl border border-line bg-panel/75 p-2 shadow-sm sm:p-3 lg:sticky lg:top-6">
-        <div className="hidden px-3 pb-3 pt-2 lg:block">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-mute/70">
-            Settings
-          </p>
-          <p className="mt-1 text-xs leading-relaxed text-mute">
-            Manage your Sealbook workspace
-          </p>
-        </div>
-        {/* Below lg the nav is a scrolling chip strip: the section blurb is
-            dropped because the content heading repeats it, and the chips stay
-            label-width so more than one fits on a phone. */}
-        <nav
-          className="-mx-1 flex gap-1 overflow-x-auto px-1 py-1 lg:mx-0 lg:flex-col lg:px-0 lg:py-0"
-          aria-label="Settings sections"
+  let content: ReactNode = null;
+  switch (page.id) {
+    case "username":
+      content = (
+        <SettingsGroup
+          title="Change username"
+          description={
+            <>
+              You sign in as <span className="font-mono text-text">{session.state.username}</span>.
+            </>
+          }
         >
-          {sections.map(({ id, label, nav: description }) => (
+          <form onSubmit={handleChangeUsername} className={formColumn}>
+            <div>
+              <label htmlFor={`${ids}-new-username`} className={fieldLabel}>
+                New username
+              </label>
+              <input
+                id={`${ids}-new-username`}
+                type="text"
+                value={newUsername}
+                onChange={(e) => setNewUsername(e.target.value)}
+                placeholder="3 to 64 characters"
+                className={field}
+                autoComplete="off"
+              />
+            </div>
+            <div>
+              <label htmlFor={`${ids}-username-password`} className={fieldLabel}>
+                Current password
+              </label>
+              <PasswordField
+                id={`${ids}-username-password`}
+                value={usernamePassword}
+                onChange={(e) => setUsernamePassword(e.target.value)}
+                placeholder="To confirm it is you"
+                className={field}
+                autoComplete="current-password"
+              />
+            </div>
+            <NoticeLine notice={usernameMsg} />
+            <div className={actionRow}>
+              <button
+                type="submit"
+                disabled={usernameBusy || !newUsername || !usernamePassword}
+                className={btnPrimary}
+              >
+                {usernameBusy ? "Updating…" : "Update username"}
+              </button>
+            </div>
+          </form>
+        </SettingsGroup>
+      );
+      break;
+
+    case "password":
+      content = (
+        <SettingsGroup
+          title="Change password"
+          description="Use at least 8 characters. Other signed-in devices keep their own keys and are not signed out."
+        >
+          <form onSubmit={handleChangePassword} className={formColumn}>
+            <div>
+              <label htmlFor={`${ids}-current-password`} className={fieldLabel}>
+                Current password
+              </label>
+              <PasswordField
+                id={`${ids}-current-password`}
+                value={passwordCurrent}
+                onChange={(e) => setPasswordCurrent(e.target.value)}
+                className={field}
+                autoComplete="current-password"
+              />
+            </div>
+            <div>
+              <label htmlFor={`${ids}-new-password`} className={fieldLabel}>
+                New password
+              </label>
+              <PasswordField
+                id={`${ids}-new-password`}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="At least 8 characters"
+                className={field}
+                autoComplete="new-password"
+              />
+            </div>
+            <div>
+              <label htmlFor={`${ids}-confirm-password`} className={fieldLabel}>
+                Confirm new password
+              </label>
+              <PasswordField
+                id={`${ids}-confirm-password`}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className={field}
+                autoComplete="new-password"
+              />
+            </div>
+            <NoticeLine notice={passwordMsg} />
+            <div className={actionRow}>
+              <button
+                type="submit"
+                disabled={passwordBusy || !passwordCurrent || !newPassword || !confirmPassword}
+                className={btnPrimary}
+              >
+                {passwordBusy ? "Updating…" : "Change password"}
+              </button>
+            </div>
+          </form>
+        </SettingsGroup>
+      );
+      break;
+
+    case "devices":
+      content = (
+        <SettingsGroup
+          title="Paired devices"
+          meta={devices ? `${devices.length} device${devices.length === 1 ? "" : "s"}` : undefined}
+          description="Revoking a device rotates the vault key and re-encrypts your data, so the removed device keeps nothing it can still read."
+        >
+          {devices === null ? (
+            <p className="text-xs text-mute">Loading devices…</p>
+          ) : devices.length === 0 ? (
+            <p className="text-xs text-mute">No devices found.</p>
+          ) : (
+            <SettingsList>
+              {devices.map((device) => {
+                const isCurrent = device.device_id === session.state.device_id;
+                return (
+                  <SettingsRow
+                    key={device.device_id}
+                    lead={
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-mute">
+                        <SettingsMark name="devices" />
+                      </span>
+                    }
+                    label={<span className="font-mono text-xs">{device.device_id}</span>}
+                    description={isCurrent ? <span className="text-accent">This device</span> : "Signed in"}
+                    control={
+                      isCurrent ? null : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRevokeTarget(device);
+                            setRevokePassword("");
+                            setRevokeError(null);
+                            setDevicesMsg(null);
+                          }}
+                          className={`${btnSecondary} px-3 py-1.5 text-xs`}
+                        >
+                          Revoke
+                        </button>
+                      )
+                    }
+                  />
+                );
+              })}
+            </SettingsList>
+          )}
+          <NoticeLine notice={devicesMsg} />
+          {recoveryPhraseCard}
+        </SettingsGroup>
+      );
+      break;
+
+    case "recovery":
+      content = (
+        <SettingsGroup
+          title="Generate a new recovery phrase"
+          description="This mints a new vault key and re-encrypts everything under it, so anyone who has seen the old words can no longer read your vault."
+        >
+          <Callout tone="warning">
+            Your previously saved words stop working as soon as the new ones are made. Have
+            somewhere ready to write them down.
+          </Callout>
+          <NoticeLine notice={phraseMsg} />
+          {recoveryPhraseCard}
+          <div className={actionRow}>
             <button
-              key={id}
               type="button"
-              aria-current={activeSection === id ? "page" : undefined}
-              onClick={() => { setActiveSection(id); setAccountPage(null); }}
-              className={`shrink-0 whitespace-nowrap rounded-xl border px-3 py-2 text-left transition-colors lg:w-full lg:whitespace-normal lg:py-3 ${activeSection === id
-                ? "border-accent/30 bg-accent/10 text-text"
-                : "border-transparent text-mute hover:border-line hover:bg-surface/60 hover:text-text"
-                }`}
+              disabled={phraseBusy}
+              onClick={() => setShowPhraseConfirm(true)}
+              className={btnSecondary}
             >
-              <span className="block text-sm font-semibold">{label}</span>
-              <span className="mt-1 hidden text-[11px] leading-relaxed text-mute lg:block">
-                {description}
-              </span>
+              {phraseBusy ? "Generating…" : "Generate new phrase…"}
             </button>
-          ))}
-        </nav>
-      </aside>
+          </div>
+        </SettingsGroup>
+      );
+      break;
 
-      <div className="min-w-0 space-y-6 sm:space-y-8">
-        <div className="border-b border-line pb-4">
-          {accountPageMeta ? (
+    case "data":
+      content = (
+        <>
+          <AccountExportSection session={session} />
+          <AccountImportSection session={session} onRefresh={onRefresh} />
+        </>
+      );
+      break;
+
+    case "signout":
+      content = (
+        <SettingsGroup
+          title="Sign out of this device"
+          description="Removes this device's keys from this browser. Your account and everything in it stays on the server."
+        >
+          <Callout tone="danger">
+            {onlyDevice
+              ? `This is the only device signed in to ${session.state.username}. Your 24 recovery words are the only way back in, so make sure you have them before you sign out.`
+              : "To get back in you will need another device that is still signed in, or your 24 recovery words."}
+          </Callout>
+          <div className={actionRow}>
+            <button type="button" onClick={() => setSignOutConfirm(true)} className={btnSecondary}>
+              Sign out…
+            </button>
+          </div>
+        </SettingsGroup>
+      );
+      break;
+
+    case "delete":
+      content = (
+        <SettingsGroup
+          title="Delete account"
+          tone="danger"
+          description="Permanently erases your account, everything in your vault, your paired devices and your sessions from this server. This cannot be undone."
+        >
+          <div className={actionRow}>
             <button
               type="button"
-              onClick={() => setAccountPage(null)}
-              className={`mt-2 inline-flex items-center gap-1 text-xs font-medium text-mute transition-colors hover:text-text ${focusRing}`}
+              onClick={() => {
+                setDeleteConfirmText("");
+                setDeletePassword("");
+                setDeleteError(null);
+                setShowDeleteModal(true);
+              }}
+              className={btnDanger}
             >
-              <ChevronIcon direction="left" className="h-3 w-3" />
-              Back to Account
+              Delete account…
             </button>
-          ) : null}
-          <h2 className="mt-2 text-xl font-semibold tracking-tight text-text">
-            {accountPageMeta?.label ?? sections.find((section) => section.id === activeSection)?.label}
-          </h2>
-          <p className="mt-1 text-sm text-mute">
-            {accountPageMeta?.description ?? sections.find((section) => section.id === activeSection)?.blurb}
-          </p>
-        </div>
+          </div>
+        </SettingsGroup>
+      );
+      break;
 
-      {serverOnly ? (
-        <section className="rounded-2xl border border-line bg-panel/75 p-6 text-sm text-mute">
-          This needs a connection to the server. It will be available again once you are back online.
-        </section>
-      ) : null}
-
-      {!serverOnly && activeSection === "features" && (
-        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
-          <h3 className="text-base font-semibold text-text">Enabled features</h3>
-          <p className="mt-1 text-xs leading-relaxed text-mute">
-            Turning one off hides its tab and its settings on every device signed in to
-            this account. Nothing is deleted: the entries stay in your vault and come
-            back when you turn the feature on again.
-          </p>
-
-          <ul className="mt-5 space-y-3">
+    case "features":
+      content = (
+        <SettingsGroup
+          title="Enabled features"
+          description="Turning one off hides its tab and its settings on every device signed in to this account. Nothing is deleted: the entries stay in your vault and come back when you turn the feature on again."
+        >
+          <SettingsList>
             {FEATURES.map((feature) => {
               const enabled = isFeatureEnabled(accountSettings, feature);
               // The last one on cannot be turned off, so its switch is disabled
@@ -971,844 +828,159 @@ export function SettingsView({
               const isLastEnabled = enabled && !canDisableFeature(accountSettings, feature);
               const label = FEATURE_LABELS[feature];
               return (
-                <li
+                <SettingsRow
                   key={feature}
-                  className="flex items-center justify-between gap-4 rounded-xl border border-line/80 bg-bg/50 px-4 py-3"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-text">{label}</p>
-                    <p className="mt-0.5 text-[11px] leading-relaxed text-mute">
-                      {isLastEnabled
-                        ? "Your only enabled feature, so it has to stay on."
-                        : enabled
-                          ? "Available on every device on this account."
-                          : "Hidden on every device on this account."}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={enabled}
-                    aria-label={`${label} enabled`}
-                    disabled={isLastEnabled || featureBusy !== null}
-                    onClick={() => void handleToggleFeature(feature, !enabled)}
-                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing} ${enabled
-                      ? "border-accent/40 bg-accent"
-                      : "border-line bg-surface"}`}
-                  >
-                    <span
-                      aria-hidden="true"
-                      className={`inline-block h-4 w-4 rounded-full bg-bg transition-transform duration-150 ${enabled ? "translate-x-[22px]" : "translate-x-1"}`}
+                  lead={<SettingsMark name={feature} className="h-4 w-4 shrink-0 text-mute" />}
+                  label={label}
+                  description={
+                    isLastEnabled
+                      ? "Your only enabled feature, so it has to stay on."
+                      : enabled
+                        ? "Available on every device on this account."
+                        : "Hidden on every device on this account."
+                  }
+                  control={
+                    <Switch
+                      checked={enabled}
+                      label={`${label} enabled`}
+                      disabled={isLastEnabled || featureBusy !== null}
+                      onChange={(next) => void handleToggleFeature(feature, next)}
                     />
-                  </button>
-                </li>
+                  }
+                />
               );
             })}
-          </ul>
+          </SettingsList>
+          <NoticeLine notice={featureMsg} />
+        </SettingsGroup>
+      );
+      break;
 
-          {featureMsg ? (
-            <p
-              role="alert"
-              className={`mt-4 rounded-lg border px-3 py-2 text-xs leading-relaxed ${featureMsg.type === "success"
-                ? "border-line bg-bg text-mute"
-                : "border-danger/30 bg-danger/10 text-danger"}`}
-            >
-              {featureMsg.text}
-            </p>
-          ) : null}
-        </section>
-      )}
-
-      {!serverOnly && activeSection === "appearance" && (
-        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
-          <h3 className="text-base font-semibold text-text">Accent colour</h3>
-          <p className="mt-1 text-xs leading-relaxed text-mute">
-            The accent tints buttons, links, selected rows, and focus rings. Calendar
-            colours are set per calendar and are left alone, as is the gold a note being
-            edited is marked with.
-          </p>
-
-          <div
-            role="radiogroup"
-            aria-label="Accent colour"
-            className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
-          >
+    case "appearance":
+      content = (
+        <SettingsGroup
+          title="Accent colour"
+          description="The accent tints buttons, links, selected rows and focus rings. Calendar colours are set per calendar and are left alone, as is the gold a note being edited is marked with."
+        >
+          <SettingsList role="radiogroup" label="Accent colour">
             {ACCENTS.map((accent) => {
               const active = normalizeAccent(accountSettings.accent) === accent;
               const { base, dim } = ACCENT_COLORS[accent];
               return (
-                <button
+                <SettingsOption
                   key={accent}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
+                  checked={active}
                   disabled={accentBusy !== null}
-                  onClick={() => void handleAccent(accent)}
-                  className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${focusRing} ${active
-                    ? "border-accent/40 bg-accent/10"
-                    : "border-line/80 bg-bg/50 hover:border-line-light"}`}
-                >
-                  {/* The one place the colour cannot come from the accent
-                      tokens: a swatch has to show the accent it offers, not the
-                      one the account is already on. */}
-                  <span
-                    aria-hidden="true"
-                    style={{ backgroundColor: base, borderColor: dim }}
-                    className="h-6 w-6 shrink-0 rounded-full border"
-                  />
-                  <span className="min-w-0">
-                    <span className="block text-sm font-semibold text-text">
-                      {ACCENT_LABELS[accent]}
-                    </span>
-                    <span className="mt-0.5 block text-[11px] leading-relaxed text-mute">
-                      {accentBusy === accent
-                        ? "Saving\u2026"
-                        : active
-                          ? "Currently in use."
-                          : base}
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {accentMsg ? (
-            <p
-              role="alert"
-              className={`mt-4 rounded-lg border px-3 py-2 text-xs leading-relaxed ${accentMsg.type === "success"
-                ? "border-line bg-bg text-mute"
-                : "border-danger/30 bg-danger/10 text-danger"}`}
-            >
-              {accentMsg.text}
-            </p>
-          ) : null}
-        </section>
-      )}
-
-      {!serverOnly && activeSection === "calendar" && (<>
-        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
-          <h3 className="text-base font-semibold text-text">Calendar timezone</h3>
-          <select value={timezone} onChange={(event) => onTimezoneChange(event.target.value)} className={`${field} mt-5`}>
-            {[...new Set([timezone, ...allTimezones])].map((zone) => <option key={zone} value={zone}>{zone} [{utcOffsetLabel(zone)}]</option>)}
-          </select>
-        </section>
-
-        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6 space-y-8">
-          <div>
-            <h3 className="text-base font-semibold text-text">
-              Import &amp; Export Calendars
-            </h3>
-            <p className="mt-1 text-xs text-mute leading-relaxed">
-              Move events between Sealbook and Apple Calendar, Google Calendar, or
-              Outlook using the standard ICS format, or export encrypted backups.
-            </p>
-          </div>
-
-          {/* SUB-SECTION 1: IMPORT */}
-          <div className="rounded-xl border border-line/80 bg-bg/50 p-4 space-y-5 sm:p-5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent/15 text-accent text-xs font-bold">
-                  ↓
-                </span>
-                <h4 className="text-sm font-semibold text-text">Import Events</h4>
-              </div>
-              <span className="text-[11px] text-mute font-mono">
-                .ics, .ical, .json
-              </span>
-            </div>
-
-            {/* Dropzone / File Picker */}
-            {!icsFile ? (
-              // The file input below is `display: none`, so it is not in the
-              // accessibility tree and cannot be tabbed to. This zone is the only
-              // way to pick a file, so it carries the button semantics and the
-              // keyboard activation itself.
-              <div
-                role="button"
-                tabIndex={0}
-                aria-label="Choose a calendar file to import, or drop one here"
-                onDragEnter={handleIcsDrag}
-                onDragLeave={handleIcsDrag}
-                onDragOver={handleIcsDrag}
-                onDrop={handleIcsDrop}
-                onClick={() => icsInputRef.current?.click()}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter" && event.key !== " ") return;
-                  event.preventDefault();
-                  icsInputRef.current?.click();
-                }}
-                className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-5 text-center sm:p-7 transition-all cursor-pointer ${focusRing} ${
-                  icsDragActive
-                    ? "border-accent bg-accent/10 scale-[0.99]"
-                    : "border-line/80 hover:border-line-light hover:bg-surface/30"
-                }`}
-              >
-                <input
-                  ref={icsInputRef}
-                  type="file"
-                  accept=".ics,.ical,.json,text/calendar,application/json"
-                  onChange={onIcsInputChange}
-                  className="hidden"
+                  onSelect={() => void handleAccent(accent)}
+                  // The one place the colour cannot come from the accent tokens:
+                  // a swatch shows the accent it offers, not the one in use.
+                  lead={
+                    <span
+                      aria-hidden="true"
+                      style={{ backgroundColor: base, borderColor: dim }}
+                      className="h-5 w-5 shrink-0 rounded-full border"
+                    />
+                  }
+                  label={ACCENT_LABELS[accent]}
+                  description={accentBusy === accent ? "Saving…" : active ? "Currently in use" : base}
                 />
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-surface border border-line text-accent mb-2">
-                  <svg
-                    className="h-5 w-5"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M9.25 13.25a.75.75 0 0 0 1.5 0V4.56l2.22 2.22a.75.75 0 1 0 1.06-1.06l-3.5-3.5a.75.75 0 0 0-1.06 0l-3.5 3.5a.75.75 0 0 0 1.06 1.06l2.22-2.22v8.69ZM3.5 14.25a.75.75 0 0 1 .75.75v1.5c0 .414.336.75.75.75h10a.75.75 0 0 0 .75-.75V15a.75.75 0 0 1 1.5 0v1.5A2.25 2.25 0 0 1 15 18.75H5A2.25 2.25 0 0 1 2.75 16.5V15a.75.75 0 0 1 .75-.75Z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                </div>
-                <p className="text-xs font-medium text-text">
-                  Click to select file or drag &amp; drop here
-                </p>
-                <p className="mt-1 text-[11px] text-mute">
-                  Supports Apple Calendar / Google Calendar / Outlook (.ics, .ical), or Sealbook (.json)
-                </p>
-              </div>
-            ) : (
-              /* File Preview & Calendar Selection */
-              <div className="space-y-4 rounded-xl border border-accent/30 bg-surface/40 p-4 animate-fade-in">
-                <div className="flex items-center justify-between gap-3 border-b border-line/60 pb-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-xs font-semibold text-text">
-                      {icsFile.name}
-                    </p>
-                    <p className="text-[11px] text-accent font-medium mt-0.5">
-                      Detected {parsedIcsFormat} · {parsedEvents.length} event
-                      {parsedEvents.length === 1 ? "" : "s"} found
-                      {skippedEvents ? ` · ${skippedEvents} unreadable and skipped` : ""}
-                      {droppedRules ? ` · ${droppedRules} repeat rule${droppedRules === 1 ? "" : "s"} not supported` : ""}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={importingIcs}
-                    onClick={resetIcsImport}
-                    className="shrink-0 text-xs text-mute hover:text-text cursor-pointer"
-                  >
-                    Change file
-                  </button>
-                </div>
-
-                {/* Calendar Selection Prompt */}
-                <div className="space-y-2 pt-1">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <label htmlFor={`${ids}-ics-calendar`} className="text-xs font-medium text-text">
-                      Target Calendar
-                    </label>
-                    <button
-                      type="button"
-                      disabled={importingIcs}
-                      onClick={() => setIsCreatingCalendar(!isCreatingCalendar)}
-                      className="text-[11px] text-accent hover:underline cursor-pointer"
-                    >
-                      {isCreatingCalendar ? "Select existing calendar" : "+ Create new calendar"}
-                    </button>
-                  </div>
-
-                  {isCreatingCalendar || calendars.length === 0 ? (
-                    <input
-                      id={`${ids}-ics-calendar`}
-                      type="text"
-                      value={newCalendarName}
-                      onChange={(e) => setNewCalendarName(e.target.value)}
-                      placeholder="e.g. Work, Personal, Travel"
-                      className={field}
-                      disabled={importingIcs}
-                      autoFocus
-                    />
-                  ) : (
-                    <select
-                      id={`${ids}-ics-calendar`}
-                      value={icsCalendarId}
-                      onChange={(e) => setIcsCalendarId(e.target.value)}
-                      disabled={importingIcs}
-                      className={selectField}
-                    >
-                      {calendars.map((calendar) => (
-                        <option key={calendar.id} value={calendar.id}>
-                          {calendar.name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-
-                {/* Sample Event Preview */}
-                <div className="rounded-lg border border-line/70 bg-bg/70 p-3">
-                  <p className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
-                    Preview (First {Math.min(parsedEvents.length, 3)} of{" "}
-                    {parsedEvents.length})
-                  </p>
-                  <div className="space-y-1.5 text-xs">
-                    {parsedEvents.slice(0, 3).map((event, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center justify-between gap-3 py-1 border-b border-line/40 last:border-0"
-                      >
-                        <span className="min-w-0 flex-1 truncate font-medium text-text">
-                          {event.title}
-                        </span>
-                        <span className="min-w-0 truncate font-mono text-[11px] text-mute">
-                          {event.start.slice(0, 16).replace("T", " ")}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Progress Bar */}
-                {importingIcs && icsProgress && (
-                  <div className="space-y-1.5 pt-1">
-                    <div className="flex justify-between text-[11px] text-mute">
-                      <span>Encrypting &amp; uploading events…</span>
-                      <span className="font-mono font-medium text-accent">
-                        {icsProgress.current} / {icsProgress.total}
-                      </span>
-                    </div>
-                    <div className="h-2 w-full overflow-hidden rounded-full bg-surface border border-line">
-                      <div
-                        className="h-full bg-accent transition-all duration-150"
-                        style={{
-                          width: `${(icsProgress.current / icsProgress.total) * 100}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* Action Buttons */}
-                <div className="flex flex-wrap justify-end gap-2.5 pt-2">
-                  <button
-                    type="button"
-                    disabled={importingIcs}
-                    onClick={resetIcsImport}
-                    className={btnSecondary}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    disabled={
-                      importingIcs ||
-                      ((isCreatingCalendar || calendars.length === 0) && !newCalendarName.trim()) ||
-                      (!isCreatingCalendar && calendars.length > 0 && !icsCalendarId) ||
-                      parsedEvents.length === 0
-                    }
-                    onClick={handleExecuteIcsImport}
-                    className={btnPrimary}
-                  >
-                    {importingIcs
-                      ? `Importing (${icsProgress?.current || 0}/${parsedEvents.length})…`
-                      : `Import ${parsedEvents.length} Event${
-                          parsedEvents.length === 1 ? "" : "s"
-                        }`}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {icsImportMsg && (
-              <div
-                className={`rounded-lg px-3 py-2 text-xs font-medium ${
-                  icsImportMsg.type === "success"
-                    ? "bg-accent/10 text-accent border border-accent/20"
-                    : "bg-danger/10 text-danger border border-danger/20"
-                }`}
-              >
-                {icsImportMsg.text}
-              </div>
-            )}
-          </div>
-
-          {/* SUB-SECTION 2: EXPORT */}
-          <div className="rounded-xl border border-line/80 bg-bg/50 p-4 space-y-5 sm:p-5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent/15 text-accent text-xs font-bold">
-                  ↑
-                </span>
-                <h4 className="text-sm font-semibold text-text">Export Events</h4>
-              </div>
-              <span className="text-[11px] text-mute font-mono">
-                {exportEvents.length} event{exportEvents.length === 1 ? "" : "s"}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Source Calendar */}
-              <div>
-                <label htmlFor={`${ids}-export-calendar`} className="block text-xs font-medium text-text mb-1">
-                  Source Calendar
-                </label>
-                <select
-                  id={`${ids}-export-calendar`}
-                  value={exportCalendarId}
-                  onChange={(e) => setExportCalendarId(e.target.value)}
-                  className={selectField}
-                >
-                  <option value="all">
-                    All Calendars ({calendarEvents.length})
-                  </option>
-                  {calendars.map((calendar) => {
-                    const count = calendarEvents.filter(
-                      (event) => event.calendarId === calendar.id,
-                    ).length;
-                    return (
-                      <option key={calendar.id} value={calendar.id}>
-                        {calendar.name} ({count})
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-
-              {/* Export Format */}
-              <div>
-                <label htmlFor={`${ids}-export-format`} className="block text-xs font-medium text-text mb-1">
-                  Export Format
-                </label>
-                <select
-                  id={`${ids}-export-format`}
-                  value={calendarExportFormat}
-                  onChange={(e) => setCalendarExportFormat(e.target.value as "ics" | "json")}
-                  className={selectField}
-                >
-                  <option value="ics">
-                    iCalendar (.ics) · Apple, Google, Outlook
-                  </option>
-                  <option value="json">
-                    JSON (.json) · Lossless Full Backup
-                  </option>
-                </select>
-              </div>
-            </div>
-
-            {icsExportMsg && (
-              <div
-                className={`rounded-lg px-3 py-2 text-xs font-medium ${
-                  icsExportMsg.type === "success"
-                    ? "bg-accent/10 text-accent border border-accent/20"
-                    : "bg-danger/10 text-danger border border-danger/20"
-                }`}
-              >
-                {icsExportMsg.text}
-              </div>
-            )}
-
-            <div className="flex justify-end pt-1">
-              <button
-                type="button"
-                disabled={exportEvents.length === 0}
-                onClick={exportCalendar}
-                className={btnPrimary}
-              >
-                Export {exportEvents.length} Event
-                {exportEvents.length === 1 ? "" : "s"}
-              </button>
-            </div>
-          </div>
-        </section>
-      </>)}
-
-      {!serverOnly && activeSection === "account" && accountPage === null && (
-        <div className="space-y-2">
-          {ACCOUNT_PAGES.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setAccountPage(item.id)}
-              className={`flex w-full items-center justify-between gap-4 rounded-xl border px-4 py-3.5 text-left transition-colors ${focusRing} ${
-                item.danger
-                  ? "border-danger/30 bg-danger/5 hover:border-danger/50 hover:bg-danger/10"
-                  : "border-line/80 bg-bg/50 hover:border-line-light hover:bg-surface/60"
-              }`}
-            >
-              <span className="min-w-0">
-                <span
-                  className={`block text-sm font-semibold ${item.danger ? "text-danger" : "text-text"}`}
-                >
-                  {item.label}
-                </span>
-                <span className="mt-0.5 block text-[11px] leading-relaxed text-mute">
-                  {item.description}
-                </span>
-              </span>
-              <ChevronIcon className="h-3.5 w-3.5 shrink-0 text-mute" />
-            </button>
-          ))}
-        </div>
-      )}
-
-      {!serverOnly && activeSection === "account" && accountPage === "username" && (
-      <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-base font-semibold text-text">Username</h3>
-          <span className="inline-flex min-w-0 max-w-full items-center truncate rounded-full bg-accent/15 px-3 py-1 font-mono text-xs font-semibold text-accent border border-accent/20">
-            {session.state.username}
-          </span>
-        </div>
-
-        <form onSubmit={handleChangeUsername} className="mt-6 space-y-4">
-          <div>
-            <label htmlFor={`${ids}-new-username`} className="block text-xs font-medium text-text">
-              New Username
-            </label>
-            <input
-              id={`${ids}-new-username`}
-              type="text"
-              value={newUsername}
-              onChange={(e) => setNewUsername(e.target.value)}
-              placeholder="Enter new username"
-              className={field}
-              autoComplete="off"
-            />
-          </div>
-
-          <div>
-            <label htmlFor={`${ids}-username-password`} className="block text-xs font-medium text-text">
-              Current Password (to confirm)
-            </label>
-            <PasswordField
-              id={`${ids}-username-password`}
-              value={usernamePassword}
-              onChange={(e) => setUsernamePassword(e.target.value)}
-              placeholder="Current password"
-              className={field}
-              autoComplete="current-password"
-            />
-          </div>
-
-          {usernameMsg && (
-            <div
-              className={`rounded-lg px-3 py-2 text-xs font-medium ${usernameMsg.type === "success"
-                ? "bg-accent/10 text-accent border border-accent/20"
-                : "bg-danger/10 text-danger border border-danger/20"
-                }`}
-            >
-              {usernameMsg.text}
-            </div>
-          )}
-
-          <div className="flex justify-end pt-1">
-            <button
-              type="submit"
-              disabled={usernameBusy || !newUsername || !usernamePassword}
-              className={btnPrimary}
-            >
-              {usernameBusy ? "Updating…" : "Update Username"}
-            </button>
-          </div>
-        </form>
-      </section>
-      )}
-
-      {!serverOnly && activeSection === "account" && accountPage === "password" && (
-      <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
-        <div>
-          <h3 className="text-base font-semibold text-text">Change Password</h3>
-        </div>
-        <form onSubmit={handleChangePassword} className="mt-6 space-y-4">
-          <div>
-            <label htmlFor={`${ids}-current-password`} className="block text-xs font-medium text-text">
-              Current Password
-            </label>
-            <PasswordField
-              id={`${ids}-current-password`}
-              value={passwordCurrent}
-              onChange={(e) => setPasswordCurrent(e.target.value)}
-              placeholder="Current password"
-              className={field}
-              autoComplete="current-password"
-            />
-          </div>
-
-          <div>
-            <label htmlFor={`${ids}-new-password`} className="block text-xs font-medium text-text">
-              New Password
-            </label>
-            <PasswordField
-              id={`${ids}-new-password`}
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="At least 8 characters"
-              className={field}
-              autoComplete="new-password"
-            />
-          </div>
-
-          <div>
-            <label htmlFor={`${ids}-confirm-password`} className="block text-xs font-medium text-text">
-              Confirm New Password
-            </label>
-            <PasswordField
-              id={`${ids}-confirm-password`}
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Re-type new password"
-              className={field}
-              autoComplete="new-password"
-            />
-          </div>
-
-          {passwordMsg && (
-            <div
-              className={`rounded-lg px-3 py-2 text-xs font-medium ${passwordMsg.type === "success"
-                ? "bg-accent/10 text-accent border border-accent/20"
-                : "bg-danger/10 text-danger border border-danger/20"
-                }`}
-            >
-              {passwordMsg.text}
-            </div>
-          )}
-
-          <div className="flex justify-end pt-1">
-            <button
-              type="submit"
-              disabled={passwordBusy || !passwordCurrent || !newPassword || !confirmPassword}
-              className={btnPrimary}
-            >
-              {passwordBusy ? "Updating…" : "Change Password"}
-            </button>
-          </div>
-        </form>
-      </section>
-      )}
-
-      {!serverOnly && activeSection === "account" && accountPage === "devices" && (
-      <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
-        <div className="flex flex-col gap-1">
-          <h3 className="text-base font-semibold text-text">Paired devices</h3>
-          <p className="text-xs leading-relaxed text-mute max-w-md">
-            Every device signed in to this account. Revoking one rotates the vault
-            key and re-encrypts your data, so the removed device keeps nothing it
-            can still read.
-          </p>
-        </div>
-
-        <div className="mt-5 space-y-2">
-          {devices === null ? (
-            <p className="text-xs text-mute">Loading devices...</p>
-          ) : devices.length === 0 ? (
-            <p className="text-xs text-mute">No devices found.</p>
-          ) : (
-            devices.map((device) => {
-              const isCurrent = device.device_id === session.state.device_id;
-              return (
-                <div
-                  key={device.device_id}
-                  className="flex items-center gap-3 rounded-xl border border-line bg-bg/60 px-4 py-3"
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-mono text-xs text-text">
-                      {device.device_id}
-                    </span>
-                    {isCurrent ? (
-                      <span className="mt-0.5 block text-[11px] text-accent">This device</span>
-                    ) : null}
-                  </span>
-                  {isCurrent ? null : (
-                    <button
-                      type="button"
-                      onClick={() => { setRevokeTarget(device); setRevokePassword(""); setRevokeError(null); setDevicesMsg(null); }}
-                      className={`${btnSecondary} shrink-0`}
-                    >
-                      Revoke
-                    </button>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        {devicesMsg ? (
-          <p
-            role="alert"
-            className={`mt-4 rounded-lg border px-3 py-2 text-xs leading-relaxed ${devicesMsg.type === "success"
-              ? "border-line bg-bg text-mute"
-              : "border-danger/30 bg-danger/10 text-danger"}`}
-          >
-            {devicesMsg.text}
-          </p>
-        ) : null}
-
-        {recoveryPhraseCard}
-      </section>
-      )}
-
-      {!serverOnly && activeSection === "account" && accountPage === "recovery" && (
-      <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h3 className="text-base font-semibold text-text">
-              Backup Recovery Codes
-            </h3>
-            <p className="mt-1 text-xs text-mute max-w-md leading-relaxed">
-              Generate a new 24-word recovery phrase. Generating a new phrase{" "}
-              <strong className="text-text">
-                immediately deletes and replaces your old phrase
-              </strong>{" "}
-              on the server.
-            </p>
-          </div>
-          <button
-            type="button"
-            disabled={phraseBusy}
-            onClick={() => setShowPhraseConfirm(true)}
-            className={`${btnSecondary} shrink-0`}
-          >
-            {phraseBusy ? "Generating…" : "Generate New Codes"}
-          </button>
-        </div>
-
-        {phraseMsg && (
-          <div
-            className={`mt-4 rounded-lg px-3 py-2 text-xs font-medium ${phraseMsg.type === "success"
-              ? "bg-accent/10 text-accent border border-accent/20"
-              : "bg-danger/10 text-danger border border-danger/20"
-              }`}
-          >
-            {phraseMsg.text}
-          </div>
-        )}
-
-        {recoveryPhraseCard}
-
-        {/* Confirm generation modal */}
-        {showPhraseConfirm && (
-          <Modal
-            title="Generate New Recovery Words?"
-            onClose={() => setShowPhraseConfirm(false)}
-          >
-            <div className="p-6 space-y-4">
-              <p className="text-sm text-text leading-relaxed">
-                This mints a new vault key, re-encrypts everything under it, and
-                wraps it for your new recovery words. Replacing the words alone
-                would not be enough: anyone who has ever seen your old words could
-                still decrypt, because the key they unlock would not have changed.
-              </p>
-              <div className="rounded-lg border border-warning/30 bg-warning/10 p-3.5 text-xs text-warning leading-relaxed">
-                ⚠️ <strong>Warning:</strong> Your previously saved backup words
-                stop working immediately. Write the new ones down.
-              </div>
-              <PasswordField
-                value={phrasePassword}
-                onChange={(event) => setPhrasePassword(event.target.value)}
-                placeholder="Current password"
-                className={field}
-                autoComplete="current-password"
-              />
-              {phraseBusy && phraseProgress.total > 0 && (
-                <p className="text-xs text-muted">
-                  Re-encrypting {phraseProgress.done} of {phraseProgress.total}…
-                </p>
-              )}
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  className={btnSecondary}
-                  onClick={() => {
-                    setShowPhraseConfirm(false);
-                    setPhrasePassword("");
-                  }}
-                  disabled={phraseBusy}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className={btnPrimary}
-                  onClick={handleGeneratePhrase}
-                  disabled={phraseBusy || !phrasePassword}
-                >
-                  {phraseBusy ? "Rotating…" : "Yes, Generate New Codes"}
-                </button>
-              </div>
-            </div>
-          </Modal>
-        )}
-      </section>
-      )}
-
-      {!serverOnly && activeSection === "contacts" && (<>
-        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
-          <h3 className="text-base font-semibold text-text">Contact detail</h3>
-          <p className="mt-1 text-xs leading-relaxed text-mute">
-            Detailed contacts turn the address book into a personal relationship manager:
-            how you met, interests, food, music, pets, workplace dates, relationship history,
-            life events, family and friends. Switching back to basic hides those sections
-            without deleting anything.
-          </p>
-
-          <div
-            role="radiogroup"
-            aria-label="Contact detail level"
-            className="mt-5 grid gap-3 sm:grid-cols-2"
-          >
-            {CONTACT_MODES.map((mode) => {
-              const active = normalizeContactMode(accountSettings.contactMode) === mode;
-              return (
-                <button
-                  key={mode}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  disabled={contactModeBusy}
-                  onClick={() => void handleContactMode(mode)}
-                  className={`rounded-xl border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${focusRing} ${active
-                    ? "border-accent/40 bg-accent/10"
-                    : "border-line/80 bg-bg/50 hover:border-line-light"}`}
-                >
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-text">
-                      {CONTACT_MODE_LABELS[mode]}
-                    </span>
-                    {active ? (
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent">
-                        Active
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="mt-1 block text-[11px] leading-relaxed text-mute">
-                    {mode === "basic"
-                      ? "Names, channels, dates, socials, work, address and notes."
-                      : "Everything in basic, plus ten relationship sections you add one at a time."}
-                  </span>
-                </button>
               );
             })}
-          </div>
+          </SettingsList>
+          <NoticeLine notice={accentMsg} />
+        </SettingsGroup>
+      );
+      break;
 
-          {contactModeMsg ? (
-            <p
-              role="alert"
-              className={`mt-4 rounded-lg border px-3 py-2 text-xs leading-relaxed ${contactModeMsg.type === "success"
-                ? "border-line bg-bg text-mute"
-                : "border-danger/30 bg-danger/10 text-danger"}`}
-            >
-              {contactModeMsg.text}
-            </p>
-          ) : null}
-        </section>
+    case "contacts":
+      content = (
+        <>
+          <SettingsGroup
+            title="Contact detail"
+            description="Detailed contacts turn the address book into a personal relationship manager: how you met, interests, food, music, pets, workplace dates, relationship history, life events, family and friends. Switching back to basic hides those sections without deleting anything."
+          >
+            <SettingsList role="radiogroup" label="Contact detail level">
+              {CONTACT_MODES.map((mode) => (
+                <SettingsOption
+                  key={mode}
+                  checked={normalizeContactMode(accountSettings.contactMode) === mode}
+                  disabled={contactModeBusy}
+                  onSelect={() => void handleContactMode(mode)}
+                  label={CONTACT_MODE_LABELS[mode]}
+                  description={
+                    mode === "basic"
+                      ? "Names, channels, dates, socials, work, address and notes."
+                      : "Everything in basic, plus ten relationship sections you add one at a time."
+                  }
+                />
+              ))}
+            </SettingsList>
+            <NoticeLine notice={contactModeMsg} />
+          </SettingsGroup>
+          <ImportExportSection
+            session={session}
+            contacts={contacts}
+            addressBooks={addressBooks}
+            onRefresh={onRefresh}
+            onCreateBook={onCreateBook}
+          />
+        </>
+      );
+      break;
 
-        <ImportExportSection
-          session={session}
-          contacts={contacts}
-          addressBooks={addressBooks}
-          onRefresh={onRefresh}
-          onCreateBook={onCreateBook}
-        />
-      </>)}
+    case "calendar":
+      content = (
+        <>
+          <SettingsGroup title="Display">
+            <SettingsList>
+              <SettingsRow
+                label={<label htmlFor={`${ids}-timezone`}>Calendar timezone</label>}
+                description="Event times are shown in this zone."
+                control={
+                  <select
+                    id={`${ids}-timezone`}
+                    value={timezone}
+                    onChange={(event) => onTimezoneChange(event.target.value)}
+                    className={`${selectField} w-44 sm:w-64`}
+                  >
+                    {[...new Set([timezone, ...allTimezones])].map((zone) => (
+                      <option key={zone} value={zone}>
+                        {zone} [{utcOffsetLabel(zone)}]
+                      </option>
+                    ))}
+                  </select>
+                }
+              />
+              <SettingsRow
+                label={<label htmlFor={`${ids}-week-start`}>First day of the week</label>}
+                description="The day the month, week and year views open each week on."
+                control={
+                  <select
+                    id={`${ids}-week-start`}
+                    value={weekStart}
+                    onChange={(event) => onWeekStartChange(event.target.value === "1" ? 1 : 0)}
+                    className={`${selectField} w-44 sm:w-64`}
+                  >
+                    <option value={1}>Monday</option>
+                    <option value={0}>Sunday</option>
+                  </select>
+                }
+              />
+            </SettingsList>
+          </SettingsGroup>
+          <CalendarImportExportSection
+            session={session}
+            calendars={calendars}
+            calendarEvents={calendarEvents}
+            timezone={timezone}
+            onRefresh={onRefresh}
+          />
+        </>
+      );
+      break;
 
-      {!serverOnly && activeSection === "notes" && (
+    case "notes":
+      content = (
         <NotesImportExportSection
           session={session}
           notes={notes}
@@ -1816,9 +988,11 @@ export function SettingsView({
           onRefresh={onRefresh}
           onCreateNotebook={onCreateNotebook}
         />
-      )}
+      );
+      break;
 
-      {!serverOnly && activeSection === "bookmarks" && (
+    case "bookmarks":
+      content = (
         <BookmarksImportExportSection
           session={session}
           bookmarks={bookmarks}
@@ -1826,143 +1000,188 @@ export function SettingsView({
           onRefresh={onRefresh}
           onCreateCollection={onCreateBookmarkCollection}
         />
-      )}
+      );
+      break;
 
-      {!serverOnly && activeSection === "tasks" && (
-        <TasksImportExportSection
-          session={session}
-          tasks={tasks}
-          taskLists={taskLists}
-          onRefresh={onRefresh}
-        />
-      )}
+    case "tasks":
+      content = (
+        <TasksImportExportSection session={session} tasks={tasks} taskLists={taskLists} onRefresh={onRefresh} />
+      );
+      break;
+  }
 
-      {!serverOnly && activeSection === "account" && accountPage === "signout" && (
-        <section className="rounded-2xl border border-line bg-panel/75 backdrop-blur-md p-4 shadow-sm sm:p-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h3 className="text-base font-semibold text-text">Sign out</h3>
-              <p className="mt-1 max-w-md text-xs leading-relaxed text-mute">
-                Removes this device's keys from this browser. Your account and
-                everything in it stays on the server.
-              </p>
+  return (
+    <main className="flex h-[calc(100dvh-var(--sb-header-h,74px))] flex-col overflow-hidden bg-bg pb-[env(safe-area-inset-bottom)] text-text lg:pb-0">
+      <div className="sb-shell grid min-h-0 flex-1" style={sidebar.cols}>
+        <SidebarDrawer title="Settings" sidebar={sidebar}>
+          <SidebarHeader eyebrow={session.state.username} title="Settings" />
+          <nav aria-label="Settings sections">
+            {groups.map((group) => (
+              <SidebarSection key={group.label} label={group.label}>
+                <ul className="mt-2.5 space-y-0.5">
+                  {group.pages.map((meta) => {
+                    const active = meta.id === page.id;
+                    return (
+                      <li key={meta.id}>
+                        <button
+                          type="button"
+                          onClick={() => open(meta.id)}
+                          aria-current={active ? "page" : undefined}
+                          className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${
+                            meta.danger
+                              ? active
+                                ? "bg-surface text-danger"
+                                : "text-danger/80 hover:bg-surface/40 hover:text-danger"
+                              : sidebarRowState(active)
+                          } ${focusRing}`}
+                        >
+                          <SettingsMark name={meta.id} className="h-3.5 w-3.5 shrink-0" />
+                          <span className="min-w-0 flex-1 truncate font-medium">{meta.label}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </SidebarSection>
+            ))}
+          </nav>
+        </SidebarDrawer>
+
+        <section className="flex min-w-0 flex-col overflow-hidden lg:min-h-0">
+          <header className="flex items-center gap-2 border-b border-line px-4 py-3 sm:px-5 sm:py-3.5 lg:px-6">
+            {sidebar.isDesktop ? null : (
+              <button
+                type="button"
+                onClick={sidebar.toggle}
+                aria-label="Show settings sections"
+                title="Settings sections"
+                className={`-ml-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
+              >
+                <SettingsMark name="menu" />
+              </button>
+            )}
+            <div className="flex h-8 min-w-0 items-center">
+              <h1
+                className={`truncate text-base font-semibold tracking-tight ${page.danger ? "text-danger" : ""}`}
+              >
+                {page.label}
+              </h1>
             </div>
-            <button
-              type="button"
-              onClick={() => setSignOutConfirm(true)}
-              className={`${btnSecondary} shrink-0 px-5`}
-            >
-              Sign out…
-            </button>
-          </div>
+          </header>
 
-          <div className="mt-5 rounded-lg border border-danger/30 bg-danger/10 p-3.5 text-xs leading-relaxed text-danger">
-            {onlyDevice
-              ? `This is the only device signed in to ${session.state.username}. Your 24 recovery words are the only way back in, so make sure you have them before you sign out.`
-              : "To get back in you will need another device that is still signed in, or your 24 recovery words."}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div key={page.id} className="max-w-2xl animate-fade-in px-4 py-6 sm:px-5 lg:px-8 lg:py-8">
+              <p className="mb-8 max-w-xl text-sm leading-relaxed text-mute">{page.blurb}</p>
+              {serverOnly ? (
+                <Callout tone="warning">
+                  This needs a connection to the server. It will be available again once you are back online.
+                </Callout>
+              ) : (
+                <div>{content}</div>
+              )}
+            </div>
           </div>
         </section>
-      )}
+      </div>
 
-      {!serverOnly && activeSection === "account" && accountPage === "data" && (
-        <div className="space-y-4">
-          <AccountExportSection session={session} />
-          <AccountImportSection session={session} onRefresh={onRefresh} />
-        </div>
-      )}
-
-      {!serverOnly && activeSection === "account" && accountPage === "delete" && (
-      <section className="rounded-2xl border border-danger/40 bg-danger/5 backdrop-blur-md p-4 shadow-sm sm:p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h3 className="text-base font-semibold text-danger">Danger Zone</h3>
-            <p className="mt-1 text-xs text-mute max-w-md leading-relaxed">
-              Permanently purge your account, contacts, encrypted backups,
-              paired devices, and active sessions from this server.
+      {showPhraseConfirm ? (
+        <Modal title="Generate a new recovery phrase?" onClose={() => !phraseBusy && setShowPhraseConfirm(false)}>
+          <div className="space-y-4 p-6">
+            <p className="text-sm leading-relaxed text-text">
+              This mints a new vault key, re-encrypts everything under it, and wraps it for your new
+              recovery words. Replacing the words alone would not be enough: anyone who has ever seen
+              your old words could still decrypt, because the key they unlock would not have changed.
             </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setDeleteConfirmText("");
-              setDeletePassword("");
-              setDeleteError(null);
-              setShowDeleteModal(true);
-            }}
-            className={`${btnDanger} shrink-0 px-5`}
-          >
-            Delete Account…
-          </button>
-        </div>
-
-        {/* Delete Confirmation Modal */}
-        {showDeleteModal && (
-          <Modal
-            title="Delete Account"
-            onClose={() => !deleteBusy && setShowDeleteModal(false)}
-          >
-            <div className="p-6 space-y-4">
-              <p className="text-sm text-text leading-relaxed">
-                This action is <strong className="text-danger">irreversible</strong>.
-                All your encrypted contacts, calendar, notes, key wraps, sessions, and
-                device enrollments will be purged from the server database immediately.
+            <Callout tone="warning">
+              Your previously saved words stop working immediately. Write the new ones down.
+            </Callout>
+            <PasswordField
+              value={phrasePassword}
+              onChange={(event) => setPhrasePassword(event.target.value)}
+              placeholder="Current password"
+              className={field}
+              autoComplete="current-password"
+            />
+            {phraseBusy && phraseProgress.total > 0 ? (
+              <p className="text-xs text-mute">
+                Re-encrypting {phraseProgress.done} of {phraseProgress.total}…
               </p>
-              <div className="rounded-lg border border-danger/30 bg-danger/10 p-3.5 text-xs text-danger leading-relaxed">
-                To confirm deletion, type your username{" "}
-                <span className="font-mono font-bold">
-                  {session.state.username}
-                </span>{" "}
-                below:
-              </div>
-
-              <input
-                type="text"
-                value={deleteConfirmText}
-                onChange={(e) => setDeleteConfirmText(e.target.value)}
-                placeholder={session.state.username}
-                className={field}
-                autoFocus
-              />
-
-              <PasswordField
-                value={deletePassword}
-                onChange={(e) => setDeletePassword(e.target.value)}
-                placeholder="Current password"
-                className={field}
-                autoComplete="current-password"
-              />
-
-              {deleteError && (
-                <p className="text-xs text-danger">{deleteError}</p>
-              )}
-
-              <div className="flex justify-end gap-3 pt-3">
-                <button
-                  type="button"
-                  disabled={deleteBusy}
-                  className={btnSecondary}
-                  onClick={() => setShowDeleteModal(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={
-                    deleteBusy ||
-                    deleteConfirmText.trim() !== session.state.username ||
-                    !deletePassword
-                  }
-                  className={`${btnDanger} px-5`}
-                  onClick={handleDeleteAccount}
-                >
-                  {deleteBusy ? "Deleting…" : "Permanently Delete Account"}
-                </button>
-              </div>
+            ) : null}
+            <div className={`${actionRow} pt-2`}>
+              <button
+                type="button"
+                className={btnSecondary}
+                onClick={() => {
+                  setShowPhraseConfirm(false);
+                  setPhrasePassword("");
+                }}
+                disabled={phraseBusy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={btnPrimary}
+                onClick={() => void handleGeneratePhrase()}
+                disabled={phraseBusy || !phrasePassword}
+              >
+                {phraseBusy ? "Rotating…" : "Generate new phrase"}
+              </button>
             </div>
-          </Modal>
-        )}
-      </section>
-      )}
+          </div>
+        </Modal>
+      ) : null}
+
+      {showDeleteModal ? (
+        <Modal title="Delete account" onClose={() => !deleteBusy && setShowDeleteModal(false)}>
+          <div className="space-y-4 p-6">
+            <p className="text-sm leading-relaxed text-text">
+              This is <strong className="text-danger">irreversible</strong>. Your encrypted contacts,
+              calendar, notes, bookmarks, tasks, key wraps, sessions and device enrolments are purged
+              from the server immediately.
+            </p>
+            <Callout tone="danger">
+              To confirm, type your username{" "}
+              <span className="font-mono font-semibold">{session.state.username}</span> below.
+            </Callout>
+            <input
+              type="text"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder={session.state.username}
+              className={field}
+              autoFocus
+            />
+            <PasswordField
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+              placeholder="Current password"
+              className={field}
+              autoComplete="current-password"
+            />
+            {deleteError ? <p className="text-xs text-danger">{deleteError}</p> : null}
+            <div className={`${actionRow} pt-2`}>
+              <button
+                type="button"
+                disabled={deleteBusy}
+                className={btnSecondary}
+                onClick={() => setShowDeleteModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleteBusy || deleteConfirmText.trim() !== session.state.username || !deletePassword}
+                className={btnDanger}
+                onClick={() => void handleDeleteAccount()}
+              >
+                {deleteBusy ? "Deleting…" : "Delete account permanently"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
       {signOutConfirm ? (
         <ConfirmDialog
           title="Sign out"
@@ -2037,7 +1256,6 @@ export function SettingsView({
           onClose={() => { if (!revokeBusy) { setRevokeTarget(null); setRevokePassword(""); setRevokeError(null); } }}
         />
       ) : null}
-      </div>
-    </div>
+    </main>
   );
 }

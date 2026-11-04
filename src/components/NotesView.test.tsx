@@ -12,7 +12,7 @@
  * only the server can answer.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "../test/dom";
@@ -27,7 +27,7 @@ let notes: Note[] = [];
 let notebooks: Notebook[] = [];
 let writes: { id: string | undefined; draft: NoteDraft }[] = [];
 let deletes: string[] = [];
-let notebookWrites: { name: string; id?: string; previousRaw?: string }[] = [];
+let notebookWrites: { name: string; id?: string; previousRaw?: string; color?: string }[] = [];
 let notebookDeletes: string[] = [];
 let ensured = 0;
 let created = 0;
@@ -97,9 +97,15 @@ vi.mock("../lib/client", async () => {
         notes = notes.map((note) => (note.id === id ? { ...draft, id, raw: serializeNote(draft) } : note));
       }
     },
-    putNotebook: async (_session: unknown, name: string, id?: string, previousRaw?: string) => {
-      notebookWrites.push({ name, id, previousRaw });
-      if (id) notebooks = notebooks.map((book) => (book.id === id ? { ...book, name } : book));
+    putNotebook: async (
+      _session: unknown,
+      name: string,
+      id?: string,
+      previousRaw?: string,
+      color?: string,
+    ) => {
+      notebookWrites.push(color ? { name, id, previousRaw, color } : { name, id, previousRaw });
+      if (id) notebooks = notebooks.map((book) => (book.id === id ? { ...book, name, color } : book));
       else notebooks = [...notebooks, { id: `notebook-${name}`, name, raw: "{}" }];
       return id ?? `notebook-${name}`;
     },
@@ -142,8 +148,10 @@ function Harness() {
   const [vault, setVault] = useState({ notes, notebooks });
   const sidebar = useSidebar();
   const [outbox, setOutbox] = useState<OutboxState>(IDLE_OUTBOX);
-  syncVault = (next) => setVault((current) => ({ ...current, notes: next }));
-  setOutboxState = setOutbox;
+  useEffect(() => {
+    syncVault = (next) => setVault((current) => ({ ...current, notes: next }));
+    setOutboxState = setOutbox;
+  }, []);
   return (
     <NotesView
       session={SESSION}
@@ -233,6 +241,8 @@ afterEach(() => {
 });
 
 describe("NotesView, the notebook sidebar", () => {
+  const side = () => within(document.querySelector("aside") as HTMLElement);
+
   it("creates the default notebook on first entry, once", async () => {
     mount({ notebooks: [] });
 
@@ -290,6 +300,36 @@ describe("NotesView, the notebook sidebar", () => {
         { name: "Day job", id: work.id, previousRaw: '{"keep":1}' },
       ]),
     );
+  });
+
+  it("recolours a notebook from its context menu and keeps the colour through a rename", async () => {
+    const work: Notebook = { id: "notebook-work", name: "Work", raw: "{}" };
+    mount({ notebooks: [DEFAULT_BOOK, work] });
+
+    fireEvent.contextMenu(side().getByRole("button", { name: /^Work/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Change colour" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Notebook colour" })).getByRole("button", { name: "Deep teal" }));
+    await waitFor(() =>
+      expect(notebookWrites).toEqual([{ name: "Work", id: work.id, previousRaw: "{}", color: "#4fae9f" }]),
+    );
+    await waitFor(() =>
+      expect(
+        (side().getByRole("button", { name: /^Work/ }).querySelector("span") as HTMLElement).style.color,
+      ).toBe("rgb(79, 174, 159)"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Rename Work" }));
+    const field = screen.getByLabelText("Rename Work");
+    fireEvent.change(field, { target: { value: "Day job" } });
+    fireEvent.submit(field.closest("form") as HTMLFormElement);
+    await waitFor(() => expect(notebookWrites[1]).toMatchObject({ name: "Day job", color: "#4fae9f" }));
+  });
+
+  it("offers no subnotebooks, since notebooks do not nest", () => {
+    mount({ notebooks: [DEFAULT_BOOK] });
+    fireEvent.contextMenu(side().getByRole("button", { name: /^Default Notebook/ }));
+    const labels = screen.getAllByRole("menuitem").map((item) => item.textContent);
+    expect(labels).toEqual(["Rename notebook", "Change colour"]);
   });
 
   it("deletes a notebook and the notes it held", async () => {

@@ -11,6 +11,7 @@ import init, {
   core_login_start_request,
   core_address_book_keys,
   core_address_book_name_by_id,
+  core_address_book_tone,
   core_address_book_parse,
   core_address_book_write,
   core_calendar_event_keys,
@@ -1661,8 +1662,8 @@ export function coreNotebookParse(id: string, raw: string): CoreNotebook {
   return core_notebook_parse(id, raw);
 }
 
-export function coreNotebookWrite(name: string, previousRaw?: string): string {
-  return core_notebook_write(name, previousRaw);
+export function coreNotebookWrite(name: string, color?: string, previousRaw?: string): string {
+  return core_notebook_write(name, color, previousRaw);
 }
 
 /**
@@ -1677,9 +1678,9 @@ export function coreNotebookNameById(
   return core_notebook_name_by_id(notebooks, notebookId);
 }
 
-/** A notebook's colour, derived from its id. */
-export function coreNotebookTone(id: string): string {
-  return core_notebook_tone(id);
+/** A notebook's stored colour, or one derived from its id. */
+export function coreNotebookTone(id: string, color?: string): string {
+  return core_notebook_tone(id, color);
 }
 
 export type {
@@ -1948,6 +1949,10 @@ export function coreAddressBookParse(id: string, raw: string): CoreAddressBook {
 
 export function coreAddressBookWrite(draft: CoreAddressBookDraft): string {
   return core_address_book_write(draft);
+}
+
+export function coreAddressBookTone(id: string, color?: string): string {
+  return core_address_book_tone(id, color);
 }
 
 /** A book that is gone, or a card in none, shows the default book's name. */
