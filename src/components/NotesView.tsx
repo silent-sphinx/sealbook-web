@@ -22,7 +22,7 @@ import {
   DEFAULT_NOTEBOOK_ID,
   emptyNoteDraft,
   noteDraftWritable,
-  noteFitsObjectLimit,
+  payloadFitsObjectLimit,
   noteMatches,
   notePreview,
   noteWordCount,
@@ -234,14 +234,18 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     const created = !notes.some((note) => note.id === id);
     // An untouched new note is not worth an object in the vault.
     if (created && !payload.title.trim() && !payload.body.trim()) return;
-    if (!noteDraftWritable(payload)) {
+    let serialised: string;
+    try {
+      serialised = serializeNote(payload);
+    } catch (cause) {
+      if (noteDraftWritable(payload)) throw cause;
       setError(
         "This note was written by a newer version of Sealbook. Update this client before editing it.",
       );
       setSaveState("failed");
       return;
     }
-    if (!noteFitsObjectLimit(payload)) {
+    if (!payloadFitsObjectLimit(serialised)) {
       setError("This note is too large to store. One note can hold about 8 MB.");
       setSaveState("failed");
       return;
@@ -249,7 +253,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     const live = () => editingId.current === id;
     if (live()) setSaveState("saving");
     const base = baseRef.current.id === id ? baseRef.current.object : undefined;
-    const { id: saved, written, settled } = await saveNote(session, payload, id, base);
+    const { id: saved, written, settled } = await saveNote(session, payload, id, base, serialised);
     if (settled && baseRef.current.id === id) baseRef.current = { id, object: settled };
     const now = new Date().toISOString();
     const createdAt = payload.createdAt ?? now;
@@ -257,7 +261,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     // Carries the payload just written, not an empty string: the next edit of
     // this note merges onto it, and a blank one would drop any field a newer
     // build had put there.
-    onSaved({ ...payload, id: saved, raw: serializeNote(payload), createdAt, updatedAt: now });
+    onSaved({ ...payload, id: saved, raw: serialised, createdAt, updatedAt: now });
     setError(null);
     // The editor may have moved on to another note while this was in flight.
     if (!live()) return;

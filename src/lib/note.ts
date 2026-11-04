@@ -205,12 +205,20 @@ const ENVELOPE_OVERHEAD = 256;
  * one. Measuring the encoded payload is the only way to get this right.
  */
 export function noteByteSize(draft: NoteDraft): number {
-  const payload = JSON.stringify(serializeNote(draft));
-  return new TextEncoder().encode(payload).length + ENVELOPE_OVERHEAD;
+  return payloadByteSize(serializeNote(draft));
+}
+
+/** `noteByteSize` for a payload already serialised. */
+export function payloadByteSize(written: string): number {
+  return new TextEncoder().encode(JSON.stringify(written)).length + ENVELOPE_OVERHEAD;
 }
 
 export function noteFitsObjectLimit(draft: NoteDraft): boolean {
-  return noteByteSize(draft) + 4 <= MAX_PADDED_OBJECT_SIZE;
+  return payloadFitsObjectLimit(serializeNote(draft));
+}
+
+export function payloadFitsObjectLimit(written: string): boolean {
+  return payloadByteSize(written) + 4 <= MAX_PADDED_OBJECT_SIZE;
 }
 
 export function emptyNoteDraft(notebookId: string): NoteDraft {
