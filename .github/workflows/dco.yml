@@ -10,7 +10,7 @@ jobs:
   sign-off:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The merge commit GitHub synthesises carries no sign-off of its own,
           # so the branch's own commits are what gets read. The whole history is
