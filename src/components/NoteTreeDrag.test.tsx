@@ -57,7 +57,6 @@ function mount(notes: Note[]) {
       tree={buildNoteTree(notes, NOTEBOOK)}
       selectedId={null}
       expanded={new Set(notes.map((note) => note.id))}
-      readOnly={false}
       onToggle={() => {}}
       onSelect={() => {}}
       onAddChild={() => {}}

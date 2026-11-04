@@ -39,6 +39,9 @@ let bases: unknown[] = [];
 let mergedPayload: string | null = null;
 /** Note ids `deleteNote` refuses, for the paths that have to survive one. */
 let undeletable = new Set<string>();
+/** How many batched calls the delete and the child rewrite each made. */
+let deleteBatches = 0;
+let moveBatches = 0;
 
 vi.mock("../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../lib/client")>("../lib/client");
@@ -79,10 +82,20 @@ vi.mock("../lib/client", async () => {
       stored.set(saved.id, settled);
       return { id: saved.id, written, settled };
     },
-    deleteNote: async (_session: unknown, id: string) => {
-      if (undeletable.has(id)) throw new Error("that note would not delete");
-      deletes.push(id);
-      notes = notes.filter((note) => note.id !== id);
+    deleteNotes: async (_session: unknown, ids: string[]) => {
+      deleteBatches += 1;
+      const refused = new Map(ids.filter((id) => undeletable.has(id)).map((id) => [id, "that note would not delete"]));
+      const gone = ids.filter((id) => !refused.has(id));
+      deletes.push(...gone);
+      notes = notes.filter((note) => !gone.includes(note.id));
+      if (refused.size > 0) throw new actual.RefusedWrites(refused);
+    },
+    putNotes: async (_session: unknown, batch: { id: string; draft: NoteDraft }[]) => {
+      moveBatches += 1;
+      for (const { id, draft } of batch) {
+        writes.push({ id, draft });
+        notes = notes.map((note) => (note.id === id ? { ...draft, id, raw: serializeNote(draft) } : note));
+      }
     },
     putNotebook: async (_session: unknown, name: string, id?: string, previousRaw?: string) => {
       notebookWrites.push({ name, id, previousRaw });
@@ -125,7 +138,7 @@ const DEFAULT_BOOK: Notebook = {
  * Stands in for the shell: it holds the vault lists in state, re-reads them on
  * `onRefresh` as `App` does, and applies one saved note on `onSaved`.
  */
-function Harness({ readOnly }: { readOnly?: boolean }) {
+function Harness() {
   const [vault, setVault] = useState({ notes, notebooks });
   const sidebar = useSidebar();
   const [outbox, setOutbox] = useState<OutboxState>(IDLE_OUTBOX);
@@ -137,7 +150,6 @@ function Harness({ readOnly }: { readOnly?: boolean }) {
       notes={vault.notes}
       notebooks={vault.notebooks}
       busy={false}
-      readOnly={readOnly}
       outbox={outbox}
       sidebar={sidebar}
       onRefresh={async () => {
@@ -162,11 +174,11 @@ let refreshes = 0;
 let syncVault: (notes: Note[]) => void = () => {};
 
 function mount(
-  seed: { notes?: Note[]; notebooks?: Notebook[]; readOnly?: boolean } = {},
+  seed: { notes?: Note[]; notebooks?: Notebook[] } = {},
 ) {
   notes = seed.notes ?? [];
   notebooks = seed.notebooks ?? [DEFAULT_BOOK];
-  return render(<Harness readOnly={seed.readOnly} />);
+  return render(<Harness />);
 }
 
 /** The editor's own title field, which is also where an autosave starts. */
@@ -204,6 +216,8 @@ beforeEach(() => {
   notebookWrites = [];
   notebookDeletes = [];
   undeletable = new Set();
+  deleteBatches = 0;
+  moveBatches = 0;
   ensured = 0;
   created = 0;
   refreshes = 0;
@@ -233,13 +247,6 @@ describe("NotesView, the notebook sidebar", () => {
     await waitFor(() => expect(screen.getByText("Default Notebook")).not.toBeNull());
     expect(ensured).toBe(0);
     expect(refreshes).toBe(0);
-  });
-
-  it("writes nothing at all offline", async () => {
-    mount({ notebooks: [], readOnly: true });
-
-    await waitFor(() => expect(screen.getByText("Notes")).not.toBeNull());
-    expect(ensured).toBe(0);
   });
 
   it("counts the notes in each notebook", async () => {
@@ -299,6 +306,7 @@ describe("NotesView, the notebook sidebar", () => {
 
     await waitFor(() => expect(notebookDeletes).toEqual([work.id]));
     expect(deletes).toEqual(["a"]);
+    expect(deleteBatches).toBe(1);
   });
 
   it("keeps a notebook whose notes would not all delete", async () => {
@@ -676,6 +684,7 @@ describe("NotesView, moving notes about", () => {
     // The child is written straight away; the note itself rides the autosaver.
     await waitFor(() => expect(writes.some((write) => write.id === "child")).toBe(true));
     expect(writes.find((write) => write.id === "child")!.draft.notebookId).toBe(work.id);
+    expect(moveBatches).toBe(1);
     await waitFor(() => expect(writes.some((write) => write.id === "parent")).toBe(true));
     expect(writes.find((write) => write.id === "parent")!.draft.notebookId).toBe(work.id);
   });
@@ -714,6 +723,7 @@ describe("NotesView, deleting notes", () => {
 
     await waitFor(() => expect(deletes.sort()).toEqual(["child", "parent"]));
     expect(deletes).not.toContain("other");
+    expect(deleteBatches).toBe(1);
   });
 
   it("closes the editor when the note it was on is deleted", async () => {
@@ -741,40 +751,6 @@ describe("NotesView, deleting notes", () => {
     expect(screen.getByRole("dialog", { name: "Delete note" }).textContent).toContain(
       "This permanently removes the note from your encrypted vault",
     );
-  });
-});
-
-describe("NotesView, offline", () => {
-  it("offers nothing that would write", () => {
-    mount({ notes: [aNote({ id: "a", title: "Shopping" })], readOnly: true });
-
-    expect(screen.queryByRole("button", { name: "New note" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Add notebook" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Delete Shopping" })).toBeNull();
-  });
-
-  it("marks the editor read only rather than showing a save state", async () => {
-    mount({ notes: [aNote({ id: "a", title: "Shopping", body: "Bread" })], readOnly: true });
-
-    await openNote("Shopping");
-
-    expect(titleField().readOnly).toBe(true);
-    expect(screen.getByText("Offline")).not.toBeNull();
-    expect(screen.queryByText("Saved")).toBeNull();
-    expect((await screen.findByLabelText("Note body")).getAttribute("contenteditable")).toBe(
-      "false",
-    );
-  });
-
-  it("ignores an edit that reaches the buffer anyway", async () => {
-    mount({ notes: [aNote({ id: "a", title: "Shopping" })], readOnly: true });
-    await openNote("Shopping");
-
-    fireEvent.change(titleField(), { target: { value: "Shopping list" } });
-
-    await act(async () => {});
-    expect(writes).toEqual([]);
-    expect(titleField().value).toBe("Shopping");
   });
 });
 

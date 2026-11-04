@@ -26,6 +26,8 @@ import {
   catchUp,
   flushOutbox,
   putSealed,
+  putSealedMany,
+  RefusedWrites,
   type Session,
 } from "./client";
 import {
@@ -2689,6 +2691,39 @@ describe("flushing the outbox", () => {
 
     expect(currentOutbox().writes).toEqual([]);
     expect(currentOutbox().failed.map((failed) => failed.write.id)).toEqual([id]);
+  });
+
+  it("sends many writes in one flush", async () => {
+    const { owner, server } = await opened();
+    const ids = Array.from({ length: 50 }, () => newUuid());
+    const writes = ids.map((id, index) => ({
+      id,
+      contentType: NOTE_CONTENT_TYPE,
+      tombstone: false,
+      payload: note(`Note ${index}`, "x", "2026-11-02T09:00:00.000Z"),
+    }));
+    server.fetchMock.mockClear();
+
+    await putSealedMany(owner.session, writes);
+
+    const sends = server.fetchMock.mock.calls.filter(([url]) => /\/objects(\/batch)?$/u.test(String(url)));
+    expect(sends).toHaveLength(1);
+    expect(server.ids()).toEqual(expect.arrayContaining(ids));
+    expect(currentOutbox().writes).toEqual([]);
+  });
+
+  it("names the writes the server refused when sending many", async () => {
+    const { owner, server } = await opened();
+    const ids = [newUuid(), newUuid()];
+    server.holdWrites(async () => ({ status: 413, body: { error: "object too large" } }));
+
+    const failure = await putSealedMany(
+      owner.session,
+      ids.map((id) => ({ id, contentType: NOTE_CONTENT_TYPE, tombstone: false, payload: note("Big", "x", "2026-11-02T09:00:00.000Z") })),
+    ).catch((err: unknown) => err);
+
+    expect(failure).toBeInstanceOf(RefusedWrites);
+    expect([...(failure as RefusedWrites).refused.keys()].sort()).toEqual([...ids].sort());
   });
 
   it("keeps an edit made while its earlier version was being sent, based on what was sent", async () => {

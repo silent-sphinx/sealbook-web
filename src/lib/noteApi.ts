@@ -7,7 +7,7 @@ import {
   serializeNotebook,
   sortNotebooks,
 } from "./note";
-import { putSealed } from "./client";
+import { putSealed, putSealedMany } from "./client";
 import type { NoteDraft, Notebook } from "./types";
 import type { Session } from "./client";
 import { newUuid, type LocalObject } from "./wasm";
@@ -47,6 +47,30 @@ export async function saveNote(
 
 export async function deleteNote(session: Session, id: string): Promise<void> {
   await putSealed(session, id, NOTE_CONTENT_TYPE, true, "");
+}
+
+/** Tombstones every note in one flush; raises `RefusedWrites` for those refused. */
+export async function deleteNotes(session: Session, ids: string[]): Promise<void> {
+  await putSealedMany(
+    session,
+    ids.map((id) => ({ id, contentType: NOTE_CONTENT_TYPE, tombstone: true, payload: "" })),
+  );
+}
+
+/** Rewrites existing notes in one flush; raises `RefusedWrites` for those refused. */
+export async function putNotes(
+  session: Session,
+  notes: { id: string; draft: NoteDraft }[],
+): Promise<void> {
+  await putSealedMany(
+    session,
+    notes.map(({ id, draft }) => ({
+      id,
+      contentType: NOTE_CONTENT_TYPE,
+      tombstone: false,
+      payload: serializeNote(draft),
+    })),
+  );
 }
 
 export async function putNotebook(

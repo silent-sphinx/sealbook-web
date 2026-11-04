@@ -15,7 +15,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "../test/dom";
-import { NoteEditor } from "./NoteEditor";
+import { NoteEditor, slashMenuPlacement } from "./NoteEditor";
 
 /** A fake `DataTransfer`: jsdom has none for a real paste event to carry. */
 class FakeClipboard {
@@ -62,7 +62,6 @@ function mount(overrides: Partial<Props> = {}) {
   const props: Props = {
     noteId: "note-1",
     value: "",
-    editable: true,
     onChange,
     ...overrides,
   };
@@ -108,17 +107,6 @@ describe("NoteEditor, the document", () => {
     await waitFor(() => expect(written()).toBe("Bread!"));
   });
 
-  it("leaves the margin inert on a read-only note", async () => {
-    // Asserted on the caret rather than on the document, because a read-only
-    // body is `contenteditable="false"` and a browser sends it no input at all.
-    mount({ value: "Bread", editable: false });
-
-    const doc = await body();
-    clickMargin();
-
-    expect(doc.contains(document.activeElement)).toBe(false);
-  });
-
   it("round-trips a list through the editor", async () => {
     const { written } = mount({ value: "- one\n- two" });
 
@@ -151,44 +139,13 @@ describe("NoteEditor, the document", () => {
   });
 });
 
-describe("NoteEditor, read only", () => {
-  it("takes the editing tools away", async () => {
-    mount({ value: "Bread", editable: false });
-
-    const doc = await body();
-    expect(doc.getAttribute("contenteditable")).toBe("false");
-    expect(document.querySelector(".note-drag-handle")).toBeNull();
-  });
-
+describe("NoteEditor, opening a note", () => {
   it("reports no change for a note that was only mounted", async () => {
-    // `setEditable` emits an update of its own unless told not to, which the
-    // host reads as an edit and autosaves.
     const { onChange } = mount({ value: "Bread" });
 
     await body();
 
     expect(onChange).not.toHaveBeenCalled();
-  });
-
-  it("reports no change when editing is switched off and on again", async () => {
-    const { onChange, rerender } = mount({ value: "Bread" });
-    await body();
-
-    rerender({ editable: false });
-    rerender({ editable: true });
-
-    await waitFor(async () => expect((await body()).getAttribute("contenteditable")).toBe("true"));
-    expect(onChange).not.toHaveBeenCalled();
-  });
-
-  it("turns editing back on without rebuilding the document", async () => {
-    const { rerender } = mount({ value: "Bread", editable: false });
-    await body();
-
-    rerender({ editable: true });
-
-    await waitFor(async () => expect((await body()).getAttribute("contenteditable")).toBe("true"));
-    expect((await body()).textContent).toBe("Bread");
   });
 });
 
@@ -300,14 +257,6 @@ describe("NoteEditor, the slash menu", () => {
       Array.from(menu.querySelectorAll(".note-slash-label")).map((node) => node.textContent),
     ).toContain("Photo");
   });
-
-  it("stays shut on a read-only note", async () => {
-    mount({ value: "Bread", editable: false });
-
-    fireEvent(await body(), pasteEvent("/"));
-
-    expect(screen.queryByRole("listbox", { name: "Insert block" })).toBeNull();
-  });
 });
 
 describe("NoteEditor, the title above it", () => {
@@ -404,5 +353,24 @@ describe("NoteEditor, the photo it uploads", () => {
 
     await waitFor(() => expect(onChange.mock.calls.length).toBe(afterCommand));
     expect(written()).not.toContain("attachment:");
+  });
+});
+
+describe("slashMenuPlacement", () => {
+  const viewport = { width: 1000, height: 800 };
+  const caret = (top: number, left = 100) => ({ top, bottom: top + 20, left }) as DOMRect;
+
+  it("opens below the caret when there is room", () => {
+    expect(slashMenuPlacement(caret(100), viewport)).toMatchObject({ top: 126, left: 100 });
+  });
+
+  it("opens above the caret near the bottom of the screen", () => {
+    const placed = slashMenuPlacement(caret(750), viewport);
+    expect(placed).toMatchObject({ bottom: 56 });
+    expect(placed).not.toHaveProperty("top");
+  });
+
+  it("keeps the menu inside the right edge", () => {
+    expect(slashMenuPlacement(caret(100, 950), viewport).left).toBe(752);
   });
 });

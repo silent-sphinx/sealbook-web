@@ -89,6 +89,36 @@ export async function putSealed(
   return report.settled.get(id) ?? vaultObject(id);
 }
 
+export type SealedWrite = {
+  id: string;
+  contentType: string;
+  tombstone: boolean;
+  payload: string;
+  base?: LocalObject;
+};
+
+/** Writes the server refused for good, by id, with the reason for each. */
+export class RefusedWrites extends Error {
+  constructor(readonly refused: Map<string, string>) {
+    super([...new Set(refused.values())].join("; "));
+    this.name = "RefusedWrites";
+  }
+}
+
+/**
+ * Queues every write, then sends the queue once. Raises `RefusedWrites` naming
+ * the ids the server refused; writes that could not be sent yet stay queued.
+ */
+export async function putSealedMany(session: Session, writes: SealedWrite[]): Promise<void> {
+  if (writes.length === 0) return;
+  await openOutbox(session.state.collection_id);
+  for (const write of writes) await queueWrite(write);
+  if (session.offline) return;
+  const { refused } = await flushOutbox(session);
+  const ours = new Map([...refused].filter(([id]) => writes.some((write) => write.id === id)));
+  if (ours.size > 0) throw new RefusedWrites(ours);
+}
+
 /**
  * Saves the account settings, at the one well-known object id.
  *

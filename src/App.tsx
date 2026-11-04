@@ -172,6 +172,9 @@ const TABS: { id: MainTab; label: string; icon: React.ReactNode }[] = [
   { id: "settings", label: "Settings", icon: <SettingsIcon /> },
 ];
 
+/** How long a queued change may wait before the banner admits it. */
+const SYNC_BANNER_DELAY_MS = 3000;
+
 export default function App() {
   const initial = loadDeviceMetadata();
   const [stored, setStored] = useState<DeviceMetadata | null>(initial);
@@ -690,6 +693,16 @@ export default function App() {
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, outboxState.pending]);
+
+  const [syncLagging, setSyncLagging] = useState(false);
+  useEffect(() => {
+    if (outboxState.pending === 0) {
+      setSyncLagging(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setSyncLagging(true), SYNC_BANNER_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [outboxState.pending, outboxState.queued]);
 
   useEffect(() => {
     if (!session || !outboxState.signIn || !password) return;
@@ -1779,7 +1792,7 @@ export default function App() {
     <div className="min-h-screen">
       {/* Sticky header with accent top line */}
       <div ref={headerRef} className="sticky top-0 z-40">
-        {isOffline || outboxState.pending > 0 ? (
+        {isOffline || (outboxState.pending > 0 && syncLagging) ? (
           <div
             className={`border-b px-5 py-2 text-center text-xs font-medium ${
               isOffline
@@ -1789,7 +1802,7 @@ export default function App() {
             role="status"
           >
             {isOffline ? "You're offline. Changes are kept on this device. " : null}
-            {outboxState.pending > 0
+            {outboxState.pending > 0 && (isOffline || syncLagging)
               ? `${outboxState.pending} change${outboxState.pending === 1 ? "" : "s"} waiting to sync.`
               : isOffline
                 ? "They will sync when you reconnect."

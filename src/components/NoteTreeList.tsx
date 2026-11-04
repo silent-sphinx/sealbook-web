@@ -9,7 +9,6 @@ type Props = {
   tree: NoteTreeNode[];
   selectedId: string | null;
   expanded: Set<string>;
-  readOnly: boolean;
   onToggle: (id: string) => void;
   onSelect: (note: Note) => void;
   onAddChild: (parentId: string) => void;
@@ -31,7 +30,6 @@ export function NoteTreeList({
   tree,
   selectedId,
   expanded,
-  readOnly,
   onToggle,
   onSelect,
   onAddChild,
@@ -52,7 +50,6 @@ export function NoteTreeList({
 
   /** The same actions the row's own buttons carry, for the context menu. */
   function itemsFor(note: Note): MenuItem[] {
-    if (readOnly) return [];
     return [
       { label: "Add a note inside", onSelect: () => onAddChild(note.id) },
       { label: "Delete note", danger: true, onSelect: () => onDelete(note) },
@@ -114,7 +111,7 @@ export function NoteTreeList({
       return (
         <li key={note.id}>
           <div
-            draggable={!readOnly}
+            draggable
             onDragStart={(event) => {
               event.dataTransfer.setData(DRAG_TYPE, note.id);
               event.dataTransfer.effectAllowed = "move";
@@ -155,34 +152,32 @@ export function NoteTreeList({
               <span className="min-w-0 truncate">{note.title.trim() || "Untitled note"}</span>
             </button>
 
-            {readOnly ? null : (
-              <span className="list-row-slot relative flex h-7 shrink-0 items-center justify-end">
-                <span className="list-row-actions absolute inset-0 flex items-center justify-end gap-0.5">
-                  <button
-                    type="button"
-                    onClick={() => onAddChild(note.id)}
-                    title="Add a note inside"
-                    aria-label={`Add a note inside ${note.title}`}
-                    className={`flex h-6 w-6 items-center justify-center rounded-md text-mute transition-colors hover:bg-elevated hover:text-text ${focusRing}`}
-                  >
-                    <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-                      <path d="M8 3.5v9M3.5 8h9" />
-                    </svg>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDelete(note)}
-                    title="Delete note"
-                    aria-label={`Delete ${note.title}`}
-                    className={`flex h-6 w-6 items-center justify-center rounded-md text-mute transition-colors hover:bg-elevated hover:text-danger ${focusRing}`}
-                  >
-                    <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M3 4.5h10M6.5 4.5V3.2h3V4.5M4.5 4.5 5 13h6l.5-8.5" />
-                    </svg>
-                  </button>
-                </span>
+            <span className="list-row-slot relative flex h-7 shrink-0 items-center justify-end">
+              <span className="list-row-actions absolute inset-0 flex items-center justify-end gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => onAddChild(note.id)}
+                  title="Add a note inside"
+                  aria-label={`Add a note inside ${note.title}`}
+                  className={`flex h-6 w-6 items-center justify-center rounded-md text-mute transition-colors hover:bg-elevated hover:text-text ${focusRing}`}
+                >
+                  <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+                    <path d="M8 3.5v9M3.5 8h9" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDelete(note)}
+                  title="Delete note"
+                  aria-label={`Delete ${note.title}`}
+                  className={`flex h-6 w-6 items-center justify-center rounded-md text-mute transition-colors hover:bg-elevated hover:text-danger ${focusRing}`}
+                >
+                  <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 4.5h10M6.5 4.5V3.2h3V4.5M4.5 4.5 5 13h6l.5-8.5" />
+                  </svg>
+                </button>
               </span>
-            )}
+            </span>
           </div>
           {hasChildren && open ? <ul>{rows(node.children)}</ul> : null}
         </li>

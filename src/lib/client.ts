@@ -36,10 +36,12 @@ export {
 } from "./calendarApi";
 export {
   deleteNote,
+  deleteNotes,
   deleteNotebook,
   ensureDefaultNotebook,
   newNoteId,
   putNote,
+  putNotes,
   putNotebook,
   saveNote,
 } from "./noteApi";
@@ -99,6 +101,14 @@ export {
   putCalendarEvents,
 } from "./clientVault";
 export type { FlushReport } from "./clientFlush";
-export { catchUp, flushOutbox, putAccountSettings, putSealed } from "./clientFlush";
+export {
+  catchUp,
+  flushOutbox,
+  putAccountSettings,
+  putSealed,
+  putSealedMany,
+  RefusedWrites,
+} from "./clientFlush";
+export type { SealedWrite } from "./clientFlush";
 
 export { rotateAuthenticated } from "./clientRotation";

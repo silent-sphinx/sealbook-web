@@ -178,7 +178,6 @@ type Props = {
   noteId: string;
   /** Markdown for `noteId`. Read when the note is loaded, not on every change. */
   value: string;
-  editable: boolean;
   onChange: (markdown: string) => void;
   /**
    * Drawn at the top of the document column, which is where the note title
@@ -204,7 +203,6 @@ const PLACEHOLDER = "Write something. Press / for blocks, or type markdown.";
 export function NoteEditor({
   noteId,
   value,
-  editable,
   onChange,
   header,
   resolveAttachment,
@@ -295,16 +293,11 @@ export function NoteEditor({
         ...noteExtensions(PLACEHOLDER, {
           resolve: (id) => resolveRef.current?.(id) ?? Promise.resolve(null),
           getWidth: (id) => widthRef.current?.(id),
-          // Only offer the handle when the note is editable and a persister
-          // exists, so a read-only or offline view shows photos at a fixed size.
-          onResize: editable
-            ? (id, width) => resizeRef.current?.(id, width)
-            : undefined,
+          onResize: (id, width) => resizeRef.current?.(id, width),
         }),
         slashExtension(bridge, extraCommands),
       ],
       content: markdownToDoc(initial.current),
-      editable,
       onUpdate: ({ editor: instance }) =>
         onChangeRef.current(docToMarkdown(instance.getJSON() as DocNode)),
       editorProps: {
@@ -318,13 +311,6 @@ export function NoteEditor({
     [noteId],
   );
 
-  useEffect(() => {
-    // Without the second argument this emits `update`, which is how a change is
-    // reported: the effect runs once per editor, so opening a note reported an
-    // edit it had not had and autosaved the note back unchanged.
-    editor?.setEditable(editable, false);
-  }, [editable, editor]);
-
   if (!editor) return <div className="min-h-0 flex-1" />;
 
   /**
@@ -336,7 +322,6 @@ export function NoteEditor({
    * its own click taken away from it.
    */
   function focusFromMargin(event: React.MouseEvent<HTMLDivElement>) {
-    if (!editable) return;
     const target = event.target as HTMLElement;
     if (target !== event.currentTarget && !target.classList.contains("note-column")) return;
     editor.chain().focus("end").run();
@@ -396,29 +381,48 @@ export function NoteEditor({
         ) : null}
         <EditorContent editor={editor} className="mt-4 flex min-h-0 flex-1 flex-col" />
       </div>
-      {editable ? (
-        <>
-          <DragHandle editor={editor}>
-            <div className="note-drag-handle" aria-hidden="true">
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
-                <circle cx="6" cy="4" r="1.2" />
-                <circle cx="10" cy="4" r="1.2" />
-                <circle cx="6" cy="8" r="1.2" />
-                <circle cx="10" cy="8" r="1.2" />
-                <circle cx="6" cy="12" r="1.2" />
-                <circle cx="10" cy="12" r="1.2" />
-              </svg>
-            </div>
-          </DragHandle>
-          <BubbleMenu editor={editor} className="note-bubble">
-            <BubbleToolbar editor={editor} />
-          </BubbleMenu>
-          <TableToolbar editor={editor} />
-          <SlashMenu state={slash} />
-        </>
-      ) : null}
+      <DragHandle editor={editor}>
+        <div className="note-drag-handle" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
+            <circle cx="6" cy="4" r="1.2" />
+            <circle cx="10" cy="4" r="1.2" />
+            <circle cx="6" cy="8" r="1.2" />
+            <circle cx="10" cy="8" r="1.2" />
+            <circle cx="6" cy="12" r="1.2" />
+            <circle cx="10" cy="12" r="1.2" />
+          </svg>
+        </div>
+      </DragHandle>
+      <BubbleMenu editor={editor} className="note-bubble">
+        <BubbleToolbar editor={editor} />
+      </BubbleMenu>
+      <TableToolbar editor={editor} />
+      <SlashMenu state={slash} />
     </div>
   );
+}
+
+const SLASH_MENU_WIDTH = 240;
+const SLASH_MENU_HEIGHT = 272;
+const SLASH_MENU_GAP = 6;
+const SLASH_MENU_MARGIN = 8;
+
+/** Places the menu below the caret, or above it where the space below is short. */
+export function slashMenuPlacement(rect: DOMRect, viewport: { width: number; height: number }) {
+  const below = viewport.height - rect.bottom - SLASH_MENU_GAP - SLASH_MENU_MARGIN;
+  const above = rect.top - SLASH_MENU_GAP - SLASH_MENU_MARGIN;
+  const left = Math.max(
+    SLASH_MENU_MARGIN,
+    Math.min(rect.left, viewport.width - SLASH_MENU_WIDTH - SLASH_MENU_MARGIN),
+  );
+  if (below >= SLASH_MENU_HEIGHT || below >= above) {
+    return { top: rect.bottom + SLASH_MENU_GAP, left, maxHeight: Math.min(SLASH_MENU_HEIGHT, below) };
+  }
+  return {
+    bottom: viewport.height - rect.top + SLASH_MENU_GAP,
+    left,
+    maxHeight: Math.min(SLASH_MENU_HEIGHT, above),
+  };
 }
 
 function SlashMenu({ state }: { state: SlashState | null }) {
@@ -429,7 +433,7 @@ function SlashMenu({ state }: { state: SlashState | null }) {
       role="listbox"
       aria-label="Insert block"
       className="note-slash"
-      style={{ top: `${rect.bottom + 6}px`, left: `${rect.left}px` }}
+      style={slashMenuPlacement(rect, { width: window.innerWidth, height: window.innerHeight })}
     >
       {state.items.map((command, index) => (
         <button

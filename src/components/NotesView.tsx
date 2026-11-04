@@ -1,23 +1,22 @@
 import { Suspense, lazy, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  deleteNote,
+  deleteNotes,
   deleteNotebook,
   ensureDefaultNotebook,
-  loadAttachment,
-  MAX_ATTACHMENT_SIZE,
   newNoteId,
   putNote,
+  putNotes,
+  RefusedWrites,
   putNotebook,
   saveNote,
-  uploadAttachment,
   vaultObject,
 } from "../lib/client";
 import type { Session } from "../lib/client";
 import { createAutosaver } from "../lib/autosave";
 import type { LocalObject } from "../lib/wasm";
 import { friendlyError } from "../lib/errors";
-import { optimizeAttachmentThumbnail } from "../lib/image";
+import { useNotePhotos } from "./useNotePhotos";
 import { triggerDownload } from "../lib/importExport";
 import {
   DEFAULT_NOTEBOOK_ID,
@@ -32,7 +31,6 @@ import {
   serializeNote,
   sortNotes,
 } from "../lib/note";
-import { attachmentIdsIn } from "../lib/noteDoc";
 import { ancestorsOf, buildNoteTree, canReparent, noteSubtree } from "../lib/noteTree";
 import {
   focusRing,
@@ -41,7 +39,7 @@ import {
   sidebarHeaderAction,
   sidebarSectionAction,
 } from "../lib/styles";
-import type { Note, NoteAttachment, NoteDraft, Notebook } from "../lib/types";
+import type { Note, NoteDraft, Notebook } from "../lib/types";
 import type { OutboxState } from "../lib/outbox";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ContainerList } from "./ContainerList";
@@ -66,7 +64,6 @@ type Props = {
   onRefresh: () => Promise<void>;
   /** Applies one saved note to the vault list, so autosave need not refetch. */
   onSaved: (note: Note) => void;
-  readOnly?: boolean;
   /** Photos need the server, so none are added offline. */
   offline?: boolean;
   /** The write queue, so a note's footer can say whether its write has left this device. */
@@ -129,8 +126,7 @@ function fileNameFor(title: string): string {
   return `${base.slice(0, 60)}.md`;
 }
 
-export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved, readOnly, offline = false, outbox, sidebar }: Props) {
-  const readOnlyMode = readOnly === true;
+export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved, offline = false, outbox, sidebar }: Props) {
   const [scope, setScope] = useState<string>(DEFAULT_NOTEBOOK_ID);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -161,7 +157,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   // loading, contacts included.
   const ensuredRef = useRef(false);
   useEffect(() => {
-    if (readOnlyMode || ensuredRef.current) return;
+    if (ensuredRef.current) return;
     if (notebooks.some((notebook) => notebook.id === DEFAULT_NOTEBOOK_ID)) {
       ensuredRef.current = true;
       return;
@@ -175,7 +171,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
         setError(friendlyError(err));
       }
     })();
-  }, [notebooks, onRefresh, readOnlyMode, session]);
+  }, [notebooks, onRefresh, session]);
 
   // A notebook that went away leaves the sidebar pointing at nothing.
   useEffect(() => {
@@ -335,18 +331,6 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     reloadFrom(parseNote(id, stored.payload));
   }, [notes]);
 
-  // Entries whose photo the body no longer shows. Run when an editing session
-  // ends, so an undone delete within it still finds its photo.
-  function pruneUnshown() {
-    const id = editingId.current;
-    const current = draftRef.current;
-    if (!id || !current?.attachments?.length) return;
-    const shown = attachmentIdsIn(current.body);
-    const attachments = current.attachments.filter((entry) => shown.has(entry.id));
-    if (attachments.length === current.attachments.length) return;
-    autosaver.schedule({ id, draft: { ...current, attachments } });
-  }
-
   function openNote(note: Note) {
     // Flushed, not cancelled: the queue is keyed by note, so the edit being left
     // behind goes out while this one is opened.
@@ -409,7 +393,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   // back to back, and a `{...draft}` merge from one stale closure would drop one.
   function edit(patch: Partial<NoteDraft>) {
     const id = editingId.current;
-    if (!id || readOnlyMode) return;
+    if (!id) return;
     setSaveState("pending");
     setDraft((current) => {
       if (!current) return current;
@@ -424,77 +408,15 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   const draftRef = useRef<NoteDraft | null>(draft);
   draftRef.current = draft;
 
-  // Defined fresh each render rather than frozen in a ref: NoteEditor reads both
-  // through refs, so the churn is harmless, and a frozen closure would see the
-  // first render's null draft and no-op every edit.
-
-  // The saved display width for a photo, read from the draft's attachment entry.
-  const getAttachmentWidth = (attachmentId: string): number | undefined =>
-    draftRef.current?.attachments?.find((entry) => entry.id === attachmentId)?.displayWidth;
-
-  // Persists a photo's new display width after a corner drag. Presentational, so
-  // it updates the attachment metadata rather than the body markdown.
-  const onResizeAttachment = (attachmentId: string, width: number) => {
-    const current = draftRef.current?.attachments;
-    if (!current) return;
-    const attachments = current.map((entry) =>
-      entry.id === attachmentId ? { ...entry, displayWidth: width } : entry,
-    );
-    if (draftRef.current) draftRef.current = { ...draftRef.current, attachments };
-    edit({ attachments });
-  };
-
-  // Resolves a note photo to an object URL for display: the cache-first download
-  // path, keyed off the attachment reference the draft carries.
-  const resolveAttachment = async (attachmentId: string): Promise<string | null> => {
-    const attachment = draftRef.current?.attachments?.find((entry) => entry.id === attachmentId);
-    if (!attachment) return null;
-    try {
-      const blob = await loadAttachment(session, attachment);
-      return URL.createObjectURL(blob);
-    } catch {
-      return null;
-    }
-  };
-
-  // Uploads a picked image, records its reference on the draft, and returns how
-  // the body should refer to it. The full bytes go to the attachment store; only
-  // a small preview and the reference ride inside the note.
-  const uploadImage = async (
-    file: File,
-  ): Promise<{ attachmentId: string; alt: string } | null> => {
-    if (readOnlyMode) return null;
-    if (file.size > MAX_ATTACHMENT_SIZE) {
-      setError(`That photo is larger than the ${Math.round(MAX_ATTACHMENT_SIZE / (1024 * 1024))} MB limit.`);
-      return null;
-    }
-    try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      let preview: { thumbnail?: string; width?: number; height?: number } = {};
-      try {
-        preview = await optimizeAttachmentThumbnail(file);
-      } catch {
-        // A thumbnail is a convenience; upload the photo even if preview fails.
-      }
-      const attachment: NoteAttachment = {
-        ...(await uploadAttachment(session, { name: file.name, type: file.type, bytes })),
-        thumbnail: preview.thumbnail,
-        width: preview.width,
-        height: preview.height,
-      };
-      const attachments = [...(draftRef.current?.attachments ?? []), attachment];
-      // The image node's view resolves on mount, right after the caller inserts
-      // it, which is before React re-renders and refreshes this ref. Sync it now
-      // so that first resolve finds the attachment rather than showing alt text
-      // until the note is reopened.
-      if (draftRef.current) draftRef.current = { ...draftRef.current, attachments };
-      edit({ attachments });
-      return { attachmentId: attachment.id, alt: file.name };
-    } catch (err) {
-      setError(friendlyError(err));
-      return null;
-    }
-  };
+  const { getAttachmentWidth, onResizeAttachment, resolveAttachment, uploadImage, pruneUnshown } =
+    useNotePhotos({
+      session,
+      draftRef,
+      editingId,
+      edit,
+      schedule: (write) => autosaver.schedule(write),
+      setError,
+    });
 
   function toggleExpanded(id: string) {
     setExpanded((current) => {
@@ -508,7 +430,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   /** Reparenting writes the note itself; its descendants follow it as they are. */
   async function moveNote(id: string, parentId: string | null) {
     const note = notes.find((candidate) => candidate.id === id);
-    if (!note || readOnlyMode) return;
+    if (!note) return;
     if (!canReparent(notes, id, parentId)) {
       setError("A note cannot be moved inside itself.");
       return;
@@ -531,17 +453,18 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   /** A note's subtree moves notebook with it, or its children would be stranded. */
   async function moveToNotebook(notebookId: string) {
     const id = editingId.current;
-    if (!id || !draft || readOnlyMode) return;
+    if (!id || !draft) return;
     const descendants = noteSubtree(notes, id).filter((candidate) => candidate !== id);
     edit({ notebookId });
     setScope(notebookId);
     if (descendants.length === 0) return;
     setError(null);
     try {
-      for (const childId of descendants) {
+      const children = descendants.flatMap((childId) => {
         const child = notes.find((candidate) => candidate.id === childId);
-        if (child) await putNote(session, { ...child, notebookId }, childId);
-      }
+        return child ? [{ id: childId, draft: { ...child, notebookId } }] : [];
+      });
+      await putNotes(session, children);
       await onRefresh();
     } catch (err) {
       setError(friendlyError(err));
@@ -559,9 +482,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
       }
       // Any write already in flight has to land before the tombstones do.
       await autosaver.flush();
-      for (const id of ids) {
-        await deleteNote(session, id);
-      }
+      await deleteNotes(session, ids);
       setConfirmDelete(null);
       if (ids.includes(editingId.current ?? "")) {
         editingId.current = null;
@@ -607,13 +528,15 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
         (candidate) => resolveNotebookId(candidate.notebookId) === deletingNotebook.id,
       );
       let failed = 0;
-      for (const note of contained) {
-        autosaver.drop(note.id);
-        try {
-          await deleteNote(session, note.id);
-        } catch {
-          failed += 1;
-        }
+      for (const note of contained) autosaver.drop(note.id);
+      try {
+        await deleteNotes(
+          session,
+          contained.map((note) => note.id),
+        );
+      } catch (err) {
+        if (!(err instanceof RefusedWrites)) throw err;
+        failed = err.refused.size;
       }
       // The notebook outlives a note that would not delete, so nothing is left
       // pointing at a notebook that is no longer there.
@@ -664,17 +587,13 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                 onContextMenu={(event) =>
                   menu.open(
                     event,
-                    // Offline the vault is read only, so the row offers nothing
-                    // and the browser's own menu is left alone.
-                    readOnlyMode
-                      ? []
-                      : [
-                          {
-                            label: "Delete note",
-                            danger: true,
-                            onSelect: () => setConfirmDelete(note),
-                          },
-                        ],
+                    [
+                      {
+                        label: "Delete note",
+                        danger: true,
+                        onSelect: () => setConfirmDelete(note),
+                      },
+                    ],
                   )
                 }
                 aria-current={selectedId === note.id ? "true" : undefined}
@@ -695,14 +614,13 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
       )
     ) : tree.length === 0 ? (
       <p className="px-1 py-2 text-xs leading-relaxed text-mute">
-        {readOnlyMode ? "No notes in this notebook." : "No notes here yet."}
+        No notes here yet.
       </p>
     ) : (
       <NoteTreeList
         tree={tree}
         selectedId={selectedId}
         expanded={expanded}
-        readOnly={readOnlyMode}
         onToggle={toggleExpanded}
         onSelect={openNote}
         onAddChild={(parentId) => newNote(parentId)}
@@ -713,7 +631,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     );
 
   /** Sits at the foot of the notebook's own contents, where what it adds goes. */
-  const addNoteRow = readOnlyMode ? null : (
+  const addNoteRow = (
     <button
       type="button"
       onClick={() => newNote()}
@@ -753,17 +671,15 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
             eyebrow="My notes"
             title="Notes"
             action={
-              !readOnlyMode ? (
-                <button
-                  type="button"
-                  onClick={() => newNote()}
-                  aria-label="Create note"
-                  title="Create note"
-                  className={sidebarHeaderAction}
-                >
-                  <Icon name="plus" className="h-4 w-4" />
-                </button>
-              ) : null
+              <button
+                type="button"
+                onClick={() => newNote()}
+                aria-label="Create note"
+                title="Create note"
+                className={sidebarHeaderAction}
+              >
+                <Icon name="plus" className="h-4 w-4" />
+              </button>
             }
           />
 
@@ -783,16 +699,14 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
           <SidebarSection
             label="Notebooks"
             action={
-              !readOnlyMode ? (
-                <button
-                  type="button"
-                  onClick={() => setCreatingNotebook(true)}
-                  className={sidebarSectionAction}
-                  aria-label="Add notebook"
-                >
-                  <Icon name="plus" className="h-3.5 w-3.5" />
-                </button>
-              ) : null
+              <button
+                type="button"
+                onClick={() => setCreatingNotebook(true)}
+                className={sidebarSectionAction}
+                aria-label="Add notebook"
+              >
+                <Icon name="plus" className="h-3.5 w-3.5" />
+              </button>
             }
           >
             <ContainerList
@@ -820,7 +734,6 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                 ) : null
               }
               showAll={false}
-              readOnly={readOnlyMode}
               busy={busy}
             />
           </SidebarSection>
@@ -853,7 +766,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                   value={resolveNotebookId(draft.notebookId)}
                   onChange={(event) => void moveToNotebook(event.target.value)}
                   aria-label="Notebook"
-                  disabled={readOnlyMode || notebooks.length === 0}
+                  disabled={notebooks.length === 0}
                   className={`h-7 max-w-[9rem] shrink-0 cursor-pointer rounded-md border-0 bg-transparent py-0 pl-2 pr-6 text-[11px] text-mute transition-colors hover:bg-surface hover:text-text disabled:opacity-40 ${focusRing}`}
                 >
                   {notebooks.map((notebook) => (
@@ -871,7 +784,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                 >
                   <Icon name="download" className="h-3.5 w-3.5" />
                 </button>
-                {selected && !readOnlyMode ? (
+                {selected ? (
                   <button
                     type="button"
                     onClick={() => setConfirmDelete(selected)}
@@ -894,19 +807,17 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                 <NoteEditor
                   noteId={`${editingId.current ?? "none"}:${reloadKey}`}
                   value={draft.body}
-                  editable={!readOnlyMode}
                   onChange={(body) => edit({ body })}
                   resolveAttachment={resolveAttachment}
-                  onUploadImage={readOnlyMode || offline ? undefined : uploadImage}
+                  onUploadImage={offline ? undefined : uploadImage}
                   getAttachmentWidth={getAttachmentWidth}
-                  onResizeAttachment={readOnlyMode ? undefined : onResizeAttachment}
+                  onResizeAttachment={onResizeAttachment}
                   header={
                     <input
                       value={draft.title}
                       onChange={(event) => edit({ title: event.target.value })}
                       placeholder="Untitled note"
                       aria-label="Note title"
-                      readOnly={readOnlyMode}
                       className={`w-full border-0 bg-transparent p-0 text-[1.75rem] font-semibold leading-tight tracking-tight text-text outline-none placeholder:text-mute/35 ${focusRing} focus-visible:ring-offset-4`}
                     />
                   }
@@ -920,35 +831,29 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                 <span className="ml-auto shrink-0 tabular-nums">
                   {words} {words === 1 ? "word" : "words"}
                 </span>
-                {readOnlyMode ? (
-                  <span className="shrink-0">Offline</span>
-                ) : (
-                  <>
-                    <span
-                      className={`flex shrink-0 items-center gap-1.5 ${saveLabel.startsWith("Not saved") ? "text-danger" : ""}`}
-                      aria-live="polite"
-                    >
-                      <span
-                        aria-hidden="true"
-                        className={`h-1.5 w-1.5 rounded-full ${
-                          saveLabel.startsWith("Not saved")
-                            ? "bg-danger"
-                            : saveState === "clean"
-                              ? "bg-note-new"
-                              : "bg-note"
-                        }`}
-                      />
-                      {saveLabel}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => void closeEditor()}
-                      className={`hidden h-6 shrink-0 rounded-md px-2 text-[11px] text-mute transition-colors hover:bg-surface hover:text-text lg:block ${focusRing}`}
-                    >
-                      Close
-                    </button>
-                  </>
-                )}
+                <span
+                  className={`flex shrink-0 items-center gap-1.5 ${saveLabel.startsWith("Not saved") ? "text-danger" : ""}`}
+                  aria-live="polite"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      saveLabel.startsWith("Not saved")
+                        ? "bg-danger"
+                        : saveState === "clean"
+                          ? "bg-note-new"
+                          : "bg-note"
+                    }`}
+                  />
+                  {saveLabel}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void closeEditor()}
+                  className={`hidden h-6 shrink-0 rounded-md px-2 text-[11px] text-mute transition-colors hover:bg-surface hover:text-text lg:block ${focusRing}`}
+                >
+                  Close
+                </button>
               </footer>
             </>
           ) : (
