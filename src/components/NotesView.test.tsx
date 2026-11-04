@@ -30,6 +30,12 @@ let notebookWrites: { name: string; id?: string; previousRaw?: string }[] = [];
 let notebookDeletes: string[] = [];
 let ensured = 0;
 let created = 0;
+/** The vault rows the faked client reports, by id. */
+let stored = new Map<string, { revision: number; payload: string }>();
+/** The `base` each `saveNote` was given, in order. */
+let bases: unknown[] = [];
+/** When set, what the next `saveNote` reports as stored, as after a merge. */
+let mergedPayload: string | null = null;
 /** Note ids `deleteNote` refuses, for the paths that have to survive one. */
 let undeletable = new Set<string>();
 
@@ -45,6 +51,7 @@ vi.mock("../lib/client", async () => {
       notebooks = [{ id: DEFAULT_NOTEBOOK_ID, name: "Default Notebook", raw: "{}" }, ...notebooks];
       return notebooks;
     },
+    vaultObject: (id: string) => stored.get(id),
     putNote: async (_session: unknown, draft: NoteDraft, id?: string) => {
       writes.push({ id, draft });
       const at = notes.findIndex((note) => note.id === id);
@@ -52,6 +59,24 @@ vi.mock("../lib/client", async () => {
       if (at === -1) notes = [...notes, saved];
       else notes = notes.map((note) => (note.id === id ? saved : note));
       return saved.id;
+    },
+    saveNote: async (_session: unknown, draft: NoteDraft, id?: string, base?: unknown) => {
+      bases.push(base);
+      writes.push({ id, draft });
+      const at = notes.findIndex((note) => note.id === id);
+      const written = serializeNote(draft);
+      const saved: Note = { ...draft, id: id ?? "note-new", raw: written };
+      if (at === -1) notes = [...notes, saved];
+      else notes = notes.map((note) => (note.id === id ? saved : note));
+      const settled = {
+        id: saved.id,
+        content_type: "",
+        revision: (stored.get(saved.id)?.revision ?? 0) + 1,
+        tombstone: false,
+        payload: mergedPayload ?? written,
+      };
+      stored.set(saved.id, settled);
+      return { id: saved.id, written, settled };
     },
     deleteNote: async (_session: unknown, id: string) => {
       if (undeletable.has(id)) throw new Error("that note would not delete");
@@ -98,6 +123,7 @@ const DEFAULT_BOOK: Notebook = {
 function Harness({ readOnly }: { readOnly?: boolean }) {
   const [vault, setVault] = useState({ notes, notebooks });
   const sidebar = useSidebar();
+  syncVault = (next) => setVault((current) => ({ ...current, notes: next }));
   return (
     <NotesView
       session={SESSION}
@@ -123,6 +149,7 @@ function Harness({ readOnly }: { readOnly?: boolean }) {
 }
 
 let refreshes = 0;
+let syncVault: (notes: Note[]) => void = () => {};
 
 function mount(
   seed: { notes?: Note[]; notebooks?: Notebook[]; readOnly?: boolean } = {},
@@ -170,6 +197,9 @@ beforeEach(() => {
   ensured = 0;
   created = 0;
   refreshes = 0;
+  stored = new Map();
+  bases = [];
+  mergedPayload = null;
 });
 
 afterEach(() => {
@@ -372,6 +402,54 @@ describe("NotesView, the editor", () => {
     // the note's attachments, survive the edit.
     expect(writes[0]!.draft.raw).toBe('{"keep":1}');
     await waitFor(() => expect(screen.getByText("Saved")).not.toBeNull());
+  });
+
+  /** Another device's edit to a note, as a sync delivers it. */
+  function remoteEdit(note: Note, patch: Partial<NoteDraft>): Note {
+    const next = { ...note, ...patch };
+    const edited = { ...next, raw: serializeNote(next) };
+    stored.set(note.id, { revision: 2, payload: edited.raw });
+    return edited;
+  }
+
+  it("saves an edit against the version the editor opened on, not a newer synced one", async () => {
+    const note = aNote({ id: "a", title: "Shopping", body: "Bread", raw: serializeNote(aNote({ id: "a", title: "Shopping", body: "Bread" })) });
+    stored.set("a", { revision: 1, payload: note.raw });
+    mount({ notes: [note] });
+    await openNote("Shopping");
+
+    fireEvent.change(titleField(), { target: { value: "Shopping list" } });
+    act(() => syncVault([remoteEdit(note, { body: "Bread and milk" })]));
+    await waitFor(() => expect(writes).toHaveLength(1));
+
+    expect(bases[0]).toMatchObject({ revision: 1 });
+    expect(titleField().value).toBe("Shopping list");
+  });
+
+  it("takes another device's edit into a draft with nothing unsaved", async () => {
+    const note = aNote({ id: "a", title: "Shopping", body: "Bread", raw: serializeNote(aNote({ id: "a", title: "Shopping", body: "Bread" })) });
+    stored.set("a", { revision: 1, payload: note.raw });
+    mount({ notes: [note] });
+    await openNote("Shopping");
+
+    act(() => syncVault([remoteEdit(note, { title: "Groceries" })]));
+
+    await waitFor(() => expect(titleField().value).toBe("Groceries"));
+    fireEvent.change(titleField(), { target: { value: "Groceries 2" } });
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(bases[0]).toMatchObject({ revision: 2 });
+  });
+
+  it("shows the merged note once a save was merged with another device's edit", async () => {
+    const note = aNote({ id: "a", title: "Shopping", body: "Bread", raw: serializeNote(aNote({ id: "a", title: "Shopping", body: "Bread" })) });
+    stored.set("a", { revision: 1, payload: note.raw });
+    mount({ notes: [note] });
+    await openNote("Shopping");
+    mergedPayload = serializeNote({ title: "Merged", body: "Bread", notebookId: DEFAULT_NOTEBOOK_ID });
+
+    fireEvent.change(titleField(), { target: { value: "Shopping list" } });
+
+    await waitFor(() => expect(titleField().value).toBe("Merged"));
   });
 
   it("writes once for a run of keystrokes", async () => {

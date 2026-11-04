@@ -41,7 +41,9 @@ export {
   newNoteId,
   putNote,
   putNotebook,
+  saveNote,
 } from "./noteApi";
+export { vaultObject } from "./outbox";
 export {
   deleteBookmark,
   deleteBookmarkCollection,

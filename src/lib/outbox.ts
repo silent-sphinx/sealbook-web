@@ -181,14 +181,23 @@ export async function mutateOutbox(change: (current: Outbox) => Outbox): Promise
   });
 }
 
-/** Queues one write against the object as this device last saw it. */
+/** The live vault copy of one object, as this device last saw it. */
+export function vaultObject(id: string): LocalObject | undefined {
+  return vault.objects.find((object) => object.id === id && !object.tombstone);
+}
+
+/**
+ * Queues one write. `base` is the object the edit was made on; without it, the
+ * object as this device holds it now.
+ */
 export async function queueWrite(write: {
   id: string;
   contentType: string;
   tombstone: boolean;
   payload: string;
+  base?: LocalObject;
 }): Promise<void> {
-  const base = vault.objects.find((object) => object.id === write.id && !object.tombstone);
+  const base = write.base ?? vaultObject(write.id);
   const pending: PendingWrite = {
     id: write.id,
     content_type: write.contentType,

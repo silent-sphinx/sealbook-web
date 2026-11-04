@@ -23,6 +23,7 @@ import {
   syncRoster,
   uploadAttachment,
   verifiedRoster,
+  catchUp,
   flushOutbox,
   putSealed,
   type Session,
@@ -2609,6 +2610,56 @@ describe("flushing the outbox", () => {
     expect(JSON.parse(server.payloadOf(copy)).title).toMatch(/^Mine \(conflict, \d{4}-\d{2}-\d{2}\)$/u);
     expect(notices).toHaveLength(1);
     expect(currentOutbox().writes).toEqual([]);
+  });
+
+  it("merges an edit made on a note opened before another device changed it", async () => {
+    const { owner, server, id } = await opened();
+    const opened_on = currentVault().objects.find((object) => object.id === id);
+    server.remote(id, NOTE_CONTENT_TYPE, note("Plan", "one\nTWO", "2026-11-02T10:00:00.000Z"));
+    await catchUp(owner.session);
+
+    await putSealed(
+      owner.session,
+      id,
+      NOTE_CONTENT_TYPE,
+      false,
+      note("Plan A", "one\ntwo", "2026-11-02T10:05:00.000Z"),
+      opened_on,
+    );
+
+    expect(JSON.parse(server.payloadOf(id))).toMatchObject({ title: "Plan A", body: "one\nTWO" });
+  });
+
+  it("keeps the other device's edit as the note when the open one changed the same field", async () => {
+    const { owner, server, id } = await opened();
+    const opened_on = currentVault().objects.find((object) => object.id === id);
+    server.remote(id, NOTE_CONTENT_TYPE, note("Theirs", "one\ntwo", "2026-11-02T10:00:00.000Z"));
+    await catchUp(owner.session);
+
+    await putSealed(
+      owner.session,
+      id,
+      NOTE_CONTENT_TYPE,
+      false,
+      note("Mine", "one\ntwo", "2026-11-02T10:05:00.000Z"),
+      opened_on,
+    );
+
+    expect(JSON.parse(server.payloadOf(id)).title).toBe("Theirs");
+    expect(server.ids()).toHaveLength(2);
+  });
+
+  it("returns the object a write settled as", async () => {
+    const { owner, id } = await opened();
+    const settled = await putSealed(
+      owner.session,
+      id,
+      NOTE_CONTENT_TYPE,
+      false,
+      note("Plan B", "one\ntwo", "2026-11-02T09:00:00.000Z"),
+    );
+    expect(settled).toMatchObject({ id, revision: 2 });
+    expect(JSON.parse(settled!.payload).title).toBe("Plan B");
   });
 
   it("leaves a write queued when the server cannot be reached", async () => {

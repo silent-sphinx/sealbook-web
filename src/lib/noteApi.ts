@@ -10,7 +10,7 @@ import {
 import { putSealed } from "./client";
 import type { NoteDraft, Notebook } from "./types";
 import type { Session } from "./client";
-import { newUuid } from "./wasm";
+import { newUuid, type LocalObject } from "./wasm";
 
 /**
  * The id a new note will be stored under, issued before its first write so that
@@ -25,9 +25,24 @@ export async function putNote(
   draft: NoteDraft,
   existingId?: string,
 ): Promise<string> {
+  return (await saveNote(session, draft, existingId)).id;
+}
+
+/**
+ * Writes a note and reports what was stored. `base` is the object the edit was
+ * made on, so a change another device made since is merged rather than lost.
+ * `settled` is the stored object, absent while the write is still queued.
+ */
+export async function saveNote(
+  session: Session,
+  draft: NoteDraft,
+  existingId?: string,
+  base?: LocalObject,
+): Promise<{ id: string; written: string; settled?: LocalObject }> {
   const id = existingId ?? newUuid();
-  await putSealed(session, id, NOTE_CONTENT_TYPE, false, serializeNote(draft));
-  return id;
+  const written = serializeNote(draft);
+  const settled = await putSealed(session, id, NOTE_CONTENT_TYPE, false, written, base);
+  return { id, written, settled };
 }
 
 export async function deleteNote(session: Session, id: string): Promise<void> {

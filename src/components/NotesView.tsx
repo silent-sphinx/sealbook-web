@@ -9,10 +9,13 @@ import {
   newNoteId,
   putNote,
   putNotebook,
+  saveNote,
   uploadAttachment,
+  vaultObject,
 } from "../lib/client";
 import type { Session } from "../lib/client";
 import { createAutosaver } from "../lib/autosave";
+import type { LocalObject } from "../lib/wasm";
 import { friendlyError } from "../lib/errors";
 import { optimizeAttachmentThumbnail } from "../lib/image";
 import { triggerDownload } from "../lib/importExport";
@@ -24,6 +27,7 @@ import {
   noteMatches,
   notePreview,
   noteWordCount,
+  parseNote,
   resolveNotebookId,
   serializeNote,
   sortNotes,
@@ -140,6 +144,11 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   // The note the editor is on, including one not yet written to the vault.
   const editingId = useRef<string | null>(null);
   const savedThisSession = useRef(false);
+  // The stored object the open note was last read or written as. Every save is
+  // merged against it, so a change a sync brought in meanwhile is not reverted.
+  const baseRef = useRef<{ id: string; object?: LocalObject }>({ id: "" });
+  // Bumped to make the editor reload its document from the draft.
+  const [reloadKey, setReloadKey] = useState(0);
 
   const selected = selectedId ? (notes.find((note) => note.id === selectedId) ?? null) : null;
 
@@ -229,7 +238,9 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     }
     const live = () => editingId.current === id;
     if (live()) setSaveState("saving");
-    const saved = await putNote(session, payload, id);
+    const base = baseRef.current.id === id ? baseRef.current.object : undefined;
+    const { id: saved, written, settled } = await saveNote(session, payload, id, base);
+    if (settled && baseRef.current.id === id) baseRef.current = { id, object: settled };
     const now = new Date().toISOString();
     const createdAt = payload.createdAt ?? now;
     savedThisSession.current = true;
@@ -240,6 +251,11 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     setError(null);
     // The editor may have moved on to another note while this was in flight.
     if (!live()) return;
+    if (settled && settled.payload !== written && !autosaver.queued()) {
+      reloadFrom(parseNote(id, settled.payload));
+      setSaveState("clean");
+      return;
+    }
     setSelectedId(id);
     setSaveState(autosaver.queued() ? "pending" : "clean");
     setDraft((current) => (current ? { ...current, createdAt, updatedAt: now } : current));
@@ -278,11 +294,39 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     setExpanded((current) => new Set([...current, ...chain]));
   }
 
+  function reloadFrom(note: Note) {
+    setDraft({
+      title: note.title,
+      body: note.body,
+      notebookId: note.notebookId,
+      parentId: note.parentId,
+      attachments: note.attachments,
+      createdAt: note.createdAt,
+      updatedAt: note.updatedAt,
+      raw: note.raw,
+    });
+    setReloadKey((key) => key + 1);
+  }
+
+  // A sync can bring in another device's edit to the open note. A draft with
+  // nothing unsaved takes it; one with edits keeps them, and its save merges.
+  useEffect(() => {
+    const id = editingId.current;
+    if (!id || baseRef.current.id !== id) return;
+    const stored = vaultObject(id);
+    const held = baseRef.current.object;
+    if (!stored || !held || stored.revision === held.revision) return;
+    if (saveState !== "clean" || autosaver.queued()) return;
+    baseRef.current = { id, object: stored };
+    reloadFrom(parseNote(id, stored.payload));
+  }, [notes]);
+
   function openNote(note: Note) {
     // Flushed, not cancelled: the queue is keyed by note, so the edit being left
     // behind goes out while this one is opened.
     void autosaver.flush();
     editingId.current = note.id;
+    baseRef.current = { id: note.id, object: vaultObject(note.id) };
     setSelectedId(note.id);
     setScope(resolveNotebookId(note.notebookId));
     reveal(note.id);
@@ -307,6 +351,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     void autosaver.flush();
     // The id is issued here so every write for this note is an update.
     editingId.current = newNoteId();
+    baseRef.current = { id: editingId.current };
     setSelectedId(null);
     setDraft({ ...emptyNoteDraft(scope), parentId });
     setSaveState("clean");
@@ -317,6 +362,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
 
   async function closeEditor() {
     editingId.current = null;
+    baseRef.current = { id: "" };
     setSelectedId(null);
     setDraft(null);
     setSaveState("clean");
@@ -817,7 +863,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                 }
               >
                 <NoteEditor
-                  noteId={editingId.current ?? "none"}
+                  noteId={`${editingId.current ?? "none"}:${reloadKey}`}
                   value={draft.body}
                   editable={!readOnlyMode}
                   onChange={(body) => edit({ body })}

@@ -54,7 +54,7 @@ vi.mock("./lib/client", async () => {
       const writes = currentOutbox().writes;
       flushed.push(writes);
       await mutateOutbox((outbox) => coreOutboxSettle(outbox, writes.map((write) => write.id)));
-      return { refused: new Map() };
+      return { refused: new Map(), settled: new Map() };
     },
     listVault: async () => ({
       addressBooks: [{ id: DEFAULT_ADDRESS_BOOK_ID, name: "Contacts", raw: "{}" }],

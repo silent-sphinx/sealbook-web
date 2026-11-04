@@ -30,6 +30,7 @@ import {
   queueWrite,
   setSignInNeeded,
   setVault,
+  vaultObject,
   withLock,
 } from "./outbox";
 import { apiRoot, failedStatus, putJson } from "./transport";
@@ -56,6 +57,8 @@ const MAX_LOST_RACES = 8;
 export type FlushReport = {
   /** Outbox ids moved to the failed list by this flush, with the reason. */
   refused: Map<string, string>;
+  /** The vault row each id was last written as by this flush. */
+  settled: Map<string, LocalObject>;
   /** Why the flush stopped with writes still queued, if it did. */
   stopped?: "retry" | "sign-in";
 };
@@ -63,6 +66,10 @@ export type FlushReport = {
 /**
  * Queues a write and, online, sends the queue. A write the server refuses for
  * good raises; one that could not be sent yet stays queued and does not.
+ *
+ * `base` is the object the edit was made on. Resolves to the object the write
+ * settled as, which a merge may have made differ from `payload`, or undefined
+ * while it is still queued.
  */
 export async function putSealed(
   session: Session,
@@ -70,13 +77,16 @@ export async function putSealed(
   contentType: string,
   tombstone: boolean,
   payload: string,
-): Promise<void> {
+  base?: LocalObject,
+): Promise<LocalObject | undefined> {
   await openOutbox(session.state.collection_id);
-  await queueWrite({ id, contentType, tombstone, payload });
-  if (session.offline) return;
+  await queueWrite({ id, contentType, tombstone, payload, base });
+  if (session.offline) return undefined;
   const report = await flushOutbox(session);
   const reason = report.refused.get(id);
   if (reason !== undefined) throw new Error(reason);
+  if (currentOutbox().writes.some((write) => write.id === id)) return undefined;
+  return report.settled.get(id) ?? vaultObject(id);
 }
 
 /**
@@ -111,7 +121,7 @@ function localDate(): string {
  */
 export function flushOutbox(session: Session): Promise<FlushReport> {
   const collectionId = session.state.collection_id;
-  const report: FlushReport = { refused: new Map() };
+  const report: FlushReport = { refused: new Map(), settled: new Map() };
   if (session.offline || !session.token) return Promise.resolve({ ...report, stopped: "retry" });
   return withLock(flushLock(collectionId), () =>
     serializeVault(collectionId, async () => {
@@ -162,7 +172,7 @@ async function flushRounds(session: Session, report: FlushReport): Promise<Flush
     const settles = [...new Set(batch.map((write) => write.settles))];
     if (sending.length > 0) {
       try {
-        await sendBatch(session, held, sending);
+        for (const row of await sendBatch(session, held, sending)) report.settled.set(row.id, row);
       } catch (err) {
         const status = failedStatus(err);
         if (status === null) throw err;
@@ -250,7 +260,7 @@ async function sendBatch(
   session: Session,
   held: BucketedManifest,
   writes: FlushWrite[],
-): Promise<void> {
+): Promise<LocalObject[]> {
   const { manifest_seq: seq, key_epoch: keyEpoch, latest_revision: latestRevision } = held.plan;
   await alignKeyEpoch(session, keyEpoch);
   const sealed = writes.map((write, index) => {
@@ -314,6 +324,7 @@ async function sendBatch(
   // are still to be walked, so the copy's mark only moves when there are none.
   const mark = vault.latest_revision === latestRevision ? newest : vault.latest_revision;
   await setVault(coreLocalVaultApply(vault, rows, mark, keyEpoch));
+  return rows;
 }
 
 /** Brings the vault copy up to date with what changed since its mark. */
