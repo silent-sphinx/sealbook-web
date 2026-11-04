@@ -76,6 +76,7 @@ import {
   subscribeRemoteChanges,
   type OutboxState,
 } from "./lib/outbox";
+import { sweepIfDue } from "./lib/attachmentSweep";
 import { failedStatus } from "./lib/transport";
 import { OutboxPanel } from "./components/OutboxPanel";
 import {
@@ -718,6 +719,7 @@ export default function App() {
     setLoadingVault(true);
     let listed: VaultListing;
     let books;
+    let fromServer = false;
     try {
       if (next.offline) {
         await openOutbox(next.state.collection_id);
@@ -730,6 +732,7 @@ export default function App() {
         });
         try {
           listed = await listVault(next, setVaultProgress);
+          fromServer = true;
         } catch (err) {
           if (failedStatus(err) !== 0) throw err;
           log.warn("the server could not be reached; listing this device's copy", {
@@ -745,6 +748,11 @@ export default function App() {
       setVaultOpened(true);
     }
     applyListing(next, listed, books, selectContactId);
+    if (fromServer) {
+      void sweepIfDue(next, listed).catch((err: unknown) => {
+        log.warn("the attachment sweep failed", { reason: describeError(err) });
+      });
+    }
   }
 
   /** Re-lists from this device's copy, without reading the server. */

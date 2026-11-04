@@ -43,6 +43,18 @@ export function markdownToDoc(markdown: string): Doc {
   return content.length > 0 ? { type: "doc", content } : emptyDoc();
 }
 
+/** Ids of the photos a markdown body shows, read from the parsed document. */
+export function attachmentIdsIn(markdown: string): Set<string> {
+  const ids = new Set<string>();
+  const visit = (node: DocNode) => {
+    const id = node.attrs?.attachmentId;
+    if (node.type === "attachmentImage" && typeof id === "string") ids.add(id);
+    node.content?.forEach(visit);
+  };
+  markdownToDoc(markdown).content.forEach(visit);
+  return ids;
+}
+
 function blocksToNodes(blocks: MdBlock[]): DocNode[] {
   const out: DocNode[] = [];
   for (const block of blocks) out.push(...blockToNodes(block));

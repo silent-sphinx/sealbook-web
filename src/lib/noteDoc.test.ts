@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { docToMarkdown, markdownToDoc, type Doc } from "./noteDoc";
+import { attachmentIdsIn, docToMarkdown, markdownToDoc, type Doc } from "./noteDoc";
 
 /** What a note looks like after one trip through the editor. */
 function round(markdown: string): string {
@@ -86,6 +86,18 @@ describe("markdownToDoc", () => {
     };
     walk(doc as unknown as { content?: unknown[] });
     expect(texts.every((text) => text.length > 0)).toBe(true);
+  });
+});
+
+describe("attachmentIdsIn", () => {
+  it("lists the photos a body shows, nested or not", () => {
+    const body = "![a](attachment:one)\n\n- item ![b](attachment:two)";
+    expect([...attachmentIdsIn(body)].sort()).toEqual(["one", "two"]);
+  });
+
+  it("ignores a spelling quoted in code", () => {
+    const body = "```\n![a](attachment:one)\n```\n\nuse `![a](attachment:two)` here";
+    expect(attachmentIdsIn(body).size).toBe(0);
   });
 });
 

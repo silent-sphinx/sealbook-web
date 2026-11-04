@@ -32,6 +32,7 @@ import {
   serializeNote,
   sortNotes,
 } from "../lib/note";
+import { attachmentIdsIn } from "../lib/noteDoc";
 import { ancestorsOf, buildNoteTree, canReparent, noteSubtree } from "../lib/noteTree";
 import {
   focusRing,
@@ -321,9 +322,22 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     reloadFrom(parseNote(id, stored.payload));
   }, [notes]);
 
+  // Entries whose photo the body no longer shows. Run when an editing session
+  // ends, so an undone delete within it still finds its photo.
+  function pruneUnshown() {
+    const id = editingId.current;
+    const current = draftRef.current;
+    if (!id || !current?.attachments?.length) return;
+    const shown = attachmentIdsIn(current.body);
+    const attachments = current.attachments.filter((entry) => shown.has(entry.id));
+    if (attachments.length === current.attachments.length) return;
+    autosaver.schedule({ id, draft: { ...current, attachments } });
+  }
+
   function openNote(note: Note) {
     // Flushed, not cancelled: the queue is keyed by note, so the edit being left
     // behind goes out while this one is opened.
+    pruneUnshown();
     void autosaver.flush();
     editingId.current = note.id;
     baseRef.current = { id: note.id, object: vaultObject(note.id) };
@@ -348,6 +362,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   }
 
   function newNote(parentId?: string) {
+    pruneUnshown();
     void autosaver.flush();
     // The id is issued here so every write for this note is an update.
     editingId.current = newNoteId();
@@ -361,6 +376,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   }
 
   async function closeEditor() {
+    pruneUnshown();
     editingId.current = null;
     baseRef.current = { id: "" };
     setSelectedId(null);

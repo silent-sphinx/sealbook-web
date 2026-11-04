@@ -19,7 +19,7 @@ import "../test/dom";
 import { DEFAULT_NOTEBOOK_ID, serializeNote } from "../lib/note";
 import { useSidebar } from "./SidebarDrawer";
 import type { Session } from "../lib/client";
-import type { Note, NoteDraft, Notebook } from "../lib/types";
+import type { Note, NoteAttachment, NoteDraft, Notebook } from "../lib/types";
 
 /** The faked vault, read back by `onRefresh` as the server's copy would be. */
 let notes: Note[] = [];
@@ -108,6 +108,10 @@ function aNote(overrides: Partial<Note> & { id: string }): Note {
     raw: "{}",
     ...overrides,
   };
+}
+
+function anAttachment(id: string): NoteAttachment {
+  return { id, filename: `${id}.png`, mimeType: "image/png", byteSize: 1, adk: "k", contentHash: "h", chunkSize: 1, chunkCount: 1 };
 }
 
 const DEFAULT_BOOK: Notebook = {
@@ -561,6 +565,55 @@ describe("NotesView, the editor", () => {
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]!.draft.title).toBe("Shopping list");
     expect(titleField().value).toBe("Recipes");
+  });
+
+  it("drops a photo entry the body no longer shows when the editor is closed", async () => {
+    mount({
+      notes: [
+        aNote({
+          id: "a",
+          title: "Trip",
+          body: "![kept](attachment:keep)",
+          attachments: [anAttachment("keep"), anAttachment("gone")],
+        }),
+      ],
+    });
+    await openNote("Trip");
+    fireEvent.click(screen.getAllByRole("button", { name: "Back to notes" })[0]!);
+
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]!.draft.attachments?.map((entry) => entry.id)).toEqual(["keep"]);
+  });
+
+  it("keeps every entry the body shows, writing nothing on close", async () => {
+    mount({
+      notes: [
+        aNote({
+          id: "a",
+          title: "Trip",
+          body: "![kept](attachment:keep)",
+          attachments: [anAttachment("keep")],
+        }),
+      ],
+    });
+    await openNote("Trip");
+    fireEvent.click(screen.getAllByRole("button", { name: "Back to notes" })[0]!);
+    await waitFor(() => expect(screen.queryByLabelText("Note title")).toBeNull());
+    expect(writes).toHaveLength(0);
+  });
+
+  it("drops the entry when the note is left for another", async () => {
+    mount({
+      notes: [
+        aNote({ id: "a", title: "Trip", body: "", attachments: [anAttachment("gone")] }),
+        aNote({ id: "b", title: "Recipes" }),
+      ],
+    });
+    await openNote("Trip");
+    await openNote("Recipes");
+
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]!.draft.attachments).toEqual([]);
   });
 
   it("counts the words in the body", async () => {
