@@ -3,12 +3,16 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_CALENDAR_ID,
   DEFAULT_CALENDAR_NAME,
+  MAX_EVENT_ALERTS,
   UNTITLED_CALENDAR_NAME,
   UNTITLED_EVENT_TITLE,
+  alertLabel,
+  alertPresets,
   calendarNameById,
   parseCalendar,
   parseEvent,
   serializeCalendar,
+  retimeAlerts,
   serializeEvent,
 } from "./calendar";
 import { CALENDAR_CONTENT_TYPE, CALENDAR_EVENT_CONTENT_TYPE } from "./calendarApi";
@@ -42,6 +46,9 @@ type Fixture = {
     default_calendar_color: string;
     untitled_calendar_name: string;
     untitled_event_title: string;
+    max_event_alerts: number;
+    timed_alert_presets: { minutes_before: number; label: string }[];
+    all_day_alert_presets: { minutes_before: number; label: string }[];
   };
   calendar_writes: { case: string; draft: CoreCalendarDraft; payload: string }[];
   calendar_parses: { case: string; id: string; raw: string; calendar: CoreCalendar }[];
@@ -67,11 +74,43 @@ describe("the constants this client mirrors", () => {
     expect(DEFAULT_CALENDAR_COLOR).toBe(fixture.constants.default_calendar_color);
     expect(UNTITLED_CALENDAR_NAME).toBe(fixture.constants.untitled_calendar_name);
     expect(UNTITLED_EVENT_TITLE).toBe(fixture.constants.untitled_event_title);
+    expect(MAX_EVENT_ALERTS).toBe(fixture.constants.max_event_alerts);
   });
 
   it("include the owned key sets, which are the union across every client", () => {
     expect(coreCalendarKeys()).toEqual(fixture.constants.calendar_keys);
     expect(coreCalendarEventKeys()).toEqual(fixture.constants.calendar_event_keys);
+  });
+});
+
+describe("event reminders", () => {
+  it("offer the presets and labels every client shows", () => {
+    for (const [allDay, expected] of [
+      [false, fixture.constants.timed_alert_presets],
+      [true, fixture.constants.all_day_alert_presets],
+    ] as const) {
+      expect(
+        alertPresets(allDay).map((minutes) => ({
+          minutes_before: minutes,
+          label: alertLabel({ minutesBefore: minutes }, allDay),
+        })),
+      ).toEqual(expected);
+    }
+  });
+
+  it("survive a save through this client's view model, unreadable entries included", () => {
+    const stored =
+      '{"@type":"CalendarEvent","version":"1.0","title":"t","start":"2026-10-01T09:00:00Z","alerts":[{"minutesBefore":15},{"at":"later"},{"minutesBefore":60,"sound":"chime"}]}';
+    const event = parseEvent("e1", stored);
+    expect(event.alerts).toEqual([{ minutesBefore: 60, extra: '{"sound":"chime"}' }, { minutesBefore: 15 }]);
+    const written = JSON.parse(serializeEvent(event)) as Record<string, unknown>;
+    expect(written.alerts).toEqual([{ minutesBefore: 60, sound: "chime" }, { minutesBefore: 15 }, { at: "later" }]);
+  });
+
+  it("keep their days before when an event switches to all-day and back", () => {
+    const allDay = retimeAlerts([{ minutesBefore: 1440 }, { minutesBefore: 15 }, { minutesBefore: 30 }], true);
+    expect(allDay.map((alert) => alert.minutesBefore)).toEqual([900, -540]);
+    expect(retimeAlerts(allDay, false).map((alert) => alert.minutesBefore)).toEqual([1440, 0]);
   });
 });
 

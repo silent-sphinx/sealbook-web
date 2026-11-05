@@ -1,6 +1,9 @@
-import { DEFAULT_CALENDAR_COLOR, type Calendar, type CalendarEvent, type RecurrenceRule } from "./types";
+import { DEFAULT_CALENDAR_COLOR, type Calendar, type CalendarEvent, type EventAlert, type RecurrenceRule } from "./types";
 import { COLLECTION_PALETTE } from "./collectionPalette";
 import {
+  coreAlertLabel,
+  coreAlertPresets,
+  coreAlertRetimed,
   coreCalendarNameById,
   coreCalendarParse,
   coreCalendarWrite,
@@ -23,6 +26,7 @@ export const DEFAULT_CALENDAR_NAME = "Default Calendar";
 export const DEFAULT_CALENDAR_ID = "00000000-0000-0000-0000-000000000003";
 export const UNTITLED_CALENDAR_NAME = "Untitled calendar";
 export const UNTITLED_EVENT_TITLE = "Untitled event";
+export const MAX_EVENT_ALERTS = 10;
 
 /**
  * The wire form of a calendar and of an event.
@@ -92,6 +96,11 @@ export function coreEventDraftOf(
     calendar_id: event.calendarId,
     recurrence: event.recurrence ? recurrenceTo(event.recurrence) : undefined,
     unreadable_recurrence: event.unreadableRecurrence,
+    alerts: (event.alerts ?? []).map((alert) => ({
+      minutes_before: alert.minutesBefore,
+      extra: alert.extra,
+    })),
+    unreadable_alerts: event.unreadableAlerts ?? [],
     raw: event.raw,
   };
 }
@@ -113,6 +122,10 @@ function eventFrom(event: CoreCalendarEvent): CalendarEvent {
     calendarId: event.calendar_id,
     recurrence: event.recurrence ? recurrenceFrom(event.recurrence) : undefined,
     unreadableRecurrence: event.unreadable_recurrence,
+    alerts: event.alerts?.length
+      ? event.alerts.map((alert) => ({ minutesBefore: alert.minutes_before, extra: alert.extra }))
+      : undefined,
+    unreadableAlerts: event.unreadable_alerts?.length ? event.unreadable_alerts : undefined,
     readable: event.readable,
     raw: event.raw,
   };
@@ -219,4 +232,23 @@ export function visibleCalendarIds(
       .filter((calendar) => isCalendarVisible(calendar, hidden, shownArchived))
       .map((calendar) => calendar.id),
   );
+}
+
+/** The reminders an event editor offers, furthest from the start first. */
+export function alertPresets(allDay: boolean): number[] {
+  return coreAlertPresets(allDay);
+}
+
+export function alertLabel(alert: EventAlert, allDay: boolean): string {
+  return coreAlertLabel(alert.minutesBefore, allDay);
+}
+
+/** The reminders kept when an event switches to all-day or back. */
+export function retimeAlerts(alerts: EventAlert[], allDay: boolean): EventAlert[] {
+  const kept = new Map<number, EventAlert>();
+  for (const alert of alerts) {
+    const minutesBefore = coreAlertRetimed(alert.minutesBefore, allDay);
+    if (!kept.has(minutesBefore)) kept.set(minutesBefore, { ...alert, minutesBefore });
+  }
+  return [...kept.values()].sort((a, b) => b.minutesBefore - a.minutesBefore);
 }

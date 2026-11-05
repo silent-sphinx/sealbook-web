@@ -161,6 +161,42 @@ describe("saving an event that was opened for editing", () => {
   });
 });
 
+describe("reminders", () => {
+  it("are added and removed in the dialog and written with the event", async () => {
+    const event = anEvent();
+    const raw = JSON.stringify({
+      ...(JSON.parse(event.raw!) as Record<string, unknown>),
+      alerts: [{ minutesBefore: 10 }, { at: "from a later build" }],
+    });
+    mount([{ ...parseEvent("event-1", raw), id: "event-1" }]);
+
+    fireEvent.click(screen.getByText("Standup"));
+    await screen.findByPlaceholderText("Event title");
+    fireEvent.click(screen.getByRole("button", { name: "Remove reminder 10 minutes before" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Add reminder" }), { target: { value: "1440" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Add reminder" }), { target: { value: "15" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(writes.length).toBe(1));
+    const payload = JSON.parse(writes[0]!.payload) as Record<string, unknown>;
+    expect(payload.alerts).toEqual([{ minutesBefore: 1440 }, { minutesBefore: 15 }, { at: "from a later build" }]);
+  });
+
+  it("keep their days before, at 09:00, when the event becomes all-day", async () => {
+    const event = anEvent();
+    const raw = JSON.stringify({
+      ...(JSON.parse(event.raw!) as Record<string, unknown>),
+      alerts: [{ minutesBefore: 1440 }],
+    });
+    mount([{ ...parseEvent("event-1", raw), id: "event-1" }]);
+
+    fireEvent.click(screen.getByText("Standup"));
+    await screen.findByPlaceholderText("Event title");
+    fireEvent.click(screen.getByRole("checkbox", { name: "All day" }));
+    expect(screen.getByRole("button", { name: "Remove reminder 1 day before at 09:00" })).toBeTruthy();
+  });
+});
+
 describe("while the save is in flight", () => {
   it("reports the save on the button and takes no second submit", async () => {
     const write = held();

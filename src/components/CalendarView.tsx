@@ -7,9 +7,10 @@ import {
   putCalendarEvent,
   type Session,
 } from "../lib/client";
-import type { Calendar, CalendarEvent, Contact, RecurrenceRule, Task } from "../lib/types";
+import type { Calendar, CalendarEvent, Contact, EventAlert, RecurrenceRule, Task } from "../lib/types";
+import { ReminderField } from "./ReminderField";
 import { dueTaskMarks } from "../lib/taskCalendar";
-import { DEFAULT_CALENDAR_ID, UNTITLED_EVENT_TITLE, activeCalendars, archivedCalendars, isCalendarVisible, nextCalendarColor, visibleCalendarIds } from "../lib/calendar";
+import { DEFAULT_CALENDAR_ID, UNTITLED_EVENT_TITLE, activeCalendars, archivedCalendars, isCalendarVisible, nextCalendarColor, retimeAlerts, visibleCalendarIds } from "../lib/calendar";
 import { friendlyError } from "../lib/errors";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SidebarDrawer, SidebarHeader, SidebarSection, type Sidebar } from "./SidebarDrawer";
@@ -214,6 +215,7 @@ export function CalendarView({
   const [allDay, setAllDay] = useState(false);
   const [notes, setNotes] = useState("");
   const [location, setLocation] = useState("");
+  const [alerts, setAlerts] = useState<EventAlert[]>([]);
   const [participants, setParticipants] = useState<string[]>([]);
   const [repeatChoice, setRepeatChoice] = useState<RepeatChoice>("none");
   const [customFrequency, setCustomFrequency] = useState<"daily" | "weekly" | "monthly" | "yearly">("weekly");
@@ -453,6 +455,7 @@ export function CalendarView({
     setNotes("");
     setLocation("");
     setParticipants([]);
+    setAlerts([]);
     setAllDay(false);
     setEventCalendarId(activeCals[0]?.id ?? "");
     const startHour = hour === undefined ? 9 : Math.min(23, Math.max(0, hour));
@@ -481,6 +484,7 @@ export function CalendarView({
     setAllDay(!event.start.includes("T"));
     setNotes(event.notes ?? "");
     setLocation(event.location ?? "");
+    setAlerts(event.alerts ?? []);
     setParticipants(event.participants ?? []);
     setEventCalendarId(event.calendarId ?? activeCals[0]?.id ?? "");
     const rule = event.recurrence;
@@ -587,10 +591,12 @@ export function CalendarView({
           timezone,
           calendarId: eventCalendarId || undefined,
           recurrence,
-          // Neither is shown or edited: the composer rebuilds the event from
+          alerts,
+          // None of these is shown or edited: the composer rebuilds the event from
           // its fields, so without these a save drops every key this build does
           // not own and any stored rule core could not name.
           unreadableRecurrence: recurrence ? undefined : editingEvent?.unreadableRecurrence,
+          unreadableAlerts: editingEvent?.unreadableAlerts,
           raw: editingEvent?.raw,
         },
         editingEvent?.id,
@@ -785,7 +791,7 @@ export function CalendarView({
         </section>
       </div>
 
-      {composer ? <TaskDialog editing={editingEvent !== null} title={title} start={start} end={end} notes={notes} location={location} participants={participants} contacts={contacts} allDay={allDay} calendarId={eventCalendarId} calendars={composerCalendars} repeatChoice={repeatChoice} customFrequency={customFrequency} customInterval={customInterval} repeatEnd={repeatEnd} repeatCount={repeatCount} repeatUntil={repeatUntil} minRepeatUntil={start.slice(0, 10)} busy={busy} saving={saving} removing={removingEvent} error={error} onClose={() => { if (!saving && !removingEvent) closeTaskDialog(); }} onSave={() => void saveEvent()} onDelete={editingEvent ? () => void removeEvent() : undefined} onTitleChange={setTitle} onStartChange={updateStart} onEndChange={setEnd} onNotesChange={setNotes} onLocationChange={setLocation} onParticipantsChange={setParticipants} onAllDayChange={setAllDay} onCalendarChange={setEventCalendarId} onRepeatChange={touched(setRepeatChoice)} onCustomFrequencyChange={touched(setCustomFrequency)} onCustomIntervalChange={touched(setCustomInterval)} onRepeatEndChange={touched(setRepeatEnd)} onRepeatCountChange={touched(setRepeatCount)} onRepeatUntilChange={touched(setRepeatUntil)} /> : null}
+      {composer ? <TaskDialog editing={editingEvent !== null} title={title} start={start} end={end} notes={notes} location={location} alerts={alerts} participants={participants} contacts={contacts} allDay={allDay} calendarId={eventCalendarId} calendars={composerCalendars} repeatChoice={repeatChoice} customFrequency={customFrequency} customInterval={customInterval} repeatEnd={repeatEnd} repeatCount={repeatCount} repeatUntil={repeatUntil} minRepeatUntil={start.slice(0, 10)} busy={busy} saving={saving} removing={removingEvent} error={error} onClose={() => { if (!saving && !removingEvent) closeTaskDialog(); }} onSave={() => void saveEvent()} onDelete={editingEvent ? () => void removeEvent() : undefined} onTitleChange={setTitle} onStartChange={updateStart} onEndChange={setEnd} onNotesChange={setNotes} onLocationChange={setLocation} onAlertsChange={setAlerts} onParticipantsChange={setParticipants} onAllDayChange={(value) => { if (value !== allDay) setAlerts((current) => retimeAlerts(current, value)); setAllDay(value); }} onCalendarChange={setEventCalendarId} onRepeatChange={touched(setRepeatChoice)} onCustomFrequencyChange={touched(setCustomFrequency)} onCustomIntervalChange={touched(setCustomInterval)} onRepeatEndChange={touched(setRepeatEnd)} onRepeatCountChange={touched(setRepeatCount)} onRepeatUntilChange={touched(setRepeatUntil)} /> : null}
       {confirmDeleteCalendar && editingCalendar ? (
         <ConfirmDialog
           title="Delete calendar"
@@ -961,7 +967,7 @@ function ParticipantPicker({
   );
 }
 
-function TaskDialog({ editing, title, start, end, notes, location, participants, contacts, allDay, calendarId, calendars, repeatChoice, customFrequency, customInterval, repeatEnd, repeatCount, repeatUntil, minRepeatUntil, busy, saving, removing, error, onClose, onSave, onDelete, onTitleChange, onStartChange, onEndChange, onNotesChange, onLocationChange, onParticipantsChange, onAllDayChange, onCalendarChange, onRepeatChange, onCustomFrequencyChange, onCustomIntervalChange, onRepeatEndChange, onRepeatCountChange, onRepeatUntilChange }: { editing: boolean; title: string; start: string; end: string; notes: string; location: string; participants: string[]; contacts: Contact[]; allDay: boolean; calendarId: string; calendars: Calendar[]; repeatChoice: RepeatChoice; customFrequency: "daily" | "weekly" | "monthly" | "yearly"; customInterval: number; repeatEnd: RepeatEnd; repeatCount: number; repeatUntil: string; minRepeatUntil: string; busy: boolean; saving: boolean; removing: boolean; error: string | null; onClose: () => void; onSave: () => void; onDelete?: () => void; onTitleChange: (value: string) => void; onStartChange: (value: string) => void; onEndChange: (value: string) => void; onNotesChange: (value: string) => void; onLocationChange: (value: string) => void; onParticipantsChange: (value: string[]) => void; onAllDayChange: (value: boolean) => void; onCalendarChange: (value: string) => void; onRepeatChange: (value: RepeatChoice) => void; onCustomFrequencyChange: (value: "daily" | "weekly" | "monthly" | "yearly") => void; onCustomIntervalChange: (value: number) => void; onRepeatEndChange: (value: "never" | "count" | "date") => void; onRepeatCountChange: (value: number) => void; onRepeatUntilChange: (value: string) => void }) {
+function TaskDialog({ editing, title, start, end, notes, location, alerts, participants, contacts, allDay, calendarId, calendars, repeatChoice, customFrequency, customInterval, repeatEnd, repeatCount, repeatUntil, minRepeatUntil, busy, saving, removing, error, onClose, onSave, onDelete, onTitleChange, onStartChange, onEndChange, onNotesChange, onLocationChange, onAlertsChange, onParticipantsChange, onAllDayChange, onCalendarChange, onRepeatChange, onCustomFrequencyChange, onCustomIntervalChange, onRepeatEndChange, onRepeatCountChange, onRepeatUntilChange }: { editing: boolean; title: string; start: string; end: string; notes: string; location: string; alerts: EventAlert[]; participants: string[]; contacts: Contact[]; allDay: boolean; calendarId: string; calendars: Calendar[]; repeatChoice: RepeatChoice; customFrequency: "daily" | "weekly" | "monthly" | "yearly"; customInterval: number; repeatEnd: RepeatEnd; repeatCount: number; repeatUntil: string; minRepeatUntil: string; busy: boolean; saving: boolean; removing: boolean; error: string | null; onClose: () => void; onSave: () => void; onDelete?: () => void; onTitleChange: (value: string) => void; onStartChange: (value: string) => void; onEndChange: (value: string) => void; onNotesChange: (value: string) => void; onLocationChange: (value: string) => void; onAlertsChange: (value: EventAlert[]) => void; onParticipantsChange: (value: string[]) => void; onAllDayChange: (value: boolean) => void; onCalendarChange: (value: string) => void; onRepeatChange: (value: RepeatChoice) => void; onCustomFrequencyChange: (value: "daily" | "weekly" | "monthly" | "yearly") => void; onCustomIntervalChange: (value: number) => void; onRepeatEndChange: (value: "never" | "count" | "date") => void; onRepeatCountChange: (value: number) => void; onRepeatUntilChange: (value: string) => void }) {
   return (
     <Modal title={editing ? "Edit event" : "New event"} onClose={onClose}>
         <div className="event-dialog flex-1 space-y-3 overflow-y-auto px-5 py-4">
@@ -1004,6 +1010,8 @@ function TaskDialog({ editing, title, start, end, notes, location, participants,
               </label>
             </div>
           </div>
+
+          <ReminderField alerts={alerts} allDay={allDay} onChange={onAlertsChange} />
 
           <label className="block text-[11px] font-medium text-mute">
             Repeat event

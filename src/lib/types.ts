@@ -325,10 +325,22 @@ export type CalendarEvent = {
    * degrade-invisibly rule one level in from the payload.
    */
   unreadableRecurrence?: string;
+  alerts?: EventAlert[];
+  /** Stored reminders core could not read, carried through a save as `unreadableRecurrence` is. */
+  unreadableAlerts?: string[];
   /** False for a payload from a schema major this build may read but not write. */
   readable?: boolean;
   /** As `NoteDraft.raw`: what a save merges onto, so unknown fields survive. */
   raw?: string;
+};
+
+/**
+ * Counted back from a timed start, or from local midnight on an all-day
+ * event's first day, so -540 is 09:00 on the day.
+ */
+export type EventAlert = {
+  minutesBefore: number;
+  extra?: string;
 };
 
 export type RecurrenceFrequency = "daily" | "weekly" | "monthly" | "yearly";

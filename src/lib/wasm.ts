@@ -93,6 +93,9 @@ import init, {
   core_default_notebook_id,
   core_resolve_address_book_id,
   core_event_parse,
+  core_alert_label,
+  core_alert_presets,
+  core_alert_retimed,
   core_is_calendar_day,
   core_payload_kind,
   core_write_batches,
@@ -1786,6 +1789,19 @@ export function coreEventParse(id: string, raw: string): CoreCalendarEvent {
  */
 export function coreEventWrite(draft: CoreCalendarEventDraft): string {
   return core_event_write(draft);
+}
+
+/** The reminders an event editor offers, in minutes before the start. */
+export function coreAlertPresets(allDay: boolean): number[] {
+  return Array.from(core_alert_presets(allDay));
+}
+
+export function coreAlertRetimed(minutesBefore: number, allDay: boolean): number {
+  return core_alert_retimed(minutesBefore, allDay);
+}
+
+export function coreAlertLabel(minutesBefore: number, allDay: boolean): string {
+  return core_alert_label(minutesBefore, allDay);
 }
 
 /**
