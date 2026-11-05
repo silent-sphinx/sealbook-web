@@ -1,4 +1,5 @@
 import type { AccountImportObject } from "./accountExport";
+import type { DeviceLabel } from "./devices";
 import { bytesFromJson } from "./bytes";
 import {
   coreChangesPageRead,
@@ -204,6 +205,8 @@ export type VaultListing = {
    * `LEGACY_ACCOUNT_SETTINGS_ID` needs acting on: see `ensureDefaultCalendar`.
    */
   accountSettingsId?: string;
+  /** Every device label object, for joining onto the roster. */
+  deviceLabels: DeviceLabel[];
   /**
    * Rows the manifest verified but this device could not open, so a partly
    * unreadable vault is not presented as a partly empty one. A non-zero count
@@ -588,6 +591,7 @@ export function listingFrom(objects: LocalObject[], unopened: number): VaultList
   let accountSettings = DEFAULT_ACCOUNT_SETTINGS;
   let accountSettingsRaw: string | undefined;
   let accountSettingsId: string | undefined;
+  const deviceLabels: DeviceLabel[] = [];
   for (const { id, content_type: contentType, payload: raw } of objects) {
     const obj = { id };
     try {
@@ -632,6 +636,9 @@ export function listingFrom(objects: LocalObject[], unopened: number): VaultList
         case "contact":
           contacts.push(parseContact(obj.id, raw, "", 0));
           break;
+        case "device_label":
+          deviceLabels.push({ object_id: obj.id, payload: raw });
+          break;
         default:
           // Not a shape this build knows. Skipping it is the only safe answer: a
           // newer content type read as a contact would be destroyed by its edit
@@ -669,6 +676,7 @@ export function listingFrom(objects: LocalObject[], unopened: number): VaultList
     accountSettings,
     accountSettingsRaw,
     accountSettingsId,
+    deviceLabels,
     unopened,
   };
 }

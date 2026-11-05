@@ -5,7 +5,9 @@ import type { SettingsPage } from "../lib/settingsModel";
 
 export type Notice = { type: "success" | "error" | "warning"; text: string } | null;
 
-const MARK_PATHS: Record<SettingsPage | "upload" | "menu", string> = {
+export type DeviceMark = "device-web" | "device-firefox" | "device-android" | "device-cli";
+
+const MARK_PATHS: Record<SettingsPage | "upload" | "menu" | DeviceMark, string> = {
   username: "M8 8a2.75 2.75 0 1 0 0-5.5A2.75 2.75 0 0 0 8 8Zm-5 5.5a5 5 0 0 1 10 0",
   password: "M10 9.5a3.5 3.5 0 1 0-3.4-2.7L2.5 10.9v2.6h2.6v-1.5h1.5v-1.5h1.3l.4-.4c.5.3 1.1.4 1.7.4Zm1-5h.01",
   devices: "M2.5 3.5h8v6h-8zM1.5 12.5h10M12.5 6h2v7.5h-2z",
@@ -22,6 +24,10 @@ const MARK_PATHS: Record<SettingsPage | "upload" | "menu", string> = {
   tasks: "m2.75 4.5 1.25 1.25 2.25-2.5M2.75 10.5l1.25 1.25 2.25-2.5M8.75 4.75h4.5M8.75 10.75h4.5",
   upload: "M8 10.5v-8M5 5.5l3-3 3 3M2.5 10.5v2a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-2",
   menu: "M2.5 4h11M2.5 8h11M2.5 12h11",
+  "device-web": "M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2.5 8h11M8 2.5c1.5 1.6 2.25 3.4 2.25 5.5S9.5 11.9 8 13.5M8 2.5C6.5 4.1 5.75 5.9 5.75 8S6.5 11.9 8 13.5",
+  "device-firefox": "M3 5.5h2.25a1.5 1.5 0 1 1 3 0h2.25v2.25a1.5 1.5 0 1 1 0 3V13H3z",
+  "device-android": "M5 1.75h6v12.5H5zM7.25 12h1.5",
+  "device-cli": "M2.5 3h11v10h-11zM5 6.25 6.75 8 5 9.75M8.25 10h2.75",
 };
 
 export function SettingsMark({

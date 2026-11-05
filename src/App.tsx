@@ -36,7 +36,9 @@ import {
   completeRecoveryRotation,
   deleteAddressBook,
   deleteContact,
+  browserPlatform,
   ensureDefaultAddressBook,
+  ensureDeviceLabel,
   flushOutbox,
   listVault,
   listingFrom,
@@ -56,6 +58,8 @@ import {
   recoverAccount,
   registerAccount,
   revokeSession,
+  thisDeviceName,
+  type DeviceLabel,
   type Session,
   type VaultListing,
   type VaultProgress,
@@ -209,6 +213,10 @@ export default function App() {
   const [accountSettings, setAccountSettings] = useState<AccountSettings>(DEFAULT_ACCOUNT_SETTINGS);
   /** The settings payload last read, so a save merges onto it. */
   const accountSettingsRaw = useRef<string | undefined>(undefined);
+  const [deviceLabels, setDeviceLabels] = useState<DeviceLabel[]>([]);
+  // The device whose label this session has already checked, so a refresh does
+  // not rewrite it.
+  const labelledDevice = useRef<string | null>(null);
   /**
    * The address books switched off in the sidebar, as `loadHiddenAddressBooks`
    * holds them. Loaded per collection once a vault is open, since the key is
@@ -383,6 +391,10 @@ export default function App() {
   const locked = Boolean(stored);
   const isOffline = !online || session?.offline === true;
 
+  const deviceName = useMemo(
+    () => (session ? thisDeviceName(session, deviceLabels) : ""),
+    [session, deviceLabels],
+  );
   // Settings is always present: it is where a feature gets turned back on.
   const visibleTabs = useMemo(
     () => TABS.filter((tab) => tab.id === "settings" || isFeatureEnabled(accountSettings, tab.id)),
@@ -771,11 +783,28 @@ export default function App() {
       setVaultOpened(true);
     }
     applyListing(next, listed, books, selectContactId);
+    if (fromServer && labelledDevice.current !== next.state.device_id) {
+      labelledDevice.current = next.state.device_id;
+      void ensureDeviceLabel(next, listed.deviceLabels, "web", browserPlatform())
+        .then((label) => {
+          if (label) upsertDeviceLabel(label);
+        })
+        .catch((err: unknown) => {
+          log.warn("this device's label could not be written", { reason: describeError(err) });
+        });
+    }
     if (fromServer) {
       void sweepIfDue(next, listed).catch((err: unknown) => {
         log.warn("the attachment sweep failed", { reason: describeError(err) });
       });
     }
+  }
+
+  function upsertDeviceLabel(label: DeviceLabel) {
+    setDeviceLabels((current) => [
+      ...current.filter((stored) => stored.object_id !== label.object_id),
+      label,
+    ]);
   }
 
   /** Re-lists from this device's copy, without reading the server. */
@@ -811,6 +840,7 @@ export default function App() {
     setTaskLists(listed.taskLists);
     setAccountSettings(listed.accountSettings);
     accountSettingsRaw.current = listed.accountSettingsRaw;
+    setDeviceLabels(listed.deviceLabels);
     setUnopened(listed.unopened);
     setHiddenBooks((current) => {
       const pruned = pruneHiddenAddressBooks(books, current);
@@ -944,6 +974,8 @@ export default function App() {
     setTasks([]);
     setTaskLists([]);
     setAccountSettings(DEFAULT_ACCOUNT_SETTINGS);
+    setDeviceLabels([]);
+    labelledDevice.current = null;
     setHiddenBooks(new Set());
     setViewingArchive(false);
     setAdding(false);
@@ -1912,7 +1944,10 @@ export default function App() {
               <Logo className="h-8 w-8" />
               <div>
                 <p className="font-semibold tracking-tight">Sealbook</p>
-                <p className="text-xs text-mute">{session.state.username}</p>
+                <p className="text-xs text-mute">
+                  {session.state.username}
+                  {deviceName ? <span title="This device's name"> · {deviceName}</span> : null}
+                </p>
               </div>
             </div>
 
@@ -2044,6 +2079,8 @@ export default function App() {
             weekStart={weekStart}
             onWeekStartChange={setWeekStart}
             accountSettings={accountSettings}
+            deviceLabels={deviceLabels}
+            onDeviceLabelSaved={upsertDeviceLabel}
             onSaveAccountSettings={onSaveAccountSettings}
             initialSection={settingsSection ?? undefined}
             sidebar={sidebar}

@@ -1,4 +1,10 @@
 import init, {
+  core_describe_user_agent,
+  core_device_entries,
+  core_device_label_ensure,
+  core_device_label_rename,
+  core_stale_device_labels,
+  core_user_agent_os,
   core_accept_manifest_seq,
   core_account_challenge_request,
   core_change_password_request,
@@ -217,6 +223,11 @@ import init, {
   sealed_content_type,
   unwrap_ck,
   wrap_ck_for_device,
+} from "../pkg/sealbook_wasm.js";
+import type {
+  CoreDeviceEntry,
+  CoreDeviceKind,
+  CoreDeviceLabelObject,
 } from "../pkg/sealbook_wasm.js";
 import type {
   AppliedManifest,
@@ -2369,4 +2380,45 @@ export function coreWriteGuard(
 /** What a write request's HTTP status means, with 0 for no response. */
 export function coreFlushFailure(status: number): FlushFailure {
   return core_flush_failure(status);
+}
+
+export type { CoreDeviceEntry, CoreDeviceKind, CoreDeviceLabelObject };
+
+/** "Firefox on macOS" from a user agent. Empty when nothing is recognised. */
+export function coreDescribeUserAgent(userAgent: string): string {
+  return core_describe_user_agent(userAgent);
+}
+
+export function coreUserAgentOs(userAgent: string): string {
+  return core_user_agent_os(userAgent);
+}
+
+/** The label this device owes, or undefined when the stored one is current. */
+export function coreDeviceLabelEnsure(
+  labels: CoreDeviceLabelObject[],
+  deviceId: string,
+  kind: CoreDeviceKind,
+  platform: string,
+): CoreDeviceLabelObject | undefined {
+  return core_device_label_ensure(labels, deviceId, kind, platform);
+}
+
+export function coreDeviceLabelRename(
+  labels: CoreDeviceLabelObject[],
+  deviceId: string,
+  name: string,
+): CoreDeviceLabelObject {
+  return core_device_label_rename(labels, deviceId, name);
+}
+
+export function coreDeviceEntries(
+  roster: string[],
+  labels: CoreDeviceLabelObject[],
+  current: string,
+): CoreDeviceEntry[] {
+  return core_device_entries(roster, labels, current);
+}
+
+export function coreStaleDeviceLabels(roster: string[], labels: CoreDeviceLabelObject[]): string[] {
+  return [...core_stale_device_labels(roster, labels)];
 }

@@ -112,3 +112,16 @@ export {
 export type { SealedWrite } from "./clientFlush";
 
 export { rotateAuthenticated } from "./clientRotation";
+export {
+  browserOs,
+  browserPlatform,
+  DEVICE_LABEL_CONTENT_TYPE,
+  ensureDeviceLabel,
+  deviceEntries,
+  MAX_DEVICE_NAME_CHARS,
+  removeStaleDeviceLabels,
+  renameDevice,
+  thisDeviceName,
+  type DeviceEntry,
+  type DeviceLabel,
+} from "./devices";

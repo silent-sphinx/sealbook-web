@@ -1,6 +1,17 @@
-import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
-import type { DeviceSummary, Session } from "../lib/client";
-import { changePassword, changeUsername, deleteAccount, listDevices, revokeDevice, rotatePhrase } from "../lib/client";
+import { useCallback, useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import type { DeviceEntry, DeviceLabel, DeviceSummary, Session } from "../lib/client";
+import {
+  changePassword,
+  changeUsername,
+  deleteAccount,
+  deviceEntries,
+  listDevices,
+  MAX_DEVICE_NAME_CHARS,
+  removeStaleDeviceLabels,
+  renameDevice,
+  revokeDevice,
+  rotatePhrase,
+} from "../lib/client";
 import {
   ACCENTS,
   ACCENT_COLORS,
@@ -71,6 +82,7 @@ import {
   SettingsRow,
   Switch,
   actionRow,
+  type DeviceMark,
   type Notice,
 } from "./SettingsKit";
 
@@ -105,12 +117,22 @@ type Props = {
   weekStart: WeekStart;
   onWeekStartChange: (weekStart: WeekStart) => void;
   accountSettings: AccountSettings;
+  /** Every device label in the vault, joined onto the roster for display. */
+  deviceLabels?: DeviceLabel[];
+  /** Folds a label this view just wrote into the app's listing. */
+  onDeviceLabelSaved?: (label: DeviceLabel) => void;
   /** Rejects when the write fails, so the toggle can report it and stay put. */
   onSaveAccountSettings: (settings: AccountSettings) => Promise<void>;
   /** Read once on mount; the view unmounts whenever the Settings tab is left. */
   initialSection?: SettingsSection;
   sidebar: Sidebar;
 };
+
+const NO_LABELS: DeviceLabel[] = [];
+
+function deviceMark(device: DeviceEntry): DeviceMark | "devices" {
+  return device.kind === "unknown" ? "devices" : `device-${device.kind}`;
+}
 
 /** Narrow enough that a label and its field read as one line of sight. */
 const formColumn = "max-w-sm space-y-4";
@@ -142,6 +164,8 @@ export function SettingsView({
   weekStart,
   onWeekStartChange,
   accountSettings,
+  deviceLabels = NO_LABELS,
+  onDeviceLabelSaved,
   onSaveAccountSettings,
   initialSection,
   sidebar,
@@ -165,7 +189,13 @@ export function SettingsView({
   const [newWords, setNewWords] = useState<string[] | null>(null);
   const [devices, setDevices] = useState<DeviceSummary[] | null>(null);
   const [devicesMsg, setDevicesMsg] = useState<Notice>(null);
-  const [revokeTarget, setRevokeTarget] = useState<DeviceSummary | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<DeviceEntry | null>(null);
+  const [renaming, setRenaming] = useState<{ deviceId: string; name: string } | null>(null);
+  const [renameBusy, setRenameBusy] = useState(false);
+  const entries = useMemo(
+    () => (devices === null ? null : deviceEntries(session, devices, deviceLabels)),
+    [session, devices, deviceLabels],
+  );
   const [revokePassword, setRevokePassword] = useState("");
   const [revokeError, setRevokeError] = useState<string | null>(null);
   const [revokeBusy, setRevokeBusy] = useState(false);
@@ -365,6 +395,20 @@ export function SettingsView({
     void loadDevices();
   }, [loadDevices]);
 
+  async function handleRenameDevice() {
+    if (!renaming) return;
+    setRenameBusy(true);
+    setDevicesMsg(null);
+    try {
+      onDeviceLabelSaved?.(await renameDevice(session, deviceLabels, renaming.deviceId, renaming.name));
+      setRenaming(null);
+    } catch (err) {
+      setDevicesMsg({ type: "error", text: friendlyError(err) });
+    } finally {
+      setRenameBusy(false);
+    }
+  }
+
   async function handleRevokeDevice() {
     if (!revokeTarget) return;
     if (!revokePassword) {
@@ -394,6 +438,7 @@ export function SettingsView({
         type: "success",
         text: "Device revoked and the vault key rotated. Save the new recovery phrase below; your previous one no longer works.",
       });
+      await removeStaleDeviceLabels(updated, deviceLabels).catch(() => 0);
       await loadDevices();
       await onRefresh();
     } catch (err) {
@@ -686,41 +731,106 @@ export function SettingsView({
       content = (
         <SettingsGroup
           title="Paired devices"
-          meta={devices ? `${devices.length} device${devices.length === 1 ? "" : "s"}` : undefined}
-          description="Revoking a device rotates the vault key and re-encrypts your data, so the removed device keeps nothing it can still read."
+          meta={entries ? `${entries.length} device${entries.length === 1 ? "" : "s"}` : undefined}
+          description="Each device names itself and reports what it is. Revoking a device rotates the vault key and re-encrypts your data, so the removed device keeps nothing it can still read."
         >
-          {devices === null ? (
+          {entries === null ? (
             <p className="text-xs text-mute">Loading devices…</p>
-          ) : devices.length === 0 ? (
+          ) : entries.length === 0 ? (
             <p className="text-xs text-mute">No devices found.</p>
           ) : (
             <SettingsList>
-              {devices.map((device) => {
-                const isCurrent = device.device_id === session.state.device_id;
+              {entries.map((device) => {
+                const editing = renaming?.deviceId === device.device_id;
                 return (
                   <SettingsRow
                     key={device.device_id}
                     lead={
                       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-mute">
-                        <SettingsMark name="devices" />
+                        <SettingsMark name={deviceMark(device)} />
                       </span>
                     }
-                    label={<span className="font-mono text-xs">{device.device_id}</span>}
-                    description={isCurrent ? <span className="text-accent">This device</span> : "Signed in"}
-                    control={
-                      isCurrent ? null : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRevokeTarget(device);
-                            setRevokePassword("");
-                            setRevokeError(null);
-                            setDevicesMsg(null);
+                    label={
+                      editing ? (
+                        <form
+                          className="flex items-center gap-2"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void handleRenameDevice();
                           }}
-                          className={`${btnSecondary} px-3 py-1.5 text-xs`}
                         >
-                          Revoke
-                        </button>
+                          <input
+                            aria-label="Device name"
+                            autoFocus
+                            value={renaming.name}
+                            maxLength={MAX_DEVICE_NAME_CHARS}
+                            placeholder="Leave empty for a generated name"
+                            disabled={renameBusy}
+                            onChange={(event) => setRenaming({ deviceId: device.device_id, name: event.target.value })}
+                            onKeyDown={(event) => {
+                              if (event.key === "Escape") setRenaming(null);
+                            }}
+                            className={`${field} mt-0 py-1 text-sm`}
+                          />
+                        </form>
+                      ) : (
+                        <span title={device.device_id}>{device.name}</span>
+                      )
+                    }
+                    description={
+                      <>
+                        {device.is_current ? <span className="text-accent">This device</span> : null}
+                        {device.is_current && device.detail ? " · " : null}
+                        {device.detail}
+                      </>
+                    }
+                    control={
+                      editing ? (
+                        <span className="flex gap-2">
+                          <button
+                            type="button"
+                            disabled={renameBusy}
+                            onClick={() => void handleRenameDevice()}
+                            className={`${btnSecondary} px-3 py-1.5 text-xs`}
+                          >
+                            {renameBusy ? "Saving…" : "Save"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={renameBusy}
+                            onClick={() => setRenaming(null)}
+                            className={`${btnSecondary} px-3 py-1.5 text-xs`}
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <span className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRenaming({ deviceId: device.device_id, name: device.label ? device.name : "" });
+                              setDevicesMsg(null);
+                            }}
+                            className={`${btnSecondary} px-3 py-1.5 text-xs`}
+                          >
+                            Rename
+                          </button>
+                          {device.is_current ? null : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRevokeTarget(device);
+                                setRevokePassword("");
+                                setRevokeError(null);
+                                setDevicesMsg(null);
+                              }}
+                              className={`${btnSecondary} px-3 py-1.5 text-xs`}
+                            >
+                              Revoke
+                            </button>
+                          )}
+                        </span>
                       )
                     }
                   />
@@ -1229,8 +1339,12 @@ export function SettingsView({
                 It also replaces your recovery phrase: the current one stops working
                 and the new one is shown once, straight after.
               </span>
-              <span className="block truncate font-mono text-[11px] text-mute">
-                {revokeTarget.device_id}
+              <span className="block">
+                <span className="block font-medium text-text">{revokeTarget.name}</span>
+                <span className="block text-xs text-mute">{revokeTarget.detail}</span>
+                <span className="block truncate font-mono text-[11px] text-mute">
+                  {revokeTarget.device_id}
+                </span>
               </span>
               <label className="block text-xs font-medium text-mute">
                 Confirm your password

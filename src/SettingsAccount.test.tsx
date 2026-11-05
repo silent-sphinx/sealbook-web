@@ -18,7 +18,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import "./test/dom";
 import { aDeviceState } from "./test/vault";
 import { DEFAULT_ACCOUNT_SETTINGS } from "./lib/accountSettings";
-import type { DeviceSummary, Session } from "./lib/client";
+import type { DeviceLabel, DeviceSummary, Session } from "./lib/client";
+import type { ComponentProps } from "react";
 
 const THIS_DEVICE = "device-1";
 const OTHER_DEVICE = "device-2";
@@ -40,10 +41,13 @@ const rotatePhrase = vi.hoisted(() =>
   vi.fn<(session: Session, password: string, onProgress?: unknown) => Promise<Rotation>>(),
 );
 const clearDevice = vi.hoisted(() => vi.fn<() => Promise<void>>());
+const renameDevice = vi.hoisted(() =>
+  vi.fn<(session: Session, labels: DeviceLabel[], deviceId: string, name: string) => Promise<DeviceLabel>>(),
+);
 
 vi.mock("./lib/client", async () => {
   const actual = await vi.importActual<typeof import("./lib/client")>("./lib/client");
-  return { ...actual, changeUsername, changePassword, deleteAccount, listDevices, revokeDevice, rotatePhrase };
+  return { ...actual, changeUsername, changePassword, deleteAccount, listDevices, renameDevice, revokeDevice, rotatePhrase };
 });
 
 vi.mock("./lib/storage", async () => {
@@ -77,7 +81,7 @@ const handlers = {
   onRefresh: vi.fn<() => Promise<void>>(),
 };
 
-function mount(page: string) {
+function mount(page: string, extra: Partial<ComponentProps<typeof SettingsHarness>> = {}) {
   render(
     <SettingsHarness
       session={session}
@@ -102,6 +106,7 @@ function mount(page: string) {
       onWeekStartChange={() => undefined}
       accountSettings={DEFAULT_ACCOUNT_SETTINGS}
       onSaveAccountSettings={async () => undefined}
+      {...extra}
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: page }));
@@ -395,5 +400,74 @@ describe("deleting the account", () => {
     // that is still there.
     expect(clearDevice).not.toHaveBeenCalled();
     expect(handlers.onAccountDeleted).not.toHaveBeenCalled();
+  });
+});
+
+describe("naming devices", () => {
+  const me = "3ee1943d-0a63-4600-a9b0-983990be5e4b";
+  const phone = "7a4cdd6a-40b8-419f-b20c-279a8d946029";
+  const stale = "51e5b1fb-d44e-4ff3-a261-5e82e12675b0";
+  const named = { ...session, state: { ...session.state, device_id: me } } as Session;
+  const labels: DeviceLabel[] = [
+    {
+      object_id: "00000000-0000-0000-0000-0000000000a1",
+      payload: JSON.stringify({ "@type": "DeviceLabel", version: "1.0", deviceId: me, name: "Desk", kind: "web", platform: "Firefox on macOS" }),
+    },
+    {
+      object_id: "00000000-0000-0000-0000-0000000000a2",
+      payload: JSON.stringify({ "@type": "DeviceLabel", version: "1.0", deviceId: phone, name: "Pocket", kind: "android", platform: "Google Pixel 8a" }),
+    },
+  ];
+
+  beforeEach(() => {
+    listDevices.mockResolvedValue([aDeviceSummary(phone), aDeviceSummary(me), aDeviceSummary(stale)]);
+  });
+
+  it("shows each device by name and what it reported, this one first", async () => {
+    mount("Devices", { session: named, deviceLabels: labels });
+
+    expect(await screen.findByText("Desk")).toBeDefined();
+    expect(screen.getByText("Pocket")).toBeDefined();
+    expect(screen.getByText("Android device · Google Pixel 8a")).toBeDefined();
+    expect(screen.getByText("Device type not reported yet")).toBeDefined();
+    expect(screen.queryByText(me)).toBeNull();
+    const names = screen.getAllByTitle(/^[0-9a-f-]{36}$/u).map((row) => row.textContent);
+    expect(names[0]).toBe("Desk");
+  });
+
+  it("names the device in the revoke dialog", async () => {
+    mount("Devices", { session: named, deviceLabels: labels });
+    await screen.findByText("Pocket");
+    fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]);
+
+    const dialog = screen.getByRole("dialog", { name: "Revoke device" });
+    expect(within(dialog).getByText("Pocket")).toBeDefined();
+    expect(within(dialog).getByText(phone)).toBeDefined();
+  });
+
+  it("renames another device and hands the label back", async () => {
+    const written: DeviceLabel = { object_id: labels[1].object_id, payload: "{}" };
+    renameDevice.mockResolvedValue(written);
+    const onDeviceLabelSaved = vi.fn<(label: DeviceLabel) => void>();
+    mount("Devices", { session: named, deviceLabels: labels, onDeviceLabelSaved });
+    await screen.findByText("Pocket");
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Rename" })[1]);
+    const input = screen.getByLabelText("Device name") as HTMLInputElement;
+    expect(input.value).toBe("Pocket");
+    fireEvent.change(input, { target: { value: "Old phone" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onDeviceLabelSaved).toHaveBeenCalledWith(written));
+    expect(renameDevice).toHaveBeenCalledWith(named, labels, phone, "Old phone");
+    expect(screen.queryByLabelText("Device name")).toBeNull();
+  });
+
+  it("starts an unreported device's rename empty, so saving keeps the generated name", async () => {
+    mount("Devices", { session: named, deviceLabels: labels });
+    await screen.findByText("Pocket");
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Rename" })[2]);
+    expect((screen.getByLabelText("Device name") as HTMLInputElement).value).toBe("");
   });
 });
