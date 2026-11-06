@@ -180,9 +180,11 @@ describe("the profile payload", () => {
     expect(back?.interests.length).toBe(MAX_PROFILE_ENTRIES);
   });
 
-  it("truncates an over-long text field on parse rather than rejecting the card", () => {
-    const back = parseProfile({ howWeMet: "x".repeat(MAX_PROFILE_TEXT_CHARS + 50) });
-    expect(back?.howWeMet?.length).toBe(MAX_PROFILE_TEXT_CHARS);
+  it("reads text past the editor limit whole rather than cutting it", () => {
+    const long = "x".repeat(MAX_PROFILE_TEXT_CHARS + 50);
+    const back = parseProfile({ howWeMet: long, timeline: [{ title: "Moved", description: long }] });
+    expect(back?.howWeMet).toBe(long);
+    expect(back?.timeline[0].description).toBe(long);
   });
 });
 
