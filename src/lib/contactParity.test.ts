@@ -103,8 +103,9 @@ describe("the constants this client mirrors", () => {
 describe("a card an editor opens and saves without changing", () => {
   /**
    * The entries this client cannot show are what the fixture's unreadable third
-   * address, second note, later-build keys and `colleagues` stand for: they ride
-   * in `raw` through the view model, and the write puts them back.
+   * address, later-build keys and `colleagues` stand for: they ride in `raw`
+   * through the view model, and the write puts them back. Every note is shown,
+   * so the second one is folded into the first on save.
    */
   it("keeps what the editor cannot show", () => {
     const stored = fixture.contact_parses[0].raw;
@@ -115,7 +116,8 @@ describe("a card an editor opens and saves without changing", () => {
     const addresses = written.addresses as Record<string, unknown>;
     expect(addresses.a2).toEqual({ locality: "Paris", contexts: { work: true } });
     expect(addresses.a3).toEqual({ components: [{ kind: "locality", value: "Oslo" }] });
-    expect((written.notes as Record<string, unknown>).n2).toEqual({ note: "Second note." });
+    expect(contact.notes).toBe("Met at the Royal Society.\n\nSecond note.");
+    expect(written.notes).toEqual({ n1: { note: "Met at the Royal Society.\n\nSecond note." } });
     const profile = written[CONTACT_PROFILE_PROP] as Record<string, unknown>;
     expect(profile.hobbies).toEqual(["looms"]);
     expect(profile.colleagues).toHaveLength(1);
