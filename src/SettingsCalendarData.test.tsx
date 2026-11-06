@@ -106,6 +106,8 @@ function mount(events: CalendarEvent[] = []) {
       onTimezoneChange={() => undefined}
       weekStart={0}
       onWeekStartChange={() => undefined}
+      autoLockMinutes={15}
+      onAutoLockMinutesChange={() => undefined}
       accountSettings={DEFAULT_ACCOUNT_SETTINGS}
       onSaveAccountSettings={async () => undefined}
       initialSection="calendar"

@@ -124,16 +124,19 @@ import { friendlyError } from "./lib/errors";
 import { describeError, log, serverHost } from "./lib/log";
 import {
   IDLE_BURST_THROTTLE_MS,
-  IDLE_TIMEOUT_MS,
-  IDLE_WARNING_MS,
+  idleWarningMs,
+  idleWarningSeconds,
   loadLastTab,
   loadOnboarding,
   loadTimezone,
   loadWeekStart,
+  loadAutoLockMinutes,
   rememberBrowserTimezone,
   saveLastTab,
   saveOnboarding,
   saveWeekStart,
+  saveAutoLockMinutes,
+  type AutoLockMinutes,
   TIMEZONE_KEY,
   type MainTab,
 } from "./lib/appState";
@@ -259,6 +262,7 @@ export default function App() {
   const [activeTabState, setActiveTabState] = useState<MainTab>(loadLastTab);
   const [timezone, setTimezoneState] = useState(loadTimezone);
   const [weekStart, setWeekStartState] = useState(loadWeekStart);
+  const [autoLockMinutes, setAutoLockMinutesState] = useState(loadAutoLockMinutes);
   const [online, setOnline] = useState(() => navigator.onLine);
   const [outboxState, setOutboxState] = useState<OutboxState>({ pending: 0, queued: [], failed: [], signIn: false });
   const [notices, setNotices] = useState<{ id: number; text: string }[]>([]);
@@ -351,6 +355,11 @@ export default function App() {
   function setOnboarding(pending: boolean) {
     setOnboardingState(pending);
     saveOnboarding(pending);
+  }
+
+  function setAutoLockMinutes(value: AutoLockMinutes) {
+    setAutoLockMinutesState(value);
+    saveAutoLockMinutes(value);
   }
 
   function setWeekStart(value: WeekStart) {
@@ -549,10 +558,12 @@ export default function App() {
 
   // Idle auto-lock. The warning is an in-app countdown, not window.confirm:
   // a native prompt suspends the event loop, so a user who walked away left the
-  // vault unlocked behind an unanswered dialog forever. The lock timer now runs
-  // to IDLE_TIMEOUT_MS whether or not the warning is acknowledged.
+  // vault unlocked behind an unanswered dialog forever. The lock timer runs to
+  // the timeout whether or not the warning is acknowledged.
   useEffect(() => {
-    if (!session) return;
+    if (!session || autoLockMinutes === 0) return;
+    const timeoutMs = autoLockMinutes * 60 * 1000;
+    const warningMs = idleWarningMs(timeoutMs);
     let warnTimeout = 0;
     let lockTimeout = 0;
     let tick = 0;
@@ -567,19 +578,19 @@ export default function App() {
       clearTimers();
       setIdleCountdown(null);
       warnTimeout = window.setTimeout(() => {
-        let remaining = Math.round((IDLE_TIMEOUT_MS - IDLE_WARNING_MS) / 1000);
+        let remaining = idleWarningSeconds(autoLockMinutes);
         setIdleCountdown(remaining);
         tick = window.setInterval(() => {
           remaining -= 1;
           setIdleCountdown(remaining > 0 ? remaining : 0);
         }, 1000);
-      }, IDLE_WARNING_MS);
+      }, warningMs);
       lockTimeout = window.setTimeout(() => {
         clearTimers();
         setIdleCountdown(null);
-        log.info("locking the vault after an idle timeout", { minutes: IDLE_TIMEOUT_MS / 60000 });
+        log.info("locking the vault after an idle timeout", { minutes: autoLockMinutes });
         void lock();
-      }, IDLE_TIMEOUT_MS);
+      }, timeoutMs);
     };
 
     // Reading a long note is activity, but a wheel fires none of the events
@@ -613,7 +624,7 @@ export default function App() {
     // idle timeout. The only state it reads is `session`, which is already a
     // dependency, so the one it closes over is never stale.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session]);
+  }, [session, autoLockMinutes]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -2078,6 +2089,8 @@ export default function App() {
             onTimezoneChange={setTimezone}
             weekStart={weekStart}
             onWeekStartChange={setWeekStart}
+            autoLockMinutes={autoLockMinutes}
+            onAutoLockMinutesChange={setAutoLockMinutes}
             accountSettings={accountSettings}
             deviceLabels={deviceLabels}
             onDeviceLabelSaved={upsertDeviceLabel}
@@ -2288,8 +2301,8 @@ export default function App() {
             {/* Announced once on mount. The visible seconds sit outside this
                 live region so assistive tech is not re-interrupted every tick. */}
             <p role="alert" className="sr-only">
-              Your vault locks in one minute due to inactivity. Choose "Stay
-              signed in" to keep working.
+              Your vault locks in {idleWarningSeconds(autoLockMinutes)} seconds
+              due to inactivity. Choose "Stay signed in" to keep working.
             </p>
             <div className="min-w-0 flex-1" aria-hidden="true">
               <p className="text-sm font-semibold text-text">Locking soon</p>

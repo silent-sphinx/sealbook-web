@@ -59,6 +59,7 @@ import type {
 } from "../lib/types";
 import { allTimezones, utcOffsetLabel } from "../lib/timezone";
 import type { WeekStart } from "../lib/calendarModel";
+import { AUTO_LOCK_OPTIONS, autoLockLabel, type AutoLockMinutes } from "../lib/appState";
 import { PAGE_GROUPS, pageForSection, type SettingsPage, type SettingsSection } from "../lib/settingsModel";
 import { CheckIcon, CopyIcon } from "./AppIcons";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -116,6 +117,8 @@ type Props = {
   onTimezoneChange: (timezone: string) => void;
   weekStart: WeekStart;
   onWeekStartChange: (weekStart: WeekStart) => void;
+  autoLockMinutes: AutoLockMinutes;
+  onAutoLockMinutesChange: (minutes: AutoLockMinutes) => void;
   accountSettings: AccountSettings;
   /** Every device label in the vault, joined onto the roster for display. */
   deviceLabels?: DeviceLabel[];
@@ -163,6 +166,8 @@ export function SettingsView({
   onTimezoneChange,
   weekStart,
   onWeekStartChange,
+  autoLockMinutes,
+  onAutoLockMinutesChange,
   accountSettings,
   deviceLabels = NO_LABELS,
   onDeviceLabelSaved,
@@ -998,6 +1003,31 @@ export function SettingsView({
             })}
           </SettingsList>
           <NoticeLine notice={accentMsg} />
+        </SettingsGroup>
+      );
+      break;
+
+    case "lock":
+      content = (
+        <SettingsGroup
+          title="Lock after inactivity"
+          description="A warning shows shortly before the lock, and any click, key press or scroll starts the timer again. Locking ends the session; unlocking takes your password."
+        >
+          <SettingsList role="radiogroup" label="Lock after inactivity">
+            {AUTO_LOCK_OPTIONS.map((minutes) => (
+              <SettingsOption
+                key={minutes}
+                checked={autoLockMinutes === minutes}
+                onSelect={() => onAutoLockMinutesChange(minutes)}
+                label={autoLockLabel(minutes)}
+                description={
+                  minutes === 0
+                    ? "The vault stays open until you lock it, reload or close the tab."
+                    : undefined
+                }
+              />
+            ))}
+          </SettingsList>
         </SettingsGroup>
       );
       break;

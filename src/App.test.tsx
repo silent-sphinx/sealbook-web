@@ -248,4 +248,31 @@ describe("the idle lock", () => {
     expect(screen.getByRole("button", { name: "Unlock" })).toBeDefined();
     expect(screen.queryByText("Ada Lovelace")).toBeNull();
   });
+
+  it("locks at the timeout chosen for this device", async () => {
+    localStorage.setItem("sealbook.auto-lock-minutes", "1");
+    await openOfflineVault();
+
+    await act(async () => {
+      vi.advanceTimersByTime(30 * 1000);
+    });
+    expect(screen.getByText("Locking soon")).toBeDefined();
+
+    await act(async () => {
+      vi.advanceTimersByTime(30 * 1000);
+    });
+    await settle();
+    expect(screen.getByRole("button", { name: "Unlock" })).toBeDefined();
+  });
+
+  it("never locks when the timeout is off", async () => {
+    localStorage.setItem("sealbook.auto-lock-minutes", "0");
+    await openOfflineVault();
+
+    await act(async () => {
+      vi.advanceTimersByTime(24 * 60 * 60 * 1000);
+    });
+    expect(screen.queryByText("Locking soon")).toBeNull();
+    expect(screen.queryByText("Ada Lovelace")).not.toBeNull();
+  });
 });

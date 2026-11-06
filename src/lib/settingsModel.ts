@@ -4,6 +4,7 @@ export type SettingsSection =
   | "account"
   | "features"
   | "appearance"
+  | "lock"
   | "contacts"
   | "calendar"
   | "notes"
@@ -85,14 +86,21 @@ export const PAGE_GROUPS: PageGroup[] = [
         id: "features",
         label: "Features",
         blurb:
-          "Choose which parts of Sealbook this account uses. The choice is stored in your vault, so every device signed in to the account follows it.",
+          "Choose which parts of Sealbook this account uses.",
         local: true,
       },
       {
         id: "appearance",
         label: "Appearance",
         blurb:
-          "Choose the accent Sealbook highlights things with. It is stored in your vault, so every device signed in to the account picks it up.",
+          "Choose the accent Sealbook highlights things with.",
+        local: true,
+      },
+      {
+        id: "lock",
+        label: "Auto-lock",
+        blurb:
+          "Choose how long this browser can sit idle before the vault locks.",
         local: true,
       },
     ],

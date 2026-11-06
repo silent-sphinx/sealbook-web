@@ -21,6 +21,7 @@ import { aDeviceState } from "./test/vault";
 import { DEFAULT_ACCOUNT_SETTINGS, withFeature } from "./lib/accountSettings";
 import type { AccountSettings } from "./lib/types";
 import type { Session } from "./lib/client";
+import type { AutoLockMinutes } from "./lib/appState";
 
 vi.mock("./lib/client", async () => {
   const actual = await vi.importActual<typeof import("./lib/client")>("./lib/client");
@@ -40,6 +41,7 @@ const session = {
 } as Session;
 
 const onSaveAccountSettings = vi.fn<(settings: AccountSettings) => Promise<void>>();
+const onAutoLockMinutesChange = vi.fn<(minutes: AutoLockMinutes) => void>();
 
 /**
  * Mounts with the given settings. They are the prop rather than state, so a
@@ -68,6 +70,8 @@ function mount(settings: AccountSettings, initialSection?: SettingsSection) {
       onTimezoneChange={() => undefined}
       weekStart={0}
       onWeekStartChange={() => undefined}
+      autoLockMinutes={15}
+      onAutoLockMinutesChange={onAutoLockMinutesChange}
       accountSettings={settings}
       onSaveAccountSettings={onSaveAccountSettings}
       initialSection={initialSection}
@@ -214,6 +218,19 @@ describe("the contact detail level", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: /Basic/u }));
 
+    expect(onSaveAccountSettings).not.toHaveBeenCalled();
+  });
+});
+
+describe("the auto-lock timeout", () => {
+  it("is offered on its own page, kept off the account settings", () => {
+    mount(DEFAULT_ACCOUNT_SETTINGS);
+    section("Auto-lock");
+
+    expect(screen.getByRole("radio", { name: /After 15 minutes/u }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByRole("radio", { name: /Never/u }));
+
+    expect(onAutoLockMinutesChange).toHaveBeenCalledWith(0);
     expect(onSaveAccountSettings).not.toHaveBeenCalled();
   });
 });

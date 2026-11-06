@@ -9,9 +9,47 @@ export type MainTab = (typeof MAIN_TABS)[number];
 export const LAST_TAB_KEY = "sealbook.last-tab";
 export const TIMEZONE_KEY = "sealbook.timezone";
 export const WEEK_START_KEY = "sealbook.week-start";
-export const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
-export const IDLE_WARNING_MS = IDLE_TIMEOUT_MS - 60 * 1000;
+export const AUTO_LOCK_KEY = "sealbook.auto-lock-minutes";
+/** Minutes of inactivity before the vault locks; 0 never locks. */
+export const AUTO_LOCK_OPTIONS = [1, 5, 15, 30, 60, 240, 0] as const;
+export type AutoLockMinutes = (typeof AUTO_LOCK_OPTIONS)[number];
+export const DEFAULT_AUTO_LOCK_MINUTES: AutoLockMinutes = 15;
 export const IDLE_BURST_THROTTLE_MS = 1000;
+
+/** A minute's warning, or half the timeout when that is shorter. */
+export function idleWarningMs(timeoutMs: number): number {
+  return timeoutMs - Math.min(60 * 1000, timeoutMs / 2);
+}
+
+/** How long the warning shows before the lock, in whole seconds. */
+export function idleWarningSeconds(minutes: number): number {
+  const timeoutMs = minutes * 60 * 1000;
+  return Math.round((timeoutMs - idleWarningMs(timeoutMs)) / 1000);
+}
+
+export function autoLockLabel(minutes: AutoLockMinutes): string {
+  if (minutes === 0) return "Never";
+  if (minutes < 60) return minutes === 1 ? "After 1 minute" : `After ${minutes} minutes`;
+  const hours = minutes / 60;
+  return hours === 1 ? "After 1 hour" : `After ${hours} hours`;
+}
+
+export function loadAutoLockMinutes(): AutoLockMinutes {
+  try {
+    const stored = Number(localStorage.getItem(AUTO_LOCK_KEY) ?? NaN);
+    return AUTO_LOCK_OPTIONS.find((option) => option === stored) ?? DEFAULT_AUTO_LOCK_MINUTES;
+  } catch {
+    return DEFAULT_AUTO_LOCK_MINUTES;
+  }
+}
+
+export function saveAutoLockMinutes(minutes: AutoLockMinutes): void {
+  try {
+    localStorage.setItem(AUTO_LOCK_KEY, String(minutes));
+  } catch {
+    // storage unavailable; keep the choice for this session only
+  }
+}
 
 export function passwordStrength(value: string): { score: number; label: string } {
   if (!value) return { score: 0, label: "" };
