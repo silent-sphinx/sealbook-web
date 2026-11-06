@@ -38,6 +38,7 @@ import init, {
   core_normalize_due_date,
   core_resolve_task_list_id,
   core_order_tasks,
+  core_task_agenda,
   core_task_can_move,
   core_task_complete,
   core_task_export,
@@ -277,6 +278,8 @@ import type {
   CoreTaskListDraft,
   CoreTaskOrderItem,
   CoreTaskPlan,
+  CoreTaskAgenda,
+  CoreTaskAgendaItem,
   CoreAccountSettings,
   CoreAccountSettingsDraft,
   CoreFeatureFlag,
@@ -2075,6 +2078,8 @@ export type {
   CoreTaskListDraft,
   CoreTaskOrderItem,
   CoreTaskPlan,
+  CoreTaskAgenda,
+  CoreTaskAgendaItem,
 };
 
 /** Every key a task writer owns, and every key a task list writer owns. */
@@ -2191,6 +2196,11 @@ export function coreTaskListRemovePlan(
 /** Ids in list order: open, then soonest due, then highest priority, then title. */
 export function coreOrderTasks(items: CoreTaskOrderItem[]): string[] {
   return [...core_order_tasks(items)];
+}
+
+/** Task ids grouped by due day, from local wall-clock times. */
+export function coreTaskAgenda(items: CoreTaskAgendaItem[], nowLocal: string): CoreTaskAgenda {
+  return core_task_agenda(items, nowLocal);
 }
 
 export function coreTaskExport(tasks: CoreTask[], lists: CoreTaskList[], now: string): string {

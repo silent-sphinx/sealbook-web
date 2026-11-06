@@ -13,8 +13,7 @@ import { focusRing, sidebarCount, sidebarRowState, sidebarSectionAction } from "
 import type { TaskList } from "../lib/types";
 
 export const SMART_VIEWS: { id: TaskScope; label: string }[] = [
-  { id: "today", label: "Today" },
-  { id: "overdue", label: "Overdue" },
+  { id: "upnext", label: "Up next" },
   { id: "all", label: "All tasks" },
   { id: "completed", label: "Completed" },
 ];
@@ -24,6 +23,7 @@ type Props = {
   scope: string;
   onScope: (scope: string) => void;
   smartCounts: Record<TaskScope, number>;
+  overdueCount: number;
   listCounts: Map<string, number>;
   readOnly: boolean;
   onCreate: (name: string, parentId?: string) => Promise<string | undefined>;
@@ -38,6 +38,7 @@ export function TaskListSidebar({
   scope,
   onScope,
   smartCounts,
+  overdueCount,
   listCounts,
   readOnly,
   onCreate,
@@ -62,6 +63,14 @@ export function TaskListSidebar({
                 )} ${focusRing}`}
               >
                 <span className="min-w-0 flex-1 truncate font-medium">{view.label}</span>
+                {view.id === "upnext" && overdueCount > 0 ? (
+                  <span
+                    title={`${overdueCount} overdue`}
+                    className="rounded-full bg-danger/15 px-1.5 text-[10px] font-semibold tabular-nums text-danger"
+                  >
+                    {overdueCount}
+                  </span>
+                ) : null}
                 <span className={sidebarCount}>{smartCounts[view.id] || ""}</span>
               </button>
             </li>

@@ -221,15 +221,65 @@ describe("TasksView, the views", () => {
     ]);
   });
 
-  it("filters Today, Overdue and Completed", () => {
+  it("opens on Up next, grouped by when each task is due", () => {
     mount({ tasks: seed() });
-    const shown = () => screen.queryAllByRole("checkbox").map((box) => box.getAttribute("aria-label"));
-    pick("Today");
-    expect(shown()).toEqual(["Complete today"]);
-    pick("Overdue");
-    expect(shown()).toEqual(["Complete late"]);
+    const groups = within(board())
+      .getAllByRole("region")
+      .map((region) => [
+        region.getAttribute("aria-label"),
+        within(region).queryAllByRole("checkbox").map((box) => box.getAttribute("aria-label")),
+      ]);
+    expect(groups).toEqual([
+      ["Overdue", ["Complete late"]],
+      ["Today", ["Complete today"]],
+      ["This week", ["Complete soon"]],
+      ["No date", ["Complete undated"]],
+    ]);
+  });
+
+  it("keeps Today on screen when nothing is due, and adds a task due then", () => {
+    mount({ tasks: [aTask("undated")] });
+    expect(within(board()).getByText("Nothing due today.")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add a task due today" }));
+    expect((field("Due date") as HTMLInputElement).value).toBe(day(0));
+  });
+
+  it("shows ten undated tasks until asked for the rest", () => {
+    mount({ tasks: Array.from({ length: 12 }, (_, index) => aTask(`t${String(index).padStart(2, "0")}`)) });
+    expect(screen.getAllByRole("checkbox")).toHaveLength(10);
+    fireEvent.click(screen.getByRole("button", { name: "Show all 12" }));
+    expect(screen.getAllByRole("checkbox")).toHaveLength(12);
+  });
+
+  it("names a subtask's parent and folds what was done today", () => {
+    const now = new Date().toISOString();
+    mount({
+      tasks: [
+        aTask("trip", { dueDate: day(9) }),
+        aTask("pack", { parentId: "trip", dueDate: day(0) }),
+        aTask("posted", { done: true, completedAt: now }),
+      ],
+    });
+    const today = within(board()).getByRole("region", { name: "Today" });
+    expect(today.textContent).toContain("in trip");
+    const done = within(board()).getByRole("region", { name: "Done today" });
+    expect(within(done).queryAllByRole("checkbox")).toHaveLength(0);
+    fireEvent.click(within(done).getByRole("button", { expanded: false }));
+    expect(within(done).getAllByRole("checkbox")).toHaveLength(1);
+  });
+
+  it("says all clear with nothing open", () => {
+    mount({ tasks: [aTask("posted", { done: true, completedAt: new Date().toISOString() })] });
+    expect(within(board()).getByText("All clear")).not.toBeNull();
+    expect(within(board()).getByText(/1 task done today/)).not.toBeNull();
+  });
+
+  it("filters Completed", () => {
+    mount({ tasks: seed() });
     pick("Completed");
-    expect(shown()).toEqual(["Complete finished"]);
+    expect(screen.queryAllByRole("checkbox").map((box) => box.getAttribute("aria-label"))).toEqual([
+      "Complete finished",
+    ]);
   });
 
   it("filters by search across the current view", () => {
@@ -252,6 +302,7 @@ describe("TasksView, ticking a task", () => {
 
   it("reopens a done task", async () => {
     mount({ tasks: [aTask("water", { done: true })] });
+    pick("Completed");
     tick("water");
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]!.draft.done).toBeUndefined();

@@ -5,6 +5,7 @@ import { SplitHandle, useSplitPane } from "./SplitPane";
 import { TaskDetailPane } from "./TaskDetailPane";
 import { TaskForm } from "./TaskForm";
 import { SMART_VIEWS, TaskListSidebar } from "./TaskListSidebar";
+import { TaskAgendaList } from "./TaskAgendaList";
 import { TaskIcon } from "./TaskIcon";
 import { TaskTreeList } from "./TaskTreeList";
 import type { TaskActions } from "./TaskTreeList";
@@ -29,6 +30,7 @@ import {
   reopenTask,
   resolveTaskListId,
   sortTasks,
+  taskAgenda,
   taskDraft,
   taskListNameById,
   taskListTone,
@@ -46,6 +48,7 @@ import {
   taskSubtree,
 } from "../lib/taskTree";
 import { TASKS_LEADING } from "../lib/splitPane";
+import { keyFor } from "../lib/calendarModel";
 import { utcToLocalInput } from "../lib/timezone";
 import { flattenTree } from "../lib/tree";
 import type { Task, TaskDraft, TaskList, TaskPatch } from "../lib/types";
@@ -106,7 +109,7 @@ const REFRESH_IDLE_MS = 10_000;
 
 export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh, onApply, readOnly, sidebar, focusTaskId, onFocusHandled }: Props) {
   const readOnlyMode = readOnly === true;
-  const [requestedScope, setScope] = useState<string>("all");
+  const [requestedScope, setScope] = useState<string>("upnext");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [search, setSearch] = useState("");
@@ -187,15 +190,15 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     [taskLists],
   );
 
+  const agenda = useMemo(() => taskAgenda(tasks, now, timezone), [tasks, now, timezone]);
   const smartCounts = useMemo(() => {
-    const open = tasks.filter((task) => !task.done);
+    const open = tasks.filter((task) => !task.done).length;
     return {
-      today: tasks.filter((task) => inScope(task, "today", now, timezone)).length,
-      overdue: tasks.filter((task) => inScope(task, "overdue", now, timezone)).length,
-      all: open.length,
-      completed: tasks.length - open.length,
+      upnext: open,
+      all: open,
+      completed: tasks.length - open,
     } satisfies Record<TaskScope, number>;
-  }, [tasks, now, timezone]);
+  }, [tasks]);
 
   const listCounts = useMemo(() => {
     const result = new Map<string, number>();
@@ -207,13 +210,14 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     return result;
   }, [tasks]);
 
+  const showAgenda = scope === "upnext" && !searching;
   const scopeTree = useMemo(() => {
-    if (!isSmart && !searching) return null;
+    if ((!isSmart && !searching) || showAgenda) return null;
     const scoped = isSmart
-      ? tasks.filter((task) => inScope(task, scope as TaskScope, now, timezone))
+      ? tasks.filter((task) => inScope(task, scope as TaskScope))
       : tasks.filter((task) => resolveTaskListId(task.taskListId) === scope);
     return buildTaskTreeOf(scoped.filter((task) => taskMatches(task, deferredSearch)));
-  }, [tasks, scope, isSmart, searching, deferredSearch, now, timezone]);
+  }, [tasks, scope, isSmart, searching, showAgenda, deferredSearch]);
 
   const tree = useMemo(
     () => (isSmart ? [] : buildTaskTree(tasks, scope)),
@@ -303,15 +307,20 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     setError(null);
   }
 
+  function startAddDue(offset: number) {
+    const initial = emptyTaskDraft(DEFAULT_TASK_LIST_ID);
+    const day = new Date(`${utcToLocalInput(new Date().toISOString(), timezone).slice(0, 10)}T12:00`);
+    day.setDate(day.getDate() + offset);
+    initial.dueDate = keyFor(day);
+    openForm(initial, null);
+  }
+
   function startAdd(parentId?: string, inList?: string) {
     const parent = parentId ? tasks.find((task) => task.id === parentId) : undefined;
     const listId = parent
       ? resolveTaskListId(parent.taskListId)
       : (inList ?? (isSmart ? DEFAULT_TASK_LIST_ID : scope));
     const initial = emptyTaskDraft(listId, parentId);
-    if (!parent && scope === "today") {
-      initial.dueDate = utcToLocalInput(new Date().toISOString(), timezone).slice(0, 10);
-    }
     if (parentId) {
       setExpanded((current) => {
         const next = new Set(current);
@@ -477,7 +486,9 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
   const title = isSmart
     ? (SMART_VIEWS.find((view) => view.id === scope)?.label ?? "Tasks")
     : (taskLists.find((list) => list.id === scope)?.name ?? "Tasks");
-  const shown = scopeTree
+  const shown = showAgenda
+    ? smartCounts.upnext
+    : scopeTree
     ? flattenTaskTree(scopeTree).length
     : tasks.filter((task) => resolveTaskListId(task.taskListId) === scope).length;
   const paneOpen = form !== null || selected !== null;
@@ -530,6 +541,7 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
             scope={scope}
             onScope={changeScope}
             smartCounts={smartCounts}
+            overdueCount={agenda.overdue.length}
             listCounts={listCounts}
             readOnly={readOnlyMode}
             onCreate={createList}
@@ -594,7 +606,14 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
             className="sb-split grid min-h-0 flex-1"
           >
             <div className={`min-w-0 overflow-y-auto ${paneOpen ? "hidden lg:block" : ""}`}>
-              {scopeTree ? (
+              {showAgenda ? (
+                <TaskAgendaList
+                  {...actions}
+                  agenda={agenda}
+                  tasks={tasks}
+                  onAddDue={readOnlyMode ? undefined : startAddDue}
+                />
+              ) : scopeTree ? (
                 scopeTree.length === 0 ? (
                   <p className="px-6 py-12 text-center text-sm text-mute">
                     {searching ? "No tasks match that search." : "Nothing here."}

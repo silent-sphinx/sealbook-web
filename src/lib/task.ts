@@ -8,6 +8,7 @@ import type { Task, TaskDraft, TaskList } from "./types";
 import {
   coreIsCalendarDay,
   coreOrderTasks,
+  coreTaskAgenda,
   coreTaskComplete,
   coreTaskListCanMove,
   coreTaskListParse,
@@ -17,7 +18,7 @@ import {
   coreTaskReopen,
   coreTaskWrite,
 } from "./wasm";
-import type { CoreTask, CoreTaskDraft, CoreTaskList } from "./wasm";
+import type { CoreTask, CoreTaskAgenda, CoreTaskDraft, CoreTaskList } from "./wasm";
 import { sortContainers } from "./order";
 
 // Mirrors of the Rust constants in
@@ -283,7 +284,7 @@ export function reopenTask(task: Task): TaskDraft {
   return draftFrom(coreTaskReopen(taskTo(task)));
 }
 
-export type TaskScope = "today" | "overdue" | "all" | "completed";
+export type TaskScope = "upnext" | "all" | "completed";
 
 export function isOverdue(task: Task, now: Date, timezone: string): boolean {
   const due = normalizeDueDate(task.dueDate);
@@ -292,18 +293,30 @@ export function isOverdue(task: Task, now: Date, timezone: string): boolean {
   return due < keyFor(dayOf(now.toISOString(), timezone));
 }
 
-export function inScope(
-  task: Task,
-  scope: TaskScope,
-  now: Date,
-  timezone: string,
-): boolean {
+export function inScope(task: Task, scope: TaskScope): boolean {
   if (scope === "all") return true;
   if (scope === "completed") return task.done === true;
-  if (scope === "overdue") return isOverdue(task, now, timezone);
-  return (
-    !task.done &&
-    dueDayKey(task, timezone) === keyFor(dayOf(now.toISOString(), timezone))
+  return !task.done;
+}
+
+export type TaskAgenda = CoreTaskAgenda;
+
+/** Open tasks by due day, and the tasks completed today, in `timezone`. */
+export function taskAgenda(tasks: Task[], now: Date, timezone: string): TaskAgenda {
+  const local = (value: string) => utcToLocalInput(value, timezone).slice(0, 16);
+  return coreTaskAgenda(
+    tasks.map((task) => {
+      const due = normalizeDueDate(task.dueDate);
+      return {
+        id: task.id,
+        title: task.title,
+        done: task.done === true,
+        due_local: due ? (isAllDayDue(due) ? due : local(due)) : undefined,
+        completed_local: task.completedAt ? local(task.completedAt) : undefined,
+        priority: task.priority,
+      };
+    }),
+    local(now.toISOString()),
   );
 }
 
@@ -432,6 +445,7 @@ export function dueLabel(
   if (delta === 0) label = "Today";
   else if (delta === 1) label = "Tomorrow";
   else if (delta === -1) label = "Yesterday";
+  else if (delta > 1 && delta < 7) label = day.toLocaleDateString(undefined, { weekday: "short" });
   else {
     label = day.toLocaleDateString(undefined, {
       month: "short",

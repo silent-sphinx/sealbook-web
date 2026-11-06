@@ -43,6 +43,8 @@ export type TaskActions = {
 type RowProps = TaskActions & {
   task: Task;
   depth?: number;
+  /** The parent's title, for a subtask listed away from its parent. */
+  parentTitle?: string;
   lead?: React.ReactNode;
   className?: string;
   dropLine?: "top" | "bottom";
@@ -66,8 +68,8 @@ function itemsFor(task: Task, actions: TaskActions): MenuItem[] {
   ];
 }
 
-function TaskRow(props: RowProps) {
-  const { task, depth = 0, lead, className = "", dropLine, dragProps, menu, ...actions } = props;
+export function TaskRow(props: RowProps) {
+  const { task, depth = 0, parentTitle, lead, className = "", dropLine, dragProps, menu, ...actions } = props;
   const { now, timezone, readOnly, counts, highlightId, activeId, listFor, onToggleDone, onSelect, onAddChild, onDelete } = actions;
   const list = listFor?.(task);
   const current = activeId === task.id || highlightId === task.id;
@@ -76,6 +78,7 @@ function TaskRow(props: RowProps) {
   const priority = priorityLabel(task.priority);
   const children = counts.get(task.id);
   const meta: React.ReactNode[] = [];
+  if (parentTitle) meta.push(<span key="parent" className="max-w-[14rem] truncate">{`in ${parentTitle}`}</span>);
   if (due) {
     meta.push(
       <span key="due" className={overdue ? "text-danger" : undefined}>

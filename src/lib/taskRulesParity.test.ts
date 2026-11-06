@@ -14,13 +14,20 @@ import { parseTaskImport } from "./taskExport";
 import { localInputToUtc } from "./timezone";
 import {
   coreOrderTasks,
+  coreTaskAgenda,
   coreTaskListMovePlan,
   coreTaskListRemovePlan,
   coreTaskMovePlan,
   coreTaskRelistPlan,
   coreTaskRemovePlan,
 } from "./wasm";
-import type { CoreTaskClock, CoreTaskOrderItem, CoreTaskPlan } from "./wasm";
+import type {
+  CoreTaskAgenda,
+  CoreTaskAgendaItem,
+  CoreTaskClock,
+  CoreTaskOrderItem,
+  CoreTaskPlan,
+} from "./wasm";
 import { readFixture } from "../test/fixtures";
 
 /**
@@ -57,6 +64,7 @@ type Fixture = {
     removed_lists: string[];
   }[];
   orders: { case: string; items: CoreTaskOrderItem[]; order: string[] }[];
+  agendas: { case: string; now_local: string; items: CoreTaskAgendaItem[]; agenda: CoreTaskAgenda }[];
   imports: {
     case: string;
     text: string;
@@ -139,6 +147,12 @@ describe("deleting and moving", () => {
 describe("task order", () => {
   it.each(fixture.orders)("$case", (entry) => {
     expect(coreOrderTasks(entry.items)).toEqual(entry.order);
+  });
+});
+
+describe("the agenda", () => {
+  it.each(fixture.agendas)("$case", (entry) => {
+    expect(coreTaskAgenda(entry.items, entry.now_local)).toEqual(entry.agenda);
   });
 });
 

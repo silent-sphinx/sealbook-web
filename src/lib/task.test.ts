@@ -9,6 +9,7 @@ import {
   emptyTaskDraft,
   inScope,
   isOverdue,
+  taskAgenda,
   MAX_TASK_COMPLETIONS,
   mergeTaskLists,
   mergeTasks,
@@ -253,16 +254,32 @@ describe("scopes, order and search", () => {
   it("filters the smart views", () => {
     const today = task({ dueDate: "2026-10-22" }, "a");
     const late = task({ dueDate: "2026-10-20" }, "b");
-    const timedLate = task({ dueDate: "2026-10-22T08:00:00.000Z" }, "c");
     const finished = task({ done: true, dueDate: "2026-10-20" }, "d");
     const undated = task({}, "e");
     const pick = (scope: Parameters<typeof inScope>[1]) =>
-      [today, late, timedLate, finished, undated].filter((t) => inScope(t, scope, now, TZ)).map((t) => t.id);
-    expect(pick("today")).toEqual(["a", "c"]);
-    expect(pick("overdue")).toEqual(["b", "c"]);
+      [today, late, finished, undated].filter((t) => inScope(t, scope)).map((t) => t.id);
+    expect(pick("upnext")).toEqual(["a", "b", "e"]);
     expect(pick("completed")).toEqual(["d"]);
-    expect(pick("all")).toEqual(["a", "b", "c", "d", "e"]);
+    expect(pick("all")).toEqual(["a", "b", "d", "e"]);
     expect(isOverdue(finished, now, TZ)).toBe(false);
+  });
+
+  it("groups the agenda by the local day, not the UTC one", () => {
+    const evening = new Date("2026-10-22T22:30:00Z");
+    const agenda = taskAgenda(
+      [
+        task({ dueDate: "2026-10-23" }, "local-today"),
+        task({ dueDate: "2026-10-22T21:00:00.000Z" }, "passed"),
+        task({ dueDate: "2026-10-23T08:00:00.000Z" }, "later-today"),
+        task({ done: true, completedAt: "2026-10-22T22:10:00.000Z" }, "done"),
+        task({ done: true, completedAt: "2026-10-22T20:50:00.000Z" }, "done-yesterday"),
+      ],
+      evening,
+      "Europe/Athens",
+    );
+    expect(agenda.overdue).toEqual(["passed"]);
+    expect(agenda.today).toEqual(["local-today", "later-today"]);
+    expect(agenda.done_today).toEqual(["done"]);
   });
 
   it("matches on title, notes and tags", () => {
@@ -326,6 +343,13 @@ describe("dueLabel", () => {
     expect(dueLabel(task({ dueDate: "2026-10-23" }), now, TZ)).toBe("Tomorrow");
     expect(dueLabel(task({ dueDate: "2026-10-21" }), now, TZ)).toBe("Yesterday");
     expect(dueLabel(task(), now, TZ)).toBeNull();
+  });
+
+  it("names the weekday within the coming week, and the date past it", () => {
+    const weekday = (date: string) => new Date(`${date}T00:00`).toLocaleDateString(undefined, { weekday: "short" });
+    expect(dueLabel(task({ dueDate: "2026-10-24" }), now, TZ)).toBe(weekday("2026-10-24"));
+    expect(dueLabel(task({ dueDate: "2026-10-28" }), now, TZ)).toBe(weekday("2026-10-28"));
+    expect(dueLabel(task({ dueDate: "2026-10-29" }), now, TZ)).not.toBe(weekday("2026-10-29"));
   });
 
   it("adds the local time to a timed due date", () => {
