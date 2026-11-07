@@ -1951,11 +1951,11 @@ export default function App() {
         <div className={isOffline ? "h-[2px] bg-red-500" : "h-[2px] bg-gradient-to-r from-accent/60 via-accent to-accent/60"} />
         <header className="border-b border-line bg-bg/80 backdrop-blur-lg">
           <div className={`${shell} flex flex-wrap items-center justify-between gap-x-3 gap-y-2.5 px-4 py-3 sm:px-5 sm:py-4`}>
-            <div className="flex items-center gap-2.5">
-              <Logo className="h-8 w-8" />
-              <div>
+            <div className="flex min-w-0 flex-1 basis-0 items-center gap-2.5 xl:flex-none xl:basis-auto">
+              <Logo className="h-8 w-8 flex-none" />
+              <div className="min-w-0">
                 <p className="font-semibold tracking-tight">Sealbook</p>
-                <p className="text-xs text-mute">
+                <p className="truncate text-xs text-mute">
                   {session.state.username}
                   {deviceName ? <span title="This device's name"> · {deviceName}</span> : null}
                 </p>
@@ -1964,7 +1964,7 @@ export default function App() {
 
             {/* Navigation Tabs */}
             <nav
-              className="relative order-3 flex w-full items-center justify-center rounded-xl border border-line bg-surface/80 p-1 sm:order-none sm:w-auto"
+              className="relative order-3 flex w-full items-center justify-center rounded-xl border border-line bg-surface/80 p-1 xl:order-none xl:w-auto"
               aria-label="Main Navigation"
             >
               {/* Slides to the active tab's button instead of each button
@@ -2012,7 +2012,7 @@ export default function App() {
               ))}
             </nav>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-none items-center gap-2">
               {!isOffline ? <button
                 type="button"
                 aria-label="Add device"
@@ -2046,11 +2046,13 @@ export default function App() {
               </button> : null}
               <button
                 type="button"
-                className={`inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-bg shadow-sm transition-all duration-150 hover:brightness-110 active:scale-[0.98] cursor-pointer ${focusRing}`}
+                aria-label="Lock"
+                title="Lock"
+                className={`inline-flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-semibold text-bg shadow-sm transition-all duration-150 hover:brightness-110 active:scale-[0.98] cursor-pointer sm:px-3 ${focusRing}`}
                 onClick={lock}
               >
                 <LockIcon />
-                Lock
+                <span className="hidden sm:inline">Lock</span>
               </button>
             </div>
           </div>
