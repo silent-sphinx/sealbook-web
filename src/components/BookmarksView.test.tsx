@@ -454,10 +454,9 @@ describe("BookmarksView, the list", () => {
   it("says the collection is empty rather than showing a bare list", () => {
     mount({ collections: [DEFAULT_COLLECTION] });
 
+    expect(screen.getByText("No bookmarks here yet")).not.toBeNull();
     expect(
-      screen.getByText(
-        "No bookmarks here yet. Saved links are encrypted on this device before they leave it.",
-      ),
+      screen.getByText("Saved links are encrypted on this device before they leave it."),
     ).not.toBeNull();
   });
 
@@ -485,7 +484,7 @@ describe("BookmarksView, the list", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Rust book" }));
     const dialog = screen.getByRole("dialog", { name: "Delete bookmark" });
-    expect(dialog.textContent).toContain('"Rust book" will be removed');
+    expect(dialog.textContent).toContain("Delete “Rust book”?");
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
 
     await waitFor(() => expect(deletes).toEqual(["b1"]));

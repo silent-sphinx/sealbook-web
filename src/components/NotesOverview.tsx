@@ -1,8 +1,9 @@
 import { useMemo } from "react";
 
 import { notebookTone, notePreview, resolveNotebookId, sortNotes } from "../lib/note";
-import { focusRing } from "../lib/styles";
+import { eyebrow, focusRing } from "../lib/styles";
 import type { Note, Notebook } from "../lib/types";
+import { EmptyState } from "./EmptyState";
 
 const RECENT_LIMIT = 12;
 
@@ -62,7 +63,7 @@ export function NotesOverview({ notebooks, notes, onOpenNotebook, onOpenNote }: 
   return (
     <div className="hidden h-full flex-col gap-8 overflow-y-auto p-6 lg:flex">
       <section aria-labelledby="overview-notebooks">
-        <h2 id="overview-notebooks" className="mb-3 text-[11px] font-medium uppercase tracking-[0.18em] text-mute">
+        <h2 id="overview-notebooks" className={`mb-3 ${eyebrow}`}>
           Notebooks
         </h2>
         <ul className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-5">
@@ -79,11 +80,11 @@ export function NotesOverview({ notebooks, notes, onOpenNotebook, onOpenNote }: 
       </section>
 
       <section aria-labelledby="overview-recent">
-        <h2 id="overview-recent" className="mb-3 text-[11px] font-medium uppercase tracking-[0.18em] text-mute">
+        <h2 id="overview-recent" className={`mb-3 ${eyebrow}`}>
           Recently modified
         </h2>
         {recent.length === 0 ? (
-          <p className="text-sm text-mute">Select a note to read or edit it.</p>
+          <EmptyState title="No notes yet" body="Notes are encrypted on this device before they leave it." className="rounded-lg border border-dashed border-line" />
         ) : (
           <ul className="divide-y divide-line rounded-lg border border-line">
             {recent.map((note) => (
@@ -109,7 +110,7 @@ export function NotesOverview({ notebooks, notes, onOpenNotebook, onOpenNote }: 
           </ul>
         )}
       </section>
-      {recent.length > 0 ? <p className="sr-only">Select a note to read or edit it.</p> : null}
+      <p className="sr-only">Select a note to read or edit it.</p>
     </div>
   );
 }

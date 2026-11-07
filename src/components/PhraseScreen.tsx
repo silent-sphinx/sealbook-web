@@ -1,6 +1,7 @@
 import { AuthCard, Brand } from "./AuthLayout";
 import { primary, secondary } from "../lib/styles";
 import { formatRecoveryWordsFile } from "../lib/phrase";
+import { Icon } from "./Icon";
 
 interface PhraseScreenProps {
   phrase: string;
@@ -83,11 +84,13 @@ export function PhraseScreen({
         ))}
       </ol>
       <div className="mt-6 flex gap-3">
-        <button type="button" className={secondary} onClick={downloadWords}>
-          ⬇ Download
+        <button type="button" className={`${secondary} inline-flex items-center justify-center gap-2`} onClick={downloadWords}>
+          <Icon name="download" />
+          Download
         </button>
-        <button type="button" className={secondary} onClick={printWords}>
-          🖨 Print
+        <button type="button" className={`${secondary} inline-flex items-center justify-center gap-2`} onClick={printWords}>
+          <Icon name="print" />
+          Print
         </button>
       </div>
       <button

@@ -1,5 +1,7 @@
 import { MAX_EVENT_ALERTS, alertLabel, alertPresets } from "../lib/calendar";
 import type { EventAlert } from "../lib/types";
+import { fieldLabel, focusRing } from "../lib/styles";
+import { Icon } from "./Icon";
 
 export function ReminderField({
   alerts,
@@ -22,7 +24,7 @@ export function ReminderField({
   }
 
   return (
-    <div className="block text-[11px] font-medium text-mute">
+    <div className={fieldLabel}>
       Reminders
       <div className="mt-1 flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-lg border border-line bg-bg px-2 py-1.5 focus-within:border-accent">
         {alerts.map((alert) => {
@@ -33,10 +35,10 @@ export function ReminderField({
               <button
                 type="button"
                 onClick={() => onChange(alerts.filter((other) => other !== alert))}
-                className="text-mute hover:text-text"
+                className={`-mr-1 relative flex h-4 w-4 items-center justify-center rounded text-mute transition-colors hover:text-text hit-area ${focusRing}`}
                 aria-label={`Remove reminder ${label}`}
               >
-                <svg className="h-2.5 w-2.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="m4 4 8 8M12 4l-8 8" /></svg>
+                <Icon name="close" className="h-2.5 w-2.5" />
               </button>
             </span>
           );

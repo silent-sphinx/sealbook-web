@@ -131,7 +131,7 @@ export function ContextMenu({ state, onClose }: { state: MenuState; onClose: () 
         top: placed?.top ?? state.y,
         visibility: placed ? "visible" : "hidden",
       }}
-      className="fixed z-50 min-w-[10rem] overflow-hidden rounded-xl border border-line bg-panel py-1 shadow-lg shadow-black/40"
+      className="fixed z-50 min-w-[10rem] origin-top-left animate-scale-in overflow-hidden rounded-xl border border-line bg-panel py-1 shadow-lg shadow-black/40 [animation-duration:120ms]"
       onContextMenu={(event) => event.preventDefault()}
     >
       {state.items.map((item, at) => (
@@ -145,7 +145,7 @@ export function ContextMenu({ state, onClose }: { state: MenuState; onClose: () 
             onClose();
             item.onSelect();
           }}
-          className={`flex w-full items-center px-3 py-1.5 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+          className={`flex w-full items-center px-3 py-2 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
             item.danger
               ? "text-danger hover:bg-danger/10"
               : "text-text hover:bg-surface disabled:hover:bg-transparent"

@@ -6,7 +6,6 @@ import { TaskDetailPane } from "./TaskDetailPane";
 import { TaskForm } from "./TaskForm";
 import { SMART_VIEWS, TaskListSidebar } from "./TaskListSidebar";
 import { TaskAgendaList } from "./TaskAgendaList";
-import { TaskIcon } from "./TaskIcon";
 import { TaskTreeList } from "./TaskTreeList";
 import type { TaskActions } from "./TaskTreeList";
 import {
@@ -18,7 +17,17 @@ import {
   type Session,
 } from "../lib/client";
 import { friendlyError } from "../lib/errors";
-import { focusRing, sidebarHeaderAction } from "../lib/styles";
+import {
+  btnHeader,
+  focusRing,
+  paneCount,
+  paneHeader,
+  paneTitle,
+  searchClear,
+  searchField,
+  searchIcon,
+  sidebarHeaderAction,
+} from "../lib/styles";
 import {
   buildTaskListTree,
   dueLabel,
@@ -60,6 +69,8 @@ import {
   coreTaskRemovePlan,
 } from "../lib/wasm";
 import type { CoreTaskPlan } from "../lib/wasm";
+import { Icon } from "./Icon";
+import { EmptyState } from "./EmptyState";
 
 type Props = {
   session: Session;
@@ -531,7 +542,7 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
                   title="Create task"
                   className={sidebarHeaderAction}
                 >
-                  <TaskIcon name="plus" className="h-4 w-4" />
+                  <Icon name="plus" className="h-4 w-4" />
                 </button>
               ) : null
             }
@@ -553,10 +564,10 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
         </SidebarDrawer>
 
         <section className="order-1 flex min-w-0 flex-col overflow-hidden lg:order-none lg:min-h-0">
-          <header className="flex flex-col gap-2.5 border-b border-line px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4 sm:px-5 sm:py-3.5 lg:px-6">
+          <header className={paneHeader}>
             <div className="flex min-w-0 items-center gap-2">
-              <h1 className="truncate text-base font-semibold tracking-tight">{title}</h1>
-              <span className="ml-1 shrink-0 rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium text-mute">
+              <h1 className={paneTitle}>{title}</h1>
+              <span className={paneCount}>
                 {shown}
               </span>
             </div>
@@ -566,34 +577,34 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
                   type="button"
                   onClick={() => startAdd()}
                   disabled={disabled}
-                  className={`flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-xs font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 ${focusRing}`}
+                  className={btnHeader}
                 >
-                  <TaskIcon name="plus" />
+                  <Icon name="plus" />
                   <span className="hidden sm:inline">New task</span>
                   <span className="sm:hidden">New</span>
                 </button>
               ) : null}
               <div className="relative min-w-0 flex-1 sm:flex-none">
-                <TaskIcon
+                <Icon
                   name="search"
-                  className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-mute"
+                  className={searchIcon}
                 />
                 <input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search tasks"
                   aria-label="Search tasks"
-                  className="h-8 w-full rounded-xl border border-line bg-panel pl-8 pr-7 text-xs text-text outline-none transition-all duration-150 placeholder:text-mute/60 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring sm:w-52 sm:focus:w-72"
+                  className={`${searchField} sm:w-52 sm:focus:w-72`}
                 />
                 {search ? (
                   <button
                     type="button"
                     onClick={() => setSearch("")}
-                    className={`absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
+                    className={searchClear}
                     aria-label="Clear search"
                     title="Clear search"
                   >
-                    <TaskIcon name="close" className="h-3 w-3" />
+                    <Icon name="close" className="h-3 w-3" />
                   </button>
                 ) : null}
               </div>
@@ -615,9 +626,14 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
                 />
               ) : scopeTree ? (
                 scopeTree.length === 0 ? (
-                  <p className="px-6 py-12 text-center text-sm text-mute">
-                    {searching ? "No tasks match that search." : "Nothing here."}
-                  </p>
+                  searching ? (
+                    <EmptyState title="No tasks match that search." />
+                  ) : (
+                    <EmptyState
+                      title="No tasks here"
+                      body="Tasks you add to this list appear here."
+                    />
+                  )
                 ) : (
                   <TaskTreeList
                     {...actions}
@@ -695,8 +711,8 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
       {confirmDelete ? (
         <ConfirmDialog
           title="Delete task"
-          heading="Delete task"
-          body={`"${confirmDelete.title}" will be removed from every device signed in to this account. Its subtasks are kept and move up one level.`}
+          heading={`Delete “${confirmDelete.title}”?`}
+          body={`It will be removed from every device signed in to this account. Its subtasks are kept and move up one level.`}
           confirmLabel="Delete"
           tone="danger"
           busy={saving}
@@ -708,8 +724,8 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
       {deletingList ? (
         <ConfirmDialog
           title="Delete list"
-          heading="Delete list"
-          body={`"${deletingList.name}" will be removed. The tasks and lists inside it are kept and move up one level.`}
+          heading={`Delete “${deletingList.name}”?`}
+          body={`The list will be removed. The tasks and lists inside it are kept and move up one level.`}
           confirmLabel="Delete"
           tone="danger"
           busy={saving}

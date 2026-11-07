@@ -14,35 +14,10 @@ import {
 import { ColourPalette, type PaletteState } from "./ColourPalette";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 import { SidebarSection } from "./SidebarDrawer";
+import { isLegibleOnDark } from "../lib/colour";
+import { Icon } from "./Icon";
 
-type IconName = "chevron" | "plus" | "star" | "archive" | "unarchive" | "more";
 
-function Icon({ name, className = "h-4 w-4" }: { name: IconName; className?: string }) {
-  const content = {
-    chevron: <path d="m6.5 3.5 5 5-5 5" />,
-    plus: <path d="M8 3.25v9.5M3.25 8h9.5" />,
-    star: <path d="m8 1.75 1.9 3.85 4.25.62-3.08 3 .73 4.23L8 11.45l-3.8 2 .73-4.23-3.08-3 4.25-.62L8 1.75Z" fill="currentColor" />,
-    archive: <><path d="M2 3.5h12v3H2z" /><path d="M3.5 6.5v6h9v-6" /><path d="M6.5 9h3" /></>,
-    unarchive: <><path d="M2 3.5h12v3H2z" /><path d="M3.5 6.5v6h9v-6" /><path d="M8 11.5V8m-1.5 1.5L8 8l1.5 1.5" /></>,
-    more: <><circle cx="3.5" cy="8" r="0.9" fill="currentColor" /><circle cx="8" cy="8" r="0.9" fill="currentColor" /><circle cx="12.5" cy="8" r="0.9" fill="currentColor" /></>,
-  }[name];
-  return <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">{content}</svg>;
-}
-
-function isLegibleOnDark(hex: string): boolean {
-  const match = /^#([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!match) return true;
-  const value = Number.parseInt(match[1], 16);
-  const channel = (raw: number) => {
-    const scaled = raw / 255;
-    return scaled <= 0.03928 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4;
-  };
-  const luminance =
-    0.2126 * channel((value >> 16) & 255) +
-    0.7152 * channel((value >> 8) & 255) +
-    0.0722 * channel(value & 255);
-  return luminance > 0.18;
-}
 
 function CalendarSwatch({ color, hidden }: { color: string; hidden: boolean }) {
   return (
@@ -68,7 +43,6 @@ type Props = {
   readOnly: boolean;
   canArchive: boolean;
   busy: boolean;
-  error: string | null;
   onToggle: (calendarId: string) => void;
   onShowAll: () => void;
   onCreate: (name: string) => Promise<unknown>;
@@ -89,7 +63,6 @@ export function CalendarSections({
   readOnly,
   canArchive,
   busy,
-  error,
   onToggle,
   onShowAll,
   onCreate,
@@ -325,13 +298,12 @@ export function CalendarSections({
       ) : null}
       <SidebarSection
         label="Calendars"
-        action={readOnly ? null : <button type="button" onClick={startCreate} className={sidebarSectionAction} aria-label="Add calendar"><Icon name="plus" className="h-3 w-3" /></button>}
+        action={readOnly ? null : <button type="button" onClick={startCreate} className={sidebarSectionAction} aria-label="Add calendar"><Icon name="plus" className="h-3.5 w-3.5" /></button>}
       >
         {empty}
         {others.length > 0 ? <ul className="mt-2.5 space-y-0.5">{others.map(row)}</ul> : null}
         {creating && !readOnly ? <div className="mt-0.5">{nameInput("New calendar name", null)}</div> : null}
         {anyHidden ? <button type="button" onClick={onShowAll} className={`-ml-2 mt-2.5 rounded-md px-2 py-1 text-[11px] text-mute transition-colors hover:text-accent ${focusRing}`}>Show all calendars</button> : null}
-        {error ? <p role="alert" className="mt-2.5 text-xs text-danger">{error}</p> : null}
         {archivedGroup}
       </SidebarSection>
     </>

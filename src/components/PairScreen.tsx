@@ -2,7 +2,12 @@ import { type FormEvent } from "react";
 import { AuthCard, Brand, Step } from "./AuthLayout";
 import { CopyIcon, CheckIcon } from "./AppIcons";
 import { PasswordField } from "./PasswordField";
-import { field, ghost } from "../lib/styles";
+import {
+  chipButton,
+  field,
+  ghost,
+  primary,
+} from "../lib/styles";
 import { confirmationGroups } from "../lib/pairing";
 
 interface PairScreenProps {
@@ -76,7 +81,7 @@ export function PairScreen({
               onCopied(true);
               setTimeout(() => onCopied(false), 2000);
             }}
-            className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1 text-xs font-medium text-accent transition-colors hover:border-line-light hover:text-accent-dim cursor-pointer"
+            className={`mt-2.5 ${chipButton}`}
           >
             {copied ? <CheckIcon /> : <CopyIcon />}
             {copied ? "Copied" : "Copy code"}
@@ -104,8 +109,8 @@ export function PairScreen({
 
       {pairApproved ? (
         <form onSubmit={onSubmit} className="mt-6 animate-fade-in-up">
-          <div className="flex items-center gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-xs text-emerald-300">
-            <svg className="h-4 w-4 shrink-0 text-emerald-400" viewBox="0 0 20 20" fill="currentColor">
+          <div className="flex items-center gap-2.5 rounded-xl border border-success/30 bg-success/10 p-3.5 text-xs text-success">
+            <svg className="h-4 w-4 shrink-0 text-success" viewBox="0 0 20 20" fill="currentColor">
               <path
                 fillRule="evenodd"
                 d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z"
@@ -132,7 +137,7 @@ export function PairScreen({
           <button
             type="submit"
             disabled={busy}
-            className="mt-5 w-full rounded-xl bg-accent py-3 text-sm font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+            className={`mt-5 ${primary}`}
           >
             {busy ? "Unlocking vault…" : "Finish device setup"}
           </button>

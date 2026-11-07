@@ -16,7 +16,19 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { SidebarDrawer, SidebarHeader, SidebarSection, type Sidebar } from "./SidebarDrawer";
 import { Modal } from "./Modal";
 import { localInputToUtc, utcToLocalInput } from "../lib/timezone";
-import { btnDanger, btnPrimary, focusRing, sidebarHeaderAction, sidebarMark } from "../lib/styles";
+import {
+  btnDanger,
+  btnHeader,
+  btnPrimary,
+  fieldLabel,
+  focusRing,
+  paneTitle,
+  searchClear,
+  searchField,
+  searchIcon,
+  sidebarHeaderAction,
+  sidebarMark,
+} from "../lib/styles";
 import { VisibilityBox } from "./ContainerList";
 import { CalendarSections } from "./CalendarSidebar";
 import { DayView as ExtractedDayView, MonthGrid as ExtractedMonthGrid, WeekView as ExtractedWeekView, YearView as ExtractedYearView } from "./CalendarViews";
@@ -44,6 +56,7 @@ import {
   storeCalendarFlag,
   storeCalendarIds,
 } from "../lib/calendarVisibility";
+import { Icon } from "./Icon";
 
 type ViewMode = "day" | "week" | "month" | "year";
 type RepeatChoice = "none" | "daily" | "weekday" | "weekly" | "monthly-date" | "monthly-nth" | "yearly" | "custom";
@@ -67,6 +80,7 @@ function EventSearch({
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const [expanded, setExpanded] = useState(false);
   const close = useCallback(() => { setOpen(false); setCursor(-1); }, []);
 
   useEffect(() => {
@@ -76,11 +90,24 @@ function EventSearch({
 
   useEffect(() => {
     function onPointerDown(e: PointerEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) close();
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        close();
+        if (!query.trim()) setExpanded(false);
+      }
     }
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [close]);
+  }, [close, query]);
+
+  useEffect(() => {
+    if (expanded) inputRef.current?.focus();
+  }, [expanded]);
+
+  function collapse() {
+    onQueryChange("");
+    close();
+    setExpanded(false);
+  }
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (!open || results.length === 0) return;
@@ -90,35 +117,41 @@ function EventSearch({
     else if (e.key === "Escape") { close(); inputRef.current?.blur(); }
   }
 
+  function onInputKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Escape" && !open) collapse();
+    else handleKeyDown(e);
+  }
+
   function pick(result: SearchResult) {
-    onQueryChange("");
-    close();
+    collapse();
     onPick(result);
   }
 
   return (
-    <div ref={containerRef} className="relative">
-      <div className="relative flex items-center">
-        <Icon name="search" className="h-3.5 w-3.5" />
+    <div ref={containerRef} className={`relative shrink-0 transition-[width] @min-[36rem]:ml-auto @min-[36rem]:w-44 @min-[36rem]:focus-within:w-64 ${expanded ? "@max-[36rem]:animate-search-pop @max-[36rem]:absolute @max-[36rem]:inset-0 @max-[36rem]:z-20 @max-[36rem]:flex @max-[36rem]:items-center @max-[36rem]:gap-2 @max-[36rem]:bg-bg" : ""}`}>
+      <button type="button" onClick={() => setExpanded(true)} aria-label="Search events" className={`h-8 w-8 items-center justify-center rounded-lg border border-line text-mute transition-colors hover:bg-surface hover:text-text ${expanded ? "hidden" : "flex @min-[36rem]:hidden"} ${focusRing}`}><Icon name="search" className="h-3.5 w-3.5" /></button>
+      <div className={`relative items-center ${expanded ? "flex flex-1" : "hidden @min-[36rem]:flex"}`}>
+        <Icon name="search" className={searchIcon} />
         <input
           ref={inputRef}
           type="search"
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
-          onKeyDown={handleKeyDown}
+          onKeyDown={onInputKeyDown}
           onFocus={() => { if (query.trim() && results.length > 0) setOpen(true); }}
           placeholder="Search events"
           aria-label="Search events"
-          className={`h-8 w-40 rounded-lg border border-line bg-surface/40 pl-8 pr-3 text-xs text-text placeholder-mute transition-all focus:w-56 focus:border-line-light focus:bg-surface focus:outline-none sm:w-44 sm:focus:w-64 ${focusRing}`}
+          className={searchField}
         />
         {query ? (
-          <button type="button" onClick={() => { onQueryChange(""); close(); }} className="absolute right-2 text-mute hover:text-text" aria-label="Clear search">
-            <Icon name="x" className="h-3 w-3" />
+          <button type="button" onClick={() => { onQueryChange(""); close(); }} className={searchClear} aria-label="Clear search" title="Clear search">
+            <Icon name="close" className="h-3 w-3" />
           </button>
         ) : null}
       </div>
+      {expanded ? <button type="button" onClick={collapse} className={`shrink-0 rounded-lg px-1 text-xs font-medium text-mute hover:text-text @min-[36rem]:hidden ${focusRing}`}>Cancel</button> : null}
       {open && results.length > 0 ? (
-        <div role="listbox" className="absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-xl border border-line bg-bg shadow-lg sm:w-80">
+        <div role="listbox" className="origin-top animate-scale-in [animation-duration:120ms] absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-xl border border-line bg-bg shadow-lg sm:w-80 @max-[36rem]:left-0 @max-[36rem]:w-auto">
           {results.map((result, i) => (
             <div
               key={`${result.event.id}-${result.date.toISOString()}`}
@@ -134,7 +167,7 @@ function EventSearch({
           ))}
         </div>
       ) : open && query.trim() ? (
-        <div className="absolute right-0 top-full z-50 mt-1 w-72 rounded-xl border border-line bg-bg px-3 py-2.5 text-xs text-mute shadow-lg sm:w-80">
+        <div className="origin-top animate-scale-in [animation-duration:120ms] absolute right-0 top-full z-50 mt-1 w-72 rounded-xl border border-line bg-bg px-3 py-2.5 text-xs text-mute shadow-lg sm:w-80 @max-[36rem]:left-0 @max-[36rem]:w-auto">
           No events match &ldquo;{query.trim()}&rdquo;
         </div>
       ) : null}
@@ -142,22 +175,6 @@ function EventSearch({
   );
 }
 
-function Icon({ name, className = "h-4 w-4" }: { name: "plus" | "search" | "chevron" | "pencil" | "star" | "x" | "archive" | "unarchive"; className?: string }) {
-  const content = {
-    plus: <path d="M8 2.5v11M2.5 8h11" />,
-    search: <><circle cx="6.5" cy="6.5" r="4" /><path d="m10 10 3.5 3.5" /></>,
-    chevron: <path d="m6.5 3.5 5 5-5 5" />,
-    x: <path d="m4 4 8 8M12 4l-8 8" />,
-    pencil: <><path d="m10.75 2.75 2.5 2.5M3 13l1.5-3.75 6.25-6.25a1.77 1.77 0 0 1 2.5 2.5L7 11.75 3 13Z" /></>,
-    star: <path d="m8 1.75 1.9 3.85 4.25.62-3.08 3 .73 4.23L8 11.45l-3.8 2 .73-4.23-3.08-3 4.25-.62L8 1.75Z" fill="currentColor" />,
-    archive: <><path d="M2 3.5h12v3H2z" /><path d="M3.5 6.5v6h9v-6" /><path d="M6.5 9h3" /></>,
-    unarchive: <><path d="M2 3.5h12v3H2z" /><path d="M3.5 6.5v6h9v-6" /><path d="M8 11.5V8m-1.5 1.5L8 8l1.5 1.5" /></>,
-  }[name];
-  const resolvedClassName = name === "search"
-    ? `${className} pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-mute`
-    : className;
-  return <svg className={resolvedClassName} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">{content}</svg>;
-}
 
 export function CalendarView({
   session,
@@ -341,6 +358,13 @@ export function CalendarView({
     [days, filtered, maxSpanDays, timezone],
   );
 
+  const viewKey = `${mode}:${keyFor(rangeStart)}`;
+  const [shownView, setShownView] = useState({ key: viewKey, mode, start: rangeStart.getTime(), motion: "" });
+  if (shownView.key !== viewKey) {
+    const motion = shownView.mode !== mode ? "animate-view-fade" : rangeStart.getTime() > shownView.start ? "animate-view-next" : "animate-view-prev";
+    setShownView({ key: viewKey, mode, start: rangeStart.getTime(), motion });
+  }
+
   const heading = mode === "year"
     ? String(month.getFullYear())
     : mode === "day"
@@ -348,6 +372,13 @@ export function CalendarView({
       : mode === "week"
         ? formatWeekRange(week[0], week[6])
         : month.toLocaleDateString([], { month: "long", year: "numeric" });
+  const shortHeading = mode === "year"
+    ? heading
+    : mode === "day"
+      ? selectedDate.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short", year: "numeric" })
+      : mode === "week"
+        ? formatWeekRange(week[0], week[6], "short")
+        : month.toLocaleDateString([], { month: "short", year: "numeric" });
 
   /** Steps the view by one of whatever it is currently showing. */
   function shiftView(direction: 1 | -1) {
@@ -726,12 +757,17 @@ export function CalendarView({
     // sitting in a card. The sidebar keeps a translucent panel fill so it still
     // separates from the grid without reintroducing an opaque chrome column.
     <main className="flex flex-col bg-bg pb-[env(safe-area-inset-bottom)] text-text lg:h-[calc(100dvh-var(--sb-header-h,74px))] lg:overflow-hidden lg:pb-0">
+      {error && !composer ? (
+        <p role="alert" className="shrink-0 border-b border-danger/30 bg-danger/10 px-4 py-2 text-xs text-danger lg:px-6">
+          {error}
+        </p>
+      ) : null}
       <div className="sb-shell grid min-h-0 flex-1 lg:h-full" style={sidebar.cols}>
         <SidebarDrawer title="Calendars" sidebar={sidebar}>
           <SidebarHeader
             eyebrow="My calendar"
             title="Calendar"
-            action={!readOnlyMode ? <button type="button" onClick={() => openNewTask()} className={sidebarHeaderAction} aria-label="Create event"><Icon name="plus" /></button> : null}
+            action={!readOnlyMode ? <button type="button" onClick={() => openNewTask()} className={sidebarHeaderAction} aria-label="Create event"><Icon name="plus" className="h-4 w-4" /></button> : null}
           />
           <MiniMonth month={month} days={days} weekStart={weekStart} selected={selected} events={miniEvents} spans={miniSpans} onSelect={(day) => { selectDay(day); sidebar.close(); }} />
           <CalendarSections
@@ -742,7 +778,6 @@ export function CalendarView({
             readOnly={readOnlyMode}
             canArchive={activeCals.length > 1}
             busy={busy || saving}
-            error={composer ? null : error}
             onToggle={toggleCalendar}
             onShowAll={showAllCalendars}
             onCreate={(name) => writeCalendar(null, { name })}
@@ -764,21 +799,23 @@ export function CalendarView({
           ) : null}
         </SidebarDrawer>
 
-        <section className="order-1 flex min-w-0 flex-col overflow-hidden lg:order-none lg:min-h-0">
-          <header className="flex flex-col gap-2.5 border-b border-line px-4 py-3 sm:px-5 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between lg:gap-4 lg:px-6 lg:py-3.5">
-            <div className="flex min-w-0 items-center gap-2">
-              <button type="button" onClick={() => shiftView(-1)} className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line text-mute transition-colors hover:border-line-light hover:bg-surface hover:text-text ${focusRing}`} aria-label={`Previous ${mode}`}><Icon name="chevron" className="h-3.5 w-3.5 rotate-180" /></button>
-              <button type="button" onClick={() => { setMonth(new Date(today.getFullYear(), today.getMonth(), 1)); selectDay(today); }} className={`h-8 shrink-0 rounded-lg border border-line px-3 text-xs font-medium text-mute transition-colors hover:border-line-light hover:bg-surface hover:text-text sm:px-3.5 ${focusRing}`}>Today</button>
-              <button type="button" onClick={() => shiftView(1)} className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line text-mute transition-colors hover:border-line-light hover:bg-surface hover:text-text ${focusRing}`} aria-label={`Next ${mode}`}><Icon name="chevron" className="h-3.5 w-3.5" /></button>
-              <h1 className="ml-1 min-w-0 truncate text-base font-semibold tracking-tight sm:ml-3">{heading}</h1>
-              <span className="ml-1 shrink-0 rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium text-mute" title={`${visibleEvents.length} event${visibleEvents.length === 1 ? "" : "s"} in view`}>{visibleEvents.length}</span>
+        <section className="@container order-1 flex min-w-0 flex-col overflow-hidden lg:order-none lg:min-h-0">
+          <header className="flex flex-col gap-3 border-b border-line px-4 py-3 sm:px-5 lg:px-6 lg:py-3.5 @min-[60rem]:flex-row @min-[60rem]:items-center @min-[60rem]:justify-between @min-[60rem]:gap-4">
+            <div className="flex min-w-0 items-center justify-between gap-3 @min-[60rem]:justify-start">
+              <h1 className={`min-w-0 ${paneTitle}`}><span className="@max-[36rem]:hidden">{heading}</span><span className="@min-[36rem]:hidden">{shortHeading}</span></h1>
+              <div className="flex h-8 shrink-0 items-stretch divide-x divide-line overflow-hidden rounded-lg border border-line @min-[60rem]:order-first">
+                <button type="button" onClick={() => shiftView(-1)} className={`flex h-full w-8 items-center justify-center text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`} aria-label={`Previous ${mode}`}><Icon name="chevron" className="h-3.5 w-3.5 rotate-180" /></button>
+                <button type="button" onClick={() => { setMonth(new Date(today.getFullYear(), today.getMonth(), 1)); selectDay(today); }} className={`px-3 text-xs font-medium text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}>Today</button>
+                <button type="button" onClick={() => shiftView(1)} className={`flex h-full w-8 items-center justify-center text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`} aria-label={`Next ${mode}`}><Icon name="chevron" className="h-3.5 w-3.5" /></button>
+              </div>
             </div>
-            <div className="flex items-center gap-2.5">
-              {!readOnlyMode ? <button type="button" onClick={() => openNewTask()} className={`flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3 text-xs font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] sm:px-3.5 ${focusRing}`}><Icon name="plus" className="h-3.5 w-3.5" /><span className="hidden sm:inline">New event</span><span className="sm:hidden">New</span></button> : null}
+            <div className="relative flex items-center gap-2">
+              <ViewSwitcher mode={mode} onChange={setMode} />
               <EventSearch query={search} results={searchResults} onQueryChange={setSearch} onPick={revealEvent} />
-              <div className="flex shrink-0 rounded-xl border border-line bg-surface/40 p-1">{(["day", "week", "month", "year"] as ViewMode[]).map((item) => <button key={item} type="button" onClick={() => setMode(item)} className={`h-6 rounded-lg px-2 text-[11px] capitalize transition-colors sm:px-2.5 ${mode === item ? "bg-surface font-medium text-text" : "text-mute hover:text-text"} ${focusRing}`}>{item}</button>)}</div>
+              {!readOnlyMode ? <button type="button" onClick={() => openNewTask()} aria-label="New event" className={`${btnHeader} @max-[36rem]:w-8 @max-[36rem]:px-0`}><Icon name="plus" className="h-3.5 w-3.5" /><span className="@max-[36rem]:hidden">New event</span></button> : null}
             </div>
           </header>
+          <div key={viewKey} className={`flex min-h-0 min-w-0 flex-1 flex-col ${shownView.motion}`}>
           {mode === "month" ? (
             <ExtractedMonthGrid month={month} days={days} weekStart={weekStart} selected={selected} todayKey={todayKey} events={visibleEvents} spans={spans} calendars={calendars} onSelect={selectDay} onAdd={readOnlyMode ? () => undefined : (day) => openNewTask(day)} onEdit={editOccurrence} taskMarks={taskMarks} onOpenTask={onOpenTask} />
           ) : mode === "day" ? (
@@ -788,6 +825,7 @@ export function CalendarView({
           ) : (
             <ExtractedYearView months={yearMonths} weekStart={weekStart} today={today} selected={selected} events={visibleEvents} spans={spans} onOpenDay={openDay} />
           )}
+          </div>
         </section>
       </div>
 
@@ -914,7 +952,7 @@ function ParticipantPicker({
   }
 
   return (
-    <div className="block text-[11px] font-medium text-mute">
+    <div className={fieldLabel}>
       Participants
       <div ref={containerRef} className="relative mt-1">
         <div
@@ -929,10 +967,10 @@ function ParticipantPicker({
               <button
                 type="button"
                 onClick={() => removeParticipant(i)}
-                className="text-mute hover:text-text"
+                className={`-mr-1 relative flex h-4 w-4 items-center justify-center rounded text-mute transition-colors hover:text-text hit-area ${focusRing}`}
                 aria-label={`Remove ${name}`}
               >
-                <Icon name="x" className="h-2.5 w-2.5" />
+                <Icon name="close" className="h-2.5 w-2.5" />
               </button>
             </span>
           ))}
@@ -976,11 +1014,11 @@ function TaskDialog({ editing, title, start, end, notes, location, alerts, parti
 
           {/* Calendar + Location row */}
           <div className="grid grid-cols-2 gap-2.5">
-            <label className="block text-[11px] font-medium text-mute">
+            <label className={fieldLabel}>
               Calendar
               <select value={calendarId} onChange={(e) => onCalendarChange(e.target.value)} className="mt-1 h-9 w-full rounded-lg border border-line bg-bg px-2.5 text-xs outline-none focus:border-accent">{calendars.map((cal) => <option key={cal.id} value={cal.id}>{cal.name}</option>)}</select>
             </label>
-            <label className="block text-[11px] font-medium text-mute">
+            <label className={fieldLabel}>
               Location
               <input value={location} onChange={(e) => onLocationChange(e.target.value)} placeholder="Optional" className="mt-1 h-9 w-full rounded-lg border border-line bg-bg px-2.5 text-xs outline-none placeholder:text-mute focus:border-accent" />
             </label>
@@ -995,7 +1033,7 @@ function TaskDialog({ editing, title, start, end, notes, location, alerts, parti
               <input type="checkbox" checked={allDay} onChange={(e) => onAllDayChange(e.target.checked)} className="h-3.5 w-3.5 accent-[var(--color-accent)]" />
               All day
             </label>
-            <div className="grid grid-cols-2 gap-px bg-line">
+            <div className="grid grid-cols-1 gap-px bg-line sm:grid-cols-2">
               <label className="flex flex-col gap-1 bg-bg px-3 py-2">
                 <span className="text-[10px] font-medium text-mute">Starts</span>
                 {allDay
@@ -1013,7 +1051,7 @@ function TaskDialog({ editing, title, start, end, notes, location, alerts, parti
 
           <ReminderField alerts={alerts} allDay={allDay} onChange={onAlertsChange} />
 
-          <label className="block text-[11px] font-medium text-mute">
+          <label className={fieldLabel}>
             Repeat event
             <select value={repeatChoice} onChange={(e) => onRepeatChange(e.target.value as RepeatChoice)} className="mt-1 h-9 w-full rounded-lg border border-line bg-bg px-2.5 text-xs outline-none focus:border-accent">
               <option value="none">Does not repeat</option>
@@ -1027,11 +1065,11 @@ function TaskDialog({ editing, title, start, end, notes, location, alerts, parti
             </select>
           </label>
           {repeatChoice === "custom" ? <div className="grid grid-cols-[1fr_1.4fr] gap-2.5 rounded-lg border border-line bg-bg p-2.5">
-            <label className="text-[11px] font-medium text-mute">Every<input type="number" min="1" max="99" value={customInterval} onChange={(e) => onCustomIntervalChange(Number(e.target.value) || 1)} className="mt-1 h-8 w-full rounded border border-line bg-panel px-2 text-xs text-text outline-none focus:border-accent" /></label>
-            <label className="text-[11px] font-medium text-mute">Period<select value={customFrequency} onChange={(e) => onCustomFrequencyChange(e.target.value as typeof customFrequency)} className="mt-1 h-8 w-full rounded border border-line bg-panel px-2 text-xs outline-none focus:border-accent"><option value="daily">day(s)</option><option value="weekly">week(s)</option><option value="monthly">month(s)</option><option value="yearly">year(s)</option></select></label>
+            <label className="text-xs font-medium text-mute">Every<input type="number" min="1" max="99" value={customInterval} onChange={(e) => onCustomIntervalChange(Number(e.target.value) || 1)} className="mt-1 h-8 w-full rounded border border-line bg-panel px-2 text-xs text-text outline-none focus:border-accent" /></label>
+            <label className="text-xs font-medium text-mute">Period<select value={customFrequency} onChange={(e) => onCustomFrequencyChange(e.target.value as typeof customFrequency)} className="mt-1 h-8 w-full rounded border border-line bg-panel px-2 text-xs outline-none focus:border-accent"><option value="daily">day(s)</option><option value="weekly">week(s)</option><option value="monthly">month(s)</option><option value="yearly">year(s)</option></select></label>
           </div> : null}
           {repeatChoice !== "none" ? <div className="space-y-2.5 rounded-lg border border-line bg-bg p-2.5">
-            <label className="block text-[11px] font-medium text-mute">
+            <label className={fieldLabel}>
               Repeat until
               <select value={repeatEnd} onChange={(e) => onRepeatEndChange(e.target.value as RepeatEnd)} className="mt-1 h-8 w-full rounded border border-line bg-panel px-2 text-xs outline-none focus:border-accent">
                 <option value="never">Forever</option>
@@ -1039,18 +1077,18 @@ function TaskDialog({ editing, title, start, end, notes, location, alerts, parti
                 <option value="date">On a date</option>
               </select>
             </label>
-            {repeatEnd === "count" ? <label className="block text-[11px] font-medium text-mute">
+            {repeatEnd === "count" ? <label className={fieldLabel}>
               Occurrences
               <input type="number" min="1" max="999" value={repeatCount} onChange={(e) => onRepeatCountChange(Number(e.target.value) || 1)} className="mt-1 h-8 w-full rounded border border-line bg-panel px-2 text-xs text-text outline-none focus:border-accent" />
             </label> : null}
-            {repeatEnd === "date" ? <label className="block text-[11px] font-medium text-mute">
+            {repeatEnd === "date" ? <label className={fieldLabel}>
               Last date
               <input type="date" min={minRepeatUntil} value={repeatUntil} onChange={(e) => onRepeatUntilChange(e.target.value)} className="mt-1 h-8 w-full rounded border border-line bg-panel px-2 text-xs text-text outline-none focus:border-accent" />
             </label> : null}
           </div> : null}
 
           {/* Notes */}
-          <label className="block text-[11px] font-medium text-mute">
+          <label className={fieldLabel}>
             Notes
             <textarea value={notes} onChange={(e) => onNotesChange(e.target.value)} placeholder="Optional notes" rows={2} className="mt-1 w-full resize-y rounded-lg border border-line bg-bg p-2.5 text-xs leading-relaxed outline-none placeholder:text-mute focus:border-accent" />
           </label>
@@ -1067,11 +1105,44 @@ function TaskDialog({ editing, title, start, end, notes, location, alerts, parti
   );
 }
 
+const VIEW_MODES: ViewMode[] = ["day", "week", "month", "year"];
+
+function ViewSwitcher({ mode, onChange }: { mode: ViewMode; onChange: (mode: ViewMode) => void }) {
+  const buttons = useRef<Partial<Record<ViewMode, HTMLButtonElement | null>>>({});
+  const [pill, setPill] = useState<{ left: number; width: number } | null>(null);
+
+  useEffect(() => {
+    const node = buttons.current[mode];
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setPill({ left: node.offsetLeft, width: node.offsetWidth }));
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [mode]);
+
+  return (
+    <div className="relative flex h-8 shrink-0 rounded-lg border border-line bg-surface/40 p-0.5 @max-[36rem]:flex-1">
+      {pill ? <span aria-hidden="true" className="absolute inset-y-0.5 rounded-md bg-surface shadow-sm transition-[left,width] duration-150 ease-[cubic-bezier(0.2,0,0,1)]" style={{ left: pill.left, width: pill.width }} /> : null}
+      {VIEW_MODES.map((item) => (
+        <button
+          key={item}
+          ref={(node) => { buttons.current[item] = node; }}
+          type="button"
+          onClick={() => onChange(item)}
+          aria-pressed={mode === item}
+          className={`relative h-full rounded-md px-2.5 text-xs capitalize transition-colors @max-[36rem]:flex-1 ${mode === item ? `font-medium text-text ${pill ? "" : "bg-surface shadow-sm"}` : "text-mute hover:text-text"} ${focusRing}`}
+        >
+          {item}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ImportProgressModal({ title, description, current, total }: { title: string; description: string; current: number; total: number }) {
   const percent = total > 0 ? Math.round((current / total) * 100) : 0;
-  return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-md"><section role="dialog" aria-modal="true" className="w-full max-w-sm rounded-2xl border border-line bg-panel p-6 shadow-2xl shadow-black/50"><h3 className="text-base font-semibold text-text">{title}</h3><p className="mt-1 text-xs text-mute">{description}</p><div className="mt-5 h-2 overflow-hidden rounded-full bg-surface"><div className="h-full rounded-full bg-accent transition-all" style={{ width: `${percent}%` }} /></div><p className="mt-2 text-right text-[11px] tabular-nums text-mute">{total ? `${current} of ${total}` : "Preparing..."}</p></section></div>;
+  return <div className="fixed inset-0 z-[60] flex animate-fade-in items-center justify-center bg-black/70 p-4 backdrop-blur-md"><section role="dialog" aria-modal="true" className="animate-scale-in w-full max-w-sm rounded-2xl border border-line bg-panel p-6 shadow-2xl shadow-black/50"><h3 className="text-base font-semibold text-text">{title}</h3><p className="mt-1 text-xs text-mute">{description}</p><div className="mt-5 h-2 overflow-hidden rounded-full bg-surface"><div className="h-full rounded-full bg-accent transition-all" style={{ width: `${percent}%` }} /></div><p className="mt-2 text-right text-[11px] tabular-nums text-mute">{total ? `${current} of ${total}` : "Preparing..."}</p></section></div>;
 }
 
 function MiniMonth({ month, days, weekStart, selected, events, spans, onSelect }: { month: Date; days: Date[]; weekStart: WeekStart; selected: string; events: CalendarEvent[]; spans: Map<string, EventSpan>; onSelect: (day: Date) => void }) {
-  return <div className="mt-5"><div className="mb-3 flex items-center justify-between text-xs font-semibold"><span>{month.toLocaleDateString([], { month: "long", year: "numeric" })}</span><span className="text-[10px] uppercase tracking-[0.14em] text-mute">{month.toLocaleDateString([], { month: "short" })}</span></div><div className="grid grid-cols-7 gap-y-1 text-center text-[10px] text-mute">{weekdayLabels(weekStart, "narrow").map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}{days.map((day) => { const key = keyFor(day); const marked = events.some((event) => { const span = spans.get(event.id); return span ? spanCoversDay(span, day) : false; }); return <button key={key} type="button" onClick={() => onSelect(day)} className={`relative flex h-6 items-center justify-center rounded-full text-[11px] transition-colors ${day.getMonth() === month.getMonth() ? "text-text" : "text-mute/40"} ${selected === key ? "bg-accent font-semibold text-bg" : "hover:bg-surface"}`}><span>{day.getDate()}</span>{marked && selected !== key ? <i className="absolute bottom-0.5 h-0.5 w-0.5 rounded-full bg-accent" /> : null}</button>; })}</div></div>;
+  return <div className="mt-5"><div className="mb-3 flex items-center justify-between text-xs font-semibold"><span>{month.toLocaleDateString([], { month: "long", year: "numeric" })}</span><span className="text-[10px] uppercase tracking-[0.14em] text-mute">{month.toLocaleDateString([], { month: "short" })}</span></div><div className="grid grid-cols-7 gap-y-1 text-center text-[10px] text-mute">{weekdayLabels(weekStart, "narrow").map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}{days.map((day) => { const key = keyFor(day); const marked = events.some((event) => { const span = spans.get(event.id); return span ? spanCoversDay(span, day) : false; }); return <button key={key} type="button" onClick={() => onSelect(day)} className={`relative flex h-6 items-center justify-center rounded-full text-[11px] transition-colors ${day.getMonth() === month.getMonth() ? "text-text" : "text-mute/60"} ${selected === key ? "bg-accent font-semibold text-bg" : "hover:bg-surface"} ${focusRing}`} aria-label={day.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long", year: "numeric" })}><span>{day.getDate()}</span>{marked && selected !== key ? <i className="absolute bottom-0.5 h-0.5 w-0.5 rounded-full bg-accent" /> : null}</button>; })}</div></div>;
 }

@@ -397,7 +397,7 @@ export function SidebarAddRow({ label, onClick, disabled }: { label: string; onC
       style={{ paddingLeft: "0.5rem" }}
     >
       <span className="flex h-7 w-4 shrink-0 items-center justify-center text-note-new">
-        <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
           <path d="M8 3.5v9M3.5 8h9" />
         </svg>
       </span>

@@ -21,7 +21,7 @@ export const btnSecondary =
   `${btnBase} border border-line bg-surface px-4 py-2 text-mute font-medium hover:border-line-light hover:text-text`;
 export const btnDanger =
   `${btnBase} bg-danger px-4 py-2 text-bg hover:brightness-110`;
-export const fieldLabel = "block text-xs font-medium text-text";
+export const fieldLabel = "block text-xs font-medium text-mute";
 export const textAction =
   `rounded text-[11px] font-medium text-accent transition-colors hover:underline disabled:opacity-50 ${focusRing}`;
 export const ghost =
@@ -47,7 +47,7 @@ export const sidebarHeaderAction =
 export const sidebarSectionAction =
   `flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`;
 export const sidebarRowAction =
-  `flex h-6 w-6 items-center justify-center rounded-md text-mute transition-colors hover:bg-elevated ${focusRing}`;
+  `hit-area relative flex h-6 w-6 items-center justify-center rounded-md text-mute transition-colors hover:bg-elevated ${focusRing}`;
 export const sidebarRowState = (active: boolean) =>
   active ? "bg-surface text-text" : "text-mute hover:bg-surface/40 hover:text-text";
 /** A row's leading mark: checkbox, swatch, dot or icon. */
@@ -67,3 +67,27 @@ export const tonePill = (tone: string) => ({
 export const sidebarCount = "pr-1 text-[10px] tabular-nums text-mute/70";
 export const sidebarNameInput =
   "h-8 w-full min-w-0 rounded-lg border border-accent-dim bg-bg px-2 text-xs text-text outline-none ring-1 ring-accent-ring placeholder:text-mute/60";
+
+/** The bar above a view's list: title and count on the left, actions right. */
+export const paneHeader =
+  "flex flex-col gap-2.5 border-b border-line px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4 sm:px-5 sm:py-3.5 lg:px-6";
+export const paneTitle = "truncate text-base font-semibold tracking-tight";
+export const paneCount =
+  "ml-1 shrink-0 rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium tabular-nums text-mute";
+/** The one creating action in a pane header. */
+export const btnHeader =
+  `flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-accent px-3.5 text-xs font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 ${focusRing}`;
+/** A search box with a leading icon at `left-2.5`. */
+export const searchField =
+  "h-8 w-full min-w-0 rounded-lg border border-line bg-panel pl-8 pr-7 text-xs text-text outline-none transition-all duration-150 placeholder:text-mute/70 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring [&::-webkit-search-cancel-button]:appearance-none";
+export const searchIcon =
+  "pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-mute";
+export const searchClear =
+  `hit-area absolute right-1 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`;
+/** A small uppercase section label. */
+export const eyebrow = "text-[11px] font-semibold uppercase tracking-[0.14em] text-mute";
+export const btnHeaderSecondary =
+  `flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-line bg-surface px-3 text-xs font-medium text-mute transition-colors hover:border-line-light hover:text-text disabled:opacity-50 ${focusRing}`;
+/** A small inline helper action, such as Copy or Paste. */
+export const chipButton =
+  `inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-line bg-surface px-2.5 py-1 text-xs font-medium text-text transition-all hover:border-line-light hover:text-accent active:scale-[0.98] cursor-pointer ${focusRing}`;

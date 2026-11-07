@@ -2,7 +2,12 @@ import { type FormEvent } from "react";
 import { AuthCard, Brand } from "./AuthLayout";
 import { CopyIcon, UploadIcon } from "./AppIcons";
 import { PasswordField } from "./PasswordField";
-import { field, ghost, primary } from "../lib/styles";
+import {
+  chipButton,
+  field,
+  ghost,
+  primary,
+} from "../lib/styles";
 import { extractRecoveryWords } from "../lib/phrase";
 import { findInvalidBip39Words } from "../lib/bip39Words";
 
@@ -157,18 +162,18 @@ export function RecoverScreen({
                 <button
                   type="button"
                   onClick={handlePastePhrase}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1 text-xs font-medium text-text hover:border-line-light hover:text-accent active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap"
+                  className={chipButton}
                 >
                   <CopyIcon />
                   <span>Paste</span>
                 </button>
-                <label className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1 text-xs font-medium text-text hover:border-line-light hover:text-accent active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap">
+                <label className={`${chipButton} focus-within:ring-2 focus-within:ring-accent-ring focus-within:ring-offset-2 focus-within:ring-offset-bg`}>
                   <UploadIcon />
                   <span>Upload file</span>
                   <input
                     type="file"
                     accept=".txt,text/plain"
-                    className="hidden"
+                    className="sr-only"
                     onChange={handleFileUpload}
                   />
                 </label>

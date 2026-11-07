@@ -70,7 +70,7 @@ export function ContactLinkPicker({
           aria-label={`Search contacts to add to ${section}`}
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
-          className="h-8 min-w-0 flex-1 rounded-xl border border-line bg-panel px-3 text-xs text-text outline-none transition-colors placeholder:text-mute/60 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
+          className="h-8 min-w-0 flex-1 rounded-lg border border-line bg-panel px-3 text-xs text-text outline-none transition-colors placeholder:text-mute/70 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
         />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">

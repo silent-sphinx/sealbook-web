@@ -9,7 +9,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useMediaQuery } from "../lib/useMediaQuery";
-import { focusRing } from "../lib/styles";
+import { eyebrow as eyebrowClass, focusRing } from "../lib/styles";
+import { Icon } from "./Icon";
 
 /** Matches the `lg:` breakpoint the contacts and calendar grids switch on. */
 const DESKTOP = "(min-width: 1024px)";
@@ -180,8 +181,8 @@ export function SidebarDrawer({ title, sidebar, children }: Props) {
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
-        style={{ width: SIDEBAR_WIDTH }}
-        className="relative flex max-w-[85vw] flex-col overflow-y-auto border-r border-line bg-panel px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5 shadow-2xl shadow-black/50 outline-none animate-slide-in-left"
+        style={{ "--sb-drawer-w": SIDEBAR_WIDTH } as CSSProperties}
+        className="relative flex w-full flex-col overflow-y-auto bg-panel sm:w-(--sb-drawer-w) sm:max-w-[85vw] sm:border-r sm:border-line px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5 shadow-2xl shadow-black/50 outline-none animate-slide-in-left"
       >
         <div className="-mr-1.5 mb-2 flex justify-end">
           <button
@@ -190,9 +191,7 @@ export function SidebarDrawer({ title, sidebar, children }: Props) {
             aria-label="Close sidebar"
             className={`flex h-8 w-8 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
           >
-            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-            </svg>
+            <Icon name="close" className="h-4 w-4" />
           </button>
         </div>
         {children}
@@ -215,7 +214,7 @@ type SidebarHeaderProps = {
 export function SidebarHeader({ eyebrow, title, onTitleClick, action }: SidebarHeaderProps) {
   const heading = (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">{eyebrow}</p>
+      <p className={eyebrowClass}>{eyebrow}</p>
       <h2 className="mt-1 text-lg font-semibold">
         {onTitleClick ? (
           <button
@@ -257,7 +256,7 @@ export function SidebarSection({ label, action, children }: SidebarSectionProps)
     <div className="mt-6 border-t border-line pt-4">
       {/* Held at the action's height so a section without one lines up too. */}
       <div className="flex min-h-7 items-center justify-between">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">{label}</p>
+        <p className={eyebrowClass}>{label}</p>
         {action ?? null}
       </div>
       {children}
@@ -267,7 +266,7 @@ export function SidebarSection({ label, action, children }: SidebarSectionProps)
 
 function Chevron({ back }: { back: boolean }) {
   return (
-    <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+    <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d={back ? "M9.75 3.5 5.25 8l4.5 4.5" : "M6.25 3.5 10.75 8l-4.5 4.5"} />
     </svg>
   );
@@ -294,7 +293,9 @@ function ToggleButton({ sidebar }: { sidebar: Sidebar }) {
  * whenever the sidebar is not showing. It is the one affordance for both
  * breakpoints, restoring the column on a wide screen and opening the drawer on
  * a narrow one, and it is always drawn rather than revealed on hover, since a
- * sidebar you cannot find is a sidebar you have lost.
+ * sidebar you cannot find is a sidebar you have lost. It is pinned to the
+ * middle of the viewport below the header, not of the view, so it sits at the
+ * same height in every tab whatever the view's own height or banners.
  */
 function EdgeHandle({ sidebar }: { sidebar: Sidebar }) {
   return (
@@ -304,7 +305,7 @@ function EdgeHandle({ sidebar }: { sidebar: Sidebar }) {
       aria-label="Show sidebar"
       aria-expanded={false}
       title="Show sidebar"
-      className={`absolute left-0 top-1/2 z-30 flex h-16 w-5 -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 border-line bg-panel text-mute shadow-lg shadow-black/30 transition-colors hover:bg-surface hover:text-text ${focusRing}`}
+      className={`fixed left-0 top-[calc(50dvh+var(--sb-header-h,74px)/2)] z-30 flex h-16 w-5 -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 border-line bg-panel text-mute shadow-lg shadow-black/30 transition-colors hover:bg-surface hover:text-text ${focusRing}`}
     >
       <Chevron back={false} />
     </button>

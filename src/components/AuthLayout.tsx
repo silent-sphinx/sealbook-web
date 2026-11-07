@@ -94,7 +94,7 @@ export function ServerSetupScreen({
           required
         />
         <p className="mt-2 text-xs leading-relaxed text-mute">
-          A sealbook server is required to continue, visit <a className="text-danger" href="https://github.com/silent-sphinx/sealbook" target="_blank">GitHub.</a>
+          A sealbook server is required to continue, visit <a className="text-accent underline underline-offset-2 hover:brightness-110" href="https://github.com/silent-sphinx/sealbook" target="_blank" rel="noreferrer">GitHub.</a>
         </p>
 
         {error ? (

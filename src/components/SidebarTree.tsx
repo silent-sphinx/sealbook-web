@@ -78,9 +78,10 @@ export function SidebarTree<T extends TreeItem>({
             className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`}
             fill="none"
             stroke="currentColor"
-            strokeWidth="1.8"
+            strokeWidth="1.5"
             strokeLinecap="round"
             strokeLinejoin="round"
+            aria-hidden="true"
           >
             <path d="M6 4l4 4-4 4" />
           </svg>
@@ -195,7 +196,7 @@ export function SidebarTree<T extends TreeItem>({
 
 export function PlusMark() {
   return (
-    <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+    <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
       <path d="M8 3.5v9M3.5 8h9" />
     </svg>
   );
@@ -203,7 +204,7 @@ export function PlusMark() {
 
 export function TrashMark() {
   return (
-    <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M3 4.5h10M6.5 4.5V3.2h3V4.5M4.5 4.5 5 13h6l.5-8.5" />
     </svg>
   );
@@ -211,7 +212,7 @@ export function TrashMark() {
 
 export function PencilMark() {
   return (
-    <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M11.5 2.5 13.5 4.5 5.5 12.5 3 13l.5-2.5 8-8Z" />
     </svg>
   );

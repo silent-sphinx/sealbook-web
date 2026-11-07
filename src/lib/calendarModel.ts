@@ -119,7 +119,7 @@ export function shiftDays(day: Date, delta: number): Date {
   return next;
 }
 
-export function formatWeekRange(start: Date, end: Date): string {
+export function formatWeekRange(start: Date, end: Date, month: "long" | "short" = "long"): string {
   const sameMonth = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear();
   const sameYear = start.getFullYear() === end.getFullYear();
   const startLabel = start.toLocaleDateString([], sameMonth
@@ -127,7 +127,7 @@ export function formatWeekRange(start: Date, end: Date): string {
     : sameYear
       ? { day: "numeric", month: "short" }
       : { day: "numeric", month: "short", year: "numeric" });
-  const endLabel = end.toLocaleDateString([], { day: "numeric", month: "long", year: "numeric" });
+  const endLabel = end.toLocaleDateString([], { day: "numeric", month, year: "numeric" });
   return `${startLabel} – ${endLabel}`;
 }
 
@@ -154,7 +154,8 @@ export function occurrencesIn(
   maxSpanDays: number,
   fallbackTimezone: string,
 ): { visibleEvents: CalendarEvent[]; spans: Map<string, EventSpan> } {
-  const occurrences = expandCalendarEvents(events, shiftDays(from, -maxSpanDays), to, fallbackTimezone);
+  const until = new Date(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 999);
+  const occurrences = expandCalendarEvents(events, shiftDays(from, -maxSpanDays), until, fallbackTimezone);
   const spans = new Map(occurrences.map((event) => [event.id, computeSpan(event, fallbackTimezone)] as const));
   const fromKey = keyFor(from);
   const toKey = keyFor(to);

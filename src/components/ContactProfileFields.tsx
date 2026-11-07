@@ -15,7 +15,13 @@ import {
   type LinkableSection,
   type ProfileSection,
 } from "../lib/contactProfile";
-import { addLink, fieldBase, focusRing, ghost } from "../lib/styles";
+import {
+  addLink,
+  eyebrow,
+  fieldBase,
+  focusRing,
+  ghost,
+} from "../lib/styles";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import type {
   Contact,
@@ -537,7 +543,7 @@ function FoodTags({
     <div className="grid min-w-0 gap-2">
       {groups.map(({ polarity, label, placeholder }) => (
         <div key={polarity} className="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-mute/80">{label}</span>
+          <span className={eyebrow}>{label}</span>
           <TagsInput
             values={rows.filter((row) => row.polarity === polarity)}
             tone={polarity}

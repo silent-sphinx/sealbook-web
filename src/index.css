@@ -15,6 +15,8 @@
   --color-text: #ececec;
   --color-mute: #8f8f8f;
   --color-danger: #d27a7a;
+  --color-warning: #e0b36a;
+  --color-success: #8fbf73;
   --color-accent: var(--sb-accent);
   --color-accent-dim: var(--sb-accent-dim);
   --color-accent-glow: var(--sb-accent-glow);
@@ -40,6 +42,10 @@
   --animate-slide-in-left: slideInLeft 0.22s ease-out both;
   /* Marks a block the user has just had added for them; see `flashBlock`. */
   --animate-flash-block: flashBlock 1s ease-out both;
+  --animate-view-next: viewNext 0.16s cubic-bezier(0.2, 0, 0, 1) backwards;
+  --animate-view-prev: viewPrev 0.16s cubic-bezier(0.2, 0, 0, 1) backwards;
+  --animate-view-fade: viewFade 0.12s ease-out backwards;
+  --animate-search-pop: searchPop 0.15s cubic-bezier(0.2, 0, 0, 1) backwards;
 }
 
 /*
@@ -57,6 +63,42 @@
   }
   100% {
     background-color: transparent;
+  }
+}
+
+/*
+ * `backwards`, not `both`: a transform left on after the animation ends would
+ * make the calendar view a containing block for anything fixed inside it.
+ */
+@keyframes viewNext {
+  from {
+    opacity: 0.4;
+    transform: translateX(10px);
+  }
+}
+
+@keyframes viewPrev {
+  from {
+    opacity: 0.4;
+    transform: translateX(-10px);
+  }
+}
+
+@keyframes viewFade {
+  from {
+    opacity: 0.4;
+  }
+}
+
+/* Grows out of the search icon, which sits at the right of the toolbar. */
+@keyframes searchPop {
+  from {
+    opacity: 0;
+    clip-path: inset(0 0 0 85% round 0.5rem);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0 round 0.5rem);
   }
 }
 
@@ -123,6 +165,12 @@ html {
   --sb-accent-dim: #5a7fcf;
   --sb-accent-glow: rgba(122, 162, 247, 0.08);
   --sb-accent-ring: rgba(122, 162, 247, 0.25);
+  --fill-grey: #33373d;
+  --fill-red: #4a2b2f;
+  --fill-amber: #4a3a22;
+  --fill-green: #2b4030;
+  --fill-blue: #28384f;
+  --fill-purple: #3c2f4d;
 }
 
 body {
@@ -342,8 +390,8 @@ body.sb-dragging * {
   width: 14px;
   height: 14px;
   border-radius: 3px;
-  background: var(--color-accent, #a3e635);
-  border: 2px solid var(--color-bg, #000);
+  background: var(--color-accent);
+  border: 2px solid var(--color-bg);
   cursor: nwse-resize;
   opacity: 0;
   transition: opacity 0.12s ease;
@@ -578,6 +626,11 @@ body.sb-dragging * {
 }
 
 /* Custom scrollbar */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -789,27 +842,27 @@ body.sb-dragging * {
 }
 
 .note-doc [data-fill="grey"] {
-  background-color: #33373d;
+  background-color: var(--fill-grey);
 }
 
 .note-doc [data-fill="red"] {
-  background-color: #4a2b2f;
+  background-color: var(--fill-red);
 }
 
 .note-doc [data-fill="amber"] {
-  background-color: #4a3a22;
+  background-color: var(--fill-amber);
 }
 
 .note-doc [data-fill="green"] {
-  background-color: #2b4030;
+  background-color: var(--fill-green);
 }
 
 .note-doc [data-fill="blue"] {
-  background-color: #28384f;
+  background-color: var(--fill-blue);
 }
 
 .note-doc [data-fill="purple"] {
-  background-color: #3c2f4d;
+  background-color: var(--fill-purple);
 }
 
 .note-doc .column-resize-handle {
@@ -888,16 +941,6 @@ body.sb-dragging * {
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.28);
 }
 
-.note-table-tools .note-bubble-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.note-table-tools .note-bubble-btn:disabled:hover {
-  background: none;
-  color: var(--color-mute);
-}
-
 .note-table-menu {
   position: relative;
 }
@@ -966,27 +1009,27 @@ body.sb-dragging * {
 }
 
 .note-table-swatch[data-fill="grey"] {
-  background-color: #33373d;
+  background-color: var(--fill-grey);
 }
 
 .note-table-swatch[data-fill="red"] {
-  background-color: #4a2b2f;
+  background-color: var(--fill-red);
 }
 
 .note-table-swatch[data-fill="amber"] {
-  background-color: #4a3a22;
+  background-color: var(--fill-amber);
 }
 
 .note-table-swatch[data-fill="green"] {
-  background-color: #2b4030;
+  background-color: var(--fill-green);
 }
 
 .note-table-swatch[data-fill="blue"] {
-  background-color: #28384f;
+  background-color: var(--fill-blue);
 }
 
 .note-table-swatch[data-fill="purple"] {
-  background-color: #3c2f4d;
+  background-color: var(--fill-purple);
 }
 
 .note-slash {
@@ -1094,4 +1137,40 @@ body.sb-dragging * {
 .note-doc pre code .hljs-deletion,
 .note-doc pre code .hljs-meta {
   color: #f7768e;
+}
+
+/*
+ * Widens a small control's hit area to 2rem, or 2.5rem under a coarse pointer,
+ * without moving anything. The control must be positioned.
+ */
+.hit-area::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: max(100%, 2rem);
+  height: max(100%, 2rem);
+  transform: translate(-50%, -50%);
+}
+
+@media (pointer: coarse) {
+  .hit-area::after {
+    width: max(100%, 2.5rem);
+    height: max(100%, 2.5rem);
+  }
+}
+
+.note-bubble-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-accent-ring);
+}
+
+.note-bubble-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.note-bubble-btn:disabled:hover {
+  background: none;
+  color: var(--color-mute);
 }

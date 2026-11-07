@@ -37,6 +37,8 @@ import {
 import { ancestorsOf, buildNoteTree, canReparent, noteSubtree } from "../lib/noteTree";
 import {
   focusRing,
+  searchField,
+  searchIcon,
   sidebarHeaderAction,
   sidebarSectionAction,
 } from "../lib/styles";
@@ -49,6 +51,7 @@ import { NotebookPages } from "./NotebookPages";
 import { NotesOverview } from "./NotesOverview";
 import { ContextMenu, useContextMenu } from "./ContextMenu";
 import { SidebarDrawer, SidebarHeader, SidebarSection, type Sidebar } from "./SidebarDrawer";
+import { Icon } from "./Icon";
 
 /**
  * The editor carries the whole ProseMirror stack and the highlighting grammars,
@@ -92,23 +95,6 @@ const SAVE_LABEL: Record<SaveState, string> = {
   failed: "Not saved",
 };
 
-type IconName = "plus" | "trash" | "download" | "back" | "search" | "notes";
-
-function Icon({ name, className = "h-4 w-4" }: { name: IconName; className?: string }) {
-  const content = {
-    plus: <path d="M8 3.25v9.5M3.25 8h9.5" />,
-    trash: <path d="M2.75 4.25h10.5M6.25 4.25V3a.75.75 0 0 1 .75-.75h2a.75.75 0 0 1 .75.75v1.25M4.25 4.25 4.75 13a.75.75 0 0 0 .75.7h5a.75.75 0 0 0 .75-.7l.5-8.75" />,
-    download: <path d="M8 2.75v7.5M5 7.5 8 10.5l3-3M3 13h10" />,
-    back: <path d="M9.5 3.5 5 8l4.5 4.5" />,
-    search: <><circle cx="7" cy="7" r="4.25" /><path d="m10.5 10.5 3 3" /></>,
-    notes: <><path d="M4 2.75h8a.75.75 0 0 1 .75.75v9.75a.75.75 0 0 1-.75.75H4a.75.75 0 0 1-.75-.75V3.5A.75.75 0 0 1 4 2.75Z" /><path d="M5.75 6h4.5M5.75 8.5h4.5M5.75 11h2.5" /></>,
-  }[name];
-  return (
-    <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      {content}
-    </svg>
-  );
-}
 
 function stamp(iso: string | undefined, withTime = false): string | null {
   if (!iso) return null;
@@ -719,13 +705,13 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
 
           <div className="mt-5 flex items-center gap-1.5">
             <div className="relative min-w-0 flex-1">
-              <Icon name="search" className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-mute" />
+              <Icon name="search" className={searchIcon} />
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search notes"
                 aria-label="Search notes"
-                className="h-8 w-full min-w-0 rounded-lg border border-line bg-bg pl-8 pr-2.5 text-xs text-text outline-none transition-colors placeholder:text-mute/70 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
+                className={searchField}
               />
             </div>
           </div>
@@ -842,8 +828,17 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
 
               <Suspense
                 fallback={
-                  <div className="min-h-0 flex-1 px-5 pt-7 text-sm text-mute lg:px-10">
-                    <div className="note-column">Loading the editor...</div>
+                  <div className="min-h-0 flex-1 px-5 pt-7 lg:px-10" role="status">
+                    <div className="note-column space-y-3" aria-hidden="true">
+                      {[92, 84, 96, 61].map((width) => (
+                        <span
+                          key={width}
+                          className="block h-3 animate-pulse rounded bg-surface"
+                          style={{ width: `${width}%` }}
+                        />
+                      ))}
+                    </div>
+                    <span className="sr-only">Loading the editor…</span>
                   </div>
                 }
               >
@@ -861,7 +856,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                       onChange={(event) => edit({ title: event.target.value })}
                       placeholder="Untitled note"
                       aria-label="Note title"
-                      className={`w-full border-0 bg-transparent p-0 text-[1.75rem] font-semibold leading-tight tracking-tight text-text outline-none placeholder:text-mute/35 ${focusRing} focus-visible:ring-offset-4`}
+                      className={`w-full border-0 bg-transparent p-0 text-[1.75rem] font-semibold leading-tight tracking-tight text-text outline-none placeholder:text-mute/50 ${focusRing} focus-visible:ring-offset-4`}
                     />
                   }
                 />

@@ -740,7 +740,20 @@ export function SettingsView({
           description="Each device names itself and reports what it is. Revoking a device rotates the vault key and re-encrypts your data, so the removed device keeps nothing it can still read."
         >
           {entries === null ? (
-            <p className="text-xs text-mute">Loading devices…</p>
+            <div role="status">
+              <SettingsList>
+                {[0, 1].map((row) => (
+                  <div key={row} className="flex items-center gap-3 px-4 py-3" aria-hidden="true">
+                    <span className="h-8 w-8 shrink-0 animate-pulse rounded-lg bg-surface" />
+                    <span className="min-w-0 flex-1 space-y-2">
+                      <span className="block h-3 w-1/3 animate-pulse rounded bg-surface" />
+                      <span className="block h-2.5 w-1/2 animate-pulse rounded bg-surface/70" />
+                    </span>
+                  </div>
+                ))}
+              </SettingsList>
+              <span className="sr-only">Loading devices…</span>
+            </div>
           ) : entries.length === 0 ? (
             <p className="text-xs text-mute">No devices found.</p>
           ) : (
@@ -1299,7 +1312,7 @@ export function SettingsView({
               className={field}
               autoComplete="current-password"
             />
-            {deleteError ? <p className="text-xs text-danger">{deleteError}</p> : null}
+            {deleteError ? <p role="alert" className="text-xs text-danger">{deleteError}</p> : null}
             <div className={`${actionRow} pt-2`}>
               <button
                 type="button"

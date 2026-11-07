@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { focusRing } from "../lib/styles";
+import { eyebrow, focusRing } from "../lib/styles";
 
 /** A detail pane's section: a sticky band heading over full-bleed rows. */
 export function PaneSection({
@@ -17,7 +17,7 @@ export function PaneSection({
   return (
     <section className={`min-w-0 ${className ?? ""}`.trim()}>
       <div className="sticky top-0 z-10 flex min-h-8 items-center justify-between gap-3 border-b border-line/60 bg-surface/80 px-5 py-1.5 backdrop-blur-sm">
-        <h4 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">{title}</h4>
+        <h4 className={eyebrow}>{title}</h4>
         {action}
       </div>
       {children}

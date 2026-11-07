@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { CollectionSidebar } from "./CollectionSidebar";
 import { SidebarSection } from "./SidebarDrawer";
-import { TaskIcon } from "./TaskIcon";
 import {
   canMoveTaskList,
   DEFAULT_TASK_LIST_ID,
@@ -11,6 +10,7 @@ import {
 import type { TaskScope } from "../lib/task";
 import { focusRing, sidebarCount, sidebarRowState, sidebarSectionAction } from "../lib/styles";
 import type { TaskList } from "../lib/types";
+import { Icon } from "./Icon";
 
 export const SMART_VIEWS: { id: TaskScope; label: string }[] = [
   { id: "upnext", label: "Up next" },
@@ -89,7 +89,7 @@ export function TaskListSidebar({
               aria-label="Add list"
               className={sidebarSectionAction}
             >
-              <TaskIcon name="plus" />
+              <Icon name="plus" />
             </button>
           ) : null
         }

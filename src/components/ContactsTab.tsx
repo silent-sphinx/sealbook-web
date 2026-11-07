@@ -6,7 +6,7 @@ import { ContactCard, ContactListSkeleton } from "./ContactCard";
 import { ContactDetailModal } from "./ContactDetailModal";
 import { ContactNetworkMap } from "./ContactNetworkMap";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
-import { ArchiveIcon, PlusIcon, SearchIcon, ClearIcon } from "./AppIcons";
+import { ArchiveIcon } from "./AppIcons";
 import {
   ARCHIVE_VIEW_NAME,
   activeAddressBooks,
@@ -17,9 +17,16 @@ import {
   resolveAddressBookId,
 } from "../lib/addressBook";
 import {
+  btnHeader,
   btnPrimary,
   focusRing,
   ghost,
+  paneCount,
+  paneHeader,
+  paneTitle,
+  searchClear,
+  searchField,
+  searchIcon,
   sidebarCount,
   sidebarHeaderAction,
   sidebarMark,
@@ -30,6 +37,8 @@ import {
 import type { Session } from "../lib/client";
 import type { LinkableSection } from "../lib/contactProfile";
 import type { AddressBook, Contact, ContactDraft } from "../lib/types";
+import { Icon } from "./Icon";
+import { EmptyState } from "./EmptyState";
 
 interface ContactsTabProps {
   session: Session;
@@ -180,7 +189,7 @@ export function ContactsTab({
                 aria-label="Add contact"
                 className={sidebarHeaderAction}
               >
-                <PlusIcon className="h-4 w-4" />
+                <Icon name="plus" className="h-4 w-4" />
               </button>
             }
           />
@@ -194,7 +203,7 @@ export function ContactsTab({
                 aria-label="Add address book"
                 className={sidebarSectionAction}
               >
-                <PlusIcon className="h-4 w-4" />
+                <Icon name="plus" className="h-4 w-4" />
               </button>
             }
           >
@@ -236,13 +245,13 @@ export function ContactsTab({
         </SidebarDrawer>
 
         <section className="order-1 flex min-w-0 flex-col overflow-hidden lg:order-none lg:min-h-0">
-          <header className="flex flex-col gap-2.5 border-b border-line px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4 sm:px-5 sm:py-3.5 lg:px-6">
+          <header className={paneHeader}>
             <div className="flex min-w-0 items-center gap-2">
-              <h1 className="truncate text-base font-semibold tracking-tight">
+              <h1 className={paneTitle}>
                 {listTitle}
               </h1>
               <span
-                className="ml-1 rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium text-mute"
+                className={paneCount}
                 title={`${filtered.length} contact${filtered.length === 1 ? "" : "s"} shown`}
               >
                 {filtered.length}
@@ -252,30 +261,30 @@ export function ContactsTab({
               <button
                 type="button"
                 onClick={onOpenComposer}
-                className={`flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-xs font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] ${focusRing}`}
+                className={btnHeader}
               >
-                <PlusIcon />
+                <Icon name="plus" />
                 New contact
               </button>
               <div className="relative min-w-0 flex-1 sm:flex-none">
-                <SearchIcon />
+                <Icon name="search" className={searchIcon} />
                 <input
                   type="text"
                   value={search}
                   onChange={(e) => onSetSearch(e.target.value)}
                   placeholder="Search contacts"
                   aria-label="Search contacts"
-                  className="h-8 w-full rounded-xl border border-line bg-panel pl-8 pr-7 text-xs text-text outline-none transition-all duration-150 placeholder:text-mute/60 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring sm:w-52 sm:focus:w-72"
+                  className={`${searchField} sm:w-52 sm:focus:w-72`}
                 />
                 {search ? (
                   <button
                     type="button"
                     onClick={() => onSetSearch("")}
-                    className={`absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
+                    className={searchClear}
                     aria-label="Clear search"
                     title="Clear search"
                   >
-                    <ClearIcon />
+                    <Icon name="close" className="h-3 w-3" />
                   </button>
                 ) : null}
               </div>
@@ -295,46 +304,48 @@ export function ContactsTab({
               {loadingVault && contacts.length === 0 ? (
                 <ContactListSkeleton />
               ) : filtered.length === 0 && search.trim() ? (
-                <div className="flex flex-col items-center px-6 py-16 animate-fade-in-up">
-                  <p className="text-sm text-mute">No contacts matching "{search}"</p>
-                  <button type="button" className={`${ghost} mt-3`} onClick={() => onSetSearch("")}>
-                    Clear search
-                  </button>
-                </div>
+                <EmptyState
+                  title={`No contacts matching "${search}"`}
+                  action={
+                    <button type="button" className={ghost} onClick={() => onSetSearch("")}>
+                      Clear search
+                    </button>
+                  }
+                />
               ) : viewingArchive && filtered.length === 0 ? (
-                <div className="flex flex-col items-center px-6 py-12 text-center animate-fade-in-up sm:py-16">
-                  <p className="text-sm font-medium text-text">The Archive is empty</p>
-                  <p className="mt-1.5 max-w-xs text-sm leading-relaxed text-mute">
-                    Archiving a contact takes it out of its address book and
-                    puts it here, without deleting anything.
-                  </p>
-                  <button type="button" className={`${ghost} mt-3`} onClick={() => onSetViewingArchive(false)}>
-                    Back to contacts
-                  </button>
-                </div>
+                <EmptyState
+                  title="The Archive is empty"
+                  body="Archiving a contact takes it out of its address book and puts it here, without deleting anything."
+                  action={
+                    <button type="button" className={ghost} onClick={() => onSetViewingArchive(false)}>
+                      Back to contacts
+                    </button>
+                  }
+                />
               ) : contacts.length === 0 ? (
-                <div className="flex flex-col items-center px-6 py-12 text-center animate-fade-in-up sm:py-16">
-                  <p className="text-sm font-medium text-text">No contacts yet</p>
-                  <p className="mt-1.5 max-w-xs text-sm leading-relaxed text-mute">
-                    Everything you add here is encrypted on this device before it
-                    reaches the server.
-                  </p>
-                  <button type="button" className={`${btnPrimary} mt-5`} onClick={onOpenComposer}>
-                    <PlusIcon />
-                    Add your first contact
-                  </button>
-                </div>
+                <EmptyState
+                  title="No contacts yet"
+                  body="Everything you add here is encrypted on this device before it reaches the server."
+                  action={
+                    <button type="button" className={btnPrimary} onClick={onOpenComposer}>
+                      <Icon name="plus" />
+                      Add your first contact
+                    </button>
+                  }
+                />
               ) : filtered.length === 0 ? (
-                <div className="flex flex-col items-center px-6 py-12 text-center animate-fade-in-up sm:py-16">
-                  <p className="text-sm text-mute">
-                    {soleShownBook
+                <EmptyState
+                  title={
+                    soleShownBook
                       ? `${soleShownBook.name} has no contacts yet.`
-                      : "No contacts in the address books you are showing."}
-                  </p>
-                  <button type="button" className={`${ghost} mt-3`} onClick={onShowAllBooks}>
-                    Show all address books
-                  </button>
-                </div>
+                      : "No contacts in the address books you are showing."
+                  }
+                  action={
+                    <button type="button" className={ghost} onClick={onShowAllBooks}>
+                      Show all address books
+                    </button>
+                  }
+                />
               ) : (
                 <ul className="min-w-0">
                   {filtered.map((card) => (

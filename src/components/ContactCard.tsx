@@ -53,6 +53,7 @@ export function ContactCard({
           <span
             className="max-w-[35%] shrink-0 truncate rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium text-mute"
             style={bookTone ? tonePill(bookTone) : undefined}
+            title={bookName}
           >
             {bookName}
           </span>

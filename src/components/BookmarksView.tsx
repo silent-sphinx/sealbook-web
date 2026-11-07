@@ -31,10 +31,18 @@ import {
 } from "../lib/client";
 import { friendlyError } from "../lib/errors";
 import {
+  btnHeader,
   btnPrimary,
   btnSecondary,
+  eyebrow,
   fieldBase,
   focusRing,
+  paneCount,
+  paneHeader,
+  paneTitle,
+  searchClear,
+  searchField,
+  searchIcon,
   selectField,
   sidebarCount,
   sidebarHeaderAction,
@@ -44,6 +52,8 @@ import {
 } from "../lib/styles";
 import { flattenTree } from "../lib/tree";
 import type { Bookmark, BookmarkCollection, BookmarkDraft } from "../lib/types";
+import { Icon } from "./Icon";
+import { EmptyState } from "./EmptyState";
 
 type Props = {
   session: Session;
@@ -63,39 +73,6 @@ type Props = {
 const ALL = "all";
 
 
-function Icon({
-  name,
-  className = "h-3.5 w-3.5",
-}: {
-  name: string;
-  className?: string;
-}) {
-  const paths: Record<string, string> = {
-    plus: "M8 3.5v9M3.5 8h9",
-    search:
-      "M7.25 12a4.75 4.75 0 1 0 0-9.5 4.75 4.75 0 0 0 0 9.5ZM10.75 10.75 13.5 13.5",
-    chevron: "m6 4 4 4-4 4",
-    link: "M6.5 9.5a2.5 2.5 0 0 0 3.54 0l2-2a2.5 2.5 0 0 0-3.54-3.54l-.5.5M9.5 6.5a2.5 2.5 0 0 0-3.54 0l-2 2a2.5 2.5 0 0 0 3.54 3.54l.5-.5",
-    trash: "M3.5 4.5h9M6.5 4.5V3h3v1.5M5 4.5l.5 8h5l.5-8",
-    pencil: "M11.5 2.5 13.5 4.5 5.5 12.5 3 13l.5-2.5 8-8Z",
-    close: "M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5",
-    bookmark: "M4.5 2.5h7v11L8 10.75 4.5 13.5v-11Z",
-  };
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d={paths[name]} />
-    </svg>
-  );
-}
 
 export function BookmarksView({
   session,
@@ -559,16 +536,16 @@ export function BookmarksView({
         </SidebarDrawer>
 
         <section className="flex min-h-0 flex-col overflow-hidden">
-          <header className="flex flex-col gap-2.5 border-b border-line px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4 sm:px-5 sm:py-3.5 lg:px-6">
+          <header className={paneHeader}>
             <div className="flex min-w-0 items-center gap-2">
-              <h1 className="truncate text-base font-semibold tracking-tight">
+              <h1 className={paneTitle}>
                 {scope === ALL
                   ? "All bookmarks"
                   : (collections.find((item) => item.id === scope)?.name ??
                     "Bookmarks")}
               </h1>
               <span
-                className="ml-1 shrink-0 rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium text-mute"
+                className={paneCount}
                 title={`${visible.length} bookmark${visible.length === 1 ? "" : "s"}`}
               >
                 {visible.length}
@@ -580,7 +557,7 @@ export function BookmarksView({
                   type="button"
                   onClick={() => startAdd()}
                   disabled={disabled}
-                  className={`flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-xs font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 ${focusRing}`}
+                  className={btnHeader}
                 >
                   <Icon name="plus" className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">New bookmark</span>
@@ -590,20 +567,20 @@ export function BookmarksView({
               <div className="relative min-w-0 flex-1 sm:flex-none">
                 <Icon
                   name="search"
-                  className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-mute"
+                  className={searchIcon}
                 />
                 <input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search bookmarks"
                   aria-label="Search bookmarks"
-                  className="h-8 w-full rounded-xl border border-line bg-panel pl-8 pr-7 text-xs text-text outline-none transition-all duration-150 placeholder:text-mute/60 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring sm:w-52 sm:focus:w-72"
+                  className={`${searchField} sm:w-52 sm:focus:w-72`}
                 />
                 {search ? (
                   <button
                     type="button"
                     onClick={() => setSearch("")}
-                    className={`absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
+                    className={searchClear}
                     aria-label="Clear search"
                     title="Clear search"
                   >
@@ -711,7 +688,7 @@ export function BookmarksView({
                 results reads as broken rather than as a shortcut. */}
             {!search.trim() && topCollections.length > 0 ? (
               <div className="mb-5">
-                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">
+                <p className={`mb-2 ${eyebrow}`}>
                   Collections
                 </p>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
@@ -741,24 +718,27 @@ export function BookmarksView({
             ) : null}
 
             {!search.trim() && topCollections.length > 0 ? (
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">
+              <p className={`mb-2 ${eyebrow}`}>
                 Bookmarks
               </p>
             ) : null}
 
             {visible.length === 0 ? (
-              <p className="py-12 text-center text-sm text-mute">
-                {search.trim()
-                  ? "No bookmarks match that search."
-                  : "No bookmarks here yet. Saved links are encrypted on this device before they leave it."}
-              </p>
+              search.trim() ? (
+                <EmptyState title="No bookmarks match that search." />
+              ) : (
+                <EmptyState
+                  title="No bookmarks here yet"
+                  body="Saved links are encrypted on this device before they leave it."
+                />
+              )
             ) : (
               <ul className="divide-y divide-line/60 border-y border-line/60">
                 {visible.map((bookmark) => (
                   <li key={bookmark.id}>
                     <div
                       data-bookmark-id={bookmark.id}
-                      className="list-row flex items-center gap-2 px-3 py-2.5 transition-colors hover:bg-panel/60 sm:gap-3"
+                      className="list-row flex items-center gap-2 px-3 py-2.5 transition-colors hover:bg-surface/40 sm:gap-3"
                       onContextMenu={(event) =>
                         menu.open(event, bookmarkItemsFor(bookmark))
                       }
@@ -849,8 +829,8 @@ export function BookmarksView({
       {confirmDelete ? (
         <ConfirmDialog
           title="Delete bookmark"
-          heading="Delete bookmark"
-          body={`"${confirmDelete.title}" will be removed from every device signed in to this account.`}
+          heading={`Delete “${confirmDelete.title}”?`}
+          body="It will be removed from every device signed in to this account."
           confirmLabel="Delete"
           tone="danger"
           busy={saving}
@@ -862,8 +842,8 @@ export function BookmarksView({
       {deletingCollection ? (
         <ConfirmDialog
           title="Delete collection"
-          heading="Delete collection"
-          body={`"${deletingCollection.name}" will be removed. The bookmarks and collections inside it are kept and move up one level.`}
+          heading={`Delete “${deletingCollection.name}”?`}
+          body={`The collection will be removed. The bookmarks and collections inside it are kept and move up one level.`}
           confirmLabel="Delete"
           tone="danger"
           busy={saving}

@@ -1,4 +1,5 @@
 import { forwardRef, useState, type InputHTMLAttributes } from "react";
+import { focusRing } from "../lib/styles";
 
 type Props = Omit<InputHTMLAttributes<HTMLInputElement>, "type">;
 
@@ -29,7 +30,7 @@ export const PasswordField = forwardRef<HTMLInputElement, Props>(function Passwo
       />
       <button
         type="button"
-        className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text disabled:pointer-events-none disabled:opacity-50"
+        className={`absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text disabled:pointer-events-none disabled:opacity-50 ${focusRing}`}
         onClick={() => setVisible((current) => !current)}
         disabled={props.disabled}
         aria-label={visible ? "Hide password" : "Show password"}

@@ -2,7 +2,13 @@ import { useState } from "react";
 import { normalizeTags } from "../lib/bookmark";
 import { isAllDayDue, taskFitsObjectLimit } from "../lib/task";
 import { localInputToUtc, utcToLocalInput } from "../lib/timezone";
-import { btnPrimary, btnSecondary, fieldBase, selectField } from "../lib/styles";
+import {
+  btnPrimary,
+  btnSecondary,
+  fieldBase,
+  fieldLabel,
+  selectField,
+} from "../lib/styles";
 import type { RecurrenceFrequency, RecurrenceRule, TaskDraft } from "../lib/types";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -125,7 +131,7 @@ export function TaskForm({ initial, editing, listOptions, timezone, disabled, on
           {problem}
         </p>
       ) : null}
-      <label className="mt-3 block text-xs text-mute">
+      <label className={`mt-3 ${fieldLabel}`}>
         Title
         <input
           autoFocus
@@ -134,7 +140,7 @@ export function TaskForm({ initial, editing, listOptions, timezone, disabled, on
           className={`mt-1.5 ${fieldBase}`}
         />
       </label>
-      <label className="mt-3 block text-xs text-mute">
+      <label className={`mt-3 ${fieldLabel}`}>
         List
         <select value={listId} onChange={(event) => setListId(event.target.value)} className={`mt-1.5 ${selectField}`}>
           {listOptions.map(({ id, name, depth }) => (
@@ -145,11 +151,11 @@ export function TaskForm({ initial, editing, listOptions, timezone, disabled, on
         </select>
       </label>
       <div className="mt-3 grid grid-cols-2 gap-3">
-        <label className="block text-xs text-mute">
+        <label className={fieldLabel}>
           Due date
           <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className={`mt-1.5 ${fieldBase}`} />
         </label>
-        <label className="block text-xs text-mute">
+        <label className={fieldLabel}>
           Due time
           <input
             type="time"
@@ -160,7 +166,7 @@ export function TaskForm({ initial, editing, listOptions, timezone, disabled, on
           />
         </label>
       </div>
-      <label className="mt-3 block text-xs text-mute">
+      <label className={`mt-3 ${fieldLabel}`}>
         Priority
         <select
           value={selectedPriority}
@@ -174,7 +180,7 @@ export function TaskForm({ initial, editing, listOptions, timezone, disabled, on
           ))}
         </select>
       </label>
-      <label className="mt-3 block text-xs text-mute">
+      <label className={`mt-3 ${fieldLabel}`}>
         Repeat
         <select
           value={frequency}
@@ -191,7 +197,7 @@ export function TaskForm({ initial, editing, listOptions, timezone, disabled, on
       </label>
       {frequency !== "none" ? (
         <div className="mt-3 space-y-3">
-          <label className="block text-xs text-mute">
+          <label className={fieldLabel}>
             {`Every (${unit}s)`}
             <input
               type="number"
@@ -219,13 +225,13 @@ export function TaskForm({ initial, editing, listOptions, timezone, disabled, on
               </div>
             </fieldset>
           ) : null}
-          <label className="block text-xs text-mute">
+          <label className={fieldLabel}>
             Repeat until
             <input type="date" value={until} onChange={(event) => setUntil(event.target.value)} className={`mt-1.5 ${fieldBase}`} />
           </label>
         </div>
       ) : null}
-      <label className="mt-3 block text-xs text-mute">
+      <label className={`mt-3 ${fieldLabel}`}>
         Tags
         <input
           value={tagText}
@@ -234,7 +240,7 @@ export function TaskForm({ initial, editing, listOptions, timezone, disabled, on
           className={`mt-1.5 ${fieldBase}`}
         />
       </label>
-      <label className="mt-3 block text-xs text-mute">
+      <label className={`mt-3 ${fieldLabel}`}>
         Notes
         <textarea
           value={notes}

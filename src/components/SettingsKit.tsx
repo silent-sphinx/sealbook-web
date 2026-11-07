@@ -1,6 +1,13 @@
 import { useRef, useState, type DragEvent, type ReactNode } from "react";
 
-import { fieldLabel, focusRing, selectField, field, textAction } from "../lib/styles";
+import {
+  eyebrow,
+  field,
+  fieldLabel,
+  focusRing,
+  selectField,
+  textAction,
+} from "../lib/styles";
 import type { SettingsPage } from "../lib/settingsModel";
 
 export type Notice = { type: "success" | "error" | "warning"; text: string } | null;
@@ -212,7 +219,7 @@ export function Switch({
 
 const NOTICE_TONE = {
   success: "border-line bg-surface/60 text-mute",
-  warning: "border-accent/30 bg-accent/10 text-accent",
+  warning: "border-warning/30 bg-warning/10 text-warning",
   error: "border-danger/30 bg-danger/10 text-danger",
 } as const;
 
@@ -429,7 +436,7 @@ export function ImportPreview({
 }) {
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">
+      <p className={eyebrow}>
         Preview · first {rows.length} of {total}
       </p>
       <ul className="mt-2 divide-y divide-line rounded-lg border border-line bg-bg/60 text-xs">

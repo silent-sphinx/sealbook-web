@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { keyFor, monthDays, weekDays, weekdayLabels } from "./calendarModel";
+import { keyFor, monthDays, occurrencesIn, weekDays, weekdayLabels } from "./calendarModel";
 
 describe("week start", () => {
   // 1 November 2026 is a Sunday.
@@ -25,5 +25,14 @@ describe("week start", () => {
   it("rotates the headings to match", () => {
     expect(weekdayLabels(1)).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
     expect(weekdayLabels(0, "narrow")).toEqual(["S", "M", "T", "W", "T", "F", "S"]);
+  });
+});
+
+describe("occurrencesIn", () => {
+  it("keeps a timed event later on the last day of the window", () => {
+    const day = new Date(2026, 10, 7);
+    const events = [{ id: "a", title: "Planning", start: "2026-11-07T09:00:00Z", end: "2026-11-07T10:00:00Z", timezone: "UTC" }];
+    const { visibleEvents } = occurrencesIn(events, day, day, 0, "UTC");
+    expect(visibleEvents.map((event) => event.title)).toEqual(["Planning"]);
   });
 });

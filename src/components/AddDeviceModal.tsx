@@ -1,6 +1,7 @@
 import { useId, useRef, type FormEvent, type KeyboardEvent, type ClipboardEvent } from "react";
 import { Modal } from "./Modal";
 import { confirmationGroups } from "../lib/pairing";
+import { btnPrimary, btnSecondary, eyebrow } from "../lib/styles";
 
 const WORD_COUNT = 8;
 
@@ -163,7 +164,7 @@ export function AddDeviceModal({
                       autoCorrect="off"
                       autoCapitalize="none"
                       spellCheck={false}
-                      className="box-border w-full rounded-xl border border-line bg-bg px-2.5 py-2 font-mono text-sm text-text text-center outline-none transition-all duration-150 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
+                      className="box-border w-full rounded-lg border border-line bg-bg px-2.5 py-2 font-mono text-sm text-text text-center outline-none transition-all duration-150 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring"
                     />
                   </div>
                 ))}
@@ -175,7 +176,7 @@ export function AddDeviceModal({
             <div className="mt-8 flex items-center justify-end gap-3 border-t border-line pt-4">
               <button
                 type="button"
-                className="rounded-xl border border-line bg-surface px-5 py-2.5 text-sm font-medium text-mute transition-all duration-150 hover:border-line-light hover:text-text cursor-pointer"
+                className={btnSecondary}
                 onClick={onClose}
                 disabled={busy}
               >
@@ -184,7 +185,7 @@ export function AddDeviceModal({
               <button
                 type="submit"
                 disabled={busy || !allFilled}
-                className="rounded-xl bg-accent px-6 py-2.5 text-sm font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                className={btnPrimary}
               >
                 {busy ? "Checking…" : "Next: Verify code →"}
               </button>
@@ -197,7 +198,7 @@ export function AddDeviceModal({
             </p>
 
             <div className="my-6 rounded-2xl border border-accent/25 bg-surface/40 p-6 text-center shadow-lg shadow-accent/5">
-              <p className="text-xs uppercase font-medium tracking-widest text-mute mb-2">
+              <p className={`mb-2 ${eyebrow}`}>
                 Confirmation code
               </p>
               <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 font-mono text-2xl font-bold tracking-[0.2em] text-accent">
@@ -216,7 +217,7 @@ export function AddDeviceModal({
             <div className="mt-8 flex items-center justify-end gap-3 border-t border-line pt-4">
               <button
                 type="button"
-                className="rounded-xl border border-line bg-surface px-5 py-2.5 text-sm font-medium text-mute transition-all duration-150 hover:border-line-light hover:text-text cursor-pointer"
+                className={btnSecondary}
                 onClick={onBackToCode}
                 disabled={busy}
               >
@@ -225,7 +226,7 @@ export function AddDeviceModal({
               <button
                 type="submit"
                 disabled={busy}
-                className="rounded-xl bg-accent px-6 py-2.5 text-sm font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+                className={btnPrimary}
               >
                 {busy ? "Approving…" : "Approve device"}
               </button>

@@ -1,8 +1,9 @@
 import { useMemo } from "react";
 
 import { notePreview, resolveNotebookId, sortNotes } from "../lib/note";
-import { focusRing } from "../lib/styles";
+import { btnSecondary, focusRing } from "../lib/styles";
 import type { Note, Notebook } from "../lib/types";
+import { EmptyState } from "./EmptyState";
 
 type Props = {
   notebook: Notebook;
@@ -46,7 +47,15 @@ export function NotebookPages({ notebook, notes, onBack, onOpenNote, onNewNote }
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
         {pages.length === 0 ? (
-          <p className="text-sm text-mute">This notebook has no pages yet.</p>
+          <EmptyState
+            title="No pages yet"
+            body="Pages you add to this notebook appear here."
+            action={
+              <button type="button" onClick={onNewNote} className={btnSecondary}>
+                New note
+              </button>
+            }
+          />
         ) : (
           <ul className="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-4">
             {pages.map((note) => (

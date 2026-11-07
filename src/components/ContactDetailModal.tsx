@@ -15,7 +15,12 @@ import { ContactAttachmentsSection } from "./ContactAttachmentsSection";
 import { ContactProfileView, profileViewHasContent } from "./ContactProfileView";
 import { CloseIcon, TrashIcon } from "./FieldControls";
 import { EntryRow, FieldRow, HeaderButton, HeaderDivider, PaneSection, ProseBlock } from "./PaneControls";
-import { focusRing, tonePill } from "../lib/styles";
+import {
+  btnHeader,
+  btnHeaderSecondary,
+  focusRing,
+  tonePill,
+} from "../lib/styles";
 import { ContactLinkPicker } from "./ContactLinkPicker";
 
 type Props = {
@@ -363,14 +368,14 @@ export function ContactDetailModal({
               <div className="absolute left-0 top-full z-50 mt-2 w-40 overflow-hidden rounded-lg border border-line bg-elevated p-1 shadow-xl">
                 <button
                   type="button"
-                  className="w-full rounded-md px-3 py-2 text-left text-xs text-text transition-colors hover:bg-surface"
+                  className={`w-full rounded-md px-3 py-2 text-left text-xs text-text transition-colors hover:bg-surface ${focusRing}`}
                   onClick={() => avatarInputRef.current?.click()}
                 >
                   {contact.avatar ? "Replace photo" : "Upload photo"}
                 </button>
                 <button
                   type="button"
-                  className="w-full rounded-md px-3 py-2 text-left text-xs text-danger transition-colors hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-40"
+                  className={`w-full rounded-md px-3 py-2 text-left text-xs text-danger transition-colors hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-40 ${focusRing}`}
                   disabled={!contact.avatar || busy}
                   onClick={() => {
                     setAvatarMenuOpen(false);
@@ -425,7 +430,7 @@ export function ContactDetailModal({
               <>
                 <button
                   type="button"
-                  className={`h-8 rounded-lg border border-line bg-surface px-3 text-xs font-medium text-mute transition-colors hover:border-line-light hover:text-text disabled:opacity-50 ${focusRing}`}
+                  className={btnHeaderSecondary}
                   onClick={() => onEditingChange(false)}
                   disabled={busy}
                 >
@@ -434,7 +439,7 @@ export function ContactDetailModal({
                 <button
                   type="submit"
                   form="contact-detail-form"
-                  className={`ml-1 h-8 rounded-lg bg-accent px-3.5 text-xs font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 ${focusRing}`}
+                  className={`ml-1 ${btnHeader}`}
                   disabled={busy}
                 >
                   {busy ? "Saving" : "Save"}

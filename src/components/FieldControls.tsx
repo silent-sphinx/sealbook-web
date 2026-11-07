@@ -4,7 +4,7 @@ import { fieldBase, focusRing, ghost, sectionBar, sidebarSectionAction } from ".
 import { CHIP_TONE, type ChipTone } from "./PaneControls";
 import { PartialDateInput } from "./PartialDateInput";
 
-export const labelClass = "block min-w-0 text-sm text-mute";
+export const labelClass = "block min-w-0 text-xs font-medium text-mute";
 
 export function FormSection({
   title,

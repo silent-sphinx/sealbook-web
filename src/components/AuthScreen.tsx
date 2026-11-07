@@ -249,7 +249,7 @@ export function AuthScreen({
               Login to your account using an already logged-in device.
             </p>
             <div className="mt-3.5">
-              <label htmlFor="pair-username" className="block text-xs font-medium text-text">
+              <label htmlFor="pair-username" className="block text-sm font-medium text-text">
                 Username
               </label>
               <input

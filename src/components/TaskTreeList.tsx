@@ -1,11 +1,11 @@
 import { useState } from "react";
 import type { CSSProperties, DragEventHandler } from "react";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
-import { TaskIcon } from "./TaskIcon";
 import { dueLabel, isOverdue, priorityLabel } from "../lib/task";
 import type { ChildCount, TaskTreeNode } from "../lib/taskTree";
 import { focusRing, tonePill } from "../lib/styles";
 import type { Task } from "../lib/types";
+import { Icon } from "./Icon";
 
 const DRAG_TYPE = "application/x-sealbook-task";
 const ROOT_DROP = "__root__";
@@ -90,7 +90,7 @@ export function TaskRow(props: RowProps) {
   if (task.recurrence) {
     meta.push(
       <span key="repeat" className="inline-flex items-center gap-1">
-        <TaskIcon name="repeat" className="h-3 w-3" />
+        <Icon name="repeat" className="h-3 w-3" />
         Repeats
       </span>,
     );
@@ -118,7 +118,7 @@ export function TaskRow(props: RowProps) {
         />
       ) : null}
       {lead ?? <span aria-hidden="true" className="h-5 w-5 shrink-0" />}
-      <span className="flex h-5 shrink-0 items-center">
+      <label className="hit-area relative flex h-5 shrink-0 cursor-pointer items-center">
         <input
           type="checkbox"
           checked={task.done === true}
@@ -127,7 +127,7 @@ export function TaskRow(props: RowProps) {
           aria-label={`Complete ${task.title}`}
           className="h-4 w-4 cursor-pointer accent-accent disabled:cursor-default"
         />
-      </span>
+      </label>
       <button
         type="button"
         onClick={() => onSelect(task)}
@@ -170,7 +170,7 @@ export function TaskRow(props: RowProps) {
             aria-label={`Add subtask to ${task.title}`}
             className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
           >
-            <TaskIcon name="plus" />
+            <Icon name="plus" />
           </button>
           <button
             type="button"
@@ -179,7 +179,7 @@ export function TaskRow(props: RowProps) {
             aria-label={`Delete ${task.title}`}
             className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-danger ${focusRing}`}
           >
-            <TaskIcon name="trash" />
+            <Icon name="trash" />
           </button>
         </span>
       )}
@@ -215,9 +215,9 @@ function nested({ nodes, expanded, onToggle, renderRow, parentId = null }: NestP
         onClick={() => onToggle(task.id)}
         aria-label={open ? `Collapse ${task.title}` : `Expand ${task.title}`}
         aria-expanded={open}
-        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-mute transition-colors hover:text-text ${focusRing}`}
+        className={`hit-area relative flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-mute transition-colors hover:text-text ${focusRing}`}
       >
-        <TaskIcon name="chevron" className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} />
+        <Icon name="chevron" className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} />
       </button>
     ) : undefined;
     return (

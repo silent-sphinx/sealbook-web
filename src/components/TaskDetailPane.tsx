@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
-import { TaskIcon } from "./TaskIcon";
 import { HeaderButton, HeaderDivider, PaneSection } from "./PaneControls";
 import { dueLabel, isAllDayDue, isOverdue, priorityLabel } from "../lib/task";
 import { utcToLocalInput } from "../lib/timezone";
 import { focusRing } from "../lib/styles";
 import type { RecurrenceRule, Task } from "../lib/types";
+import { Icon } from "./Icon";
 
 const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const UNITS: Record<RecurrenceRule["frequency"], string> = {
@@ -106,7 +106,7 @@ export function TaskDetailPane({
                 onClick={() => onSelect(parent)}
                 className={`-ml-1 flex max-w-full items-center gap-1 rounded-md px-1 py-0.5 text-xs text-mute transition-colors hover:text-text ${focusRing}`}
               >
-                <TaskIcon name="chevron" className="h-3 w-3 shrink-0 rotate-180" />
+                <Icon name="chevron" className="h-3 w-3 shrink-0 rotate-180" />
                 <span className="truncate">{parent.title}</span>
               </button>
             ) : null}
@@ -115,25 +115,25 @@ export function TaskDetailPane({
             {!readOnly ? (
               <>
                 <HeaderButton label="Edit this task" onClick={() => onEdit(task)} disabled={busy}>
-                  <TaskIcon name="pencil" />
+                  <Icon name="pencil" />
                 </HeaderButton>
                 <HeaderButton label="Add a subtask" onClick={() => onAddChild(task.id)} disabled={busy}>
-                  <TaskIcon name="plus" />
+                  <Icon name="plus" />
                 </HeaderButton>
                 <HeaderButton label="Delete this task" onClick={() => onDelete(task)} disabled={busy} danger>
-                  <TaskIcon name="trash" />
+                  <Icon name="trash" />
                 </HeaderButton>
                 <HeaderDivider />
               </>
             ) : null}
             <HeaderButton label="Close task details" onClick={onClose}>
-              <TaskIcon name="close" />
+              <Icon name="close" />
             </HeaderButton>
           </div>
         </div>
 
         <div className="mt-2 flex items-start gap-3">
-          <span className="flex h-8 shrink-0 items-center">
+          <label className="hit-area relative flex h-8 shrink-0 cursor-pointer items-center">
             <input
               type="checkbox"
               checked={task.done === true}
@@ -142,7 +142,7 @@ export function TaskDetailPane({
               aria-label={task.done ? "Reopen this task" : "Complete this task"}
               className="h-4 w-4 cursor-pointer accent-accent disabled:cursor-default"
             />
-          </span>
+          </label>
           <div className="min-w-0 flex-1">
             <h2
               className={`break-words text-xl font-semibold leading-8 tracking-tight ${task.done ? "text-mute line-through" : "text-text"}`}
@@ -235,7 +235,7 @@ export function TaskDetailPane({
                         {dueLabel(child, now, timezone)}
                       </span>
                     ) : null}
-                    <TaskIcon name="chevron" className="h-3 w-3 shrink-0 text-mute/60" />
+                    <Icon name="chevron" className="h-3 w-3 shrink-0 text-mute/60" />
                   </button>
                 </li>
               ))}

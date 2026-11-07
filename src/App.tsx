@@ -5,7 +5,6 @@ import { AddDeviceModal } from "./components/AddDeviceModal";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { ContactForm } from "./components/ContactForm";
 import { CalendarView } from "./components/CalendarView";
-import { DeleteContactModal } from "./components/DeleteContactModal";
 import { DeleteAddressBookModal } from "./components/DeleteAddressBookModal";
 import { Modal } from "./components/Modal";
 import { NotesView } from "./components/NotesView";
@@ -166,6 +165,7 @@ import type {
   TaskList,
   TaskPatch,
 } from "./lib/types";
+import { Icon } from "./components/Icon";
 
 type Screen = "auth" | "phrase" | "pair" | "recover";
 
@@ -1863,7 +1863,7 @@ export default function App() {
           <div
             className={`border-b px-5 py-2 text-center text-xs font-medium ${
               isOffline
-                ? "border-red-400/20 bg-red-500/10 text-red-300"
+                ? "border-danger/25 bg-danger/10 text-danger"
                 : "border-line bg-surface/60 text-mute"
             }`}
             role="status"
@@ -1877,12 +1877,12 @@ export default function App() {
           </div>
         ) : null}
         {outboxState.failed.length > 0 ? (
-          <div className="border-b border-amber-400/25 bg-amber-500/10 px-5 py-2 text-center text-xs font-medium text-amber-200" role="alert">
+          <div className="border-b border-warning/25 bg-warning/10 px-5 py-2 text-center text-xs font-medium text-warning" role="alert">
             {outboxState.failed.length} change{outboxState.failed.length === 1 ? "" : "s"} couldn't
             sync.{" "}
             <button
               type="button"
-              className="underline underline-offset-2 cursor-pointer"
+              className={`rounded underline underline-offset-2 cursor-pointer ${focusRing}`}
               onClick={() => setReviewingOutbox(true)}
             >
               Review
@@ -1890,13 +1890,13 @@ export default function App() {
           </div>
         ) : null}
         {unopened > 0 ? (
-          <div className="border-b border-amber-400/25 bg-amber-500/10 px-5 py-2 text-center text-xs font-medium text-amber-200" role="alert">
+          <div className="border-b border-warning/25 bg-warning/10 px-5 py-2 text-center text-xs font-medium text-warning" role="alert">
             {unopened} item{unopened === 1 ? "" : "s"} in this vault could not be opened by this
             device, so {unopened === 1 ? "it is" : "they are"} not shown. Nothing has been changed.
           </div>
         ) : null}
         {session.recoveryPending ? (
-          <div className="border-b border-amber-400/25 bg-amber-500/10 px-5 py-2.5 text-center text-xs font-medium text-amber-200" role="alert">
+          <div className="border-b border-warning/25 bg-warning/10 px-5 py-2.5 text-center text-xs font-medium text-warning" role="alert">
             {finishingRecovery ? (
               <form onSubmit={onFinishRecovery} className="mx-auto flex max-w-md flex-wrap items-center justify-center gap-2">
                 <label htmlFor="finish-recovery-password" className="sr-only">
@@ -1908,19 +1908,19 @@ export default function App() {
                   onChange={(e) => setRecoveryPassword(e.target.value)}
                   autoComplete="current-password"
                   placeholder="Your password"
-                  className="min-w-0 flex-1 rounded-lg border border-amber-400/30 bg-bg/80 px-3 py-1.5 text-xs text-text outline-none"
+                  className="min-w-0 flex-1 rounded-lg border border-warning/30 bg-bg/80 px-3 py-1.5 text-xs text-text outline-none focus:border-warning/60 focus:ring-1 focus:ring-warning/40"
                   required
                 />
                 <button
                   type="submit"
                   disabled={busy || !recoveryPassword}
-                  className="rounded-lg bg-amber-400 px-3 py-1.5 text-xs font-semibold text-bg disabled:opacity-50 cursor-pointer"
+                  className={`rounded-lg bg-warning px-3 py-1.5 text-xs font-semibold text-bg transition-all hover:brightness-110 disabled:opacity-50 cursor-pointer ${focusRing}`}
                 >
                   {busy ? "Rotating…" : "Finish recovery"}
                 </button>
                 <button
                   type="button"
-                  className="rounded-lg px-2 py-1.5 text-xs text-amber-200/80 hover:text-amber-100 cursor-pointer"
+                  className={`rounded-lg px-2 py-1.5 text-xs text-warning/80 hover:text-warning disabled:opacity-50 cursor-pointer ${focusRing}`}
                   onClick={() => {
                     setFinishingRecovery(false);
                     setRecoveryPassword("");
@@ -1936,7 +1936,7 @@ export default function App() {
                 words you used still open it. Saving is disabled until that is finished.
                 <button
                   type="button"
-                  className="rounded-lg bg-amber-400 px-3 py-1 text-xs font-semibold text-bg cursor-pointer"
+                  className={`rounded-lg bg-warning px-3 py-1 text-xs font-semibold text-bg transition-all hover:brightness-110 cursor-pointer ${focusRing}`}
                   onClick={() => {
                     setError(null);
                     setFinishingRecovery(true);
@@ -1948,7 +1948,7 @@ export default function App() {
             )}
           </div>
         ) : null}
-        <div className={isOffline ? "h-[2px] bg-red-500" : "h-[2px] bg-gradient-to-r from-accent/60 via-accent to-accent/60"} />
+        <div className={isOffline ? "h-[2px] bg-danger" : "h-[2px] bg-gradient-to-r from-accent/60 via-accent to-accent/60"} />
         <header className="border-b border-line bg-bg/80 backdrop-blur-lg">
           <div className={`${shell} flex flex-wrap items-center justify-between gap-x-3 gap-y-2.5 px-4 py-3 sm:px-5 sm:py-4`}>
             <div className="flex min-w-0 flex-1 basis-0 items-center gap-2.5 xl:flex-none xl:basis-auto">
@@ -2238,8 +2238,12 @@ export default function App() {
 
       {/* Delete confirmation modal */}
       {contactsEnabled && deletingContact ? (
-        <DeleteContactModal
-          contact={deletingContact}
+        <ConfirmDialog
+          title="Delete contact"
+          heading={`Delete “${deletingContact.name}”?`}
+          body="This contact will be permanently deleted from your encrypted vault across all paired devices. This action cannot be undone."
+          confirmLabel="Delete contact"
+          busyLabel="Deleting…"
           busy={busy}
           error={error}
           onConfirm={onConfirmDelete}
@@ -2337,10 +2341,10 @@ export default function App() {
               <button
                 type="button"
                 aria-label="Dismiss"
-                className="shrink-0 text-mute hover:text-text cursor-pointer"
+                className={`hit-area relative -mr-1.5 -mt-0.5 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
                 onClick={() => setNotices((current) => current.filter((item) => item.id !== notice.id))}
               >
-                ×
+                <Icon name="close" className="h-3.5 w-3.5" />
               </button>
             </div>
           ))}
