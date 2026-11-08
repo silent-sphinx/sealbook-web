@@ -1,9 +1,10 @@
 import { useMemo } from "react";
 
 import { notePreview, resolveNotebookId, sortNotes } from "../lib/note";
-import { btnSecondary, focusRing } from "../lib/styles";
+import { btnHeader, btnSecondary, focusRing, paneCount, paneHeader, paneTitle } from "../lib/styles";
 import type { Note, Notebook } from "../lib/types";
 import { EmptyState } from "./EmptyState";
+import { Icon } from "./Icon";
 
 type Props = {
   notebook: Notebook;
@@ -27,21 +28,23 @@ export function NotebookPages({ notebook, notes, onBack, onOpenNote, onNewNote }
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-line px-4">
-        <button
-          type="button"
-          onClick={onBack}
-          className={`rounded px-1 text-xs text-mute transition-colors hover:text-text ${focusRing}`}
-        >
-          All notebooks
-        </button>
-        <span aria-hidden="true" className="text-xs text-mute">/</span>
-        <h2 className="min-w-0 flex-1 truncate text-sm font-medium">{notebook.name}</h2>
-        <button
-          type="button"
-          onClick={onNewNote}
-          className={`h-7 shrink-0 rounded-md px-2.5 text-xs text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
-        >
+      <header className={paneHeader}>
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="All notebooks"
+            className={`flex shrink-0 items-center rounded text-base font-semibold tracking-tight text-mute transition-colors hover:text-text ${focusRing}`}
+          >
+            <Icon name="chevron" className="h-3.5 w-3.5 rotate-180 sm:hidden" />
+            <span className="hidden sm:inline">All notebooks</span>
+          </button>
+          <span aria-hidden="true" className="hidden text-mute/50 sm:inline">/</span>
+          <h1 className={`min-w-0 ${paneTitle}`}>{notebook.name}</h1>
+          <span className={paneCount}>{pages.length}</span>
+        </div>
+        <button type="button" onClick={onNewNote} className={btnHeader}>
+          <Icon name="plus" className="h-3.5 w-3.5" />
           New note
         </button>
       </header>

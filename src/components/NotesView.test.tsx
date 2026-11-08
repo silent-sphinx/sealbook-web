@@ -205,7 +205,7 @@ async function openNote(title: string): Promise<void> {
 }
 
 async function startNote(): Promise<void> {
-  fireEvent.click(screen.getByRole("button", { name: "New note" }));
+  fireEvent.click(screen.getAllByRole("button", { name: "New note" })[0]);
   await screen.findByLabelText("Note title");
 }
 
@@ -404,7 +404,7 @@ describe("NotesView, finding a note", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Work, 1 note" }));
     const back = screen.getByRole("button", { name: "All notebooks" });
-    const pane = back.closest("div") as HTMLElement;
+    const pane = back.closest("section") as HTMLElement;
     expect(within(pane).getByText("Standup")).not.toBeNull();
     expect(within(pane).queryByText("Elsewhere")).toBeNull();
 

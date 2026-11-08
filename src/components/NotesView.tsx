@@ -927,6 +927,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                   setBrowsing(id);
                 }}
                 onOpenNote={openNote}
+                onNewNote={() => newNote()}
               />
             )
           )}
