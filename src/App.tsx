@@ -296,7 +296,6 @@ export default function App() {
   // was used still opens it. The banner asks for the password to finish.
   const [finishingRecovery, setFinishingRecovery] = useState(false);
   const [recoveryPassword, setRecoveryPassword] = useState("");
-  const headerRef = useRef<HTMLDivElement>(null);
   const unlockPasswordRef = useRef<HTMLInputElement>(null);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [tabPillRect, setTabPillRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
@@ -323,12 +322,12 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The calendar fills the viewport below the header, so it needs the header's
+  // Every view fills the viewport below the header, so it needs the header's
   // real height. That height is not a constant: the nav wraps to its own row on
-  // narrow screens and the offline banner adds another row, so a hardcoded value
-  // pushed the calendar off the bottom of an `overflow-hidden` box.
-  useEffect(() => {
-    const node = headerRef.current;
+  // narrow screens and the offline banner adds another row. A ref callback
+  // rather than an effect, because the header mounts only once the vault has
+  // loaded, which is after `session` is set.
+  const headerRef = useCallback((node: HTMLDivElement | null) => {
     if (!node) return;
     const publish = () => {
       document.documentElement.style.setProperty(
@@ -340,7 +339,7 @@ export default function App() {
     const observer = new ResizeObserver(publish);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [session]);
+  }, []);
 
   useEffect(() => {
     if (!viewingContact) setEditingDetail(false);
