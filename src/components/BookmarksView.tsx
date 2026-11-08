@@ -14,6 +14,7 @@ import {
   collectionTone,
   DEFAULT_BOOKMARK_COLLECTION_ID,
   emptyBookmarkDraft,
+  hiddenFromAllIds,
   isValidUrl,
   normalizeTags,
   normalizeUrl,
@@ -67,6 +68,9 @@ type Props = {
   ) => Promise<string | undefined>;
   readOnly?: boolean;
   sidebar: Sidebar;
+  /** A bookmark to show in its collection, as `TasksView`'s `focusTaskId`. */
+  focusBookmarkId?: string;
+  onFocusHandled?: () => void;
 };
 
 /** Stands for "every collection" in the sidebar, as `ALL_NOTEBOOKS` does for notes. */
@@ -83,6 +87,8 @@ export function BookmarksView({
   onCreateCollection,
   readOnly,
   sidebar,
+  focusBookmarkId,
+  onFocusHandled,
 }: Props) {
   const readOnlyMode = readOnly === true;
   const [scope, setScope] = useState<string>(ALL);
@@ -124,6 +130,29 @@ export function BookmarksView({
     if (!collections.some((item) => item.id === scope)) setScope(ALL);
   }, [collections, scope]);
 
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [handledFocus, setHandledFocus] = useState<string | null>(null);
+  if (!focusBookmarkId && handledFocus !== null) {
+    setHandledFocus(null);
+  } else if (focusBookmarkId && focusBookmarkId !== handledFocus) {
+    setHandledFocus(focusBookmarkId);
+    const target = bookmarks.find((bookmark) => bookmark.id === focusBookmarkId);
+    if (target) {
+      setScope(resolveCollectionId(target.collectionId));
+      setSearch("");
+      setHighlightId(target.id);
+    }
+  }
+
+  useEffect(() => {
+    if (focusBookmarkId) onFocusHandled?.();
+  }, [focusBookmarkId, onFocusHandled]);
+
+  useEffect(() => {
+    if (!highlightId) return;
+    document.querySelector(`[data-bookmark-id="${highlightId}"]`)?.scrollIntoView?.({ block: "nearest" });
+  }, [highlightId, bookmarks]);
+
   // A full pass over every bookmark, so the typed value is deferred: the field
   // stays responsive on a vault the filter takes time over.
   const deferredSearch = useDeferredValue(search);
@@ -140,18 +169,7 @@ export function BookmarksView({
    * nested under it: a subcollection's own links are reached from the sidebar,
    * so the two views never show the same bookmark twice.
    */
-  const hiddenFromAll = useMemo(() => {
-    const hidden = new Set<string>();
-    const walk = (nodes: typeof collectionTree, inherited: boolean) => {
-      for (const node of nodes) {
-        const hide = inherited || node.item.hideFromAll === true;
-        if (hide) hidden.add(node.item.id);
-        walk(node.children, hide);
-      }
-    };
-    walk(collectionTree, false);
-    return hidden;
-  }, [collectionTree]);
+  const hiddenFromAll = useMemo(() => hiddenFromAllIds(collectionTree), [collectionTree]);
 
   const visible = useMemo(() => {
     const scoped =
@@ -738,7 +756,7 @@ export function BookmarksView({
                   <li key={bookmark.id}>
                     <div
                       data-bookmark-id={bookmark.id}
-                      className="list-row flex items-center gap-2 px-3 py-2.5 transition-colors hover:bg-surface/40 sm:gap-3"
+                      className={`list-row flex items-center gap-2 px-3 py-2.5 transition-colors sm:gap-3 ${highlightId === bookmark.id ? "bg-surface/70" : "hover:bg-surface/40"}`}
                       onContextMenu={(event) =>
                         menu.open(event, bookmarkItemsFor(bookmark))
                       }

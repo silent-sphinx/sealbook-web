@@ -46,7 +46,7 @@ import {
   weekdayLabels,
   type WeekStart,
 } from "../lib/calendarModel";
-import { searchEvents, type SearchResult } from "../lib/calendarSearch";
+import { resolveEvent, searchEvents, type SearchResult } from "../lib/calendarSearch";
 import {
   HIDDEN_CALENDARS,
   SHOWN_ARCHIVED_CALENDARS,
@@ -189,6 +189,8 @@ export function CalendarView({
   sidebar,
   dueTasks,
   onOpenTask,
+  focusEventId,
+  onFocusHandled,
 }: {
   session: Session;
   calendars: Calendar[];
@@ -204,6 +206,9 @@ export function CalendarView({
   /** Absent when the tasks feature is off, which also hides the overlay's switch. */
   dueTasks?: Task[];
   onOpenTask?: (id: string) => void;
+  /** An event to show on its day and open, as `TasksView`'s `focusTaskId`. */
+  focusEventId?: string;
+  onFocusHandled?: () => void;
 }) {
   const today = new Date();
   const todayKey = keyFor(today);
@@ -409,6 +414,19 @@ export function CalendarView({
     selectDay(result.date);
     if (!readOnlyMode) openEditTask(result.event);
   }
+
+  const [handledFocus, setHandledFocus] = useState<string | null>(null);
+  if (!focusEventId && handledFocus !== null) {
+    setHandledFocus(null);
+  } else if (focusEventId && focusEventId !== handledFocus) {
+    setHandledFocus(focusEventId);
+    const target = events.find((event) => event.id === focusEventId);
+    if (target) revealEvent(resolveEvent(target, calendars, today, timezone));
+  }
+
+  useEffect(() => {
+    if (focusEventId) onFocusHandled?.();
+  }, [focusEventId, onFocusHandled]);
 
   /** Drill down from the year view into a single day. */
   function openDay(day: Date) {

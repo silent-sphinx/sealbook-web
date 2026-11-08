@@ -236,6 +236,22 @@ export function buildCollectionTree(
   return buildTree(collections, sortCollections);
 }
 
+/** Collections kept out of "All Bookmarks": marked, or nested under one that is. */
+export function hiddenFromAllIds(
+  tree: TreeNode<BookmarkCollection>[],
+): Set<string> {
+  const hidden = new Set<string>();
+  const walk = (nodes: TreeNode<BookmarkCollection>[], inherited: boolean) => {
+    for (const node of nodes) {
+      const hide = inherited || node.item.hideFromAll === true;
+      if (hide) hidden.add(node.item.id);
+      walk(node.children, hide);
+    }
+  };
+  walk(tree, false);
+  return hidden;
+}
+
 /** The collection and every one nested under it, itself first. */
 export function collectionSubtree(
   collections: BookmarkCollection[],

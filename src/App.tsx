@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSidebar } from "./components/SidebarDrawer";
 import { useSplitPane } from "./components/SplitPane";
 import { AddDeviceModal } from "./components/AddDeviceModal";
@@ -20,6 +20,7 @@ import { RecoverScreen } from "./components/RecoverScreen";
 import { AuthScreen, type Mode } from "./components/AuthScreen";
 import { ContactsTab } from "./components/ContactsTab";
 import { DecryptingScreen } from "./components/DecryptingScreen";
+import { SearchPalette } from "./components/SearchPalette";
 import {
   ContactsIcon,
   CalendarIcon,
@@ -104,7 +105,9 @@ import {
   visibleAddressBooks,
 } from "./lib/addressBook";
 import { emptyDraft, sortContacts } from "./lib/contact";
-import { coreContactIndex, type ContactSearchIndex } from "./lib/wasm";
+import { coreContactIndex, type ContactSearchIndex, type VaultSearchIndex } from "./lib/wasm";
+import { buildVaultIndex, KIND_FEATURE, type SearchHit } from "./lib/vaultSearch";
+import { resolveEvent } from "./lib/calendarSearch";
 import { extractRecoveryWords } from "./lib/phrase";
 import { findInvalidBip39Words } from "./lib/bip39Words";
 import { closeAttachmentCache, primeAttachmentCache } from "./lib/attachmentCache";
@@ -173,6 +176,10 @@ type Screen = "auth" | "phrase" | "pair" | "recover";
 // read as two loads.
 let startupLogged = false;
 
+/** The palette's shortcut as this platform writes it. */
+const searchShortcut =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "\u2318K" : "Ctrl K";
+
 const TABS: { id: MainTab; label: string; icon: React.ReactNode }[] = [
   { id: "contacts", label: "Contacts", icon: <ContactsIcon /> },
   { id: "calendar", label: "Calendar", icon: <CalendarIcon /> },
@@ -212,6 +219,10 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [notesHome, setNotesHome] = useState(0);
   const [taskFocusId, setTaskFocusId] = useState<string | undefined>();
+  const [noteFocusId, setNoteFocusId] = useState<string | undefined>();
+  const [bookmarkFocusId, setBookmarkFocusId] = useState<string | undefined>();
+  const [eventFocusId, setEventFocusId] = useState<string | undefined>();
+  const [searchOpen, setSearchOpen] = useState(false);
   const [taskLists, setTaskLists] = useState<TaskList[]>([]);
   const [accountSettings, setAccountSettings] = useState<AccountSettings>(DEFAULT_ACCOUNT_SETTINGS);
   /** The settings payload last read, so a save merges onto it. */
@@ -477,6 +488,70 @@ export default function App() {
     setSearchIndex(index);
     return () => index.free();
   }, [addressBooks, archivedContacts, contacts]);
+
+  // Built only while the palette is open, so a save elsewhere does not
+  // re-read the whole vault into an index nobody is asking.
+  const [vaultIndex, setVaultIndex] = useState<VaultSearchIndex | null>(null);
+  useEffect(() => {
+    if (!searchOpen) {
+      setVaultIndex(null);
+      return;
+    }
+    const index = buildVaultIndex({
+      contacts,
+      addressBooks,
+      notes,
+      notebooks,
+      tasks,
+      taskLists,
+      bookmarks,
+      collections: bookmarkCollections,
+      events: calendarEvents,
+      calendars,
+      enabled: (feature) => isFeatureEnabled(accountSettings, feature),
+    });
+    setVaultIndex(index);
+    return () => index.free();
+  }, [
+    accountSettings,
+    addressBooks,
+    bookmarkCollections,
+    bookmarks,
+    calendarEvents,
+    calendars,
+    contacts,
+    notebooks,
+    notes,
+    searchOpen,
+    taskLists,
+    tasks,
+  ]);
+
+  const shellShown =
+    session !== null &&
+    screen !== "phrase" &&
+    screen !== "pair" &&
+    screen !== "recover" &&
+    !(loadingVault && !vaultOpened);
+  useEffect(() => {
+    if (!shellShown) {
+      setSearchOpen(false);
+      return;
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key.toLowerCase() !== "k" || !(event.metaKey || event.ctrlKey)) return;
+      if (event.altKey || event.shiftKey) return;
+      event.preventDefault();
+      setSearchOpen((open) => open || document.querySelector('[aria-modal="true"]') === null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [shellShown]);
+
+  const clearTaskFocus = useCallback(() => setTaskFocusId(undefined), []);
+  const clearNoteFocus = useCallback(() => setNoteFocusId(undefined), []);
+  const clearBookmarkFocus = useCallback(() => setBookmarkFocusId(undefined), []);
+  const clearEventFocus = useCallback(() => setEventFocusId(undefined), []);
 
   const filtered = useMemo(() => {
     // Hidden rather than shown is what is matched, so a contact whose book was
@@ -1732,6 +1807,37 @@ export default function App() {
     setPendingNav({ run: action });
   }
 
+  /** Closes the palette and opens what was picked in its own tab. */
+  function openSearchHit(hit: SearchHit) {
+    setSearchOpen(false);
+    guardEditing(() => {
+      switch (hit.kind) {
+        case "contact": {
+          const contact = contacts.find((item) => item.id === hit.id);
+          if (!contact) return;
+          setViewingArchive(false);
+          setSearch("");
+          setError(null);
+          setViewingContact(contact);
+          break;
+        }
+        case "event":
+          setEventFocusId(hit.id);
+          break;
+        case "note":
+          setNoteFocusId(hit.id);
+          break;
+        case "bookmark":
+          setBookmarkFocusId(hit.id);
+          break;
+        case "task":
+          setTaskFocusId(hit.id);
+          break;
+      }
+      setActiveTab(KIND_FEATURE[hit.kind]);
+    });
+  }
+
   function openComposer() {
     setError(null);
     setFormKey((key) => key + 1);
@@ -2013,6 +2119,15 @@ export default function App() {
             </nav>
 
             <div className="flex flex-none items-center gap-2">
+              <button
+                type="button"
+                aria-label="Search"
+                title={`Search (${searchShortcut})`}
+                className={`inline-flex items-center rounded-lg border border-line bg-surface/70 px-2.5 py-1.5 text-xs font-medium text-text transition-all duration-150 hover:bg-surface hover:border-line-light cursor-pointer ${focusRing}`}
+                onClick={() => setSearchOpen(true)}
+              >
+                <Icon name="search" className="h-4 w-4" />
+              </button>
               {!isOffline ? <button
                 type="button"
                 aria-label="Add device"
@@ -2103,7 +2218,7 @@ export default function App() {
         </div>
       ) : activeTab === "calendar" ? (
         <div>
-          <CalendarView session={session} calendars={calendars} events={calendarEvents} contacts={contacts} busy={busy} timezone={timezone} weekStart={weekStart} onRefresh={() => refresh(session)} sidebar={sidebar} dueTasks={isFeatureEnabled(accountSettings, "tasks") ? tasks : undefined} onOpenTask={(id) => guardEditing(() => { setTaskFocusId(id); setActiveTab("tasks"); })} />
+          <CalendarView session={session} calendars={calendars} events={calendarEvents} contacts={contacts} busy={busy} timezone={timezone} weekStart={weekStart} onRefresh={() => refresh(session)} sidebar={sidebar} dueTasks={isFeatureEnabled(accountSettings, "tasks") ? tasks : undefined} onOpenTask={(id) => guardEditing(() => { setTaskFocusId(id); setActiveTab("tasks"); })} focusEventId={eventFocusId} onFocusHandled={clearEventFocus} />
         </div>
       ) : activeTab === "notes" ? (
         <div>
@@ -2118,6 +2233,8 @@ export default function App() {
             outbox={outboxState}
             sidebar={sidebar}
             homeSignal={notesHome}
+            focusNoteId={noteFocusId}
+            onFocusHandled={clearNoteFocus}
           />
         </div>
       ) : activeTab === "bookmarks" ? (
@@ -2130,6 +2247,8 @@ export default function App() {
             onRefresh={() => refresh(session)}
             onCreateCollection={onCreateBookmarkCollection}
             sidebar={sidebar}
+            focusBookmarkId={bookmarkFocusId}
+            onFocusHandled={clearBookmarkFocus}
           />
         </div>
       ) : activeTab === "tasks" ? (
@@ -2144,7 +2263,7 @@ export default function App() {
             onApply={applyTaskPatch}
             sidebar={sidebar}
             focusTaskId={taskFocusId}
-            onFocusHandled={() => setTaskFocusId(undefined)}
+            onFocusHandled={clearTaskFocus}
           />
         </div>
       ) : activeTab === "contacts" ? (
@@ -2194,6 +2313,18 @@ export default function App() {
           onLinkInSection={onLinkInSection}
           onUnlinkFromSection={onUnlinkFromSection}
           onNavigateToContact={(c) => { guardEditing(() => { setError(null); setViewingContact(c); }); }}
+        />
+      ) : null}
+
+      {searchOpen ? (
+        <SearchPalette
+          index={vaultIndex}
+          eventLabel={(id) => {
+            const event = calendarEvents.find((item) => item.id === id);
+            return event ? resolveEvent(event, calendars, new Date(), timezone).dateLabel : null;
+          }}
+          onPick={openSearchHit}
+          onClose={() => setSearchOpen(false)}
         />
       ) : null}
 

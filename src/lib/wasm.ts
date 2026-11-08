@@ -79,6 +79,7 @@ import init, {
   core_notes_import,
   core_notes_write_json,
   CoreContactIndex,
+  CoreVaultIndex,
   core_order_by_name,
   core_order_by_recency,
   core_order_containers,
@@ -232,6 +233,10 @@ import type {
   CoreDeviceEntry,
   CoreDeviceKind,
   CoreDeviceLabelObject,
+  CoreSearchContainer,
+  CoreSearchHit,
+  CoreSearchKind,
+  CoreSearchSource,
 } from "../pkg/sealbook_wasm.js";
 import type {
   AppliedManifest,
@@ -2314,6 +2319,24 @@ export function coreContactIndex(
   return new CoreContactIndex(
     contacts.map(({ id, raw }) => ({ id, raw })),
     books,
+  );
+}
+
+export type { CoreSearchContainer, CoreSearchHit, CoreSearchKind, CoreSearchSource };
+export type VaultSearchIndex = CoreVaultIndex;
+
+/** Everything searchable at once. Free it when the vault changes. */
+export function coreVaultIndex(
+  contacts: { id: string; raw: string }[],
+  books: { id: string; name: string }[],
+  sources: CoreSearchSource[],
+  containers: CoreSearchContainer[],
+): VaultSearchIndex {
+  return new CoreVaultIndex(
+    contacts.map(({ id, raw }) => ({ id, raw })),
+    books,
+    sources,
+    containers,
   );
 }
 

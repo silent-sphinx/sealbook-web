@@ -78,6 +78,9 @@ type Props = {
   sidebar: Sidebar;
   /** Bumped by the shell when the Notes tab is clicked while already open. */
   homeSignal?: number;
+  /** A note to open, as `TasksView`'s `focusTaskId`. */
+  focusNoteId?: string;
+  onFocusHandled?: () => void;
 };
 
 /** Idle time before an edit is written, and the cap for a continuous typist. */
@@ -123,7 +126,7 @@ function exportMarkdown(draft: NoteDraft): string {
   return title ? `# ${title}\n\n${draft.body}` : draft.body;
 }
 
-export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved, offline = false, outbox, sidebar, homeSignal = 0 }: Props) {
+export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved, offline = false, outbox, sidebar, homeSignal = 0, focusNoteId, onFocusHandled }: Props) {
   const [scope, setScope] = useState<string>(DEFAULT_NOTEBOOK_ID);
   const [browsing, setBrowsing] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -392,6 +395,19 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     seenSignal.current = homeSignal;
     void goHomeRef.current();
   }, [homeSignal]);
+
+  const openNoteRef = useRef(openNote);
+  openNoteRef.current = openNote;
+  useEffect(() => {
+    if (!focusNoteId) return;
+    const target = notes.find((note) => note.id === focusNoteId);
+    if (target) {
+      setBrowsing(null);
+      setSearch("");
+      openNoteRef.current(target);
+    }
+    onFocusHandled?.();
+  }, [focusNoteId, notes, onFocusHandled]);
 
   async function closeEditor() {
     pruneUnshown();
