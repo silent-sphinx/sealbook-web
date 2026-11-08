@@ -30,9 +30,11 @@ export {
   CALENDAR_EVENT_CONTENT_TYPE,
   deleteCalendar,
   deleteCalendarEvent,
+  deleteCalendarEvents,
   ensureDefaultCalendar,
   putCalendar,
   putCalendarEvent,
+  updateCalendarEvents,
 } from "./calendarApi";
 export {
   deleteNote,

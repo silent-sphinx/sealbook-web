@@ -6,7 +6,7 @@ import {
   serializeEvent,
   sortCalendars,
 } from "./calendar";
-import { putAccountSettings, listVaultOrLocal, putSealed } from "./client";
+import { putAccountSettings, listVaultOrLocal, putSealed, putSealedMany } from "./client";
 import type { Calendar, CalendarEvent } from "./types";
 import { DEFAULT_CALENDAR_COLOR } from "./types";
 import { newUuid } from "./wasm";
@@ -29,6 +29,27 @@ export async function putCalendar(session: Session, calendar: Omit<Calendar, "id
 
 export async function deleteCalendarEvent(session: Session, id: string): Promise<void> {
   await putSealed(session, id, CALENDAR_EVENT_CONTENT_TYPE, true, "");
+}
+
+/** Rewrites existing events in one flush; raises `RefusedWrites` for those refused. */
+export async function updateCalendarEvents(session: Session, events: CalendarEvent[]): Promise<void> {
+  await putSealedMany(
+    session,
+    events.map(({ id, ...event }) => ({
+      id,
+      contentType: CALENDAR_EVENT_CONTENT_TYPE,
+      tombstone: false,
+      payload: serializeEvent(event),
+    })),
+  );
+}
+
+/** Tombstones every event in one flush; raises `RefusedWrites` for those refused. */
+export async function deleteCalendarEvents(session: Session, ids: string[]): Promise<void> {
+  await putSealedMany(
+    session,
+    ids.map((id) => ({ id, contentType: CALENDAR_EVENT_CONTENT_TYPE, tombstone: true, payload: "" })),
+  );
 }
 
 /**

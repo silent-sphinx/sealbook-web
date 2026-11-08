@@ -69,6 +69,7 @@ import { SidebarDrawer, SidebarHeader, SidebarSection, type Sidebar } from "./Si
 import { AccountExportSection } from "./AccountExportSection";
 import { AccountImportSection } from "./AccountImportSection";
 import { BookmarksImportExportSection } from "./BookmarksImportExportSection";
+import { CalendarBulkEditSection } from "./CalendarBulkEditSection";
 import { CalendarImportExportSection } from "./CalendarImportExportSection";
 import { ImportExportSection } from "./ImportExportSection";
 import { NotesImportExportSection } from "./NotesImportExportSection";
@@ -1121,6 +1122,13 @@ export function SettingsView({
               />
             </SettingsList>
           </SettingsGroup>
+          <CalendarBulkEditSection
+            session={session}
+            calendars={calendars}
+            calendarEvents={calendarEvents}
+            timezone={timezone}
+            onRefresh={onRefresh}
+          />
           <CalendarImportExportSection
             session={session}
             calendars={calendars}
