@@ -83,7 +83,7 @@ jobs:
         if: failure()
         run: echo "::error::fuzz seed ${{ steps.seed.outputs.seed }}; reproduce with FUZZ_SEED=${{ steps.seed.outputs.seed }} cargo test -p sealbook-core --test corpus -- --ignored regenerate_the_fuzz_fixture"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: fuzz-${{ steps.seed.outputs.seed }}
