@@ -26,7 +26,7 @@ export function NotebookPages({ notebook, notes, onBack, onOpenNote, onNewNote }
   );
 
   return (
-    <div className="hidden h-full flex-col lg:flex">
+    <div className="flex h-full flex-col">
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-line px-4">
         <button
           type="button"
@@ -45,7 +45,7 @@ export function NotebookPages({ notebook, notes, onBack, onOpenNote, onNewNote }
           New note
         </button>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         {pages.length === 0 ? (
           <EmptyState
             title="No pages yet"

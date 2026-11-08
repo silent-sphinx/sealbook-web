@@ -683,7 +683,6 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   const addNoteRow = <SidebarAddRow label="New note" onClick={() => newNote()} />;
 
   const browsingNotebook = notebooks.find((notebook) => notebook.id === browsing) ?? null;
-  const editorOpen = draft !== null;
   const notesInDeletingNotebook = deletingNotebook
     ? notes.filter((note) => resolveNotebookId(note.notebookId) === deletingNotebook.id).length
     : 0;
@@ -774,7 +773,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
           </SidebarSection>
         </SidebarDrawer>
 
-        <section className={`min-w-0 flex-col overflow-hidden lg:flex ${editorOpen ? "flex" : "hidden"}`}>
+        <section className="flex min-w-0 flex-col overflow-hidden">
           {draft ? (
             <>
               <header className="flex h-11 shrink-0 items-center gap-1.5 border-b border-line px-2.5">

@@ -246,7 +246,7 @@ export function ContactsTab({
 
         <section className="order-1 flex min-w-0 flex-col overflow-hidden lg:order-none lg:min-h-0">
           <header className={paneHeader}>
-            <div className="flex min-w-0 items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2 max-sm:sr-only">
               <h1 className={paneTitle}>
                 {listTitle}
               </h1>

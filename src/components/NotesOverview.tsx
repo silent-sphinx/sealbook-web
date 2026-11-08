@@ -61,7 +61,7 @@ export function NotesOverview({ notebooks, notes, onOpenNotebook, onOpenNote }: 
   const names = useMemo(() => new Map(notebooks.map((notebook) => [notebook.id, notebook.name])), [notebooks]);
 
   return (
-    <div className="hidden h-full flex-col gap-8 overflow-y-auto p-6 lg:flex">
+    <div className="flex h-full flex-col gap-8 overflow-y-auto p-4 sm:p-6">
       <section aria-labelledby="overview-notebooks">
         <h2 id="overview-notebooks" className={`mb-3 ${eyebrow}`}>
           Notebooks
