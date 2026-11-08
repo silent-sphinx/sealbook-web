@@ -618,6 +618,12 @@ body.sb-dragging * {
   filter: brightness(1.15);
 }
 
+/* Event dialog rows: no fill of their own, chevron flush with the row's edge */
+select.row-select {
+  background-color: transparent;
+  background-position: right 0.125rem center;
+}
+
 /* Event dialog – date/time inputs */
 .event-dialog input[type="date"],
 .event-dialog input[type="datetime-local"] {

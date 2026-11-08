@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type SelectHTMLAttributes } from "react";
 import {
   deleteCalendarEvent,
   deleteCalendar,
@@ -20,7 +20,7 @@ import {
   btnDanger,
   btnHeader,
   btnPrimary,
-  fieldLabel,
+  btnSecondary,
   focusRing,
   paneTitle,
   searchClear,
@@ -970,22 +970,21 @@ function ParticipantPicker({
   }
 
   return (
-    <div className={fieldLabel}>
-      Participants
-      <div ref={containerRef} className="relative mt-1">
+    <div>
+      <div ref={containerRef} className="relative">
         <div
-          className="flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-lg border border-line bg-bg px-2 py-1.5 focus-within:border-accent"
+          className="flex min-h-10 w-full flex-wrap items-center gap-1.5 py-2"
           onPointerDown={(e) => {
             if (e.target === e.currentTarget) inputRef.current?.focus();
           }}
         >
           {participants.map((name, i) => (
-            <span key={i} className="flex items-center gap-1 rounded-md bg-surface px-2 py-0.5 text-[11px] text-text">
+            <span key={i} className="flex items-center gap-1 rounded-full bg-surface py-1 pl-2.5 pr-1.5 text-xs text-text">
               {name}
               <button
                 type="button"
                 onClick={() => removeParticipant(i)}
-                className={`-mr-1 relative flex h-4 w-4 items-center justify-center rounded text-mute transition-colors hover:text-text hit-area ${focusRing}`}
+                className={`relative flex h-4 w-4 items-center justify-center rounded-full text-mute transition-colors hover:bg-elevated hover:text-text hit-area ${focusRing}`}
                 aria-label={`Remove ${name}`}
               >
                 <Icon name="close" className="h-2.5 w-2.5" />
@@ -998,8 +997,9 @@ function ParticipantPicker({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={participants.length === 0 ? "Search contacts or type a name" : ""}
-            className="min-w-24 flex-1 bg-transparent text-xs text-text outline-none placeholder:text-mute"
+            aria-label="Participants"
+            placeholder={participants.length === 0 ? "Add people" : "Add another"}
+            className="h-7 min-w-24 flex-1 bg-transparent text-sm text-text outline-none placeholder:text-mute"
           />
         </div>
         {open && suggestions.length > 0 ? (
@@ -1023,101 +1023,143 @@ function ParticipantPicker({
   );
 }
 
+const rowGroup = "divide-y divide-line rounded-xl border border-line bg-bg";
+const rowControl = "h-10 w-full min-w-0 bg-transparent text-sm text-text outline-none placeholder:text-mute";
+const rowValue = "h-10 min-w-0 bg-transparent text-right text-sm tabular-nums text-text outline-none";
+const rowInset = "h-8 w-16 rounded-md border border-line bg-panel px-2 text-center text-sm tabular-nums text-text outline-none focus:border-accent-dim";
+
+function FieldRow({ icon, top = false, children }: { icon?: ReactNode; top?: boolean; children: ReactNode }) {
+  return (
+    <div className={`flex gap-3 px-3.5 transition-colors first:rounded-t-xl last:rounded-b-xl focus-within:bg-surface/30 ${top ? "items-start" : "items-center"}`}>
+      <span className={`flex w-4 shrink-0 items-center justify-center text-mute ${top ? "h-10" : ""}`}>{icon}</span>
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  );
+}
+
+function RowSelect({ className = "", children, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <div className="relative min-w-0 flex-1">
+      <select {...props} className={`row-select ${rowControl} cursor-pointer truncate pr-6 ${className}`}>{children}</select>
+    </div>
+  );
+}
+
+function Switch({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <label className="flex h-10 cursor-pointer items-center justify-between gap-3 text-sm text-text">
+      {label}
+      <span className="relative inline-flex h-5 w-9 shrink-0">
+        <input type="checkbox" role="switch" aria-checked={checked} checked={checked} onChange={(e) => onChange(e.target.checked)} className="peer absolute inset-0 cursor-pointer appearance-none rounded-full bg-line transition-colors checked:bg-accent focus-visible:ring-2 focus-visible:ring-accent-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg" />
+        <span aria-hidden="true" className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-text shadow-sm transition-transform peer-checked:translate-x-4 peer-checked:bg-bg" />
+      </span>
+    </label>
+  );
+}
+
 function TaskDialog({ editing, title, start, end, notes, location, alerts, participants, contacts, allDay, calendarId, calendars, repeatChoice, customFrequency, customInterval, repeatEnd, repeatCount, repeatUntil, minRepeatUntil, busy, saving, removing, error, onClose, onSave, onDelete, onTitleChange, onStartChange, onEndChange, onNotesChange, onLocationChange, onAlertsChange, onParticipantsChange, onAllDayChange, onCalendarChange, onRepeatChange, onCustomFrequencyChange, onCustomIntervalChange, onRepeatEndChange, onRepeatCountChange, onRepeatUntilChange }: { editing: boolean; title: string; start: string; end: string; notes: string; location: string; alerts: EventAlert[]; participants: string[]; contacts: Contact[]; allDay: boolean; calendarId: string; calendars: Calendar[]; repeatChoice: RepeatChoice; customFrequency: "daily" | "weekly" | "monthly" | "yearly"; customInterval: number; repeatEnd: RepeatEnd; repeatCount: number; repeatUntil: string; minRepeatUntil: string; busy: boolean; saving: boolean; removing: boolean; error: string | null; onClose: () => void; onSave: () => void; onDelete?: () => void; onTitleChange: (value: string) => void; onStartChange: (value: string) => void; onEndChange: (value: string) => void; onNotesChange: (value: string) => void; onLocationChange: (value: string) => void; onAlertsChange: (value: EventAlert[]) => void; onParticipantsChange: (value: string[]) => void; onAllDayChange: (value: boolean) => void; onCalendarChange: (value: string) => void; onRepeatChange: (value: RepeatChoice) => void; onCustomFrequencyChange: (value: "daily" | "weekly" | "monthly" | "yearly") => void; onCustomIntervalChange: (value: number) => void; onRepeatEndChange: (value: "never" | "count" | "date") => void; onRepeatCountChange: (value: number) => void; onRepeatUntilChange: (value: string) => void }) {
+  const calendarColor = calendars.find((cal) => cal.id === calendarId)?.color ?? "var(--color-accent)";
   return (
     <Modal title={editing ? "Edit event" : "New event"} onClose={onClose}>
         <div className="event-dialog flex-1 space-y-3 overflow-y-auto px-5 py-4">
-          {/* Title */}
-          <input autoFocus value={title} onChange={(e) => onTitleChange(e.target.value)} placeholder="Event title" className="h-10 w-full rounded-lg border border-line bg-bg px-3 text-sm font-medium outline-none placeholder:text-mute focus:border-accent" />
-
-          {/* Calendar + Location row */}
-          <div className="grid grid-cols-2 gap-2.5">
-            <label className={fieldLabel}>
-              Calendar
-              <select value={calendarId} onChange={(e) => onCalendarChange(e.target.value)} className="mt-1 h-9 w-full rounded-lg border border-line bg-bg px-2.5 text-xs outline-none focus:border-accent">{calendars.map((cal) => <option key={cal.id} value={cal.id}>{cal.name}</option>)}</select>
-            </label>
-            <label className={fieldLabel}>
-              Location
-              <input value={location} onChange={(e) => onLocationChange(e.target.value)} placeholder="Optional" className="mt-1 h-9 w-full rounded-lg border border-line bg-bg px-2.5 text-xs outline-none placeholder:text-mute focus:border-accent" />
-            </label>
+          <div className="flex items-center gap-3 pb-1">
+            <span aria-hidden="true" className="h-7 w-1 shrink-0 rounded-full transition-colors" style={{ background: calendarColor }} />
+            <input autoFocus value={title} onChange={(e) => onTitleChange(e.target.value)} aria-label="Event title" placeholder="Event title" className="h-10 w-full min-w-0 bg-transparent text-xl font-semibold tracking-tight text-text outline-none placeholder:text-mute/60" />
           </div>
 
-          {/* Participants */}
-          <ParticipantPicker participants={participants} contacts={contacts} onChange={onParticipantsChange} />
-
-          {/* Date/Time section */}
-          <div className="rounded-lg border border-line bg-bg">
-            <label className="flex cursor-pointer items-center gap-2.5 border-b border-line px-3 py-2 text-xs text-text">
-              <input type="checkbox" checked={allDay} onChange={(e) => onAllDayChange(e.target.checked)} className="h-3.5 w-3.5 accent-[var(--color-accent)]" />
-              All day
-            </label>
-            <div className="grid grid-cols-1 gap-px bg-line sm:grid-cols-2">
-              <label className="flex flex-col gap-1 bg-bg px-3 py-2">
-                <span className="text-[10px] font-medium text-mute">Starts</span>
+          <div className={rowGroup}>
+            <FieldRow icon={<Icon name="clock" />}>
+              <Switch label="All day" checked={allDay} onChange={onAllDayChange} />
+            </FieldRow>
+            <FieldRow>
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-sm text-mute">Starts</span>
                 {allDay
-                  ? <input type="date" value={start.slice(0, 10)} onChange={(e) => onStartChange(`${e.target.value}T09:00`)} className="h-7 w-full rounded border-none bg-transparent text-xs text-text outline-none" />
-                  : <input type="datetime-local" value={start} onChange={(e) => onStartChange(e.target.value)} className="h-7 w-full rounded border-none bg-transparent text-xs text-text outline-none" />}
+                  ? <input type="date" value={start.slice(0, 10)} onChange={(e) => onStartChange(`${e.target.value}T09:00`)} className={rowValue} />
+                  : <input type="datetime-local" value={start} onChange={(e) => onStartChange(e.target.value)} className={rowValue} />}
               </label>
-              <label className="flex flex-col gap-1 bg-bg px-3 py-2">
-                <span className="text-[10px] font-medium text-mute">Ends</span>
+            </FieldRow>
+            <FieldRow>
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-sm text-mute">Ends</span>
                 {allDay
-                  ? <input type="date" value={end.slice(0, 10) || start.slice(0, 10)} onChange={(e) => onEndChange(`${e.target.value}T23:59`)} className="h-7 w-full rounded border-none bg-transparent text-xs text-text outline-none" />
-                  : <input type="datetime-local" value={end} onChange={(e) => onEndChange(e.target.value)} className="h-7 w-full rounded border-none bg-transparent text-xs text-text outline-none" />}
+                  ? <input type="date" value={end.slice(0, 10) || start.slice(0, 10)} onChange={(e) => onEndChange(`${e.target.value}T23:59`)} className={rowValue} />
+                  : <input type="datetime-local" value={end} onChange={(e) => onEndChange(e.target.value)} className={rowValue} />}
               </label>
-            </div>
+            </FieldRow>
+            <FieldRow icon={<Icon name="repeat" />}>
+              <RowSelect aria-label="Repeat event" value={repeatChoice} onChange={(e) => onRepeatChange(e.target.value as RepeatChoice)}>
+                <option value="none">Does not repeat</option>
+                <option value="daily">Every day</option>
+                <option value="weekday">Every weekday Monday - Friday</option>
+                <option value="weekly">Every week on the selected weekday</option>
+                <option value="monthly-date">Every month on the selected date</option>
+                <option value="monthly-nth">Every month on the ordinal weekday</option>
+                <option value="yearly">Every year</option>
+                <option value="custom">Custom...</option>
+              </RowSelect>
+            </FieldRow>
+            {repeatChoice === "custom" ? <FieldRow>
+              <div className="flex h-10 items-center gap-2 text-sm text-mute">
+                Every
+                <input type="number" min="1" max="99" aria-label="Repeat interval" value={customInterval} onChange={(e) => onCustomIntervalChange(Number(e.target.value) || 1)} className={rowInset} />
+                <select aria-label="Repeat period" value={customFrequency} onChange={(e) => onCustomFrequencyChange(e.target.value as typeof customFrequency)} className={`${rowInset} w-auto cursor-pointer pl-2 pr-7 text-left`}><option value="daily">day(s)</option><option value="weekly">week(s)</option><option value="monthly">month(s)</option><option value="yearly">year(s)</option></select>
+              </div>
+            </FieldRow> : null}
+            {repeatChoice !== "none" ? <FieldRow>
+              <div className="flex items-center justify-between gap-3">
+                <span className="shrink-0 text-sm text-mute">Until</span>
+                <RowSelect aria-label="Repeat until" value={repeatEnd} onChange={(e) => onRepeatEndChange(e.target.value as RepeatEnd)} className="text-right">
+                  <option value="never">Forever</option>
+                  <option value="count">After a number of occurrences</option>
+                  <option value="date">On a date</option>
+                </RowSelect>
+              </div>
+            </FieldRow> : null}
+            {repeatChoice !== "none" && repeatEnd === "count" ? <FieldRow>
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-sm text-mute">Occurrences</span>
+                <input type="number" min="1" max="999" value={repeatCount} onChange={(e) => onRepeatCountChange(Number(e.target.value) || 1)} className={rowInset} />
+              </label>
+            </FieldRow> : null}
+            {repeatChoice !== "none" && repeatEnd === "date" ? <FieldRow>
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-sm text-mute">Last date</span>
+                <input type="date" min={minRepeatUntil} value={repeatUntil} onChange={(e) => onRepeatUntilChange(e.target.value)} className={rowValue} />
+              </label>
+            </FieldRow> : null}
+            <FieldRow icon={<Icon name="bell" />}>
+              <ReminderField alerts={alerts} allDay={allDay} onChange={onAlertsChange} />
+            </FieldRow>
           </div>
 
-          <ReminderField alerts={alerts} allDay={allDay} onChange={onAlertsChange} />
+          <div className={rowGroup}>
+            <FieldRow icon={<span className="h-2.5 w-2.5 rounded-full" style={{ background: calendarColor }} />}>
+              <RowSelect aria-label="Calendar" value={calendarId} onChange={(e) => onCalendarChange(e.target.value)}>{calendars.map((cal) => <option key={cal.id} value={cal.id}>{cal.name}</option>)}</RowSelect>
+            </FieldRow>
+            <FieldRow icon={<Icon name="pin" />}>
+              <input value={location} onChange={(e) => onLocationChange(e.target.value)} aria-label="Location" placeholder="Add location" className={rowControl} />
+            </FieldRow>
+            <FieldRow icon={<Icon name="people" />}>
+              <ParticipantPicker participants={participants} contacts={contacts} onChange={onParticipantsChange} />
+            </FieldRow>
+          </div>
 
-          <label className={fieldLabel}>
-            Repeat event
-            <select value={repeatChoice} onChange={(e) => onRepeatChange(e.target.value as RepeatChoice)} className="mt-1 h-9 w-full rounded-lg border border-line bg-bg px-2.5 text-xs outline-none focus:border-accent">
-              <option value="none">Does not repeat</option>
-              <option value="daily">Every day</option>
-              <option value="weekday">Every weekday Monday - Friday</option>
-              <option value="weekly">Every week on the selected weekday</option>
-              <option value="monthly-date">Every month on the selected date</option>
-              <option value="monthly-nth">Every month on the ordinal weekday</option>
-              <option value="yearly">Every year</option>
-              <option value="custom">Custom...</option>
-            </select>
-          </label>
-          {repeatChoice === "custom" ? <div className="grid grid-cols-[1fr_1.4fr] gap-2.5 rounded-lg border border-line bg-bg p-2.5">
-            <label className="text-xs font-medium text-mute">Every<input type="number" min="1" max="99" value={customInterval} onChange={(e) => onCustomIntervalChange(Number(e.target.value) || 1)} className="mt-1 h-8 w-full rounded border border-line bg-panel px-2 text-xs text-text outline-none focus:border-accent" /></label>
-            <label className="text-xs font-medium text-mute">Period<select value={customFrequency} onChange={(e) => onCustomFrequencyChange(e.target.value as typeof customFrequency)} className="mt-1 h-8 w-full rounded border border-line bg-panel px-2 text-xs outline-none focus:border-accent"><option value="daily">day(s)</option><option value="weekly">week(s)</option><option value="monthly">month(s)</option><option value="yearly">year(s)</option></select></label>
-          </div> : null}
-          {repeatChoice !== "none" ? <div className="space-y-2.5 rounded-lg border border-line bg-bg p-2.5">
-            <label className={fieldLabel}>
-              Repeat until
-              <select value={repeatEnd} onChange={(e) => onRepeatEndChange(e.target.value as RepeatEnd)} className="mt-1 h-8 w-full rounded border border-line bg-panel px-2 text-xs outline-none focus:border-accent">
-                <option value="never">Forever</option>
-                <option value="count">After a number of occurrences</option>
-                <option value="date">On a date</option>
-              </select>
-            </label>
-            {repeatEnd === "count" ? <label className={fieldLabel}>
-              Occurrences
-              <input type="number" min="1" max="999" value={repeatCount} onChange={(e) => onRepeatCountChange(Number(e.target.value) || 1)} className="mt-1 h-8 w-full rounded border border-line bg-panel px-2 text-xs text-text outline-none focus:border-accent" />
-            </label> : null}
-            {repeatEnd === "date" ? <label className={fieldLabel}>
-              Last date
-              <input type="date" min={minRepeatUntil} value={repeatUntil} onChange={(e) => onRepeatUntilChange(e.target.value)} className="mt-1 h-8 w-full rounded border border-line bg-panel px-2 text-xs text-text outline-none focus:border-accent" />
-            </label> : null}
-          </div> : null}
-
-          {/* Notes */}
-          <label className={fieldLabel}>
-            Notes
-            <textarea value={notes} onChange={(e) => onNotesChange(e.target.value)} placeholder="Optional notes" rows={2} className="mt-1 w-full resize-y rounded-lg border border-line bg-bg p-2.5 text-xs leading-relaxed outline-none placeholder:text-mute focus:border-accent" />
-          </label>
+          <div className={rowGroup}>
+            <FieldRow icon={<Icon name="text" />} top>
+              <textarea value={notes} onChange={(e) => onNotesChange(e.target.value)} aria-label="Notes" placeholder="Add notes" rows={2} className="block w-full resize-none bg-transparent py-2.5 text-sm leading-relaxed text-text outline-none placeholder:text-mute" />
+            </FieldRow>
+          </div>
 
           {error ? <p role="alert" className="text-xs text-danger">{error}</p> : null}
         </div>
 
-        {/* Footer */}
-        <div className="flex shrink-0 items-center justify-between border-t border-line px-5 py-3.5">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-line px-5 py-3.5">
           <div>{onDelete ? <button type="button" onClick={onDelete} disabled={busy || saving || removing} aria-busy={removing} className={btnDanger}>{removing ? "Deleting…" : "Delete"}</button> : null}</div>
-          <button type="button" onClick={onSave} disabled={busy || saving || removing || !title.trim() || !calendarId} aria-busy={saving} className={btnPrimary}>{saving ? "Saving…" : editing ? "Save changes" : "Save event"}</button>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={onClose} disabled={saving || removing} className={btnSecondary}>Cancel</button>
+            <button type="button" onClick={onSave} disabled={busy || saving || removing || !title.trim() || !calendarId} aria-busy={saving} className={btnPrimary}>{saving ? "Saving…" : editing ? "Save changes" : "Save event"}</button>
+          </div>
         </div>
     </Modal>
   );

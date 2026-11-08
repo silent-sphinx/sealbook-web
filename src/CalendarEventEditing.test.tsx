@@ -192,7 +192,7 @@ describe("reminders", () => {
 
     fireEvent.click(screen.getByText("Standup"));
     await screen.findByPlaceholderText("Event title");
-    fireEvent.click(screen.getByRole("checkbox", { name: "All day" }));
+    fireEvent.click(screen.getByRole("switch", { name: "All day" }));
     expect(screen.getByRole("button", { name: "Remove reminder 1 day before at 09:00" })).toBeTruthy();
   });
 });

@@ -1,6 +1,6 @@
 import { MAX_EVENT_ALERTS, alertLabel, alertPresets } from "../lib/calendar";
 import type { EventAlert } from "../lib/types";
-import { fieldLabel, focusRing } from "../lib/styles";
+import { focusRing } from "../lib/styles";
 import { Icon } from "./Icon";
 
 export function ReminderField({
@@ -24,43 +24,40 @@ export function ReminderField({
   }
 
   return (
-    <div className={fieldLabel}>
-      Reminders
-      <div className="mt-1 flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-lg border border-line bg-bg px-2 py-1.5 focus-within:border-accent">
-        {alerts.map((alert) => {
-          const label = alertLabel(alert, allDay);
-          return (
-            <span key={alert.minutesBefore} className="flex items-center gap-1 rounded-md bg-surface px-2 py-0.5 text-[11px] text-text">
-              {label}
-              <button
-                type="button"
-                onClick={() => onChange(alerts.filter((other) => other !== alert))}
-                className={`-mr-1 relative flex h-4 w-4 items-center justify-center rounded text-mute transition-colors hover:text-text hit-area ${focusRing}`}
-                aria-label={`Remove reminder ${label}`}
-              >
-                <Icon name="close" className="h-2.5 w-2.5" />
-              </button>
-            </span>
-          );
-        })}
-        {!full && offered.length > 0 ? (
-          <select
-            aria-label="Add reminder"
-            value=""
-            onChange={(e) => {
-              if (e.target.value !== "") add(Number(e.target.value));
-            }}
-            className="h-6 min-w-24 flex-1 bg-transparent text-xs text-text outline-none"
-          >
-            <option value="">{alerts.length === 0 ? "No reminders - add one" : "Add another"}</option>
-            {offered.map((minutes) => (
-              <option key={minutes} value={minutes}>
-                {alertLabel({ minutesBefore: minutes }, allDay)}
-              </option>
-            ))}
-          </select>
-        ) : null}
-      </div>
+    <div role="group" aria-label="Reminders" className="flex min-h-10 w-full flex-wrap items-center gap-1.5 py-2">
+      {alerts.map((alert) => {
+        const label = alertLabel(alert, allDay);
+        return (
+          <span key={alert.minutesBefore} className="flex items-center gap-1 rounded-full bg-surface py-1 pl-2.5 pr-1.5 text-xs text-text">
+            {label}
+            <button
+              type="button"
+              onClick={() => onChange(alerts.filter((other) => other !== alert))}
+              className={`relative flex h-4 w-4 items-center justify-center rounded-full text-mute transition-colors hover:bg-elevated hover:text-text hit-area ${focusRing}`}
+              aria-label={`Remove reminder ${label}`}
+            >
+              <Icon name="close" className="h-2.5 w-2.5" />
+            </button>
+          </span>
+        );
+      })}
+      {!full && offered.length > 0 ? (
+        <select
+          aria-label="Add reminder"
+          value=""
+          onChange={(e) => {
+            if (e.target.value !== "") add(Number(e.target.value));
+          }}
+          className="row-select h-7 min-w-24 flex-1 cursor-pointer bg-transparent text-sm text-mute outline-none transition-colors hover:text-text focus-visible:text-text"
+        >
+          <option value="">{alerts.length === 0 ? "Add reminder" : "Add another"}</option>
+          {offered.map((minutes) => (
+            <option key={minutes} value={minutes}>
+              {alertLabel({ minutesBefore: minutes }, allDay)}
+            </option>
+          ))}
+        </select>
+      ) : null}
     </div>
   );
 }
