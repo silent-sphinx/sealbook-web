@@ -27,6 +27,10 @@
     // effect that owns it is created once. Each site says so.
     "react/refs": "off",
     "react/purity": "off",
+    // Flags locals reassigned inside effects and handlers, such as an effect's
+    // `cancelled` flag or an id captured across an `await`, which never feed
+    // a render.
+    "react/immutability": "off",
     // Modal's focus trap looks for `[autofocus]` inside the panel to decide
     // where to put the caret, so the attribute is load-bearing here.
     "jsx-a11y/no-autofocus": "off",
