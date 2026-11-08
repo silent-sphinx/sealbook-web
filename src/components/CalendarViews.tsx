@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import type { Calendar, CalendarEvent } from "../lib/types";
 import type { TaskMark } from "../lib/taskCalendar";
 import { DEFAULT_CALENDAR_COLOR } from "../lib/types";
@@ -11,6 +12,7 @@ import {
   keyFor,
   monthDays,
   sameDay,
+  spanCoversDay,
   weekdayIndex,
   weekdayLabels,
   type WeekStart,
@@ -39,6 +41,104 @@ function TaskChip({ mark, onOpen }: { mark: TaskMark; onOpen?: (id: string) => v
       {mark.timeLabel ? <span className="mr-1 opacity-60">{mark.timeLabel}</span> : null}
       {mark.title}
     </span>
+  );
+}
+
+const MAX_MONTH_EVENTS = 4;
+const HOVER_OPEN_MS = 350;
+const HOVER_CLOSE_MS = 150;
+
+type DayHover = { key: string; rect: DOMRect };
+
+function DayEventsPopover({ hover, events, spans, calendars, taskMarks, onEdit, onOpenTask, onEnter, onLeave, onClose }: {
+  hover: DayHover;
+  events: CalendarEvent[];
+  spans: Map<string, EventSpan>;
+  calendars: Calendar[];
+  taskMarks?: TaskMarks;
+  onEdit: (event: CalendarEvent) => void;
+  onOpenTask?: (id: string) => void;
+  onEnter: () => void;
+  onLeave: () => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [placed, setPlaced] = useState<{ left: number; top: number } | null>(null);
+  const day = dateFromKey(hover.key);
+  const marks = taskMarks?.get(hover.key) ?? [];
+  const dayEvents = useMemo(() => events
+    .filter((event) => { const span = spans.get(event.id); return span ? spanCoversDay(span, dateFromKey(hover.key)) : false; })
+    .sort((a, b) => {
+      const aTimed = spans.get(a.id)?.timeLabel ? 1 : 0;
+      const bTimed = spans.get(b.id)?.timeLabel ? 1 : 0;
+      return aTimed - bTimed || Date.parse(a.start) - Date.parse(b.start) || a.title.localeCompare(b.title);
+    }), [events, spans, hover.key]);
+
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const gap = 6;
+    const margin = 8;
+    const { width, height } = node.getBoundingClientRect();
+    const roomRight = innerWidth - hover.rect.right - gap - margin;
+    const left = roomRight >= width ? hover.rect.right + gap : Math.max(margin, hover.rect.left - gap - width);
+    const top = Math.min(Math.max(margin, hover.rect.top), innerHeight - height - margin);
+    setPlaced({ left, top });
+  }, [hover, dayEvents.length, marks.length]);
+
+  useEffect(() => {
+    const onKey = (keyEvent: KeyboardEvent) => { if (keyEvent.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onClose);
+    window.addEventListener("scroll", onClose, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onClose);
+      window.removeEventListener("scroll", onClose, true);
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      ref={ref}
+      role="dialog"
+      aria-label={`Events on ${day.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" })}`}
+      onPointerEnter={onEnter}
+      onPointerLeave={onLeave}
+      onClick={(click) => click.stopPropagation()}
+      onDoubleClick={(click) => click.stopPropagation()}
+      style={{ left: placed?.left ?? hover.rect.right, top: placed?.top ?? hover.rect.top, visibility: placed ? "visible" : "hidden" }}
+      className="fixed z-50 flex max-h-[min(24rem,calc(100vh-1rem))] w-64 flex-col rounded-xl border border-line bg-panel shadow-lg shadow-black/40"
+    >
+      <div className="flex shrink-0 items-baseline gap-2 border-b border-line px-3 py-2">
+        <span className="text-xs font-semibold text-text">{day.toLocaleDateString([], { weekday: "long" })}</span>
+        <span className="text-xs text-mute">{day.toLocaleDateString([], { day: "numeric", month: "long" })}</span>
+      </div>
+      <ul className="min-h-0 overflow-y-auto p-1.5">
+        {dayEvents.map((event) => {
+          const color = calendars.find((calendar) => calendar.id === event.calendarId)?.color ?? DEFAULT_CALENDAR_COLOR;
+          return (
+            <li key={event.id}>
+              <button type="button" onClick={() => { onClose(); onEdit(event); }} className={`flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs transition-colors hover:bg-surface ${focusRing}`}>
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+                <span className="w-16 shrink-0 text-[11px] text-mute">{spans.get(event.id)?.timeLabel ?? "All day"}</span>
+                <span className="min-w-0 flex-1 truncate font-medium text-text">{event.title}</span>
+              </button>
+            </li>
+          );
+        })}
+        {marks.map((mark) => (
+          <li key={mark.id}>
+            <button type="button" onClick={() => { onClose(); onOpenTask?.(mark.id); }} className={`flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs transition-colors hover:bg-surface ${focusRing}`}>
+              <Icon name="checkbox" className={`h-3 w-3 shrink-0 ${mark.overdue ? "text-danger" : "text-mute"}`} />
+              <span className="w-16 shrink-0 text-[11px] text-mute">{mark.timeLabel ?? "Due"}</span>
+              <span className={`min-w-0 flex-1 truncate font-medium ${mark.overdue ? "text-danger" : "text-text"}`}>{mark.title}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>,
+    document.body,
   );
 }
 
@@ -84,6 +184,22 @@ function eventSegmentStyle(span: EventSpan, day: Date, color: string): CSSProper
 
 export function MonthGrid({ month, days, weekStart, selected, todayKey, events, spans, calendars, onSelect, onAdd, onEdit, taskMarks, onOpenTask }: MonthGridProps) {
   const daySlotsMap = useMemo(() => buildDaySlots(days, events, spans), [days, events, spans]);
+  const [hover, setHover] = useState<DayHover | null>(null);
+  const timer = useRef<number | undefined>(undefined);
+  const clearTimer = useCallback(() => window.clearTimeout(timer.current), []);
+  const closeHover = useCallback(() => { window.clearTimeout(timer.current); setHover(null); }, []);
+  const scheduleClose = useCallback(() => { window.clearTimeout(timer.current); timer.current = window.setTimeout(() => setHover(null), HOVER_CLOSE_MS); }, []);
+  const hoverDay = (key: string) => (pointer: ReactPointerEvent<HTMLElement>) => {
+    if (pointer.pointerType !== "mouse") return;
+    const cell = pointer.currentTarget.closest(".cal-cell");
+    if (!cell) return;
+    const rect = cell.getBoundingClientRect();
+    window.clearTimeout(timer.current);
+    if (hover) setHover({ key, rect });
+    else timer.current = window.setTimeout(() => setHover({ key, rect }), HOVER_OPEN_MS);
+  };
+  useEffect(() => clearTimer, [clearTimer]);
+  useEffect(() => closeHover(), [month, closeHover]);
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
@@ -99,11 +215,13 @@ export function MonthGrid({ month, days, weekStart, selected, todayKey, events, 
             const isToday = key === todayKey;
             const isSelected = key === selected;
             const slots = daySlotsMap.get(key) || [];
+            const shown = slots.slice(MAX_MONTH_EVENTS).some(Boolean) ? MAX_MONTH_EVENTS - 1 : MAX_MONTH_EVENTS;
+            const hiddenEvents = slots.slice(shown).filter(Boolean).length;
             return (
               <button key={key} type="button" onClick={() => onSelect(day)} onDoubleClick={() => onAdd(day)} className={`cal-cell relative flex min-h-0 flex-col items-stretch justify-start border-b border-r border-line p-1.5 text-left transition-colors ${isOtherMonth ? "bg-panel/40 text-mute/60" : isWeekend ? "bg-panel/60 text-text/70" : "bg-bg text-text"} ${isToday ? "cal-today" : ""} ${isSelected ? "z-10 ring-1 ring-inset ring-accent/60" : "hover:bg-surface/30"} outline-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring`}>
                 <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-xs ${isToday ? "bg-accent font-semibold text-bg" : ""}`}>{day.getDate()}</span>
                 <span className="mt-0.5 block space-y-0.5">
-                  {slots.slice(0, 4).map((event, slotIndex) => {
+                  {slots.slice(0, shown).map((event, slotIndex) => {
                     if (!event) return <span key={`empty-${slotIndex}`} className="block h-4 w-full" />;
                     const span = spans.get(event.id);
                     if (!span) return <span key={`missing-${slotIndex}`} className="block h-4 w-full" />;
@@ -111,21 +229,23 @@ export function MonthGrid({ month, days, weekStart, selected, todayKey, events, 
                     const startsHere = span.startKey === key;
                     const showText = startsHere || weekdayIndex(day, weekStart) === 0 || !span.bar;
                     return (
-                      <span key={event.id} role="button" tabIndex={0} onClick={(click) => { click.stopPropagation(); onEdit(event); }} onKeyDown={(keyEvent) => { if (keyEvent.key === "Enter" || keyEvent.key === " ") { keyEvent.preventDefault(); keyEvent.stopPropagation(); onEdit(event); } }} className={eventSegmentClass(span, day)} style={eventSegmentStyle(span, day, color ?? DEFAULT_CALENDAR_COLOR)}>
+                      <span key={event.id} role="button" tabIndex={0} onClick={(click) => { click.stopPropagation(); onEdit(event); }} onKeyDown={(keyEvent) => { if (keyEvent.key === "Enter" || keyEvent.key === " ") { keyEvent.preventDefault(); keyEvent.stopPropagation(); onEdit(event); } }} onPointerEnter={hoverDay(key)} onPointerLeave={scheduleClose} className={eventSegmentClass(span, day)} style={eventSegmentStyle(span, day, color ?? DEFAULT_CALENDAR_COLOR)}>
                         {!span.bar && <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle" style={{ backgroundColor: color ?? DEFAULT_CALENDAR_COLOR }} />}
                         {!span.bar && <span className="mr-1 opacity-60 @max-[48rem]:hidden">{span.timeLabel}</span>}
                         {showText ? event.title : "\u00A0"}
                       </span>
                     );
                   })}
+                  {hiddenEvents > 0 ? <span onPointerEnter={hoverDay(key)} onPointerLeave={scheduleClose} className="block px-1 text-[10px] font-medium leading-4 text-mute">{`+${hiddenEvents} more`}</span> : null}
                   {(taskMarks?.get(key) ?? []).slice(0, MAX_MONTH_TASK_MARKS).map((mark) => <TaskChip key={mark.id} mark={mark} onOpen={onOpenTask} />)}
-                  {(taskMarks?.get(key)?.length ?? 0) > MAX_MONTH_TASK_MARKS ? <span className="block text-[10px] text-mute">{`+${(taskMarks?.get(key)?.length ?? 0) - MAX_MONTH_TASK_MARKS} more tasks`}</span> : null}
+                  {(taskMarks?.get(key)?.length ?? 0) > MAX_MONTH_TASK_MARKS ? <span onPointerEnter={hoverDay(key)} onPointerLeave={scheduleClose} className="block px-1 text-[10px] text-mute">{`+${(taskMarks?.get(key)?.length ?? 0) - MAX_MONTH_TASK_MARKS} more tasks`}</span> : null}
                 </span>
               </button>
             );
           })}
         </div>
       </div>
+      {hover ? <DayEventsPopover hover={hover} events={events} spans={spans} calendars={calendars} taskMarks={taskMarks} onEdit={onEdit} onOpenTask={onOpenTask} onEnter={clearTimer} onLeave={scheduleClose} onClose={closeHover} /> : null}
     </div>
   );
 }
