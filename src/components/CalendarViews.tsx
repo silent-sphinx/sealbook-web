@@ -105,8 +105,6 @@ function DayEventsPopover({ hover, events, spans, calendars, taskMarks, onEdit, 
       aria-label={`Events on ${day.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" })}`}
       onPointerEnter={onEnter}
       onPointerLeave={onLeave}
-      onClick={(click) => click.stopPropagation()}
-      onDoubleClick={(click) => click.stopPropagation()}
       style={{ left: placed?.left ?? hover.rect.right, top: placed?.top ?? hover.rect.top, visibility: placed ? "visible" : "hidden" }}
       className="fixed z-50 flex max-h-[min(24rem,calc(100vh-1rem))] w-64 flex-col rounded-xl border border-line bg-panel shadow-lg shadow-black/40"
     >
