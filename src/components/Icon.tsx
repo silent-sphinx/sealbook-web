@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 
 const GLYPHS = {
   plus: <path d="M8 3.5v9M3.5 8h9" />,
+  minus: <path d="M3.5 8h9" />,
+  fit: <path d="M2.5 6V3.5a1 1 0 0 1 1-1H6M10 2.5h2.5a1 1 0 0 1 1 1V6M13.5 10v2.5a1 1 0 0 1-1 1H10M6 13.5H3.5a1 1 0 0 1-1-1V10" />,
   search: <path d="M7.25 12a4.75 4.75 0 1 0 0-9.5 4.75 4.75 0 0 0 0 9.5ZM10.75 10.75 13.5 13.5" />,
   chevron: <path d="m6 4 4 4-4 4" />,
   back: <path d="M10 4 6 8l4 4" />,

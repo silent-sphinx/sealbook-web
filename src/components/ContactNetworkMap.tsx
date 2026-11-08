@@ -9,7 +9,8 @@ import {
 } from "../lib/contactNetwork";
 import type { Contact } from "../lib/types";
 import { Avatar } from "./ContactCard";
-import { focusRing, iconButton } from "../lib/styles";
+import { Icon } from "./Icon";
+import { focusRing } from "../lib/styles";
 
 /** For a pane with no box to measure, such as one that is hidden. */
 const FALLBACK_SIZE = { width: 320, height: 320 };
@@ -17,6 +18,11 @@ const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 4;
 const DEFAULT_VIEW = { x: 0, y: 0, scale: 1 };
 const DRAG_THRESHOLD = 3;
+/** Opacity of nodes and edges outside the hovered contact's neighbourhood. */
+const DIMMED_NODE_OPACITY = "0.25";
+const DIMMED_EDGE_OPACITY = 0.12;
+/** Pixels per wheel "line" for browsers (Firefox) that report wheel deltas in lines. */
+const WHEEL_LINE_HEIGHT = 16;
 
 type View = { x: number; y: number; scale: number };
 
@@ -25,6 +31,27 @@ const EDGE_CLASS: Record<ContactNetworkEdge["kind"], string> = {
   friends: "stroke-link-friend",
   colleagues: "stroke-link-colleague",
 };
+
+const EDGE_LABEL: Record<ContactNetworkEdge["kind"], string> = {
+  family: "Family",
+  friends: "Friends",
+  colleagues: "Colleagues",
+};
+
+const LEGEND_SWATCH: Record<ContactNetworkEdge["kind"], string | undefined> = {
+  family: undefined,
+  friends: "repeating-linear-gradient(to right, var(--color-link-friend) 0 3px, transparent 3px 6px)",
+  colleagues:
+    "repeating-linear-gradient(to right, var(--color-link-colleague) 0 1.5px, transparent 1.5px 4px)",
+};
+
+const LEGEND_CLASS: Record<ContactNetworkEdge["kind"], string> = {
+  family: "bg-link-family",
+  friends: "bg-link-friend",
+  colleagues: "bg-link-colleague",
+};
+
+const EDGE_ORDER: ContactNetworkEdge["kind"][] = ["family", "friends", "colleagues"];
 
 const EDGE_DASH: Record<ContactNetworkEdge["kind"], string | undefined> = {
   family: undefined,
@@ -41,6 +68,12 @@ function pairKey(edge: ContactNetworkEdge): string {
 
 function clampZoom(scale: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, scale));
+}
+
+function wheelPixels(e: WheelEvent, pageHeight: number): number {
+  if (e.deltaMode === 1) return e.deltaY * WHEEL_LINE_HEIGHT;
+  if (e.deltaMode === 2) return e.deltaY * pageHeight;
+  return e.deltaY;
 }
 
 export function ContactNetworkMap({
@@ -63,6 +96,10 @@ export function ContactNetworkMap({
   const simGraphRef = useRef<ReturnType<typeof buildContactNetwork> | null>(null);
   const simSizeRef = useRef<{ width: number; height: number } | null>(null);
   const rafRef = useRef<number | null>(null);
+  const viewRef = useRef<View>(view);
+  viewRef.current = view;
+  const labelRef = useRef<SVGGElement | null>(null);
+  const hoveredIndexRef = useRef(-1);
 
   // Sizes the graph to the pane's actual shape rather than a fixed square, so
   // it fills the area instead of letterboxing inside it.
@@ -104,6 +141,22 @@ export function ContactNetworkMap({
     () => buildContactNetwork(contacts, { includeUnlinked: showAllContacts }),
     [contacts, showAllContacts],
   );
+
+  const neighbours = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const edge of graph.edges) {
+      if (!map.has(edge.source)) map.set(edge.source, new Set());
+      if (!map.has(edge.target)) map.set(edge.target, new Set());
+      map.get(edge.source)!.add(edge.target);
+      map.get(edge.target)!.add(edge.source);
+    }
+    return map;
+  }, [graph.edges]);
+
+  const kindsShown = useMemo(() => {
+    const kinds = new Set(graph.edges.map((edge) => edge.kind));
+    return EDGE_ORDER.filter((kind) => kinds.has(kind));
+  }, [graph.edges]);
 
   // A pair sharing more than one relationship (e.g. friends and colleagues)
   // is drawn as parallel lines rather than one overdrawing the other, so each
@@ -174,6 +227,14 @@ export function ContactNetworkMap({
       element.setAttribute("y1", String(y1 + ny));
       element.setAttribute("x2", String(x2 + nx));
       element.setAttribute("y2", String(y2 + ny));
+    }
+
+    const hovered = hoveredIndexRef.current;
+    if (labelRef.current && hovered >= 0) {
+      labelRef.current.setAttribute(
+        "transform",
+        `translate(${coordinates[hovered * 2]} ${coordinates[hovered * 2 + 1]})`,
+      );
     }
   }, [nodeEls, edgeEls, edgeOffsets]);
 
@@ -252,7 +313,7 @@ export function ContactNetworkMap({
       e.preventDefault();
       const point = clientToSvgPoint(svg, e.clientX, e.clientY, pane.width, pane.height);
       setView((prev) => {
-        const factor = Math.exp(-e.deltaY * 0.0015);
+        const factor = Math.exp(-wheelPixels(e, pane.height) * 0.0015);
         const nextScale = clampZoom(prev.scale * factor);
         const k = nextScale / prev.scale;
         return {
@@ -269,9 +330,30 @@ export function ContactNetworkMap({
 
   const isEmpty = graph.nodes.length === 0;
 
-  const isHighlighted = (edge: ContactNetworkEdge) =>
-    hoveredNodeId !== null &&
-    (edge.source === hoveredNodeId || edge.target === hoveredNodeId);
+  const hoveredIndex =
+    hoveredNodeId === null ? -1 : graph.nodes.findIndex((node) => node.id === hoveredNodeId);
+  const hoveredNode = hoveredIndex >= 0 ? graph.nodes[hoveredIndex] : undefined;
+  const hoveredNeighbours = hoveredNode ? neighbours.get(hoveredNode.id) : undefined;
+
+  // Dims everything outside the hovered contact's neighbourhood on the
+  // elements directly, so hovering does not re-render every avatar.
+  useLayoutEffect(() => {
+    hoveredIndexRef.current = hoveredIndex;
+    for (const [index, element] of nodeEls.entries()) {
+      if (!element) continue;
+      const id = graph.nodes[index]!.id;
+      const dim = hoveredIndex >= 0 && index !== hoveredIndex && !hoveredNeighbours?.has(id);
+      element.style.opacity = dim ? DIMMED_NODE_OPACITY : "";
+    }
+    paint();
+  }, [hoveredIndex, hoveredNeighbours, graph.nodes, nodeEls, paint]);
+
+  const edgeOpacity = (edge: ContactNetworkEdge) => {
+    if (!hoveredNode) return 0.55;
+    return edge.source === hoveredNode.id || edge.target === hoveredNode.id
+      ? 1
+      : DIMMED_EDGE_OPACITY;
+  };
 
   function zoomBy(factor: number) {
     setView((prev) => {
@@ -329,10 +411,11 @@ export function ContactNetworkMap({
     if (!drag.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
     drag.moved = true;
 
+    const current = viewRef.current;
     const outer = clientToSvgPoint(svg, e.clientX, e.clientY, pane.width, pane.height);
     const graphPoint = {
-      x: (outer.x - view.x) / view.scale,
-      y: (outer.y - view.y) / view.scale,
+      x: (outer.x - current.x) / current.scale,
+      y: (outer.y - current.y) / current.scale,
     };
     // Pinning (rather than just moving the node) keeps the simulation
     // stepping every frame, so spring forces on its edges keep pulling the
@@ -358,8 +441,84 @@ export function ContactNetworkMap({
     }
   }
 
+  // A cancelled pointer gets no `pointerup`, so the drag is dropped here or
+  // the node would stay pinned and the frame loop would never go idle.
+  function handleNodePointerCancel() {
+    const drag = nodeDragRef.current;
+    nodeDragRef.current = null;
+    if (!drag) return;
+    simRef.current?.unpin(drag.id);
+    wake();
+  }
+
+  // The node layer is memoized so a pan or hover re-renders only the edges,
+  // which is why its handlers are reached through a ref to their latest version.
+  const nodeHandlers = useRef({
+    down: handleNodePointerDown,
+    move: handleNodePointerMove,
+    up: handleNodePointerUp,
+    cancel: handleNodePointerCancel,
+    select: onSelectContact,
+  });
+  nodeHandlers.current = {
+    down: handleNodePointerDown,
+    move: handleNodePointerMove,
+    up: handleNodePointerUp,
+    cancel: handleNodePointerCancel,
+    select: onSelectContact,
+  };
+
+  const nodeLayer = useMemo(
+    () =>
+      graph.nodes.map((node, index) => {
+        const radius = nodeRadius(node.degree);
+        const diameter = radius * 2;
+        const contact = byId.get(node.id);
+
+        return (
+          <g
+            key={node.id}
+            ref={(element) => {
+              nodeEls[index] = element;
+            }}
+            className="cursor-grab transition-opacity duration-150 active:cursor-grabbing"
+            onPointerDown={(e) => nodeHandlers.current.down(e, node.id)}
+            onPointerMove={(e) => nodeHandlers.current.move(e, node.id)}
+            onPointerUp={(e) => nodeHandlers.current.up(e, contact)}
+            onPointerCancel={() => nodeHandlers.current.cancel()}
+            onLostPointerCapture={() => nodeHandlers.current.cancel()}
+            onMouseEnter={() => setHoveredNodeId(node.id)}
+            onMouseLeave={() => setHoveredNodeId(null)}
+          >
+            <circle r={radius} className="fill-surface stroke-line" strokeWidth={1} />
+            <foreignObject x={-radius} y={-radius} width={diameter} height={diameter}>
+              <button
+                type="button"
+                aria-label={node.name}
+                onFocus={() => setHoveredNodeId(node.id)}
+                onBlur={() => setHoveredNodeId(null)}
+                onClick={() => contact && nodeHandlers.current.select(contact)}
+                className={`flex items-center justify-center rounded-full ${focusRing}`}
+                style={{ width: diameter, height: diameter }}
+              >
+                <Avatar name={node.name} avatar={node.avatar} pixelSize={diameter} />
+              </button>
+            </foreignObject>
+          </g>
+        );
+      }),
+    [graph.nodes, byId, nodeEls],
+  );
+
   const isDefaultView =
     view.x === DEFAULT_VIEW.x && view.y === DEFAULT_VIEW.y && view.scale === DEFAULT_VIEW.scale;
+
+  const toolbar = "absolute top-2 flex rounded-lg border border-line bg-panel/90 p-0.5 shadow-sm backdrop-blur-sm";
+  const segment = (active: boolean) =>
+    `h-7 rounded-md px-2.5 text-xs transition-colors ${focusRing} ${
+      active ? "bg-surface font-medium text-text shadow-sm" : "text-mute hover:text-text"
+    }`;
+  const zoomControl = `flex h-7 w-7 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text disabled:pointer-events-none disabled:text-mute/35 ${focusRing}`;
 
   return (
     <div className="hidden min-h-56 flex-1 flex-col lg:flex">
@@ -378,7 +537,7 @@ export function ContactNetworkMap({
             viewBox={`0 0 ${pane.width} ${pane.height}`}
             className="h-full w-full"
             style={{ touchAction: "none" }}
-            role="img"
+            role="group"
             aria-label="Contact relationship map"
           >
             <rect
@@ -391,83 +550,44 @@ export function ContactNetworkMap({
               onPointerDown={handleBackgroundPointerDown}
               onPointerMove={handleBackgroundPointerMove}
               onPointerUp={handleBackgroundPointerUp}
+              onPointerCancel={() => (panRef.current = null)}
+              onLostPointerCapture={() => (panRef.current = null)}
             />
 
             <g transform={`translate(${view.x} ${view.y}) scale(${view.scale})`}>
               <g>
-                {graph.edges.map((edge, index) => {
-                  const highlighted = isHighlighted(edge);
-
-                  return (
-                    <line
-                      key={edge.id}
-                      ref={(element) => {
-                        edgeEls[index] = element;
-                      }}
-                      pointerEvents="none"
-                      className={EDGE_CLASS[edge.kind]}
-                      strokeWidth={highlighted ? 2.5 : 1.5}
-                      strokeOpacity={highlighted ? 1 : 0.55}
-                      strokeLinecap="round"
-                      strokeDasharray={EDGE_DASH[edge.kind]}
-                    />
-                  );
-                })}
+                {graph.edges.map((edge, index) => (
+                  <line
+                    key={edge.id}
+                    ref={(element) => {
+                      edgeEls[index] = element;
+                    }}
+                    pointerEvents="none"
+                    className={EDGE_CLASS[edge.kind]}
+                    strokeWidth={edgeOpacity(edge) === 1 ? 2.5 : 1.5}
+                    strokeOpacity={edgeOpacity(edge)}
+                    strokeLinecap="round"
+                    strokeDasharray={EDGE_DASH[edge.kind]}
+                  />
+                ))}
               </g>
 
-              <g>
-                {graph.nodes.map((node, index) => {
-                  const radius = nodeRadius(node.degree);
-                  const diameter = radius * 2;
-                  const contact = byId.get(node.id);
-                  const hovered = hoveredNodeId === node.id;
+              <g>{nodeLayer}</g>
 
-                  return (
-                    <g
-                      key={node.id}
-                      ref={(element) => {
-                        nodeEls[index] = element;
-                      }}
-                      className="cursor-grab active:cursor-grabbing"
-                      onPointerDown={(e) => handleNodePointerDown(e, node.id)}
-                      onPointerMove={(e) => handleNodePointerMove(e, node.id)}
-                      onPointerUp={(e) => handleNodePointerUp(e, contact)}
-                      onMouseEnter={() => setHoveredNodeId(node.id)}
-                      onMouseLeave={() => setHoveredNodeId(null)}
-                    >
-                      <circle r={radius} className="fill-surface stroke-line" strokeWidth={1} />
-                      <foreignObject
-                        x={-radius}
-                        y={-radius}
-                        width={diameter}
-                        height={diameter}
-                      >
-                        <button
-                          type="button"
-                          aria-label={node.name}
-                          onFocus={() => setHoveredNodeId(node.id)}
-                          onBlur={() => setHoveredNodeId(null)}
-                          onClick={() => contact && onSelectContact(contact)}
-                          className={`flex items-center justify-center rounded-full ${focusRing}`}
-                          style={{ width: diameter, height: diameter }}
-                        >
-                          <Avatar name={node.name} avatar={node.avatar} pixelSize={diameter} />
-                        </button>
-                      </foreignObject>
-                      {hovered ? (
-                        <text
-                          y={radius + 14}
-                          textAnchor="middle"
-                          pointerEvents="none"
-                          className="fill-text text-[10px] font-medium"
-                        >
-                          {node.name}
-                        </text>
-                      ) : null}
-                    </g>
-                  );
-                })}
-              </g>
+              {hoveredNode ? (
+                <g ref={labelRef} pointerEvents="none">
+                  <text
+                    y={nodeRadius(hoveredNode.degree) + 14}
+                    textAnchor="middle"
+                    className="fill-text stroke-bg text-[10px] font-medium"
+                    strokeWidth={3}
+                    strokeLinejoin="round"
+                    paintOrder="stroke"
+                  >
+                    {hoveredNode.name}
+                  </text>
+                </g>
+              ) : null}
             </g>
           </svg>
         ) : null}
@@ -475,15 +595,13 @@ export function ContactNetworkMap({
         <div
           role="group"
           aria-label="Contacts shown on the map"
-          className="absolute left-2 top-2 flex items-center gap-0.5 rounded-lg border border-line bg-surface/90 p-0.5 backdrop-blur-sm"
+          className={`${toolbar} left-2 items-center`}
         >
           <button
             type="button"
             aria-pressed={!showAllContacts}
             onClick={() => setShowAllContacts(false)}
-            className={`rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors ${focusRing} ${
-              !showAllContacts ? "bg-accent text-bg" : "text-mute hover:text-text"
-            }`}
+            className={segment(!showAllContacts)}
           >
             Clusters only
           </button>
@@ -491,73 +609,60 @@ export function ContactNetworkMap({
             type="button"
             aria-pressed={showAllContacts}
             onClick={() => setShowAllContacts(true)}
-            className={`rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors ${focusRing} ${
-              showAllContacts ? "bg-accent text-bg" : "text-mute hover:text-text"
-            }`}
+            className={segment(showAllContacts)}
           >
             Every contact
           </button>
         </div>
 
         {!isEmpty ? (
-          <div className="absolute right-2 top-2 flex flex-col gap-1">
-            {!isDefaultView ? (
-              <button
-                type="button"
-                aria-label="Reset map view"
-                title="Reset view"
-                onClick={() => setView(DEFAULT_VIEW)}
-                className={iconButton}
-              >
-                ⟲
-              </button>
-            ) : null}
+          <div role="group" aria-label="Map zoom" className={`${toolbar} right-2 flex-col`}>
             <button
               type="button"
               aria-label="Zoom in"
+              title="Zoom in"
+              disabled={view.scale >= MAX_ZOOM}
               onClick={() => zoomBy(1.3)}
-              className={iconButton}
+              className={zoomControl}
             >
-              +
+              <Icon name="plus" className="h-3.5 w-3.5" />
             </button>
             <button
               type="button"
               aria-label="Zoom out"
+              title="Zoom out"
+              disabled={view.scale <= MIN_ZOOM}
               onClick={() => zoomBy(1 / 1.3)}
-              className={iconButton}
+              className={zoomControl}
             >
-              −
+              <Icon name="minus" className="h-3.5 w-3.5" />
+            </button>
+            <span aria-hidden="true" className="mx-1 my-0.5 h-px bg-line" />
+            <button
+              type="button"
+              aria-label="Reset map view"
+              title="Reset view"
+              disabled={isDefaultView}
+              onClick={() => setView(DEFAULT_VIEW)}
+              className={zoomControl}
+            >
+              <Icon name="fit" className="h-3.5 w-3.5" />
             </button>
           </div>
         ) : null}
       </div>
 
-      {!isEmpty ? (
+      {kindsShown.length > 0 ? (
         <div className="flex items-center justify-center gap-4 px-4 py-3 text-xs text-mute">
-          <span className="flex items-center gap-1.5">
-            <span className="h-0.5 w-4 rounded-full bg-link-family" />
-            Family
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span
-              className="h-0.5 w-4 rounded-full bg-link-friend"
-              style={{
-                backgroundImage:
-                  "repeating-linear-gradient(to right, var(--color-link-friend) 0 3px, transparent 3px 6px)",
-              }}
-            />
-            Friends
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span
-              className="h-0.5 w-4 rounded-full bg-link-colleague"
-              style={{
-                backgroundImage:
-                  "repeating-linear-gradient(to right, var(--color-link-colleague) 0 1.5px, transparent 1.5px 4px)",
-              }}
-            />
-            Colleagues
-          </span>
+          {kindsShown.map((kind) => (
+            <span key={kind} className="flex items-center gap-1.5">
+              <span
+                className={`h-0.5 w-4 rounded-full ${LEGEND_CLASS[kind]}`}
+                style={LEGEND_SWATCH[kind] ? { backgroundImage: LEGEND_SWATCH[kind] } : undefined}
+              />
+              {EDGE_LABEL[kind]}
+            </span>
+          ))}
         </div>
       ) : null}
 
