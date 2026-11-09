@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { pairJoin } from "./client";
+import { checkProtocol } from "./clientCore";
 import {
   evaluateCryptoProfile,
   hasFatal,
@@ -15,6 +16,7 @@ import {
   type CryptoProfile,
 } from "./profile";
 import { PROTOCOL_VERSION } from "./protocol";
+import { saveServerPosture } from "./storage";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -106,5 +108,50 @@ describe("a flow that reaches a server with a weakened profile", () => {
     await expect(pairJoin("https://vault.example", "ada")).rejects.toThrow(/XChaCha20-Poly1305/u);
     // Refused on the profile alone: no device key or username has left the machine.
     expect(reached).toEqual(["/health/crypto"]);
+  });
+});
+
+describe("checkProtocol against a pinned posture", () => {
+  const stored: Record<string, string> = {};
+
+  afterEach(() => {
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+    for (const key of Object.keys(stored)) delete stored[key];
+  });
+
+  function stubStorage() {
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: (key: string) => stored[key] ?? null,
+      setItem: (key: string, value: string) => {
+        stored[key] = value;
+      },
+      removeItem: (key: string) => delete stored[key],
+    };
+  }
+
+  const root = "https://vault.example";
+
+  it("warns but does not block a looser device proof on a first visit", async () => {
+    stubStorage();
+    serverWithProfile({ ...good(), opaque_requires_device_proof: false });
+    const posture = await checkProtocol(root);
+    expect(posture.opaque_requires_device_proof).toBe(false);
+  });
+
+  it("refuses the same looser profile once the stronger one is pinned", async () => {
+    stubStorage();
+    saveServerPosture(root, { tls_kx_pq_required: true, opaque_requires_device_proof: true });
+    const reached = serverWithProfile({ ...good(), opaque_requires_device_proof: false });
+    await expect(checkProtocol(root)).rejects.toThrow(/previously required/u);
+    // The profile fetch is all that happened: the sign-in never started.
+    expect(reached).toEqual(["/health/crypto"]);
+  });
+
+  it("re-accepts a profile that matches the pin", async () => {
+    stubStorage();
+    saveServerPosture(root, { tls_kx_pq_required: true, opaque_requires_device_proof: true });
+    serverWithProfile(good());
+    const posture = await checkProtocol(root);
+    expect(posture).toEqual({ tls_kx_pq_required: true, opaque_requires_device_proof: true });
   });
 });

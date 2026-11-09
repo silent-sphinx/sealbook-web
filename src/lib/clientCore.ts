@@ -19,7 +19,14 @@ import { describeError, log, serverHost } from "./log";
 import { ManifestError, rosterDevices } from "./roster";
 import { apiRoot, getJson, getText } from "./transport";
 import { PROTOCOL_VERSION, speaksProtocol } from "./protocol";
-import { evaluateCryptoProfile, hasFatal, type CryptoProfile } from "./profile";
+import {
+  evaluateCryptoProfile,
+  hasFatal,
+  pinnedPostureFromProfile,
+  type CryptoProfile,
+  type PinnedPosture,
+} from "./profile";
+import { loadServerPosture } from "./storage";
 import type {
   DeviceState,
   KeyWrap,
@@ -425,7 +432,7 @@ export class ServerUnsafeError extends Error {
   }
 }
 
-export async function checkProtocol(root: string): Promise<void> {
+export async function checkProtocol(root: string): Promise<PinnedPosture> {
   const report = await getJson<CryptoProfile>(`${root}/health/crypto`);
   log.info("server reached", {
     host: root ? serverHost(root) : "same-origin",
@@ -440,9 +447,14 @@ export async function checkProtocol(root: string): Promise<void> {
   }
   // The rest of the advertised posture: a weakened cipher, signature or KDF is a
   // hard stop; softer findings are logged and the flow continues. The browser
-  // cannot pin the certificate or require the key exchange, so posture pinning
-  // is left to the native clients and nothing is passed here.
-  const findings = evaluateCryptoProfile(report, "browser").filter((f) => f.field !== "protocol");
+  // cannot pin the certificate or require the key exchange, but it can pin the
+  // posture across visits, so a flag that was set when this browser last signed
+  // in here and is now cleared is fatal even though it would only warn on a
+  // first visit.
+  const pinned = loadServerPosture(root) ?? undefined;
+  const findings = evaluateCryptoProfile(report, "browser", pinned).filter(
+    (f) => f.field !== "protocol",
+  );
   const fatal = findings.filter((f) => f.severity === "fatal");
   if (hasFatal(fatal)) {
     throw new ServerUnsafeError(fatal.map((f) => f.message).join(" "));
@@ -453,6 +465,10 @@ export async function checkProtocol(root: string): Promise<void> {
       detail: warning.message,
     });
   }
+  // Returned for the caller to pin once the sign-in it guards has succeeded. The
+  // report already cleared the fatal gate above, which includes a downgrade from
+  // any pin, so what is returned is only ever equal to or stronger than the pin.
+  return pinnedPostureFromProfile(report);
 }
 
 /**

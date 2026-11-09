@@ -2,12 +2,14 @@ import { b64ToByteArray, b64encode } from "./bytes";
 import { describeError, log } from "./log";
 import { idbClearAttachments } from "./idb";
 import { clearLocalStore } from "./localStore";
+import type { PinnedPosture } from "./profile";
 import type { DeviceState } from "./types";
 
 const KEY = "sealbook.device";
 /** Where the snapshot used to live, before it outgrew localStorage. */
 const LEGACY_VAULT_KEY = "sealbook.vault";
 const DOMAIN_KEY = "sealbook.connection-domain";
+const POSTURE_KEY = "sealbook.server-posture";
 /** Read by `attachmentCache.ts`, which derives its key the same way this does. */
 export const ATTACHMENT_CACHE_SALT_KEY = "sealbook.attachment-cache-salt";
 const STORAGE_VERSION = 1;
@@ -40,6 +42,39 @@ export function saveConnectionDomain(server: string): void {
     localStorage.setItem(DOMAIN_KEY, server);
   } catch (err) {
     log.warn("could not store the connection domain, so it will be asked for again", {
+      reason: describeError(err),
+    });
+  }
+}
+
+/**
+ * The crypto posture a server advertised the last time this browser signed in
+ * there. Read before sign-in, so a server that has since weakened itself is
+ * caught before any credential is sent. Kept unencrypted and keyed by server:
+ * the two flags are not secret, and the check runs before the device record can
+ * be decrypted. A missing or unreadable store is a server not yet pinned, which
+ * is a first visit, so a read failure returns null rather than throwing.
+ */
+export function loadServerPosture(server: string): PinnedPosture | null {
+  try {
+    const raw = localStorage.getItem(POSTURE_KEY);
+    if (!raw) return null;
+    const map = JSON.parse(raw) as Record<string, PinnedPosture>;
+    return map[server] ?? null;
+  } catch (err) {
+    log.warn("could not read the stored server posture", { reason: describeError(err) });
+    return null;
+  }
+}
+
+export function saveServerPosture(server: string, posture: PinnedPosture): void {
+  try {
+    const raw = localStorage.getItem(POSTURE_KEY);
+    const map = raw ? (JSON.parse(raw) as Record<string, PinnedPosture>) : {};
+    map[server] = posture;
+    localStorage.setItem(POSTURE_KEY, JSON.stringify(map));
+  } catch (err) {
+    log.warn("could not store the server posture, so a later downgrade may go unnoticed", {
       reason: describeError(err),
     });
   }

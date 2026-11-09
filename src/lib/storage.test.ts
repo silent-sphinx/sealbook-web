@@ -8,7 +8,9 @@ import {
   ATTACHMENT_CACHE_SALT_KEY,
   clearDevice,
   DeviceStorageError,
+  loadServerPosture,
   saveDevice,
+  saveServerPosture,
 } from "./storage";
 import type { DeviceState } from "./types";
 
@@ -58,6 +60,64 @@ describe("saveDevice", () => {
     await saveDevice(state, "pw");
     expect(written).not.toContain("secret-token");
     expect(JSON.parse(written)).toMatchObject({ metadata: { username: "ada" } });
+  });
+});
+
+describe("server posture", () => {
+  const stored: Record<string, string> = {};
+
+  afterEach(() => {
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+    for (const key of Object.keys(stored)) delete stored[key];
+  });
+
+  function stubStorage() {
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: (key: string) => stored[key] ?? null,
+      setItem: (key: string, value: string) => {
+        stored[key] = value;
+      },
+      removeItem: (key: string) => delete stored[key],
+    };
+  }
+
+  it("has no pin for a server not seen before", () => {
+    stubStorage();
+    expect(loadServerPosture("https://vault.example")).toBeNull();
+  });
+
+  it("round-trips a pin and keeps servers apart", () => {
+    stubStorage();
+    saveServerPosture("https://a.example", {
+      tls_kx_pq_required: true,
+      opaque_requires_device_proof: true,
+    });
+    saveServerPosture("https://b.example", {
+      tls_kx_pq_required: false,
+      opaque_requires_device_proof: true,
+    });
+    expect(loadServerPosture("https://a.example")).toEqual({
+      tls_kx_pq_required: true,
+      opaque_requires_device_proof: true,
+    });
+    expect(loadServerPosture("https://b.example")?.tls_kx_pq_required).toBe(false);
+    expect(loadServerPosture("https://c.example")).toBeNull();
+  });
+
+  it("does not throw when the storage area refuses the write", () => {
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: () => null,
+      setItem: () => {
+        throw new DOMException("site data is blocked");
+      },
+      removeItem: () => undefined,
+    };
+    expect(() =>
+      saveServerPosture("https://vault.example", {
+        tls_kx_pq_required: true,
+        opaque_requires_device_proof: true,
+      }),
+    ).not.toThrow();
   });
 });
 

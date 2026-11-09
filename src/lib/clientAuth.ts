@@ -31,6 +31,7 @@ import { syncRoster } from "./roster";
 import { apiRoot, deleteJson, postText } from "./transport";
 import { checkProtocol, fromCoreState, rememberManifestSeq, toCoreState, type Session } from "./clientCore";
 import { rotateAuthenticated } from "./clientRotation";
+import { saveServerPosture } from "./storage";
 import type { DeviceState } from "./types";
 
 export type RegisterResult = {
@@ -77,7 +78,7 @@ export async function registerAccount(
 export async function loginAccount(state: DeviceState, password: string): Promise<Session> {
   const root = apiRoot(state.server);
   const loginStarted = performance.now();
-  await checkProtocol(root);
+  const posture = await checkProtocol(root);
   const core = toCoreState(state);
   const opaque = coreOpaqueLoginStart(password);
 
@@ -117,6 +118,10 @@ export async function loginAccount(state: DeviceState, password: string): Promis
   // longer in it has been revoked and should say so here rather than fail
   // confusingly later.
   await syncRoster(session);
+  // Pin the accepted posture now the sign-in has succeeded, so a later visit
+  // catches a server that has weakened itself. This is the single funnel every
+  // authenticated flow passes through, mirroring the native client.
+  saveServerPosture(root, posture);
   log.info("signed in", {
     key_epoch: session.keyEpoch,
     latest_revision: session.latestRevision,
