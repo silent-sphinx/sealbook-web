@@ -19,6 +19,7 @@ import { describeError, log, serverHost } from "./log";
 import { ManifestError, rosterDevices } from "./roster";
 import { apiRoot, getJson, getText } from "./transport";
 import { PROTOCOL_VERSION, speaksProtocol } from "./protocol";
+import { evaluateCryptoProfile, hasFatal, type CryptoProfile } from "./profile";
 import type {
   DeviceState,
   KeyWrap,
@@ -412,18 +413,45 @@ export async function refreshCollectionKey(session: Session): Promise<number> {
  * as some field one of them encodes differently, and the failure surfaces as
  * whatever that field happens to be.
  */
+/**
+ * A server failed a pre-auth safety check. The message is written for a person
+ * and names the remedy, so `friendlyError` passes it through under its name
+ * rather than flattening it to the generic fallback.
+ */
+export class ServerUnsafeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ServerUnsafeError";
+  }
+}
+
 export async function checkProtocol(root: string): Promise<void> {
-  const report = await getJson<{ protocol?: string }>(`${root}/health/crypto`);
+  const report = await getJson<CryptoProfile>(`${root}/health/crypto`);
   log.info("server reached", {
     host: root ? serverHost(root) : "same-origin",
     server_protocol: report.protocol ?? "unknown",
     app_protocol: PROTOCOL_VERSION,
   });
   if (!speaksProtocol(report.protocol)) {
-    throw new Error(
+    throw new ServerUnsafeError(
       `This server speaks protocol ${report.protocol ?? "an unknown version"}, ` +
         `and this app speaks ${PROTOCOL_VERSION}. Update whichever is older.`,
     );
+  }
+  // The rest of the advertised posture: a weakened cipher, signature or KDF is a
+  // hard stop; softer findings are logged and the flow continues. The browser
+  // cannot pin the certificate or require the key exchange, so posture pinning
+  // is left to the native clients and nothing is passed here.
+  const findings = evaluateCryptoProfile(report, "browser").filter((f) => f.field !== "protocol");
+  const fatal = findings.filter((f) => f.severity === "fatal");
+  if (hasFatal(fatal)) {
+    throw new ServerUnsafeError(fatal.map((f) => f.message).join(" "));
+  }
+  for (const warning of findings) {
+    log.warn("server posture weaker than recommended", {
+      field: warning.field,
+      detail: warning.message,
+    });
   }
 }
 

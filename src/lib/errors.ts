@@ -13,6 +13,11 @@ export function friendlyError(err: unknown): string {
   if (err instanceof Error && err.name === "RequestTimeoutError") {
     return "The server didn't answer in time. It may be starting up, or the address may point somewhere else.";
   }
+  // A pre-auth safety refusal: the message already names what is wrong with the
+  // server and what to do, so it reaches the user as written.
+  if (err instanceof Error && err.name === "ServerUnsafeError") {
+    return raw;
+  }
   // Before the message branches below: core's error is JSON, so a refusal that
   // names a device list would otherwise match the roster branch.
   const said = coreErrorMessage(raw);
