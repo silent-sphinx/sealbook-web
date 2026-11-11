@@ -5,3 +5,6 @@ src/pkg
 *.local
 BUGS.md
 tsconfig.app.tsbuildinfo
+
+.env
+.env.local
