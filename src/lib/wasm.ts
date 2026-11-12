@@ -176,6 +176,7 @@ import init, {
   core_attachment_chunk_nonce,
   core_attachment_chunk_path,
   core_attachment_commit_accept,
+  core_attachment_challenge_request,
   core_attachment_commit_request,
   core_attachment_content_hash,
   core_attachment_create_accept,
@@ -1461,11 +1462,18 @@ export function coreAttachmentRanges(plan: AttachmentPlan): ChunkRange[] {
   return core_attachment_ranges(plan);
 }
 
+/** The challenge an attachment create, commit or delete is signed over. */
+export function coreAttachmentChallengeRequest(): HttpRequest {
+  return core_attachment_challenge_request();
+}
+
 export function coreAttachmentCreateRequest(
+  state: CoreDeviceState,
   collectionId: string,
   plan: AttachmentPlan,
+  challengeBody: string,
 ): HttpRequest {
-  return core_attachment_create_request(collectionId, plan);
+  return core_attachment_create_request(state, collectionId, plan, challengeBody);
 }
 
 export function coreAttachmentCreateAccept(
@@ -1534,10 +1542,12 @@ export function coreAttachmentChunkNonce(header: string | null): string {
 }
 
 export function coreAttachmentCommitRequest(
+  state: CoreDeviceState,
   collectionId: string,
   attachmentId: string,
+  challengeBody: string,
 ): HttpRequest {
-  return core_attachment_commit_request(collectionId, attachmentId);
+  return core_attachment_commit_request(state, collectionId, attachmentId, challengeBody);
 }
 
 export function coreAttachmentCommitAccept(
@@ -1567,10 +1577,12 @@ export function coreAttachmentMetaAccept(
 }
 
 export function coreAttachmentDeleteRequest(
+  state: CoreDeviceState,
   collectionId: string,
   attachmentId: string,
+  challengeBody: string,
 ): HttpRequest {
-  return core_attachment_delete_request(collectionId, attachmentId);
+  return core_attachment_delete_request(state, collectionId, attachmentId, challengeBody);
 }
 
 /**

@@ -38,7 +38,7 @@ import {
   subscribeNotices,
 } from "./outbox";
 import { ATTACHMENT_NONCE_LEN } from "./attachments";
-import { b64ToByteArray } from "./bytes";
+import { b64ToByteArray, b64encode } from "./bytes";
 import {
   createDevice,
   createEnrollment,
@@ -2218,6 +2218,13 @@ function attachmentServer() {
         headers: { "content-type": "application/json" },
       });
 
+    // POST /v1/attachments/challenge  (nonce a create, commit or delete is signed over)
+    if (method === "POST" && url.pathname === "/v1/attachments/challenge") {
+      return json({
+        challenge_id: "44444444-4444-4444-8444-444444444444",
+        challenge: b64encode(new Uint8Array(32).fill(5)),
+      });
+    }
     // POST /attachments  (create)
     if (method === "POST" && attIndex === parts.length - 1) {
       const body = JSON.parse(options?.body as string) as { attachment_id: string };

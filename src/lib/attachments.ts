@@ -5,6 +5,7 @@ import {
   writeCachedAttachment,
 } from "./attachmentCache";
 import {
+  coreAttachmentChallengeRequest,
   coreAttachmentChunkDigest,
   coreAttachmentChunkNonce,
   coreAttachmentChunkPath,
@@ -29,6 +30,7 @@ import {
 import type { AttachmentPlan, AttachmentRow } from "./wasm";
 import type { NoteAttachment } from "./types";
 import type { Session } from "./client";
+import { toCoreState } from "./clientCore";
 import { ApiError, apiRoot, errorMessage, sendCore } from "./transport";
 
 const ATTACHMENT_TIMEOUT_MS = 120_000;
@@ -92,6 +94,15 @@ export const ATTACHMENT_NONCE_LEN = 24;
  */
 export const MAX_ATTACHMENT_SIZE = 64 * 1024 * 1024;
 
+/**
+ * A fresh challenge for one signed attachment operation. Create, commit and
+ * delete are authorised by a device signature, so a bearer token alone cannot
+ * change what the account stores.
+ */
+async function attachmentChallenge(root: string, token: string): Promise<string> {
+  return sendCore(root, coreAttachmentChallengeRequest(), token);
+}
+
 export async function uploadAttachment(
   session: Session,
   file: { name: string; type: string; bytes: Uint8Array },
@@ -102,13 +113,18 @@ export async function uploadAttachment(
 
   const created = await sendCore(
     root,
-    coreAttachmentCreateRequest(collectionId, plan),
+    coreAttachmentCreateRequest(
+      toCoreState(session.state),
+      collectionId,
+      plan,
+      await attachmentChallenge(root, session.token),
+    ),
     session.token,
   );
   coreAttachmentCreateAccept(plan, created);
 
   try {
-    const contentHash = await uploadChunks(root, collectionId, plan, file.bytes, session.token);
+    const contentHash = await uploadChunks(session, root, collectionId, plan, file.bytes);
     return {
       id: plan.attachment_id,
       filename: file.name,
@@ -130,11 +146,11 @@ export async function uploadAttachment(
 }
 
 async function uploadChunks(
+  session: Session,
   root: string,
   collectionId: string,
   plan: AttachmentPlan,
   bytes: Uint8Array,
-  token: string,
 ): Promise<string> {
   const nonceLen = coreAttachmentLimits().nonce_len;
   const digests: string[] = [];
@@ -153,13 +169,18 @@ async function uploadChunks(
       `${root}${coreAttachmentChunkPath(collectionId, plan.attachment_id, range.index)}`,
       b64encode(sealed.subarray(0, nonceLen)),
       sealed.subarray(nonceLen),
-      token,
+      session.token,
     );
   }
   const committed = await sendCore(
     root,
-    coreAttachmentCommitRequest(collectionId, plan.attachment_id),
-    token,
+    coreAttachmentCommitRequest(
+      toCoreState(session.state),
+      collectionId,
+      plan.attachment_id,
+      await attachmentChallenge(root, session.token),
+    ),
+    session.token,
   );
   coreAttachmentCommitAccept(plan.attachment_id, committed);
   return coreAttachmentContentHash(digests);
@@ -229,9 +250,15 @@ export async function loadAttachment(
 
 export async function deleteAttachment(session: Session, attachmentId: string): Promise<void> {
   await forgetCachedAttachment(attachmentId);
+  const root = apiRoot(session.state.server);
   await sendCore(
-    apiRoot(session.state.server),
-    coreAttachmentDeleteRequest(session.state.collection_id, attachmentId),
+    root,
+    coreAttachmentDeleteRequest(
+      toCoreState(session.state),
+      session.state.collection_id,
+      attachmentId,
+      await attachmentChallenge(root, session.token),
+    ),
     session.token,
   );
 }

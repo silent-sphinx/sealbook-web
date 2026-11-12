@@ -28,7 +28,7 @@ import {
 import { ATTACHMENT_CHUNK_SIZE, ATTACHMENT_NONCE_LEN } from "./attachments";
 import { b64ToByteArray, b64encode } from "./bytes";
 import { readFixture } from "../test/fixtures";
-import type { AttachmentPlan } from "../pkg/sealbook_wasm.js";
+import type { AttachmentPlan, CoreDeviceState } from "../pkg/sealbook_wasm.js";
 
 /**
  * The shared attachment fixture, through the same core the CLI and Android run.
@@ -174,13 +174,39 @@ describe("attachment planning", () => {
   });
 });
 
+/** A device with fixed signing seeds, and a challenge as the server serves it. */
+const DEVICE_STATE: CoreDeviceState = {
+  server: "https://example.test",
+  username: "alice",
+  account_id: "55555555-5555-4555-8555-555555555555",
+  collection_id: COLLECTION,
+  device_id: "66666666-6666-4666-8666-666666666666",
+  kdf_salt: new Array(16).fill(4),
+  hpke_sk: new Array(32).fill(7),
+  mldsa_seed: new Array(32).fill(1),
+  ed25519_sk: new Array(32).fill(11),
+  manifest_seq: 0,
+  roster_seq: 0,
+  roster_transcript: new Array(32).fill(6),
+};
+const CHALLENGE = JSON.stringify({
+  challenge_id: "44444444-4444-4444-8444-444444444444",
+  challenge: b64encode(new Uint8Array(32).fill(5)),
+});
+
 describe("attachment paths", () => {
   it("are the ones the fixture pins", () => {
-    expect(coreAttachmentCreateRequest(COLLECTION, planOf(1)).path).toBe(fixture.paths.create);
+    expect(
+      coreAttachmentCreateRequest(DEVICE_STATE, COLLECTION, planOf(1), CHALLENGE).path,
+    ).toBe(fixture.paths.create);
     expect(coreAttachmentChunkPath(COLLECTION, ATTACHMENT, 0)).toBe(fixture.paths.chunk);
-    expect(coreAttachmentCommitRequest(COLLECTION, ATTACHMENT).path).toBe(fixture.paths.commit);
+    expect(
+      coreAttachmentCommitRequest(DEVICE_STATE, COLLECTION, ATTACHMENT, CHALLENGE).path,
+    ).toBe(fixture.paths.commit);
     expect(coreAttachmentMetaRequest(COLLECTION, ATTACHMENT).path).toBe(fixture.paths.meta);
-    expect(coreAttachmentDeleteRequest(COLLECTION, ATTACHMENT).path).toBe(fixture.paths.delete);
+    expect(
+      coreAttachmentDeleteRequest(DEVICE_STATE, COLLECTION, ATTACHMENT, CHALLENGE).path,
+    ).toBe(fixture.paths.delete);
     expect(coreAttachmentSweepRequest(COLLECTION, coreAttachmentSweepStart()).path).toBe(
       fixture.paths.list,
     );
