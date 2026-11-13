@@ -12,6 +12,11 @@ const DOMAIN_KEY = "sealbook.connection-domain";
 const POSTURE_KEY = "sealbook.server-posture";
 /** Read by `attachmentCache.ts`, which derives its key the same way this does. */
 export const ATTACHMENT_CACHE_SALT_KEY = "sealbook.attachment-cache-salt";
+/**
+ * A plaintext copy of the vault's accent, so the lock screen can wear it before
+ * the settings decrypt. A colour name is all it reveals, and sign-out removes it.
+ */
+export const ACCENT_HINT_KEY = "sealbook.accent";
 const STORAGE_VERSION = 1;
 const PBKDF2_ITERATIONS = 600_000;
 
@@ -27,6 +32,22 @@ type DeviceEnvelope = {
   iv: string;
   ciphertext: string;
 };
+
+export function loadAccentHint(): string | null {
+  try {
+    return localStorage.getItem(ACCENT_HINT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function saveAccentHint(accent: string): void {
+  try {
+    localStorage.setItem(ACCENT_HINT_KEY, accent);
+  } catch {
+    // storage unavailable; the lock screen falls back to the default accent
+  }
+}
 
 export function loadConnectionDomain(): string | null {
   try {
@@ -267,6 +288,7 @@ export async function clearDevice(): Promise<void> {
     localStorage.removeItem(KEY);
     localStorage.removeItem(LEGACY_VAULT_KEY);
     localStorage.removeItem(ATTACHMENT_CACHE_SALT_KEY);
+    localStorage.removeItem(ACCENT_HINT_KEY);
   } catch (err) {
     // A throwing storage area must not stop the stores below being emptied.
     log.warn("the stored device record could not be removed", { reason: describeError(err) });

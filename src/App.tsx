@@ -120,6 +120,8 @@ import {
   OfflineUnavailableError,
   saveConnectionDomain,
   saveDevice,
+  loadAccentHint,
+  saveAccentHint,
   type DeviceMetadata,
 } from "./lib/storage";
 import { friendlyError } from "./lib/errors";
@@ -225,6 +227,8 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [taskLists, setTaskLists] = useState<TaskList[]>([]);
   const [accountSettings, setAccountSettings] = useState<AccountSettings>(DEFAULT_ACCOUNT_SETTINGS);
+  // Outlives a lock, unlike the settings, so the unlock screen keeps the tint.
+  const [shownAccent, setShownAccent] = useState<string | null>(loadAccentHint);
   /** The settings payload last read, so a save merges onto it. */
   const accountSettingsRaw = useRef<string | undefined>(undefined);
   const [deviceLabels, setDeviceLabels] = useState<DeviceLabel[]>([]);
@@ -589,17 +593,16 @@ export default function App() {
         : `${shownBooks.length} address books`;
   const listTitle = viewingArchive ? ARCHIVE_VIEW_NAME : contactsTitle;
 
-  // The accent is a vault preference, so the shell can only be tinted once the
-  // settings are open; until then it keeps the `--sb-accent*` defaults declared
-  // in index.css, which the theme's accent tokens resolve through.
-  // Every token is rewritten on each change, and signing out restores the
-  // default settings, so the override needs no teardown of its own.
+  // The accent is a vault preference, but the last one seen is kept in plain
+  // storage so a locked vault still wears it. A fresh device, or one just signed
+  // out, has none and shows the `--sb-accent*` defaults declared in index.css.
+  // Every token is rewritten on each change, so the override needs no teardown.
   useEffect(() => {
     const root = document.documentElement;
-    for (const [token, value] of Object.entries(accentVariables(accountSettings.accent))) {
+    for (const [token, value] of Object.entries(accentVariables(shownAccent))) {
       root.style.setProperty(token, value);
     }
-  }, [accountSettings.accent]);
+  }, [shownAccent]);
 
   // Poll for pairing approval. Stops when the request expires.
   useEffect(() => {
@@ -923,7 +926,7 @@ export default function App() {
     setBookmarkCollections(listed.bookmarkCollections);
     setTasks(listed.tasks);
     setTaskLists(listed.taskLists);
-    setAccountSettings(listed.accountSettings);
+    applyAccountSettings(listed.accountSettings);
     accountSettingsRaw.current = listed.accountSettingsRaw;
     setDeviceLabels(listed.deviceLabels);
     setUnopened(listed.unopened);
@@ -971,10 +974,16 @@ export default function App() {
     }
   }
 
+  function applyAccountSettings(next: AccountSettings) {
+    setAccountSettings(next);
+    setShownAccent(next.accent);
+    saveAccentHint(next.accent);
+  }
+
   async function onSaveAccountSettings(next: AccountSettings) {
     if (!session) return;
     await putAccountSettings(session, next, accountSettingsRaw.current);
-    setAccountSettings(next);
+    applyAccountSettings(next);
   }
 
   /**
@@ -991,7 +1000,7 @@ export default function App() {
     }
     try {
       await putAccountSettings(session, plan.settings, accountSettingsRaw.current);
-      setAccountSettings(plan.settings);
+      applyAccountSettings(plan.settings);
       for (const name of plan.addressBooks) {
         await putAddressBook(session, name);
       }
@@ -1125,6 +1134,7 @@ export default function App() {
   async function signOut() {
     await lock();
     await clearDevice();
+    setShownAccent(null);
     setOnboarding(false);
     setStored(null);
     resetPair();

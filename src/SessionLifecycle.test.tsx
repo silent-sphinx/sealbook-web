@@ -29,9 +29,10 @@ import {
 } from "./test/vault";
 import { currentOutbox, mutateOutbox } from "./lib/outbox";
 import { coreOutboxSettle, type PendingWrite } from "./lib/wasm";
-import { DEFAULT_ACCOUNT_SETTINGS } from "./lib/accountSettings";
+import { ACCENT_COLORS, DEFAULT_ACCOUNT_SETTINGS } from "./lib/accountSettings";
 import { DEFAULT_ADDRESS_BOOK_ID } from "./lib/addressBook";
-import { loadDeviceMetadata } from "./lib/storage";
+import { ACCENT_HINT_KEY, loadDeviceMetadata } from "./lib/storage";
+import type { AccountSettings } from "./lib/types";
 import type { Contact, DeviceState } from "./lib/types";
 import type { Session } from "./lib/client";
 
@@ -39,6 +40,7 @@ const PASSWORD = "correct horse battery";
 
 /** What the server would answer with, as against what the snapshot holds. */
 let served: Contact[] = [];
+let servedSettings: AccountSettings = DEFAULT_ACCOUNT_SETTINGS;
 const loginAccount = vi.hoisted(() => vi.fn<(state: DeviceState, password: string) => Promise<Session>>());
 const revokeSession = vi.hoisted(() => vi.fn<(session: Session) => Promise<void>>());
 /** What each flush was handed, in place of a server to send it to. */
@@ -65,7 +67,7 @@ vi.mock("./lib/client", async () => {
       notebooks: [],
       bookmarks: [],
       bookmarkCollections: [],
-      accountSettings: DEFAULT_ACCOUNT_SETTINGS,
+      accountSettings: servedSettings,
       unopened: 0,
     }),
     ensureDefaultAddressBook: async (_session: unknown, books: unknown) => books,
@@ -119,6 +121,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   flushed = [];
   served = [aContact("Grace Hopper", "c2")];
+  servedSettings = DEFAULT_ACCOUNT_SETTINGS;
   loginAccount.mockImplementation(async (state) => aSession(state));
   revokeSession.mockResolvedValue(undefined);
 });
@@ -248,10 +251,21 @@ describe("locking", () => {
     expect(await screen.findByText("Grace Hopper")).toBeDefined();
     expect(loginAccount).toHaveBeenCalledTimes(2);
   });
+
+  it("keeps the vault's accent on the lock screen", async () => {
+    servedSettings = { ...DEFAULT_ACCOUNT_SETTINGS, accent: "rose" };
+    await openOnline();
+
+    fireEvent.click(screen.getByRole("button", { name: "Lock" }));
+    await screen.findByRole("button", { name: "Unlock" });
+
+    expect(document.documentElement.style.getPropertyValue("--sb-accent")).toBe(ACCENT_COLORS.rose.base);
+  });
 });
 
 describe("signing out", () => {
   it("takes this browser's keys with it, so there is nothing left to unlock", async () => {
+    servedSettings = { ...DEFAULT_ACCOUNT_SETTINGS, accent: "rose" };
     await openOnline();
 
     fireEvent.click(screen.getByRole("button", { name: /Settings/u }));
@@ -267,5 +281,8 @@ describe("signing out", () => {
     expect(screen.queryByRole("button", { name: "Unlock" })).toBeNull();
     expect(await loadDeviceMetadata()).toBeNull();
     expect(screen.queryByText("Grace Hopper")).toBeNull();
+    // Nor does the next person to set up this browser inherit its colour.
+    expect(localStorage.getItem(ACCENT_HINT_KEY)).toBeNull();
+    expect(document.documentElement.style.getPropertyValue("--sb-accent")).toBe(ACCENT_COLORS.blue.base);
   });
 });

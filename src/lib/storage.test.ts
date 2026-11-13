@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { friendlyError } from "./errors";
 import { idbGetAttachment, idbPutAttachment } from "./idb";
 import {
+  ACCENT_HINT_KEY,
   ATTACHMENT_CACHE_SALT_KEY,
   clearDevice,
   DeviceStorageError,
@@ -143,6 +144,7 @@ describe("clearDevice", () => {
     stubStorage();
     stored["sealbook.device"] = "{}";
     stored[ATTACHMENT_CACHE_SALT_KEY] = "AAAA";
+    stored[ACCENT_HINT_KEY] = "rose";
     await idbPutAttachment("a", {
       version: 1,
       iv: new Uint8Array(12),
@@ -156,6 +158,7 @@ describe("clearDevice", () => {
     expect(await idbGetAttachment("a")).toBeNull();
     expect(stored["sealbook.device"]).toBeUndefined();
     expect(stored[ATTACHMENT_CACHE_SALT_KEY]).toBeUndefined();
+    expect(stored[ACCENT_HINT_KEY]).toBeUndefined();
   });
 
   it("still empties the stores when the storage area throws", async () => {
