@@ -423,8 +423,8 @@ export function pairConfirmationCode(
   );
 }
 
-export function createEnrollment(password: string): Enrollment {
-  return create_enrollment(password);
+export function createEnrollment(password: string, collectionId: string): Enrollment {
+  return create_enrollment(password, collectionId);
 }
 
 export function createDevice(): DeviceOut {
@@ -434,8 +434,10 @@ export function createDevice(): DeviceOut {
 export function wrapCkForDevice(
   ck: string,
   hpkePk: string,
+  collectionId: string,
+  keyEpoch: number,
 ): { enc: string; wrapped_ck: string; ciphersuite: string } {
-  return JSON.parse(wrap_ck_for_device(ck, hpkePk)) as {
+  return JSON.parse(wrap_ck_for_device(ck, hpkePk, collectionId, keyEpoch)) as {
     enc: string;
     wrapped_ck: string;
     ciphersuite: string;
@@ -515,9 +517,11 @@ export function unwrapCk(
   kdfSalt: string,
   hpkeSk: string,
   deviceId: string,
+  collectionId: string,
+  keyEpoch: number,
   wrapsJson: string,
 ): string {
-  return unwrap_ck(password, kdfSalt, hpkeSk, deviceId, wrapsJson);
+  return unwrap_ck(password, kdfSalt, hpkeSk, deviceId, collectionId, keyEpoch, wrapsJson);
 }
 
 export function encryptContact(
@@ -1011,11 +1015,13 @@ export function coreRotationPlan(
  */
 export function coreRotationWraps(
   newCk: string,
+  collectionId: string,
+  newKeyEpoch: number,
   recipients: CoreDevice[],
   username: string,
   password: string,
 ): CoreRotationWraps {
-  return core_rotation_wraps(newCk, recipients, username, password);
+  return core_rotation_wraps(newCk, collectionId, newKeyEpoch, recipients, username, password);
 }
 
 /** The devices a rotation re-wraps the new key for, from the verified roster. */

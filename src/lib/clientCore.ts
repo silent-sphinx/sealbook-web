@@ -405,6 +405,8 @@ export async function refreshCollectionKey(session: Session): Promise<number> {
     "",
     bytesFromJson(state.hpke_sk),
     state.device_id,
+    state.collection_id,
+    resp.key_epoch,
     JSON.stringify([deviceWrap]),
   );
   log.info("collection key refreshed", { from_epoch: session.keyEpoch, to_epoch: resp.key_epoch });

@@ -142,8 +142,8 @@ function genesisRoster(collectionId: string, enrollment: Enrollment): Roster {
 
 /** A registered account, as it stands after `registerAccount` and a login. */
 function account(): Account {
-  const enrollment = createEnrollment(PASSWORD);
   const collectionId = newUuid();
+  const enrollment = createEnrollment(PASSWORD, collectionId);
   const roster = genesisRoster(collectionId, enrollment);
   const pin = rosterVerify(
     collectionId,
@@ -599,7 +599,20 @@ describe("listVault", () => {
       entries,
     );
     const newCk = newCollectionKey();
-    const wrap = wrapCkForDevice(newCk, owner.enrollment.hpke_pk);
+    const wrap = wrapCkForDevice(newCk, owner.enrollment.hpke_pk, owner.session.state.collection_id, 2);
+    // A rotation seals a roster at the new epoch, under the new key.
+    const rotatedRoster = rosterSealDevice(
+      owner.collectionId,
+      2,
+      2,
+      owner.roster.devices,
+      owner.enrollment.phrase_mldsa_pk,
+      owner.enrollment.phrase_ed25519_pk,
+      owner.enrollment.device_id,
+      owner.enrollment.mldsa_seed,
+      owner.enrollment.ed25519_sk,
+      newCk,
+    );
     owner.session.collectionKey = newCk;
     owner.session.keyEpoch = 2;
     server({
@@ -612,7 +625,7 @@ describe("listVault", () => {
         resync: false,
         tombstone_floor: 0,
       }),
-      "/roster": () => ({ rosters: [owner.roster] }),
+      "/roster": () => ({ rosters: [owner.roster, rotatedRoster] }),
       "/keys": () => ({
         key_epoch: 2,
         key_wraps: [
@@ -1654,7 +1667,7 @@ describe("a write across a rotation it has not noticed", () => {
     // Another device rotated: the collection is on epoch 2 under a new key, and
     // this session is still holding epoch 1's.
     const rotatedKey = newCollectionKey();
-    const wrap = wrapCkForDevice(rotatedKey, owner.enrollment.hpke_pk);
+    const wrap = wrapCkForDevice(rotatedKey, owner.enrollment.hpke_pk, owner.session.state.collection_id, 2);
     const manifest = manifestSign(
       owner.enrollment.mldsa_seed,
       owner.enrollment.ed25519_sk,
@@ -1734,7 +1747,7 @@ describe("a write across a rotation it has not noticed", () => {
     );
     // The server offers a wrap for an epoch that is not the one the manifest
     // claims, which is what a second rotation mid-write looks like.
-    const wrap = wrapCkForDevice(newCollectionKey(), owner.enrollment.hpke_pk);
+    const wrap = wrapCkForDevice(newCollectionKey(), owner.enrollment.hpke_pk, owner.session.state.collection_id, 3);
     server({
       ...manifestRoutes(() => ({ manifest, entries: [] })),
       "/roster": () => ({ rosters: [owner.roster] }),

@@ -98,7 +98,14 @@ async function rotateAuthenticatedInner(
   });
 
   const newCk = newCollectionKey();
-  const wraps = coreRotationWraps(newCk, remaining, fresh.state.username, password);
+  const wraps = coreRotationWraps(
+    newCk,
+    fresh.state.collection_id,
+    fromEpoch + 1,
+    remaining,
+    fresh.state.username,
+    password,
+  );
   const keyWraps = wraps.key_wraps;
 
   const total = plan.reseal.length;
