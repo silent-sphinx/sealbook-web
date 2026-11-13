@@ -715,9 +715,9 @@ html {
   z-index: -2;
   pointer-events: none;
   background:
-    radial-gradient(40% 35% at 25% 20%, color-mix(in srgb, var(--color-accent) 16%, transparent), transparent 70%),
-    radial-gradient(35% 30% at 80% 75%, color-mix(in srgb, var(--color-accent) 10%, transparent), transparent 70%),
-    radial-gradient(30% 25% at 70% 15%, color-mix(in srgb, var(--color-accent-dim) 8%, transparent), transparent 70%);
+    radial-gradient(40% 35% at 25% 20%, color-mix(in srgb, var(--color-accent) 10%, transparent), transparent 70%),
+    radial-gradient(35% 30% at 80% 75%, color-mix(in srgb, var(--color-accent) 6%, transparent), transparent 70%),
+    radial-gradient(30% 25% at 70% 15%, color-mix(in srgb, var(--color-accent-dim) 5%, transparent), transparent 70%);
   filter: blur(40px);
   animation: var(--animate-auth-drift);
 }
@@ -728,9 +728,9 @@ html {
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background-image: radial-gradient(color-mix(in srgb, var(--color-line-light) 70%, transparent) 1px, transparent 1px);
+  background-image: radial-gradient(color-mix(in srgb, var(--color-line-light) 35%, transparent) 1px, transparent 1px);
   background-size: 22px 22px;
-  mask-image: radial-gradient(ellipse 60% 55% at 50% 50%, black 10%, transparent 75%);
+  mask-image: radial-gradient(ellipse 55% 50% at 50% 50%, black 5%, transparent 65%);
 }
 
 /* A hairline across the top, matching the signed-in shell. */

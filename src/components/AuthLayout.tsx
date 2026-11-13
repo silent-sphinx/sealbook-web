@@ -19,15 +19,9 @@ export function Brand({
 }) {
   return (
     <div className="flex items-center gap-4">
-      <div className="relative shrink-0">
-        <span
-          aria-hidden="true"
-          className="absolute -inset-2 rounded-2xl bg-accent/20 blur-xl"
-        />
-        <span className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-surface ring-1 ring-line-light">
-          <Logo className="h-9 w-9" />
-        </span>
-      </div>
+      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-surface ring-1 ring-line">
+        <Logo className="h-9 w-9" />
+      </span>
       <div className="min-w-0">
         {eyebrowText ? <p className={`${eyebrow} mb-1 text-accent/90`}>{eyebrowText}</p> : null}
         <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
@@ -264,7 +258,7 @@ export function AuthCard({
   return (
     <AuthStage>
       <div className="mx-auto w-full min-w-0 max-w-[460px] animate-fade-in-up">
-        <div className="glow-edge relative rounded-2xl border border-line bg-panel/80 p-6 shadow-[0_30px_80px_-24px_var(--color-accent-ring)] backdrop-blur-md sm:p-9">
+        <div className="glow-edge relative rounded-2xl border border-line bg-panel p-6 shadow-2xl shadow-black/40 sm:p-9">
           {domainConfigured ? (
             children
           ) : managesDomain ? (
