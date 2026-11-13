@@ -39,7 +39,7 @@ export function UpdatePrompt() {
   return (
     <div
       role="status"
-      className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] left-1/2 z-50 w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2 animate-slide-up rounded-2xl border border-line bg-panel px-4 py-3.5 shadow-2xl shadow-black/50"
+      className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] left-1/2 z-50 w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2 animate-slide-up glow-edge rounded-2xl border border-line bg-panel px-4 py-3.5 shadow-2xl shadow-black/50"
     >
       <p className="text-sm font-medium text-text">A new version of Sealbook is ready.</p>
       <p className="mt-1 text-xs text-mute">

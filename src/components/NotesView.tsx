@@ -691,7 +691,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   const editorAction = `flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`;
 
   return (
-    <main className="flex h-[calc(100dvh-var(--sb-header-h,74px))] flex-col overflow-hidden bg-bg text-text">
+    <main className="flex h-[calc(100dvh-var(--sb-header-h,74px))] flex-col overflow-hidden text-text">
       <ContextMenu state={menu.menu} onClose={menu.close} />
       {error ? (
         <p role="alert" className="shrink-0 border-b border-danger/30 bg-danger/10 px-4 py-2 text-xs text-danger lg:px-6">

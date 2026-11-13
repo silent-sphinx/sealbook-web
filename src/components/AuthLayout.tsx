@@ -264,7 +264,7 @@ export function AuthCard({
   return (
     <AuthStage>
       <div className="mx-auto w-full min-w-0 max-w-[460px] animate-fade-in-up">
-        <div className="auth-card relative rounded-2xl border border-line bg-panel/80 p-6 shadow-[0_30px_80px_-24px_var(--color-accent-ring)] backdrop-blur-md sm:p-9">
+        <div className="glow-edge relative rounded-2xl border border-line bg-panel/80 p-6 shadow-[0_30px_80px_-24px_var(--color-accent-ring)] backdrop-blur-md sm:p-9">
           {domainConfigured ? (
             children
           ) : managesDomain ? (

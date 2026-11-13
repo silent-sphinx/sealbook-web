@@ -462,7 +462,7 @@ export function BookmarksView({
   const disabled = busy || saving || readOnlyMode;
 
   return (
-    <main className="flex h-[calc(100dvh-var(--sb-header-h,74px))] flex-col overflow-hidden bg-bg pb-[env(safe-area-inset-bottom)] text-text lg:pb-0">
+    <main className="flex h-[calc(100dvh-var(--sb-header-h,74px))] flex-col overflow-hidden pb-[env(safe-area-inset-bottom)] text-text lg:pb-0">
       <ContextMenu state={menu.menu} onClose={menu.close} />
       {error ? (
         <p

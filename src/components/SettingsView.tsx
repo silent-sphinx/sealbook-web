@@ -1172,7 +1172,7 @@ export function SettingsView({
   }
 
   return (
-    <main className="flex h-[calc(100dvh-var(--sb-header-h,74px))] flex-col overflow-hidden bg-bg pb-[env(safe-area-inset-bottom)] text-text lg:pb-0">
+    <main className="flex h-[calc(100dvh-var(--sb-header-h,74px))] flex-col overflow-hidden pb-[env(safe-area-inset-bottom)] text-text lg:pb-0">
       <div className="sb-shell grid min-h-0 flex-1" style={sidebar.cols}>
         <SidebarDrawer title="Settings" sidebar={sidebar}>
           <SidebarHeader eyebrow={session.state.username} title="Settings" />

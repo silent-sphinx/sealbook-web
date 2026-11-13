@@ -10,13 +10,13 @@ export const field = `mt-1.5 ${fieldBase}`;
 export const selectField =
   `${fieldBase} w-full min-w-0 shrink-0 cursor-pointer px-2 pr-6`;
 export const primary =
-  `box-border w-full min-w-0 rounded-lg bg-accent py-2.5 text-sm font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:hover:brightness-100 disabled:active:scale-100 ${focusRing}`;
+  `box-border w-full min-w-0 rounded-lg bg-accent py-2.5 text-sm font-semibold text-bg transition-all duration-150 hover:brightness-110 hover:shadow-[0_6px_18px_-6px_var(--color-accent-ring)] disabled:hover:shadow-none active:scale-[0.98] disabled:opacity-50 disabled:hover:brightness-100 disabled:active:scale-100 ${focusRing}`;
 export const secondary =
   `box-border w-full min-w-0 rounded-lg border border-line bg-surface py-2.5 text-sm text-mute transition-all duration-150 hover:border-line-light hover:text-text disabled:opacity-50 ${focusRing}`;
 export const btnBase =
   `box-border inline-flex items-center justify-center gap-2 rounded-lg text-sm font-semibold transition-all duration-150 active:scale-[0.98] disabled:opacity-50 cursor-pointer whitespace-nowrap shrink-0 ${focusRing}`;
 export const btnPrimary =
-  `${btnBase} bg-accent px-4 py-2 text-bg hover:brightness-110`;
+  `${btnBase} bg-accent px-4 py-2 text-bg hover:brightness-110 hover:shadow-[0_6px_18px_-6px_var(--color-accent-ring)] disabled:hover:shadow-none`;
 export const btnSecondary =
   `${btnBase} border border-line bg-surface px-4 py-2 text-mute font-medium hover:border-line-light hover:text-text`;
 export const btnDanger =
@@ -76,7 +76,7 @@ export const paneCount =
   "ml-1 shrink-0 rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium tabular-nums text-mute";
 /** The one creating action in a pane header. */
 export const btnHeader =
-  `flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-accent px-3.5 text-xs font-semibold text-bg transition-all duration-150 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 ${focusRing}`;
+  `flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-accent px-3.5 text-xs font-semibold text-bg transition-all duration-150 hover:brightness-110 hover:shadow-[0_6px_18px_-6px_var(--color-accent-ring)] disabled:hover:shadow-none active:scale-[0.98] disabled:opacity-50 ${focusRing}`;
 /** A search box with a leading icon at `left-2.5`. */
 export const searchField =
   "h-8 w-full min-w-0 rounded-lg border border-line bg-panel pl-8 pr-7 text-xs text-text outline-none transition-all duration-150 placeholder:text-mute/70 focus:border-accent-dim focus:ring-1 focus:ring-accent-ring [&::-webkit-search-cancel-button]:appearance-none";

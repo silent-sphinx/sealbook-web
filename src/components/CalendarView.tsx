@@ -774,7 +774,7 @@ export function CalendarView({
     // Full-bleed: the month grid uses the whole viewport width rather than
     // sitting in a card. The sidebar keeps a translucent panel fill so it still
     // separates from the grid without reintroducing an opaque chrome column.
-    <main className="flex flex-col bg-bg pb-[env(safe-area-inset-bottom)] text-text lg:h-[calc(100dvh-var(--sb-header-h,74px))] lg:overflow-hidden lg:pb-0">
+    <main className="flex flex-col pb-[env(safe-area-inset-bottom)] text-text lg:h-[calc(100dvh-var(--sb-header-h,74px))] lg:overflow-hidden lg:pb-0">
       {error && !composer ? (
         <p role="alert" className="shrink-0 border-b border-danger/30 bg-danger/10 px-4 py-2 text-xs text-danger lg:px-6">
           {error}
@@ -1200,7 +1200,7 @@ function ViewSwitcher({ mode, onChange }: { mode: ViewMode; onChange: (mode: Vie
 
 function ImportProgressModal({ title, description, current, total }: { title: string; description: string; current: number; total: number }) {
   const percent = total > 0 ? Math.round((current / total) * 100) : 0;
-  return <div className="fixed inset-0 z-[60] flex animate-fade-in items-center justify-center bg-black/70 p-4 backdrop-blur-md"><section role="dialog" aria-modal="true" className="animate-scale-in w-full max-w-sm rounded-2xl border border-line bg-panel p-6 shadow-2xl shadow-black/50"><h3 className="text-base font-semibold text-text">{title}</h3><p className="mt-1 text-xs text-mute">{description}</p><div className="mt-5 h-2 overflow-hidden rounded-full bg-surface"><div className="h-full rounded-full bg-accent transition-all" style={{ width: `${percent}%` }} /></div><p className="mt-2 text-right text-[11px] tabular-nums text-mute">{total ? `${current} of ${total}` : "Preparing..."}</p></section></div>;
+  return <div className="fixed inset-0 z-[60] flex animate-fade-in items-center justify-center bg-black/70 p-4 backdrop-blur-md"><section role="dialog" aria-modal="true" className="glow-edge relative animate-scale-in w-full max-w-sm rounded-2xl border border-line bg-panel p-6 shadow-2xl shadow-black/50"><h3 className="text-base font-semibold text-text">{title}</h3><p className="mt-1 text-xs text-mute">{description}</p><div className="mt-5 h-2 overflow-hidden rounded-full bg-surface"><div className="h-full rounded-full bg-accent transition-all" style={{ width: `${percent}%` }} /></div><p className="mt-2 text-right text-[11px] tabular-nums text-mute">{total ? `${current} of ${total}` : "Preparing..."}</p></section></div>;
 }
 
 function MiniMonth({ month, days, weekStart, selected, events, spans, onSelect }: { month: Date; days: Date[]; weekStart: WeekStart; selected: string; events: CalendarEvent[]; spans: Map<string, EventSpan>; onSelect: (day: Date) => void }) {

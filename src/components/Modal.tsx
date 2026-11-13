@@ -116,7 +116,7 @@ export function Modal({ title, children, onClose, elevated = false }: Props) {
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="flex max-h-[min(92dvh,42rem)] w-full min-w-0 max-w-xl flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl shadow-black/50 outline-none animate-scale-in"
+        className="glow-edge relative flex max-h-[min(92dvh,42rem)] w-full min-w-0 max-w-xl flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl shadow-black/50 outline-none animate-scale-in"
       >
         <div className="flex shrink-0 items-center justify-between gap-4 border-b border-line px-6 py-4.5">
           <h2

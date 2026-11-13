@@ -505,7 +505,7 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
   const paneOpen = form !== null || selected !== null;
 
   return (
-    <main className="flex h-[calc(100dvh-var(--sb-header-h,74px))] flex-col overflow-hidden bg-bg pb-[env(safe-area-inset-bottom)] text-text lg:pb-0">
+    <main className="flex h-[calc(100dvh-var(--sb-header-h,74px))] flex-col overflow-hidden pb-[env(safe-area-inset-bottom)] text-text lg:pb-0">
       {error ? (
         <p role="alert" className="shrink-0 border-b border-danger/30 bg-danger/10 px-4 py-2 text-xs text-danger lg:px-6">
           {error}

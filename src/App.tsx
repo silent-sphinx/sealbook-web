@@ -1961,7 +1961,8 @@ export default function App() {
 
   // ---------- MAIN SHELL ----------
   return (
-    <div className="min-h-screen">
+    <div className="relative isolate min-h-screen">
+      <div className="app-ambient" aria-hidden="true" />
       {/* Sticky header with accent top line */}
       <div ref={headerRef} className="sticky top-0 z-40">
         {isOffline || (outboxState.pending > 0 && syncLagging) ? (
@@ -2078,7 +2079,7 @@ export default function App() {
                   flashes at the top-left corner on first paint. */}
               <span
                 aria-hidden="true"
-                className="absolute rounded-lg bg-accent shadow-sm transition-[left,top,width,height] duration-200 ease-out"
+                className="absolute rounded-lg bg-accent shadow-[0_4px_14px_-4px_var(--color-accent-ring)] transition-[left,top,width,height] duration-200 ease-out"
                 style={
                   tabPillRect
                     ? { left: tabPillRect.left, top: tabPillRect.top, width: tabPillRect.width, height: tabPillRect.height }
@@ -2162,7 +2163,7 @@ export default function App() {
                 type="button"
                 aria-label="Lock"
                 title="Lock"
-                className={`inline-flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-semibold text-bg shadow-sm transition-all duration-150 hover:brightness-110 active:scale-[0.98] cursor-pointer sm:px-3 ${focusRing}`}
+                className={`inline-flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-semibold text-bg shadow-[0_4px_14px_-4px_var(--color-accent-ring)] transition-all duration-150 hover:brightness-110 active:scale-[0.98] cursor-pointer sm:px-3 ${focusRing}`}
                 onClick={lock}
               >
                 <LockIcon />
