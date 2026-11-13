@@ -64,6 +64,30 @@ export interface AttachmentMetaResponse {
   total_ciphertext_size: number;
 }
 /**
+ * A device's signature over one attachment create, commit or delete.
+ *
+ * The challenge comes from `POST /v1/attachments/challenge` and is single use.
+ * A session token alone cannot create, commit or delete an attachment: the
+ * signature is over the operation, the collection and the attachment, made with
+ * the device's own signing keys.
+ *
+ * This interface was referenced by `SealbookWireTypes`'s JSON-Schema
+ * via the `definition` "AttachmentOpAuth".
+ */
+export interface AttachmentOpAuth {
+  challenge: Base64Url;
+  challenge_id: string;
+  signature: DualSignatureBody;
+}
+/**
+ * This interface was referenced by `SealbookWireTypes`'s JSON-Schema
+ * via the `definition` "DualSignatureBody".
+ */
+export interface DualSignatureBody {
+  ed25519: Base64Url;
+  mldsa: Base64Url;
+}
+/**
  * One object inside a batch write.
  *
  * The same fields `PutObjectRequest` carries per object, without the manifest:
@@ -98,14 +122,6 @@ export interface ChangePasswordRequest {
   recovery_wrapped_ck: Base64Url;
   signature: DualSignatureBody;
   upload: Base64Url;
-}
-/**
- * This interface was referenced by `SealbookWireTypes`'s JSON-Schema
- * via the `definition` "DualSignatureBody".
- */
-export interface DualSignatureBody {
-  ed25519: Base64Url;
-  mldsa: Base64Url;
 }
 /**
  * This interface was referenced by `SealbookWireTypes`'s JSON-Schema
@@ -282,6 +298,10 @@ export interface CommitAttachmentResponse {
  */
 export interface CreateAttachmentRequest {
   attachment_id: string;
+  /**
+   * The device's authorisation for this create.
+   */
+  auth: AttachmentOpAuth;
   chunk_count: number;
   chunk_size: number;
   total_plaintext_size: number;
