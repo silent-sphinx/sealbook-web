@@ -1,6 +1,7 @@
 import { type FormEvent, type RefObject } from "react";
 import { AuthCard, Brand } from "./AuthLayout";
 import { LockIcon } from "./AppIcons";
+import { Icon, type IconName } from "./Icon";
 import { PasswordField } from "./PasswordField";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { field, focusRing, ghost, primary, btnPrimary, btnSecondary } from "../lib/styles";
@@ -9,6 +10,26 @@ import type { DeviceMetadata } from "../lib/storage";
 import { queuedCount } from "../lib/localStore";
 
 export type Mode = "register" | "signin";
+
+/** Indexed by `passwordStrength` score, 1 to 4. */
+const STRENGTH_TONES = ["", "bg-danger", "bg-warning", "bg-accent", "bg-success"];
+
+const optionCard =
+  "rounded-xl border border-line bg-surface/30 p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-line-light hover:bg-surface/50";
+
+function OptionHeading({ icon, title, body }: { icon: IconName; title: string; body: string }) {
+  return (
+    <div className="flex gap-3.5">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent ring-1 ring-accent/20">
+        <Icon name={icon} className="h-4 w-4" />
+      </span>
+      <div className="min-w-0">
+        <h3 className="text-sm font-semibold text-text">{title}</h3>
+        <p className="mt-1 text-xs leading-relaxed text-mute">{body}</p>
+      </div>
+    </div>
+  );
+}
 
 interface AuthScreenProps {
   connectionDomain: string;
@@ -68,16 +89,23 @@ export function AuthScreen({
         onConnectionDomainSave={saveDomain}
         domainError={error}
       >
-        <Brand
-          title="Sealbook"
-          subtitle={
-            <span className="inline-flex items-center gap-1">
-              <LockIcon />
-              {stored.username}
-            </span>
-          }
-        />
-        <form onSubmit={onUnlock} className="mt-8">
+        <Brand title="Welcome back" subtitle="Your vault is sealed on this device." />
+        <div className="mt-7 flex items-center gap-3 rounded-xl border border-line bg-surface/40 p-3">
+          <span
+            aria-hidden="true"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/15 text-sm font-semibold uppercase text-accent ring-1 ring-accent/25"
+          >
+            {stored.username.slice(0, 1)}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-text">{stored.username}</p>
+            <p className="text-xs text-mute">Signed in on this device</p>
+          </div>
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-bg/60 text-mute">
+            <LockIcon />
+          </span>
+        </div>
+        <form onSubmit={onUnlock} className="mt-6">
           <label htmlFor="unlock-password" className="block text-sm font-medium text-text">
             Password
           </label>
@@ -144,8 +172,13 @@ export function AuthScreen({
       <div
         role="tablist"
         aria-label="Account setup method"
-        className="mt-8 mb-5 grid grid-cols-2 gap-1 rounded-lg border border-line/60 bg-bg/60 p-1 text-sm"
+        className="relative mt-8 mb-6 grid grid-cols-2 rounded-xl border border-line bg-surface/80 p-1 text-sm"
       >
+        {/* One pill that slides between the halves, as the main navigation's does. */}
+        <span
+          aria-hidden="true"
+          className={`absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-lg bg-accent shadow-sm transition-transform duration-200 ease-out ${mode === "signin" ? "translate-x-full" : "translate-x-0"}`}
+        />
         {([
           { id: "register", label: "Create account" },
           { id: "signin", label: "Set up device" },
@@ -156,8 +189,8 @@ export function AuthScreen({
             role="tab"
             aria-selected={mode === option.id}
             onClick={() => onModeChange(option.id)}
-            className={`rounded-md py-1.5 transition-colors duration-150 cursor-pointer ${focusRing} ${mode === option.id
-              ? "bg-surface text-text font-medium"
+            className={`relative z-10 rounded-lg py-1.5 font-semibold transition-colors duration-150 cursor-pointer ${focusRing} ${mode === option.id
+              ? "text-bg"
               : "text-mute hover:text-text"
               }`}
           >
@@ -166,7 +199,7 @@ export function AuthScreen({
         ))}
       </div>
       {mode === "register" ? (
-        <form onSubmit={onRegister} className="space-y-4">
+        <form key="register" onSubmit={onRegister} className="animate-fade-in-up space-y-4">
           <div>
             <label htmlFor="register-username" className="block text-sm font-medium text-text">
               Username
@@ -205,7 +238,7 @@ export function AuthScreen({
                     {[1, 2, 3, 4].map((segment) => (
                       <span
                         key={segment}
-                        className={`h-1 flex-1 rounded-full transition-colors ${segment <= strength.score ? "bg-accent" : "bg-surface"}`}
+                        className={`h-1 flex-1 rounded-full transition-colors duration-300 ${segment <= strength.score ? STRENGTH_TONES[strength.score] : "bg-surface"}`}
                       />
                     ))}
                   </div>
@@ -230,6 +263,21 @@ export function AuthScreen({
               className={field}
               required
             />
+            <p aria-live="polite" className="mt-1.5 min-h-4 text-[11px]">
+              {confirmPassword ? (
+                confirmPassword === password ? (
+                  <span className="inline-flex items-center gap-1 text-success">
+                    <Icon name="check" className="h-3 w-3" />
+                    Passwords match
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-mute">
+                    <Icon name="close" className="h-3 w-3" />
+                    Passwords do not match yet
+                  </span>
+                )
+              ) : null}
+            </p>
           </div>
 
           {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
@@ -237,18 +285,20 @@ export function AuthScreen({
           <button type="submit" disabled={busy} className={`${primary} mt-6`}>
             {busy ? "Creating account…" : "Create account"}
           </button>
+          <p className="flex items-center justify-center gap-1.5 text-[11px] text-mute">
+            <Icon name="shield" className="h-3 w-3" />
+            Your password never leaves this device.
+          </p>
         </form>
       ) : (
-        <div className="space-y-4">
-          <form
-            onSubmit={onPairJoin}
-            className="rounded-xl border border-line bg-surface/30 p-5 transition-colors hover:border-line-light"
-          >
-            <h3 className="text-sm font-semibold text-text">Pair with an active device</h3>
-            <p className="mt-1 text-xs text-mute leading-relaxed">
-              Login to your account using an already logged-in device.
-            </p>
-            <div className="mt-3.5">
+        <div key="signin" className="animate-fade-in-up space-y-4">
+          <form onSubmit={onPairJoin} className={optionCard}>
+            <OptionHeading
+              icon="device"
+              title="Pair with an active device"
+              body="Log in to your account using an already logged-in device."
+            />
+            <div className="mt-4">
               <label htmlFor="pair-username" className="block text-sm font-medium text-text">
                 Username
               </label>
@@ -281,15 +331,16 @@ export function AuthScreen({
             <div className="h-px flex-1 bg-line" />
           </div>
 
-          <div className="rounded-xl border border-line bg-surface/30 p-5 transition-colors hover:border-line-light">
-            <h3 className="text-sm font-semibold text-text">Use 24 recovery words</h3>
-            <p className="mt-1 text-xs text-mute leading-relaxed">
-              Recover your account using your 24 recovery words generated at account creation.
-            </p>
+          <div className={`${optionCard} [animation-delay:60ms]`}>
+            <OptionHeading
+              icon="key"
+              title="Use 24 recovery words"
+              body="Recover your account using the 24 recovery words generated at account creation."
+            />
 
             <button
               type="button"
-              className={`${btnSecondary} mt-3.5`}
+              className={`${btnSecondary} mt-4`}
               onClick={onGoToRecover}
             >
               Restore with recovery words →

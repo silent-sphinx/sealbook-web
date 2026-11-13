@@ -52,23 +52,25 @@ export function PairScreen({
       domainError={error}
     >
       <Brand
+        eyebrow="New device"
         title="Pair this device"
         subtitle="Connect with an active device to transfer encryption keys."
       />
 
       <div className="mt-8">
-        <Step number={1} title="Open your signed-in device">
+        <Step number={1} title="Open your signed-in device" state="done">
           <p className="text-sm leading-relaxed text-mute">
             On your signed-in device, click <strong className="font-semibold text-text">Add device</strong> at the top.
           </p>
         </Step>
 
-        <Step number={2} title="Enter this pairing code">
+        <Step number={2} title="Enter this pairing code" state={pairApproved ? "done" : "active"}>
           <div className="flex flex-wrap gap-1.5">
             {pairWords.map((word, index) => (
               <span
                 key={`${index}-${word}`}
-                className="select-all rounded-md border border-line bg-bg/90 px-2.5 py-1 font-mono text-sm text-accent"
+                className="animate-scale-in select-all rounded-md border border-accent/20 bg-bg/90 px-2.5 py-1 font-mono text-sm text-accent"
+                style={{ animationDelay: `${index * 50}ms` }}
               >
                 {word}
               </span>
@@ -88,11 +90,11 @@ export function PairScreen({
           </button>
         </Step>
 
-        <Step number={3} title="Verify code" last>
+        <Step number={3} title="Verify code" last state={pairApproved ? "done" : "waiting"}>
           <p className="text-sm leading-relaxed text-mute">
             Confirm both devices show this code:
           </p>
-          <div className="mt-3 rounded-xl border border-accent/25 bg-accent/5 px-4 py-4 text-center">
+          <div className="mt-3 rounded-xl border border-accent/25 bg-gradient-to-b from-accent/10 to-accent/[0.03] px-4 py-4 text-center">
             <p className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 font-mono text-xl font-bold tracking-[0.08em] text-accent">
               {confirmationGroups(pairConfirm).map((group, index) => (
                 <span key={`${index}-${group}`}>{group}</span>
@@ -143,8 +145,19 @@ export function PairScreen({
           </button>
         </form>
       ) : (
-        <div className="mt-6 flex items-center justify-center gap-3 rounded-xl border border-line bg-surface/20 py-3.5 text-sm text-mute">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent/30 border-t-accent" />
+        <div
+          role="status"
+          className="mt-6 flex items-center justify-center gap-3 rounded-xl border border-line bg-surface/20 py-3.5 text-sm text-mute"
+        >
+          <span className="flex items-center gap-1" aria-hidden="true">
+            {[0, 150, 300].map((delay) => (
+              <span
+                key={delay}
+                className="h-1.5 w-1.5 animate-dot-bounce rounded-full bg-accent"
+                style={{ animationDelay: `${delay}ms` }}
+              />
+            ))}
+          </span>
           <span>Waiting for approval on your other device…</span>
         </div>
       )}

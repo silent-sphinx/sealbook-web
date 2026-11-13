@@ -72,14 +72,26 @@ export function PhraseScreen({
       domainError={error}
     >
       <Brand
+        eyebrow="Recovery words"
         title="Write these down"
         subtitle="They are shown once. You will need them on a new browser."
       />
-      <ol className="mt-8 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
+      <div className="mt-6 flex gap-2.5 rounded-xl border border-warning/30 bg-warning/10 p-3.5 text-xs leading-relaxed text-warning">
+        <Icon name="shield" className="mt-px h-4 w-4 shrink-0" />
+        <span>
+          Anyone with these words can open your vault, and nobody can recover them for you.
+          Keep them somewhere safe and offline.
+        </span>
+      </div>
+      <ol className="mt-5 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
         {words.map((word, index) => (
-          <li key={`${index}-${word}`} className="flex gap-2 font-mono">
-            <span className="w-5 text-right text-mute">{index + 1}</span>
-            <span>{word}</span>
+          <li
+            key={`${index}-${word}`}
+            className="flex animate-fade-in-up items-center gap-2 rounded-lg border border-line bg-bg/60 px-2.5 py-1.5 font-mono"
+            style={{ animationDelay: `${index * 25}ms` }}
+          >
+            <span className="w-5 shrink-0 text-right text-xs tabular-nums text-mute">{index + 1}</span>
+            <span className="min-w-0 truncate text-text">{word}</span>
           </li>
         ))}
       </ol>

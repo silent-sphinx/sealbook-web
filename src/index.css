@@ -46,6 +46,11 @@
   --animate-view-prev: viewPrev 0.16s cubic-bezier(0.2, 0, 0, 1) backwards;
   --animate-view-fade: viewFade 0.12s ease-out backwards;
   --animate-search-pop: searchPop 0.15s cubic-bezier(0.2, 0, 0, 1) backwards;
+  /* Signed-out screens only; see `.auth-stage`. */
+  --animate-auth-drift: authDrift 22s ease-in-out infinite alternate;
+  --animate-dot-bounce: dotBounce 1.2s ease-in-out infinite;
+  --animate-pulse-ring: pulseRing 2s ease-out infinite;
+  --animate-orbit: orbit 1.6s linear infinite;
 }
 
 /*
@@ -99,6 +104,43 @@
   to {
     opacity: 1;
     clip-path: inset(0 0 0 0 round 0.5rem);
+  }
+}
+
+@keyframes authDrift {
+  from {
+    transform: translate3d(-4%, -3%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(4%, 3%, 0) scale(1.08);
+  }
+}
+
+@keyframes dotBounce {
+  0%,
+  80%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes pulseRing {
+  from {
+    box-shadow: 0 0 0 0 var(--color-accent-ring);
+  }
+  to {
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+
+@keyframes orbit {
+  to {
+    transform: rotate(360deg);
   }
 }
 
@@ -652,6 +694,61 @@ html {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-mute);
+}
+
+/*
+ * The signed-out backdrop. The glows are mixed from the accent variables rather
+ * than fixed colours so a user's custom accent carries through once settings
+ * load, and before that the default accent still reads as intended. The dot grid
+ * is masked to fade at the edges so it frames the card rather than tiling.
+ */
+.auth-stage {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.auth-stage::before {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(40% 35% at 25% 20%, color-mix(in srgb, var(--color-accent) 16%, transparent), transparent 70%),
+    radial-gradient(35% 30% at 80% 75%, color-mix(in srgb, var(--color-accent) 10%, transparent), transparent 70%),
+    radial-gradient(30% 25% at 70% 15%, color-mix(in srgb, var(--color-accent-dim) 8%, transparent), transparent 70%);
+  filter: blur(40px);
+  animation: var(--animate-auth-drift);
+}
+
+.auth-stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(color-mix(in srgb, var(--color-line-light) 70%, transparent) 1px, transparent 1px);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse 60% 55% at 50% 50%, black 10%, transparent 75%);
+}
+
+/* A hairline across the top, matching the signed-in shell. */
+.auth-hairline {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--color-accent) 30%, var(--color-accent-dim) 70%, transparent);
+  opacity: 0.8;
+}
+
+/* A gradient highlight along the card's top edge. */
+.auth-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 12% auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-accent) 60%, transparent), transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {

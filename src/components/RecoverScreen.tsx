@@ -2,6 +2,7 @@ import { type FormEvent } from "react";
 import { AuthCard, Brand } from "./AuthLayout";
 import { CopyIcon, UploadIcon } from "./AppIcons";
 import { PasswordField } from "./PasswordField";
+import { Icon } from "./Icon";
 import {
   chipButton,
   field,
@@ -84,6 +85,7 @@ export function RecoverScreen({
       domainError={error}
     >
       <Brand
+        eyebrow="Recovery"
         title="Restore with words"
         subtitle="Set up this device using your 24 secret recovery words."
       />
@@ -133,6 +135,19 @@ export function RecoverScreen({
               className="box-border block w-full bg-transparent px-3.5 py-2.5 font-mono text-sm leading-relaxed text-text outline-none placeholder:text-mute/50 resize-none"
               required
             />
+            <div className="flex gap-0.5 px-3 pb-2" aria-hidden="true">
+              {Array.from({ length: 24 }, (_, index) => (
+                <span
+                  key={index}
+                  className={`h-1 flex-1 rounded-full transition-colors duration-200 ${index < count
+                    ? invalidWords.length > 0 || count > 24
+                      ? "bg-danger"
+                      : "bg-accent"
+                    : "bg-surface"
+                    }`}
+                />
+              ))}
+            </div>
             <div className="flex flex-wrap items-center justify-between gap-y-2 border-t border-line/60 bg-surface/30 px-3 py-2">
               <span
                 aria-live="polite"
@@ -213,9 +228,10 @@ export function RecoverScreen({
 
         <button
           type="button"
-          className={`${ghost} mt-3 block w-full py-2 text-center`}
+          className={`${ghost} mx-auto mt-3 flex items-center justify-center gap-1.5 py-2`}
           onClick={onBack}
         >
+          <Icon name="back" className="h-3.5 w-3.5" />
           Back to setup options
         </button>
       </form>
