@@ -1,10 +1,10 @@
 import { type FormEvent, type RefObject } from "react";
 import { AuthCard, Brand } from "./AuthLayout";
 import { LockIcon } from "./AppIcons";
-import { Icon, type IconName } from "./Icon";
+import { Icon } from "./Icon";
 import { PasswordField } from "./PasswordField";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { field, focusRing, ghost, primary, btnPrimary, btnSecondary } from "../lib/styles";
+import { authField, authLabel, authPrimary, authSecondary, focusRing, ghost } from "../lib/styles";
 import { passwordStrength } from "../lib/appState";
 import type { DeviceMetadata } from "../lib/storage";
 import { queuedCount } from "../lib/localStore";
@@ -14,23 +14,6 @@ export type Mode = "register" | "signin";
 
 /** Indexed by `passwordStrength` score, 1 to 4. */
 const STRENGTH_TONES = ["", "bg-danger", "bg-warning", "bg-accent", "bg-success"];
-
-const optionCard =
-  "rounded-xl border border-line bg-surface/30 p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-line-light hover:bg-surface/50";
-
-function OptionHeading({ icon, title, body }: { icon: IconName; title: string; body: string }) {
-  return (
-    <div className="flex gap-3.5">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent ring-1 ring-accent/20">
-        <Icon name={icon} className="h-4 w-4" />
-      </span>
-      <div className="min-w-0">
-        <h3 className="text-sm font-semibold text-text">{title}</h3>
-        <p className="mt-1 text-xs leading-relaxed text-mute">{body}</p>
-      </div>
-    </div>
-  );
-}
 
 interface AuthScreenProps {
   connectionDomain: string;
@@ -91,7 +74,7 @@ export function AuthScreen({
         domainError={error}
       >
         <Brand title="Welcome back" subtitle="Your vault is sealed on this device." />
-        <div className="mt-7 flex items-center gap-3 rounded-xl border border-line bg-surface/40 p-3">
+        <div className="mt-8 flex items-center gap-3 rounded-xl border border-line-light/60 bg-surface/50 p-3">
           <span
             aria-hidden="true"
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/15 text-sm font-semibold uppercase text-accent ring-1 ring-accent/25"
@@ -107,7 +90,7 @@ export function AuthScreen({
           </span>
         </div>
         <form onSubmit={onUnlock} className="mt-6">
-          <label htmlFor="unlock-password" className="block text-sm font-medium text-text">
+          <label htmlFor="unlock-password" className={authLabel}>
             Password
           </label>
           <PasswordField
@@ -118,12 +101,12 @@ export function AuthScreen({
             autoComplete="current-password"
             placeholder="Enter your password"
             autoFocus
-            className={field}
+            className={authField}
             disabled={busy}
             required
           />
           {error ? <ErrorMessage className="mt-4">{error}</ErrorMessage> : null}
-          <button type="submit" disabled={busy} className={`${primary} mt-6`}>
+          <button type="submit" disabled={busy} className={`${authPrimary} mt-6`}>
             {busy ? "Please wait…" : "Unlock"}
           </button>
         </form>
@@ -173,12 +156,12 @@ export function AuthScreen({
       <div
         role="tablist"
         aria-label="Account setup method"
-        className="relative mt-8 mb-6 grid grid-cols-2 rounded-xl border border-line bg-surface/80 p-1 text-sm"
+        className="relative mt-8 mb-7 grid grid-cols-2 rounded-xl border border-line-light/60 bg-surface/50 p-1 text-[13px]"
       >
         {/* One pill that slides between the halves, as the main navigation's does. */}
         <span
           aria-hidden="true"
-          className={`absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-lg bg-accent shadow-sm transition-transform duration-200 ease-out ${mode === "signin" ? "translate-x-full" : "translate-x-0"}`}
+          className={`absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-lg bg-elevated shadow-sm ring-1 ring-line-light transition-transform duration-200 ease-out ${mode === "signin" ? "translate-x-full" : "translate-x-0"}`}
         />
         {([
           { id: "register", label: "Create account" },
@@ -190,8 +173,8 @@ export function AuthScreen({
             role="tab"
             aria-selected={mode === option.id}
             onClick={() => onModeChange(option.id)}
-            className={`relative z-10 rounded-lg py-1.5 font-semibold transition-colors duration-150 cursor-pointer ${focusRing} ${mode === option.id
-              ? "text-bg"
+            className={`relative z-10 rounded-lg py-2 font-medium transition-colors duration-150 cursor-pointer ${focusRing} ${mode === option.id
+              ? "text-text"
               : "text-mute hover:text-text"
               }`}
           >
@@ -202,7 +185,7 @@ export function AuthScreen({
       {mode === "register" ? (
         <form key="register" onSubmit={onRegister} className="animate-fade-in-up space-y-4">
           <div>
-            <label htmlFor="register-username" className="block text-sm font-medium text-text">
+            <label htmlFor="register-username" className={authLabel}>
               Username
             </label>
             <input
@@ -211,7 +194,7 @@ export function AuthScreen({
               onChange={(e) => onUsernameChange(e.target.value)}
               autoComplete="username"
               placeholder="Choose a username"
-              className={field}
+              className={authField}
               autoFocus
               spellCheck={false}
               required
@@ -219,7 +202,7 @@ export function AuthScreen({
           </div>
 
           <div>
-            <label htmlFor="register-password" className="block text-sm font-medium text-text">
+            <label htmlFor="register-password" className={authLabel}>
               Password
             </label>
             <PasswordField
@@ -228,7 +211,7 @@ export function AuthScreen({
               onChange={(e) => onPasswordChange(e.target.value)}
               autoComplete="new-password"
               placeholder="Choose a password"
-              className={field}
+              className={authField}
               required
             />
             {password ? (() => {
@@ -252,7 +235,7 @@ export function AuthScreen({
           </div>
 
           <div>
-            <label htmlFor="register-password-confirm" className="block text-sm font-medium text-text">
+            <label htmlFor="register-password-confirm" className={authLabel}>
               Confirm password
             </label>
             <PasswordField
@@ -261,7 +244,7 @@ export function AuthScreen({
               onChange={(e) => onConfirmPasswordChange(e.target.value)}
               autoComplete="new-password"
               placeholder="Re-enter your password"
-              className={field}
+              className={authField}
               required
             />
             <p aria-live="polite" className="mt-1.5 min-h-4 text-[11px]">
@@ -283,70 +266,51 @@ export function AuthScreen({
 
           {error ? <ErrorMessage>{error}</ErrorMessage> : null}
 
-          <button type="submit" disabled={busy} className={`${primary} mt-6`}>
+          <button type="submit" disabled={busy} className={authPrimary}>
             {busy ? "Creating account…" : "Create account"}
           </button>
-          <p className="flex items-center justify-center gap-1.5 text-[11px] text-mute">
-            <Icon name="shield" className="h-3 w-3" />
-            Your password never leaves this device.
-          </p>
         </form>
       ) : (
-        <div key="signin" className="animate-fade-in-up space-y-4">
-          <form onSubmit={onPairJoin} className={optionCard}>
-            <OptionHeading
-              icon="device"
-              title="Pair with an active device"
-              body="Log in to your account using an already logged-in device."
+        <div key="signin" className="animate-fade-in-up">
+          <form onSubmit={onPairJoin}>
+            <label htmlFor="pair-username" className={authLabel}>
+              Username
+            </label>
+            <input
+              id="pair-username"
+              value={username}
+              onChange={(e) => onUsernameChange(e.target.value)}
+              autoComplete="username"
+              placeholder="Enter your username"
+              className={authField}
+              spellCheck={false}
+              required
             />
-            <div className="mt-4">
-              <label htmlFor="pair-username" className="block text-sm font-medium text-text">
-                Username
-              </label>
-              <input
-                id="pair-username"
-                value={username}
-                onChange={(e) => onUsernameChange(e.target.value)}
-                autoComplete="username"
-                placeholder="Enter your username"
-                className={field}
-                spellCheck={false}
-                required
-              />
-            </div>
 
             {error ? <ErrorMessage size="xs" className="mt-3">{error}</ErrorMessage> : null}
 
-            <button
-              type="submit"
-              disabled={busy}
-              className={`${btnPrimary} mt-4`}
-            >
+            <button type="submit" disabled={busy} className={`${authPrimary} mt-5`}>
               {busy ? "Generating code…" : "Start pairing →"}
             </button>
+            <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-xs text-mute">
+              <Icon name="device" className="h-3.5 w-3.5 shrink-0" />
+              Approve it from a device that is already signed in.
+            </p>
           </form>
 
-          <div className="flex items-center gap-3 text-xs text-mute">
-            <div className="h-px flex-1 bg-line" />
+          <div className="my-6 flex items-center gap-4 text-xs text-mute">
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent to-line-light" />
             <span>or</span>
-            <div className="h-px flex-1 bg-line" />
+            <div className="h-px flex-1 bg-gradient-to-l from-transparent to-line-light" />
           </div>
 
-          <div className={`${optionCard} [animation-delay:60ms]`}>
-            <OptionHeading
-              icon="key"
-              title="Use 24 recovery words"
-              body="Recover your account using the 24 recovery words generated at account creation."
-            />
-
-            <button
-              type="button"
-              className={`${btnSecondary} mt-4`}
-              onClick={onGoToRecover}
-            >
-              Restore with recovery words →
-            </button>
-          </div>
+          <button type="button" className={authSecondary} onClick={onGoToRecover}>
+            <Icon name="key" className="h-4 w-4 shrink-0 text-accent" />
+            Restore with recovery words →
+          </button>
+          <p className="mt-3 text-center text-xs text-mute">
+            Use the 24 words saved when the account was created.
+          </p>
         </div>
       )}
     </AuthCard>

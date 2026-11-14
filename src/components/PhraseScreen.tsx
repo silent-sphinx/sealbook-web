@@ -1,5 +1,5 @@
 import { AuthCard, Brand } from "./AuthLayout";
-import { primary, secondary } from "../lib/styles";
+import { authPrimary, authSecondary } from "../lib/styles";
 import { formatRecoveryWordsFile } from "../lib/phrase";
 import { Icon } from "./Icon";
 
@@ -87,7 +87,7 @@ export function PhraseScreen({
         {words.map((word, index) => (
           <li
             key={`${index}-${word}`}
-            className="flex animate-fade-in-up items-center gap-2 rounded-lg border border-line bg-bg/60 px-2.5 py-1.5 font-mono"
+            className="flex animate-fade-in-up items-center gap-2 rounded-lg border border-line-light/60 bg-surface/50 px-2.5 py-1.5 font-mono"
             style={{ animationDelay: `${index * 25}ms` }}
           >
             <span className="w-5 shrink-0 text-right text-xs tabular-nums text-mute">{index + 1}</span>
@@ -96,18 +96,18 @@ export function PhraseScreen({
         ))}
       </ol>
       <div className="mt-6 flex gap-3">
-        <button type="button" className={`${secondary} inline-flex items-center justify-center gap-2`} onClick={downloadWords}>
+        <button type="button" className={authSecondary} onClick={downloadWords}>
           <Icon name="download" />
           Download
         </button>
-        <button type="button" className={`${secondary} inline-flex items-center justify-center gap-2`} onClick={printWords}>
+        <button type="button" className={authSecondary} onClick={printWords}>
           <Icon name="print" />
           Print
         </button>
       </div>
       <button
         type="button"
-        className={`${primary} mt-4`}
+        className={`${authPrimary} mt-4`}
         onClick={onDone}
       >
         I've written them down

@@ -47,7 +47,8 @@
   --animate-view-fade: viewFade 0.12s ease-out backwards;
   --animate-search-pop: searchPop 0.15s cubic-bezier(0.2, 0, 0, 1) backwards;
   /* Signed-out screens only; see `.auth-stage`. */
-  --animate-auth-drift: authDrift 22s ease-in-out infinite alternate;
+  --animate-auth-beam: authBeam 9s ease-in-out infinite alternate;
+  --animate-dial-turn: dialTurn 90s linear infinite;
   --animate-dot-bounce: dotBounce 1.2s ease-in-out infinite;
   --animate-pulse-ring: pulseRing 2s ease-out infinite;
   --animate-orbit: orbit 1.6s linear infinite;
@@ -107,12 +108,18 @@
   }
 }
 
-@keyframes authDrift {
+@keyframes authBeam {
   from {
-    transform: translate3d(-4%, -3%, 0) scale(1);
+    opacity: 0.75;
   }
   to {
-    transform: translate3d(4%, 3%, 0) scale(1.08);
+    opacity: 1;
+  }
+}
+
+@keyframes dialTurn {
+  to {
+    transform: rotate(360deg);
   }
 }
 
@@ -697,10 +704,11 @@ html {
 }
 
 /*
- * The signed-out backdrop. The glows are mixed from the accent variables rather
+ * The signed-out backdrop: a shaft of light falling from above onto the vault
+ * mark, over a dot grid. The light is mixed from the accent variables rather
  * than fixed colours so a user's custom accent carries through once settings
- * load, and before that the default accent still reads as intended. The dot grid
- * is masked to fade at the edges so it frames the card rather than tiling.
+ * load. The grid is masked to fade at the edges so it frames the column rather
+ * than tiling.
  */
 .auth-stage {
   position: relative;
@@ -711,15 +719,13 @@ html {
 .auth-stage::before {
   content: "";
   position: absolute;
-  inset: -20%;
+  inset: 0;
   z-index: -2;
   pointer-events: none;
   background:
-    radial-gradient(40% 35% at 25% 20%, color-mix(in srgb, var(--color-accent) 10%, transparent), transparent 70%),
-    radial-gradient(35% 30% at 80% 75%, color-mix(in srgb, var(--color-accent) 6%, transparent), transparent 70%),
-    radial-gradient(30% 25% at 70% 15%, color-mix(in srgb, var(--color-accent-dim) 5%, transparent), transparent 70%);
-  filter: blur(40px);
-  animation: var(--animate-auth-drift);
+    radial-gradient(ellipse 34% 48% at 50% -6%, color-mix(in srgb, var(--color-accent) 16%, transparent), transparent 70%),
+    radial-gradient(ellipse 70% 40% at 50% -12%, color-mix(in srgb, var(--color-accent-dim) 7%, transparent), transparent 70%),
+    radial-gradient(ellipse 60% 35% at 50% 110%, rgb(0 0 0 / 0.45), transparent 70%);
 }
 
 .auth-stage::after {
@@ -728,9 +734,37 @@ html {
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background-image: radial-gradient(color-mix(in srgb, var(--color-line-light) 35%, transparent) 1px, transparent 1px);
+  background-image: radial-gradient(color-mix(in srgb, var(--color-line-light) 30%, transparent) 1px, transparent 1px);
   background-size: 22px 22px;
-  mask-image: radial-gradient(ellipse 55% 50% at 50% 50%, black 5%, transparent 65%);
+  mask-image: radial-gradient(ellipse 50% 45% at 50% 40%, black 5%, transparent 70%);
+}
+
+/* The shaft itself, angled in from the top so it reads as light, not a glow. */
+.auth-beam {
+  position: absolute;
+  top: -12%;
+  left: 50%;
+  z-index: -2;
+  width: min(300px, 60vw);
+  height: 70%;
+  pointer-events: none;
+  transform: translateX(-20%) rotate(16deg);
+  transform-origin: top center;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--color-accent) 22%, transparent), transparent 85%);
+  filter: blur(42px);
+  animation: var(--animate-auth-beam);
+}
+
+/* The tick ring of the signed-out vault mark, turned about the dial's centre. */
+.vault-dial {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+  animation: var(--animate-dial-turn);
+}
+
+.vault-glow {
+  background: radial-gradient(circle closest-side, color-mix(in srgb, var(--color-accent) 26%, transparent) 55%, transparent);
+  filter: blur(14px);
 }
 
 /* A hairline across the top, matching the signed-in shell. */

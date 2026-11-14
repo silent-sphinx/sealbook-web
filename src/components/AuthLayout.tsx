@@ -1,12 +1,73 @@
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import logo from "../assets/sealbook-white-192.png";
 import { Modal } from "./Modal";
-import { btnPrimary, btnSecondary, eyebrow, field, focusRing, primary } from "../lib/styles";
+import {
+  authField,
+  authLabel,
+  authPrimary,
+  btnPrimary,
+  btnSecondary,
+  eyebrow,
+  field,
+  focusRing,
+} from "../lib/styles";
 import { Icon } from "./Icon";
 import { ErrorMessage } from "./ErrorMessage";
 
 export function Logo({ className }: { className: string }) {
   return <img src={logo} alt="" className={className} />;
+}
+
+const DIAL_TICKS = Array.from({ length: 60 }, (_, index) => index * 6);
+
+/**
+ * The logo set in a combination dial. The tick ring turns slowly; the index
+ * notch in the bezel stays put, as a real dial's does.
+ */
+export function VaultMark() {
+  const id = useId();
+  return (
+    <div className="relative mx-auto h-[104px] w-[104px]">
+      <span aria-hidden="true" className="vault-glow absolute -inset-3 rounded-full" />
+      <svg aria-hidden="true" viewBox="0 0 100 100" className="absolute inset-0 h-full w-full">
+        <defs>
+          <linearGradient id={`${id}-rim`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="var(--color-accent)" stopOpacity="0.55" />
+            <stop offset="0.45" stopColor="var(--color-line-light)" />
+            <stop offset="1" stopColor="var(--color-line)" />
+          </linearGradient>
+          <radialGradient id={`${id}-face`} cx="0.5" cy="0.3" r="0.75">
+            <stop offset="0" stopColor="var(--color-elevated)" />
+            <stop offset="1" stopColor="var(--color-bg)" />
+          </radialGradient>
+        </defs>
+        <circle cx="50" cy="50" r="49" fill={`url(#${id}-face)`} stroke={`url(#${id}-rim)`} strokeWidth="1" />
+        <g className="vault-dial">
+          {DIAL_TICKS.map((angle) => {
+            const major = angle % 30 === 0;
+            return (
+              <line
+                key={angle}
+                x1="50"
+                y1={major ? 8 : 9.5}
+                x2="50"
+                y2="13"
+                transform={`rotate(${angle} 50 50)`}
+                strokeLinecap="round"
+                strokeWidth={major ? 1.1 : 0.6}
+                className={major ? "stroke-text/45" : "stroke-mute/30"}
+              />
+            );
+          })}
+        </g>
+        <circle cx="50" cy="50" r="34.5" className="fill-bg/70 stroke-line" strokeWidth="0.75" />
+        <path d="M47.6 2.6h4.8L50 6.6Z" className="fill-accent" />
+      </svg>
+      <span className="absolute inset-0 flex items-center justify-center">
+        <Logo className="h-11 w-11 drop-shadow-[0_2px_6px_rgb(0_0_0/0.6)]" />
+      </span>
+    </div>
+  );
 }
 
 export function Brand({
@@ -19,15 +80,15 @@ export function Brand({
   eyebrow?: string;
 }) {
   return (
-    <div className="flex items-center gap-4">
-      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-surface ring-1 ring-line">
-        <Logo className="h-9 w-9" />
-      </span>
-      <div className="min-w-0">
-        {eyebrowText ? <p className={`${eyebrow} mb-1 text-accent/90`}>{eyebrowText}</p> : null}
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-        <p className="mt-0.5 text-sm text-mute">{subtitle}</p>
-      </div>
+    <div className="text-center">
+      <VaultMark />
+      {eyebrowText ? <p className={`${eyebrow} mt-6 text-accent/90`}>{eyebrowText}</p> : null}
+      <h1
+        className={`${eyebrowText ? "mt-2" : "mt-6"} text-[28px] leading-tight font-bold tracking-tight text-text`}
+      >
+        {title}
+      </h1>
+      <p className="mx-auto mt-2 max-w-[36ch] text-sm leading-relaxed text-mute">{subtitle}</p>
     </div>
   );
 }
@@ -106,8 +167,8 @@ export function ServerSetupScreen({
         subtitle="Enter the URL of your Sealbook server."
       />
 
-      <form onSubmit={submit} className="mt-7">
-        <label htmlFor="setup-domain" className="block text-sm font-medium text-text">
+      <form onSubmit={submit} className="mt-8">
+        <label htmlFor="setup-domain" className={authLabel}>
           Server address
         </label>
         <input
@@ -115,7 +176,7 @@ export function ServerSetupScreen({
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder="sealbook.example.com"
-          className={field}
+          className={authField}
           autoComplete="url"
           inputMode="url"
           autoFocus
@@ -130,7 +191,7 @@ export function ServerSetupScreen({
           <ErrorMessage className="mt-4">{error}</ErrorMessage>
         ) : null}
 
-        <button type="submit" className={`${primary} mt-6`}>
+        <button type="submit" className={`${authPrimary} mt-6`}>
           Continue
         </button>
       </form>
@@ -167,8 +228,8 @@ export function DomainSettings({
 
   return (
     <>
-      <div className="mt-5 flex justify-center">
-        <div className="flex max-w-full items-center gap-2 rounded-full border border-line bg-surface/60 py-1 pr-1 pl-3 text-xs text-mute backdrop-blur-sm">
+      <div className="mt-4 flex justify-center">
+        <div className="flex max-w-full items-center gap-2 rounded-full border border-line bg-surface/40 py-1 pr-1 pl-3 text-xs text-mute backdrop-blur-sm">
           <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
           <Icon name="lock" className="h-3 w-3 shrink-0" />
           <span className="min-w-0 truncate">
@@ -231,8 +292,9 @@ export function DomainSettings({
 /** The full-page frame every signed-out screen sits in. */
 export function AuthStage({ children }: { children: React.ReactNode }) {
   return (
-    <main className="auth-stage mx-auto flex min-h-dvh w-full max-w-full flex-col justify-center px-4 py-8 sm:px-5">
+    <main className="auth-stage mx-auto flex min-h-dvh w-full max-w-full flex-col justify-center px-4 py-12 sm:px-5">
       <span aria-hidden="true" className="auth-hairline" />
+      <span aria-hidden="true" className="auth-beam" />
       {children}
     </main>
   );
@@ -254,17 +316,20 @@ export function AuthCard({
 
   return (
     <AuthStage>
-      <div className="mx-auto w-full min-w-0 max-w-[460px] animate-fade-in-up">
-        <div className="glow-edge relative rounded-2xl border border-line bg-panel p-6 shadow-2xl shadow-black/40 sm:p-9">
-          {domainConfigured ? (
-            children
-          ) : managesDomain ? (
-            <ServerSetupScreen
-              onSave={onConnectionDomainSave!}
-              error={domainError ?? null}
-            />
-          ) : null}
-        </div>
+      <div className="mx-auto w-full min-w-0 max-w-[400px] animate-fade-in-up">
+        {domainConfigured ? (
+          children
+        ) : managesDomain ? (
+          <ServerSetupScreen
+            onSave={onConnectionDomainSave!}
+            error={domainError ?? null}
+          />
+        ) : null}
+
+        <p className="mt-10 flex items-center justify-center gap-1.5 text-center text-[11px] text-mute/80">
+          <Icon name="lock" className="h-3 w-3 shrink-0" />
+          End-to-end encrypted. Your password never leaves this device.
+        </p>
 
         {managesDomain && domainConfigured ? (
           <DomainSettings value={connectionDomain!} onSave={onConnectionDomainSave!} />

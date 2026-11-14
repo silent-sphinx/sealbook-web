@@ -21,6 +21,15 @@ export const btnSecondary =
   `${btnBase} border border-line bg-surface px-4 py-2 text-mute font-medium hover:border-line-light hover:text-text`;
 export const btnDanger =
   `${btnBase} bg-danger px-4 py-2 text-bg hover:brightness-110`;
+// Signed-out screens sit on a frameless column, so their controls are taller and
+// carry their own surface rather than relying on a panel behind them.
+export const authLabel = "block text-[13px] font-medium text-mute";
+export const authField =
+  "mt-1.5 box-border h-11 w-full min-w-0 rounded-xl border border-line-light/70 bg-surface/70 px-3.5 text-sm text-text outline-none shadow-[inset_0_1px_0_rgb(255_255_255/0.03)] transition-colors duration-150 placeholder:text-mute/60 hover:border-line-light focus:border-accent-dim focus:bg-surface focus:ring-2 focus:ring-accent-ring disabled:opacity-60";
+export const authPrimary =
+  `box-border flex h-11 w-full min-w-0 cursor-pointer items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-accent-dim to-accent text-sm font-semibold text-bg shadow-[0_10px_28px_-12px_var(--color-accent),inset_0_1px_0_rgb(255_255_255/0.22)] transition-all duration-150 hover:brightness-110 active:scale-[0.99] disabled:cursor-default disabled:opacity-50 disabled:hover:brightness-100 disabled:active:scale-100 ${focusRing}`;
+export const authSecondary =
+  `box-border flex h-11 w-full min-w-0 cursor-pointer items-center justify-center gap-2 rounded-xl border border-line-light/70 bg-surface/70 text-sm font-medium text-text transition-all duration-150 hover:border-line-light hover:bg-elevated active:scale-[0.99] disabled:opacity-50 ${focusRing}`;
 export const fieldLabel = "block text-xs font-medium text-mute";
 export const textAction =
   `rounded text-[11px] font-medium text-accent transition-colors hover:underline disabled:opacity-50 ${focusRing}`;

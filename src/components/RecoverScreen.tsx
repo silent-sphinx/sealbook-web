@@ -3,12 +3,7 @@ import { AuthCard, Brand } from "./AuthLayout";
 import { CopyIcon, UploadIcon } from "./AppIcons";
 import { PasswordField } from "./PasswordField";
 import { Icon } from "./Icon";
-import {
-  chipButton,
-  field,
-  ghost,
-  primary,
-} from "../lib/styles";
+import { authField, authLabel, authPrimary, chipButton, ghost } from "../lib/styles";
 import { extractRecoveryWords } from "../lib/phrase";
 import { findInvalidBip39Words } from "../lib/bip39Words";
 import { ErrorMessage } from "./ErrorMessage";
@@ -90,9 +85,9 @@ export function RecoverScreen({
         title="Restore with words"
         subtitle="Set up this device using your 24 secret recovery words."
       />
-      <form onSubmit={onSubmit} className="mt-7 space-y-4">
+      <form onSubmit={onSubmit} className="mt-8 space-y-5">
         <div>
-          <label htmlFor="recover-username" className="block text-sm font-medium text-text">
+          <label htmlFor="recover-username" className={authLabel}>
             Username
           </label>
           <input
@@ -101,7 +96,7 @@ export function RecoverScreen({
             onChange={(e) => onUsernameChange(e.target.value)}
             autoComplete="username"
             placeholder="Enter your username"
-            className={field}
+            className={authField}
             autoFocus
             spellCheck={false}
             required
@@ -109,10 +104,10 @@ export function RecoverScreen({
         </div>
 
         <div>
-          <label htmlFor="recovery-phrase" className="block text-sm font-medium text-text mb-1.5">
+          <label htmlFor="recovery-phrase" className={`${authLabel} mb-1.5`}>
             Recovery words
           </label>
-          <div className="box-border w-full overflow-hidden rounded-lg border border-line bg-bg transition-all focus-within:border-accent-dim focus-within:ring-1 focus-within:ring-accent-ring">
+          <div className="box-border w-full overflow-hidden rounded-xl border border-line-light/70 bg-surface/70 shadow-[inset_0_1px_0_rgb(255_255_255/0.03)] transition-all hover:border-line-light focus-within:border-accent-dim focus-within:bg-surface focus-within:ring-2 focus-within:ring-accent-ring">
             <textarea
               id="recovery-phrase"
               value={phrase}
@@ -149,7 +144,7 @@ export function RecoverScreen({
                 />
               ))}
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-y-2 border-t border-line/60 bg-surface/30 px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-y-2 border-t border-line-light/50 bg-bg/40 px-3 py-2">
               <span
                 aria-live="polite"
                 className={`inline-flex min-w-0 items-center gap-1.5 font-mono text-xs whitespace-nowrap ${invalidWords.length > 0
@@ -199,7 +194,7 @@ export function RecoverScreen({
         </div>
 
         <div>
-          <label htmlFor="recover-password" className="block text-sm font-medium text-text">
+          <label htmlFor="recover-password" className={authLabel}>
             New password
           </label>
           {/* Recovery sets a new password rather than asking for the old one. */}
@@ -212,7 +207,7 @@ export function RecoverScreen({
             onChange={(e) => onPasswordChange(e.target.value)}
             autoComplete="new-password"
             placeholder="Choose a new password"
-            className={field}
+            className={authField}
             required
           />
         </div>
@@ -222,7 +217,7 @@ export function RecoverScreen({
         <button
           type="submit"
           disabled={busy}
-          className={`${primary} mt-6`}
+          className={`${authPrimary} mt-7`}
         >
           {busy ? "Restoring vault…" : "Restore vault on this device"}
         </button>

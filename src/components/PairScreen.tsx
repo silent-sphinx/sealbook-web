@@ -2,12 +2,7 @@ import { type FormEvent } from "react";
 import { AuthCard, Brand, Step } from "./AuthLayout";
 import { CopyIcon, CheckIcon } from "./AppIcons";
 import { PasswordField } from "./PasswordField";
-import {
-  chipButton,
-  field,
-  ghost,
-  primary,
-} from "../lib/styles";
+import { authField, authLabel, authPrimary, chipButton, ghost } from "../lib/styles";
 import { confirmationGroups } from "../lib/pairing";
 import { ErrorMessage } from "./ErrorMessage";
 
@@ -123,7 +118,7 @@ export function PairScreen({
             <span>Pairing approved! Enter your password to finish unlocking your vault.</span>
           </div>
           <div className="mt-4">
-            <label htmlFor="pair-password" className="block text-sm font-medium text-text">
+            <label htmlFor="pair-password" className={authLabel}>
               Password
             </label>
             <PasswordField
@@ -133,14 +128,14 @@ export function PairScreen({
               autoComplete="current-password"
               placeholder="Enter your password"
               autoFocus
-              className={field}
+              className={authField}
               required
             />
           </div>
           <button
             type="submit"
             disabled={busy}
-            className={`mt-5 ${primary}`}
+            className={`mt-5 ${authPrimary}`}
           >
             {busy ? "Unlocking vault…" : "Finish device setup"}
           </button>
@@ -148,7 +143,7 @@ export function PairScreen({
       ) : (
         <div
           role="status"
-          className="mt-6 flex items-center justify-center gap-3 rounded-xl border border-line bg-surface/20 py-3.5 text-sm text-mute"
+          className="mt-6 flex items-center justify-center gap-3 rounded-xl border border-line-light/60 bg-surface/40 py-3.5 text-sm text-mute"
         >
           <span className="flex items-center gap-1" aria-hidden="true">
             {[0, 150, 300].map((delay) => (
@@ -163,7 +158,7 @@ export function PairScreen({
         </div>
       )}
 
-      <div className="mt-7 flex items-center justify-between border-t border-line pt-4 text-xs text-mute">
+      <div className="mt-7 flex items-center justify-between border-t border-line-light/60 pt-4 text-xs text-mute">
         <button type="button" className={ghost} onClick={onBack}>
           Cancel
         </button>
