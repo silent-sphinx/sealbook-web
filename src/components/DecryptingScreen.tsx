@@ -1,5 +1,5 @@
 import type { VaultProgress } from "../lib/client";
-import { AuthStage, Logo } from "./AuthLayout";
+import { AuthStage, VaultMark } from "./AuthLayout";
 
 function stageLabel(progress: VaultProgress | null): string {
   if (!progress) return "Opening your vault…";
@@ -24,16 +24,14 @@ export function DecryptingScreen({ progress }: { progress: VaultProgress | null 
   return (
     <AuthStage>
       <div className="animate-fade-in-up text-center">
-        <div className="relative mx-auto h-20 w-20">
+        <div className="relative mx-auto w-fit">
+          <VaultMark />
           <span
             aria-hidden="true"
-            className="absolute inset-0 animate-orbit rounded-full border-2 border-accent/15 border-t-accent"
+            className="absolute -inset-2 animate-orbit rounded-full border-2 border-transparent border-t-accent"
           />
-          <span className="absolute inset-2.5 flex items-center justify-center rounded-2xl bg-surface ring-1 ring-line-light">
-            <Logo className="h-9 w-9" />
-          </span>
         </div>
-        <h1 className="mt-5 text-lg font-semibold tracking-tight text-text">
+        <h1 className="mt-7 text-lg font-semibold tracking-tight text-text">
           Decrypting your Sealbook
         </h1>
         <div className="mt-3 flex items-center justify-center" role="status">
