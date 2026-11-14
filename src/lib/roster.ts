@@ -6,6 +6,7 @@ import {
   coreErrorOf,
   corePinRoster,
   coreRosterAccept,
+  coreRosterAcceptKey,
   coreRosterAcceptSealed,
   coreRosterAnswersFor,
   coreRosterRequest,
@@ -90,13 +91,18 @@ function rememberRosterPin(session: Session, seq: number, transcript: string): v
  * The verified chain in core's own shape, for a caller that hands the same
  * value back to core rather than reading it.
  */
-async function verifiedRosterCore(session: Session): Promise<VerifiedRoster> {
+async function verifiedRosterCore(
+  session: Session,
+  served?: { collectionKey: string; keyEpoch: number },
+): Promise<VerifiedRoster> {
   const { state, token } = session;
   const context = rosterContext(state);
   const request = coreRosterRequest(context);
   const body = await getText(`${apiRoot(state.server)}${request.path}`, token);
   try {
-    const verified = coreRosterAccept(context, session.collectionKey, session.keyEpoch, 200, body);
+    const verified = served
+      ? coreRosterAcceptKey(context, served.collectionKey, served.keyEpoch, 200, body)
+      : coreRosterAccept(context, session.collectionKey, session.keyEpoch, 200, body);
     const roster = JSON.parse(verified.roster_json) as Roster;
     log.info("device roster verified", {
       from_seq: context.roster_seq,
@@ -136,6 +142,25 @@ export async function syncRoster(session: Session): Promise<Roster> {
   rememberRosterPin(session, verified.pin_seq, verified.pin_transcript);
   session.roster = verified.roster;
   return verified.roster;
+}
+
+/**
+ * Verifies the current roster against a collection key this device has just
+ * been served, and only then adopts the key and pins the roster. The session is
+ * left untouched if the key is refused.
+ */
+export async function adoptKey(
+  session: Session,
+  collectionKey: string,
+  keyEpoch: number,
+): Promise<Roster> {
+  const verified = await verifiedRosterCore(session, { collectionKey, keyEpoch });
+  const roster = JSON.parse(verified.roster_json) as Roster;
+  rememberRosterPin(session, verified.pin.roster_seq, verified.pin.transcript);
+  session.collectionKey = collectionKey;
+  session.keyEpoch = keyEpoch;
+  session.roster = roster;
+  return roster;
 }
 
 export function pinSealedRoster(session: Session, roster: Roster): void {

@@ -9,6 +9,8 @@ import {
   importBatches,
   importVault,
   listVault,
+  ManifestError,
+  refreshCollectionKey,
   apiRoot,
   normalizeServer,
   setProxyLoopback,
@@ -185,7 +187,48 @@ function account(): Account {
   };
 }
 
+/** The roster a rotation onto `key` seals, one step on from the account's genesis. */
+function rotatedRoster(owner: Account, key: string, keyEpoch: number): Roster {
+  return rosterSealDevice(
+    owner.collectionId,
+    2,
+    keyEpoch,
+    owner.roster.devices,
+    owner.enrollment.phrase_mldsa_pk,
+    owner.enrollment.phrase_ed25519_pk,
+    owner.enrollment.device_id,
+    owner.enrollment.mldsa_seed,
+    owner.enrollment.ed25519_sk,
+    key,
+  );
+}
+
+/** A `/keys` answer holding one wrap of `key` for the owner's device. */
+function keysAnswer(owner: Account, key: string, keyEpoch: number) {
+  const wrap = wrapCkForDevice(key, owner.enrollment.hpke_pk, owner.collectionId, keyEpoch);
+  return {
+    key_epoch: keyEpoch,
+    key_wraps: [
+      {
+        recipient_kind: "device",
+        recipient_id: owner.enrollment.device_id,
+        hpke_enc: wrap.enc,
+        wrapped_ck: wrap.wrapped_ck,
+        ciphersuite: wrap.ciphersuite,
+      },
+    ],
+  };
+}
+
 type Handler = (url: URL, body: unknown) => unknown;
+
+/** A `/roster` route that serves the history from the requested pin onward, as the server does. */
+function rosterHistory(rosters: Roster[]): Handler {
+  return (url) => {
+    const from = Number(url.searchParams.get("from") ?? 0);
+    return { rosters: rosters.filter((roster) => roster.roster_seq >= from) };
+  };
+}
 
 /** Records what the client sent and answers the routes a flow touches. */
 function server(routes: Record<string, Handler>) {
@@ -1667,7 +1710,6 @@ describe("a write across a rotation it has not noticed", () => {
     // Another device rotated: the collection is on epoch 2 under a new key, and
     // this session is still holding epoch 1's.
     const rotatedKey = newCollectionKey();
-    const wrap = wrapCkForDevice(rotatedKey, owner.enrollment.hpke_pk, owner.session.state.collection_id, 2);
     const manifest = manifestSign(
       owner.enrollment.mldsa_seed,
       owner.enrollment.ed25519_sk,
@@ -1678,21 +1720,11 @@ describe("a write across a rotation it has not noticed", () => {
       0,
       [],
     );
+    const rotated = rotatedRoster(owner, rotatedKey, 2);
     const { sent } = server({
       ...manifestRoutes(() => ({ manifest, entries: [] })),
-      "/roster": () => ({ rosters: [owner.roster] }),
-      "/keys": () => ({
-        key_epoch: 2,
-        key_wraps: [
-          {
-            recipient_kind: "device",
-            recipient_id: owner.enrollment.device_id,
-            hpke_enc: wrap.enc,
-            wrapped_ck: wrap.wrapped_ck,
-            ciphersuite: wrap.ciphersuite,
-          },
-        ],
-      }),
+      "/roster": rosterHistory([owner.roster, rotated]),
+      "/keys": () => keysAnswer(owner, rotatedKey, 2),
       "/objects": () => ({ revision: 1 }),
     });
 
@@ -1747,22 +1779,12 @@ describe("a write across a rotation it has not noticed", () => {
     );
     // The server offers a wrap for an epoch that is not the one the manifest
     // claims, which is what a second rotation mid-write looks like.
-    const wrap = wrapCkForDevice(newCollectionKey(), owner.enrollment.hpke_pk, owner.session.state.collection_id, 3);
+    const thirdKey = newCollectionKey();
+    const rotated = rotatedRoster(owner, thirdKey, 3);
     server({
       ...manifestRoutes(() => ({ manifest, entries: [] })),
-      "/roster": () => ({ rosters: [owner.roster] }),
-      "/keys": () => ({
-        key_epoch: 3,
-        key_wraps: [
-          {
-            recipient_kind: "device",
-            recipient_id: owner.enrollment.device_id,
-            hpke_enc: wrap.enc,
-            wrapped_ck: wrap.wrapped_ck,
-            ciphersuite: wrap.ciphersuite,
-          },
-        ],
-      }),
+      "/roster": rosterHistory([owner.roster, rotated]),
+      "/keys": () => keysAnswer(owner, thirdKey, 3),
       "/objects": () => ({ revision: 1 }),
     });
     await expect(
@@ -1772,6 +1794,49 @@ describe("a write across a rotation it has not noticed", () => {
         addressBookId: DEFAULT_ADDRESS_BOOK_ID,
       }),
     ).rejects.toThrow(/Nothing was saved/u);
+  });
+});
+
+describe("refreshCollectionKey", () => {
+  it("refuses a key the verified roster does not commit to, and keeps the one it held", async () => {
+    const owner = account();
+    const heldKey = owner.session.collectionKey;
+    // A real rotation to epoch 2, but the server seals its own key to this
+    // device in place of the account's: any holder of the public key can.
+    const rotatedKey = newCollectionKey();
+    const substituted = newCollectionKey();
+    const rotated = rotatedRoster(owner, rotatedKey, 2);
+    server({
+      "/roster": rosterHistory([owner.roster, rotated]),
+      "/keys": () => keysAnswer(owner, substituted, 2),
+    });
+    await expect(refreshCollectionKey(owner.session)).rejects.toThrow(ManifestError);
+    expect(owner.session.collectionKey).toBe(heldKey);
+    expect(owner.session.keyEpoch).toBe(1);
+    expect(owner.session.state.roster_seq).toBe(1);
+  });
+
+  it("refuses a key for an epoch no verified roster has reached", async () => {
+    const owner = account();
+    server({
+      "/roster": () => ({ rosters: [owner.roster] }),
+      "/keys": () => keysAnswer(owner, newCollectionKey(), 2),
+    });
+    await expect(refreshCollectionKey(owner.session)).rejects.toThrow(ManifestError);
+    expect(owner.session.keyEpoch).toBe(1);
+  });
+
+  it("adopts the rotated key and pins the roster that commits to it", async () => {
+    const owner = account();
+    const rotatedKey = newCollectionKey();
+    const rotated = rotatedRoster(owner, rotatedKey, 2);
+    server({
+      "/roster": rosterHistory([owner.roster, rotated]),
+      "/keys": () => keysAnswer(owner, rotatedKey, 2),
+    });
+    expect(await refreshCollectionKey(owner.session)).toBe(2);
+    expect(owner.session.collectionKey).toBe(rotatedKey);
+    expect(owner.session.state.roster_seq).toBe(2);
   });
 });
 

@@ -27,7 +27,7 @@ import {
   type AuthRequest,
 } from "./wasm";
 import { elapsed, log } from "./log";
-import { syncRoster } from "./roster";
+import { adoptKey } from "./roster";
 import { apiRoot, deleteJson, postText } from "./transport";
 import { checkProtocol, fromCoreState, rememberManifestSeq, toCoreState, type Session } from "./clientCore";
 import { rotateAuthenticated } from "./clientRotation";
@@ -100,13 +100,12 @@ export async function loginAccount(state: DeviceState, password: string): Promis
     coreLoginFinishRequest(core, opaque.state, password, starting.challenge, startedBody),
   );
   const logged = coreLoginAccept(core, password, finished);
+  // No key until the roster has vouched for it, below.
   const session: Session = {
-    collectionKey: logged.collection_key,
+    collectionKey: "",
     token: logged.state.session_token ?? "",
     latestRevision: 0,
-    // Login hands back wraps for the current key, so start in sync: a refresh
-    // should only happen when a rotation actually moves the epoch.
-    keyEpoch: logged.key_epoch,
+    keyEpoch: 0,
     // Seeded from the device state, not from zero: the high-water mark has to
     // outlive the session or a restart would reopen the rollback window.
     manifestSeq: logged.state.manifest_seq ?? 0,
@@ -116,8 +115,9 @@ export async function loginAccount(state: DeviceState, password: string): Promis
   // The roster comes first, before anything reads or writes the vault: it is
   // what every later device-set decision is made from, and a device that is no
   // longer in it has been revoked and should say so here rather than fail
-  // confusingly later.
-  await syncRoster(session);
+  // confusingly later. It is also what proves the key login opened is the
+  // account's: the server can seal a wrap of its own key to this device.
+  await adoptKey(session, logged.collection_key, logged.key_epoch);
   // Pin the accepted posture now the sign-in has succeeded, so a later visit
   // catches a server that has weakened itself. This is the single funnel every
   // authenticated flow passes through, mirroring the native client.

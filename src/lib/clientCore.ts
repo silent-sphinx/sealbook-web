@@ -16,7 +16,7 @@ import {
   unwrapCk,
 } from "./wasm";
 import { describeError, log, serverHost } from "./log";
-import { ManifestError, rosterDevices } from "./roster";
+import { adoptKey, ManifestError, rosterDevices } from "./roster";
 import { apiRoot, getJson, getText } from "./transport";
 import { PROTOCOL_VERSION, speaksProtocol } from "./protocol";
 import {
@@ -400,7 +400,7 @@ export async function refreshCollectionKey(session: Session): Promise<number> {
   }
   // unwrapCk resolves the device wrap first and never touches the password or
   // salt, so empty values are correct here rather than a placeholder.
-  session.collectionKey = unwrapCk(
+  const collectionKey = unwrapCk(
     "",
     "",
     bytesFromJson(state.hpke_sk),
@@ -409,8 +409,9 @@ export async function refreshCollectionKey(session: Session): Promise<number> {
     resp.key_epoch,
     JSON.stringify([deviceWrap]),
   );
-  log.info("collection key refreshed", { from_epoch: session.keyEpoch, to_epoch: resp.key_epoch });
-  session.keyEpoch = resp.key_epoch;
+  const fromEpoch = session.keyEpoch;
+  await adoptKey(session, collectionKey, resp.key_epoch);
+  log.info("collection key refreshed", { from_epoch: fromEpoch, to_epoch: resp.key_epoch });
   return resp.key_epoch;
 }
 

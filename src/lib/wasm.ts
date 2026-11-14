@@ -172,6 +172,7 @@ import init, {
   core_pair_status,
   core_pin_roster,
   core_roster_accept,
+  core_roster_accept_key,
   core_attachment_chunk_digest,
   core_attachment_chunk_nonce,
   core_attachment_chunk_path,
@@ -950,6 +951,24 @@ export function coreRosterAccept(
   body: string,
 ): VerifiedRoster {
   return core_roster_accept(context, ck, BigInt(keyEpoch), status, body);
+}
+
+/**
+ * As `coreRosterAccept`, for a collection key just opened from a wrap: after
+ * login, and after re-fetching the wrap following a rotation.
+ *
+ * A wrap does not show who sealed it, and the server holds every device's
+ * public key, so the key must be the one the verified roster commits to. It
+ * must not be used if this throws.
+ */
+export function coreRosterAcceptKey(
+  context: RosterContext,
+  ck: string,
+  keyEpoch: number,
+  status: number,
+  body: string,
+): VerifiedRoster {
+  return core_roster_accept_key(context, ck, BigInt(keyEpoch), status, body);
 }
 
 /** Verifies a roster this device sealed itself, at the roster's own key epoch. */
