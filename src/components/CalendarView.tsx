@@ -57,6 +57,7 @@ import {
   storeCalendarIds,
 } from "../lib/calendarVisibility";
 import { Icon } from "./Icon";
+import { ErrorMessage } from "./ErrorMessage";
 
 type ViewMode = "day" | "week" | "month" | "year";
 type RepeatChoice = "none" | "daily" | "weekday" | "weekly" | "monthly-date" | "monthly-nth" | "yearly" | "custom";
@@ -1151,7 +1152,7 @@ function TaskDialog({ editing, title, start, end, notes, location, alerts, parti
             </FieldRow>
           </div>
 
-          {error ? <p role="alert" className="text-xs text-danger">{error}</p> : null}
+          {error ? <ErrorMessage size="xs">{error}</ErrorMessage> : null}
         </div>
 
         <div className="flex shrink-0 items-center justify-between gap-2 border-t border-line px-5 py-3.5">

@@ -3,6 +3,7 @@ import logo from "../assets/sealbook-white-192.png";
 import { Modal } from "./Modal";
 import { btnPrimary, btnSecondary, eyebrow, field, focusRing, primary } from "../lib/styles";
 import { Icon } from "./Icon";
+import { ErrorMessage } from "./ErrorMessage";
 
 export function Logo({ className }: { className: string }) {
   return <img src={logo} alt="" className={className} />;
@@ -126,9 +127,7 @@ export function ServerSetupScreen({
         </p>
 
         {error ? (
-          <p role="alert" className="mt-4 text-sm text-danger">
-            {error}
-          </p>
+          <ErrorMessage className="mt-4">{error}</ErrorMessage>
         ) : null}
 
         <button type="submit" className={`${primary} mt-6`}>
@@ -208,9 +207,7 @@ export function DomainSettings({
                 autoFocus
               />
               {saveError ? (
-                <p role="alert" className="mt-2 text-xs text-danger">
-                  {saveError}
-                </p>
+                <ErrorMessage size="xs" className="mt-2">{saveError}</ErrorMessage>
               ) : null}
               <p className="mt-1.5 text-xs text-mute">
                 Signing in sends your credentials to this server, so check it carefully.

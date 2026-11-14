@@ -2,6 +2,7 @@ import { useId, useRef, type FormEvent, type KeyboardEvent, type ClipboardEvent 
 import { Modal } from "./Modal";
 import { confirmationGroups } from "../lib/pairing";
 import { btnPrimary, btnSecondary, eyebrow } from "../lib/styles";
+import { ErrorMessage } from "./ErrorMessage";
 
 const WORD_COUNT = 8;
 
@@ -171,7 +172,7 @@ export function AddDeviceModal({
               </div>
             </div>
 
-            {error ? <p role="alert" className="mt-4 text-sm text-danger">{error}</p> : null}
+            {error ? <ErrorMessage className="mt-4">{error}</ErrorMessage> : null}
 
             <div className="mt-8 flex items-center justify-end gap-3 border-t border-line pt-4">
               <button
@@ -212,7 +213,7 @@ export function AddDeviceModal({
               If the code matches the one displayed on your new device screen, click <strong className="text-text font-semibold">Approve device</strong> below to securely transfer your vault encryption keys.
             </p>
 
-            {error ? <p role="alert" className="mt-4 text-sm text-danger text-center">{error}</p> : null}
+            {error ? <ErrorMessage className="mt-4 text-left">{error}</ErrorMessage> : null}
 
             <div className="mt-8 flex items-center justify-end gap-3 border-t border-line pt-4">
               <button

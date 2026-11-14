@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Modal } from "./Modal";
 import { btnDanger, btnSecondary, selectField } from "../lib/styles";
 import type { AddressBook } from "../lib/types";
+import { ErrorMessage } from "./ErrorMessage";
 
 type Props = {
   book: AddressBook;
@@ -78,7 +79,7 @@ export function DeleteAddressBookModal({
           </label>
         </fieldset>
 
-        {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
+        {error ? <ErrorMessage>{error}</ErrorMessage> : null}
 
         <div className="flex justify-end gap-3">
           <button type="button" className={btnSecondary} onClick={onClose} disabled={busy}>

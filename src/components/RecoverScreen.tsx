@@ -11,6 +11,7 @@ import {
 } from "../lib/styles";
 import { extractRecoveryWords } from "../lib/phrase";
 import { findInvalidBip39Words } from "../lib/bip39Words";
+import { ErrorMessage } from "./ErrorMessage";
 
 interface RecoverScreenProps {
   connectionDomain: string;
@@ -216,7 +217,7 @@ export function RecoverScreen({
           />
         </div>
 
-        {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
+        {error ? <ErrorMessage>{error}</ErrorMessage> : null}
 
         <button
           type="submit"

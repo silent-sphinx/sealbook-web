@@ -10,6 +10,7 @@ import {
   selectField,
 } from "../lib/styles";
 import type { RecurrenceFrequency, RecurrenceRule, TaskDraft } from "../lib/types";
+import { ErrorMessage } from "./ErrorMessage";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const FREQUENCIES: { id: RecurrenceFrequency; unit: string }[] = [
@@ -127,9 +128,7 @@ export function TaskForm({ initial, editing, listOptions, timezone, disabled, on
     >
       <h4 className="text-sm font-semibold">{editing ? "Edit task" : "New task"}</h4>
       {problem ? (
-        <p role="alert" className="mt-2 text-xs text-danger">
-          {problem}
-        </p>
+        <ErrorMessage size="xs" className="mt-2">{problem}</ErrorMessage>
       ) : null}
       <label className={`mt-3 ${fieldLabel}`}>
         Title

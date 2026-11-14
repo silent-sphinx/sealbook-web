@@ -8,6 +8,7 @@ import { field, focusRing, ghost, primary, btnPrimary, btnSecondary } from "../l
 import { passwordStrength } from "../lib/appState";
 import type { DeviceMetadata } from "../lib/storage";
 import { queuedCount } from "../lib/localStore";
+import { ErrorMessage } from "./ErrorMessage";
 
 export type Mode = "register" | "signin";
 
@@ -121,7 +122,7 @@ export function AuthScreen({
             disabled={busy}
             required
           />
-          {error ? <p role="alert" className="mt-4 text-sm text-danger">{error}</p> : null}
+          {error ? <ErrorMessage className="mt-4">{error}</ErrorMessage> : null}
           <button type="submit" disabled={busy} className={`${primary} mt-6`}>
             {busy ? "Please wait…" : "Unlock"}
           </button>
@@ -280,7 +281,7 @@ export function AuthScreen({
             </p>
           </div>
 
-          {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
+          {error ? <ErrorMessage>{error}</ErrorMessage> : null}
 
           <button type="submit" disabled={busy} className={`${primary} mt-6`}>
             {busy ? "Creating account…" : "Create account"}
@@ -314,7 +315,7 @@ export function AuthScreen({
               />
             </div>
 
-            {error ? <p role="alert" className="mt-3 text-xs text-danger">{error}</p> : null}
+            {error ? <ErrorMessage size="xs" className="mt-3">{error}</ErrorMessage> : null}
 
             <button
               type="submit"

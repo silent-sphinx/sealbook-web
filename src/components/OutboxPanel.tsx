@@ -8,6 +8,7 @@ import { mutateOutbox } from "../lib/outbox";
 import { btnDanger, btnSecondary } from "../lib/styles";
 import { coreOutboxPush, coreOutboxSettle, corePayloadKind, type Outbox } from "../lib/wasm";
 import { Modal } from "./Modal";
+import { ErrorMessage } from "./ErrorMessage";
 
 type Props = {
   session: Session;
@@ -107,9 +108,7 @@ export function OutboxPanel({ session, failed, onClose, onRetry }: Props) {
           ))}
         </ul>
         {error ? (
-          <p role="alert" className="text-xs text-danger">
-            {error}
-          </p>
+          <ErrorMessage size="xs">{error}</ErrorMessage>
         ) : null}
         <div className="flex flex-wrap justify-end gap-2">
           <button type="button" className={`${btnSecondary} px-4`} onClick={exportFailed}>

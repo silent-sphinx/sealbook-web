@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { dangerButton, primary, secondary } from "../lib/styles";
 import { Modal } from "./Modal";
+import { ErrorMessage } from "./ErrorMessage";
 
 type Props = {
   title: string;
@@ -69,12 +70,7 @@ export function ConfirmDialog({
         </div>
 
         {error ? (
-          <p
-            role="alert"
-            className="mt-4 rounded-lg border border-danger/30 bg-danger/10 p-3 text-xs text-danger"
-          >
-            {error}
-          </p>
+          <ErrorMessage size="xs" className="mt-4">{error}</ErrorMessage>
         ) : null}
 
         <div className="mt-6 flex gap-3">

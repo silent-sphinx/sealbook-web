@@ -87,6 +87,7 @@ import {
   type DeviceMark,
   type Notice,
 } from "./SettingsKit";
+import { ErrorMessage } from "./ErrorMessage";
 
 export type { SettingsSection } from "../lib/settingsModel";
 
@@ -1320,7 +1321,7 @@ export function SettingsView({
               className={field}
               autoComplete="current-password"
             />
-            {deleteError ? <p role="alert" className="text-xs text-danger">{deleteError}</p> : null}
+            {deleteError ? <ErrorMessage size="xs">{deleteError}</ErrorMessage> : null}
             <div className={`${actionRow} pt-2`}>
               <button
                 type="button"

@@ -9,6 +9,7 @@ import {
   primary,
 } from "../lib/styles";
 import { confirmationGroups } from "../lib/pairing";
+import { ErrorMessage } from "./ErrorMessage";
 
 interface PairScreenProps {
   connectionDomain: string;
@@ -107,7 +108,7 @@ export function PairScreen({
         </Step>
       </div>
 
-      {error ? <p role="alert" className="mt-2 text-sm text-danger">{error}</p> : null}
+      {error ? <ErrorMessage className="mt-2">{error}</ErrorMessage> : null}
 
       {pairApproved ? (
         <form onSubmit={onSubmit} className="mt-6 animate-fade-in-up">

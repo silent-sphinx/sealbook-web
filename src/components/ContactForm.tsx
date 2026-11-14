@@ -41,6 +41,7 @@ import {
   labelClass,
 } from "./FieldControls";
 import { ContactProfileFields } from "./ContactProfileFields";
+import { ErrorMessage } from "./ErrorMessage";
 
 type Props = {
   busy: boolean;
@@ -350,7 +351,7 @@ export function ContactForm({
 
       {!hideFooter ? (
         <div className="shrink-0 border-t border-line bg-panel">
-          {error ? <p role="alert" className="px-5 pt-3 text-sm text-danger">{error}</p> : null}
+          {error ? <ErrorMessage className="mx-5 mt-3">{error}</ErrorMessage> : null}
           <div className="flex gap-3 px-5 py-4">
             <button
               type="button"
