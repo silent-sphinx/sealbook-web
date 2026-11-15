@@ -549,6 +549,11 @@ export interface PairApproveRequest {
  */
 export interface RosterBody {
   devices: DevicePublicKeys[];
+  /**
+   * Commits to this epoch's collection key under the signature. Absent on
+   * rosters sealed before it existed.
+   */
+  key_commitment?: Base64Url;
   key_epoch: number;
   mac: Base64Url;
   phrase_ed25519_pk: Base64Url;
@@ -740,9 +745,13 @@ export interface RecoverFinishResponse {
  * registration round trip, which is what `opaque_request` starts.
  *
  * Unauthenticated, like `login/challenge`, and it reveals nothing: an unknown
- * username, or a `lookup_id` that does not match, gets a dummy wrap and a
- * registration response of the same shape. The response carries no material
- * derived from the existing password, so it cannot be harvested to attack it.
+ * username, a `lookup_id` that does not match, or a `phrase_proof` that does
+ * not verify gets a decoy wrap and a registration response of the same shape.
+ *
+ * The registration response is evaluated under the OPRF key the existing
+ * password is registered under, so it is a password-guessing oracle. Only a
+ * request whose `phrase_proof` verifies is evaluated under the username;
+ * anything else is evaluated under a name no account can hold.
  *
  * This interface was referenced by `SealbookWireTypes`'s JSON-Schema
  * via the `definition` "RecoverStartRequest".
@@ -750,6 +759,10 @@ export interface RecoverFinishResponse {
 export interface RecoverStartRequest {
   lookup_id: Base64Url;
   opaque_request: Base64Url;
+  /**
+   * The phrase's recovery key over `phrase_recovery_start_transcript`.
+   */
+  phrase_proof: DualSignatureBody;
   username: string;
 }
 /**
