@@ -66,6 +66,10 @@ export function QrScanner({ onScan, onCancel }: { onScan: (text: string) => void
     let cancelled = false;
     let timer = 0;
     let stream: MediaStream | undefined;
+    const stopCamera = () => {
+      stream?.getTracks().forEach((track) => track.stop());
+      stream = undefined;
+    };
 
     const scan = async (detector: Detector, video: HTMLVideoElement) => {
       if (cancelled) return;
@@ -73,6 +77,7 @@ export function QrScanner({ onScan, onCancel }: { onScan: (text: string) => void
         const found = await detector.detect(video);
         const hit = found.find((code) => code.rawValue.toUpperCase().startsWith(PAIR_QR_PREFIX));
         if (hit && !cancelled) {
+          stopCamera();
           onScanRef.current(hit.rawValue);
           return;
         }
@@ -89,7 +94,13 @@ export function QrScanner({ onScan, onCancel }: { onScan: (text: string) => void
           audio: false,
         });
         const video = videoRef.current;
-        if (cancelled || !video) return;
+        // The camera can start after this scanner is gone: closed while the
+        // permission prompt was up, or unmounted and remounted by StrictMode.
+        // The cleanup found no stream to stop then, so this one is stopped here.
+        if (cancelled || !video) {
+          stopCamera();
+          return;
+        }
         video.srcObject = stream;
         await video.play();
         const detector = await createDetector();
@@ -102,7 +113,7 @@ export function QrScanner({ onScan, onCancel }: { onScan: (text: string) => void
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
-      stream?.getTracks().forEach((track) => track.stop());
+      stopCamera();
     };
   }, []);
 
