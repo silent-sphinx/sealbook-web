@@ -162,6 +162,7 @@ import init, {
   core_format_confirmation,
   core_normalize_confirmation,
   core_open_row,
+  core_unreadable_rows,
   core_pair_approve,
   core_pair_approve_path,
   core_pair_join_accept,
@@ -887,6 +888,15 @@ export function coreOpenRow(
   row: CoreSealedRow,
 ): RowOutcome {
   return core_open_row(ck, collectionId, row);
+}
+
+/**
+ * How many rows of a full read did not open. Throws `WrongCollectionKey` when
+ * the collection key opened none of them, so a key the server substituted is
+ * not shown as an empty vault.
+ */
+export function coreUnreadableRows(outcomes: RowOutcome[]): number {
+  return Number(core_unreadable_rows(outcomes));
 }
 
 /** The rule for a collection key that moved while a read was in flight. */

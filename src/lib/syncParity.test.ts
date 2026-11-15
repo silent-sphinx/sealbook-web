@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import init from "../pkg/sealbook_wasm.js";
 import {
   coreChangesRequest,
+  coreErrorOf,
   coreLatestRevisions,
   coreManifestEntryFor,
   coreManifestVerify,
@@ -11,6 +12,7 @@ import {
   coreWalkPage,
   coreWalkStart,
 } from "./wasm";
+import { localObjectsOfFullRead } from "./clientVault";
 import { readFixture } from "../test/fixtures";
 import type {
   ChangesPage,
@@ -180,5 +182,25 @@ describe("the shared change-feed fixture", () => {
       return [{ id: row.id, reason: result.Unreadable.reason }];
     });
     expect(unreadable).toEqual(fixture.unreadable);
+  });
+
+  it("counts that row as unopened in a full read and still yields the rest", () => {
+    const read = localObjectsOfFullRead(fixture.collection_key, fixture.collection_id, current());
+    expect(read.unopened).toBe(fixture.unreadable.length);
+    expect(read.objects.filter((row) => row && !row.tombstone)).toHaveLength(fixture.objects.length);
+  });
+
+  // A key the server sealed to this device opens nothing it holds, and that
+  // has to read as the key being wrong rather than as an emptied vault.
+  it("refuses a full read the collection key opens none of", () => {
+    // Not the next epoch's key, which the fixture seals one row under.
+    const otherKey = "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU";
+    let kind: string | undefined;
+    try {
+      localObjectsOfFullRead(otherKey, fixture.collection_id, current());
+    } catch (error) {
+      kind = coreErrorOf(error)?.kind;
+    }
+    expect(kind).toBe("WrongCollectionKey");
   });
 });

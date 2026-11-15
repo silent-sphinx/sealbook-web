@@ -12,12 +12,14 @@ import {
   coreOpenRow,
   corePayloadKind,
   coreRequireKeyEpoch,
+  coreUnreadableRows,
   coreWalkPage,
   coreWalkStart,
   newUuid,
   sealedContentType,
   type LocalObject,
   type LocalVault,
+  type RowOutcome,
 } from "./wasm";
 import { emptyVault } from "./localStore";
 import { localObjects, openOutbox, setVault } from "./outbox";
@@ -363,7 +365,27 @@ export function localObjectOf(
   collectionId: string,
   row: SealedObject,
 ): LocalObject | null {
-  const result = coreOpenRow(collectionKey, collectionId, row);
+  return localObjectFrom(row, coreOpenRow(collectionKey, collectionId, row));
+}
+
+/**
+ * Every row of a full read as the vault copy holds it, null where it will not
+ * open, with the count of those.
+ *
+ * Throws `WrongCollectionKey` when the key opened none of them: a key the
+ * server sealed to this device would otherwise read as an emptied vault.
+ */
+export function localObjectsOfFullRead(
+  collectionKey: string,
+  collectionId: string,
+  rows: SealedObject[],
+): { objects: (LocalObject | null)[]; unopened: number } {
+  const outcomes = rows.map((row) => coreOpenRow(collectionKey, collectionId, row));
+  const unopened = coreUnreadableRows(outcomes);
+  return { objects: rows.map((row, at) => localObjectFrom(row, outcomes[at])), unopened };
+}
+
+function localObjectFrom(row: SealedObject, result: RowOutcome): LocalObject | null {
   if (result === "Deleted") {
     return { id: row.id, content_type: "", revision: row.revision, tombstone: true, payload: "" };
   }
@@ -402,7 +424,6 @@ async function openVault(
   }
   const { collectionKey } = session;
   const opened: OpenedVaultObject[] = [];
-  let unopened = 0;
   // Check what was served against what a device signed for, before decrypting any
   // of it. A failure here means an object was withheld, rolled back or
   // substituted, and must not be presented as an empty or partial vault.
@@ -419,13 +440,12 @@ async function openVault(
     // the event loop rather than to a microtask is what lets that paint land.
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
+  const read = localObjectsOfFullRead(collectionKey, state.collection_id, walk.objects);
+  const unopened = read.unopened;
   const rows: LocalObject[] = [];
-  for (const obj of walk.objects) {
-    const row = localObjectOf(collectionKey, state.collection_id, obj);
-    if (!row) {
-      unopened += 1;
-      continue;
-    }
+  for (const [at, obj] of walk.objects.entries()) {
+    const row = read.objects[at];
+    if (!row) continue;
     rows.push(row);
     if (row.tombstone) continue;
     opened.push({ object: obj, contentType: row.content_type, payload: row.payload });

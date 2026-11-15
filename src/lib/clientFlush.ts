@@ -17,7 +17,7 @@ import {
   type BucketedManifest,
   type Session,
 } from "./clientCore";
-import { localObjectOf, signNextManifest, walkChanges } from "./clientVault";
+import { localObjectOf, localObjectsOfFullRead, signNextManifest, walkChanges } from "./clientVault";
 import { describeError, log } from "./log";
 import { emptyVault } from "./localStore";
 import {
@@ -371,9 +371,10 @@ export async function catchUp(session: Session): Promise<void> {
       requireManifestAbsenceOk(session);
     }
   }
-  const rows = walk.objects
-    .map((row) => localObjectOf(session.collectionKey, session.state.collection_id, row))
-    .filter((row): row is LocalObject => row !== null);
+  const opened = walk.full
+    ? localObjectsOfFullRead(session.collectionKey, session.state.collection_id, walk.objects).objects
+    : walk.objects.map((row) => localObjectOf(session.collectionKey, session.state.collection_id, row));
+  const rows = opened.filter((row): row is LocalObject => row !== null);
   const from = walk.full ? emptyVault() : vault;
   session.latestRevision = walk.latestRevision;
   log.debug("caught the vault copy up", { from: vault.latest_revision, rows: rows.length, full: walk.full });

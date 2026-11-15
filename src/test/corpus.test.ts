@@ -13,6 +13,7 @@ import {
   coreContactParse,
   coreContactWrite,
   coreEventParse,
+  coreErrorOf,
   coreEventWrite,
   coreFlushPlan,
   coreLocalView,
@@ -24,6 +25,7 @@ import {
   coreNotebookTone,
   coreNotebookWrite,
   coreOpenRow,
+  coreUnreadableRows,
   coreOutboxPush,
   coreSettingsParse,
   coreSettingsWrite,
@@ -48,6 +50,13 @@ type Corpus = { fixtures: { file: string; tables: Table[] }[] };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const operations: Record<string, (args: any[]) => unknown> = {
   "sealed.open_row": ([key, collectionId, row]) => coreOpenRow(key, collectionId, row),
+  "sealed.unreadable_rows": ([outcomes]) => {
+    try {
+      return { unreadable: coreUnreadableRows(outcomes) };
+    } catch (error) {
+      return { error: coreErrorOf(error)?.kind ?? String(error) };
+    }
+  },
   "task.write": ([draft, now]) => coreTaskWrite(draft, now),
   "task.parse": ([id, raw]) => coreTaskParse(id, raw),
   "task.normalize_due": ([value]) => coreNormalizeDueDate(value),
