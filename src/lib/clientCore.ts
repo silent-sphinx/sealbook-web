@@ -524,9 +524,13 @@ export function fromCoreState(state: CoreDeviceState): DeviceState {
 }
 
 
+const NIL_UUID = "00000000-0000-0000-0000-000000000000";
+
 /**
  * A freshly generated device's state, before it knows which account or
- * collection it belongs to: a pairing learns both from the approval.
+ * collection it belongs to: the first login fills both in. Core reads them as
+ * UUIDs, so the placeholder is the nil UUID, as the Rust client uses; an empty
+ * string fails to parse and the login never starts.
  */
 export function deviceFromSecrets(
   server: string,
@@ -536,8 +540,8 @@ export function deviceFromSecrets(
   return {
     server,
     username,
-    account_id: "",
-    collection_id: "",
+    account_id: NIL_UUID,
+    collection_id: NIL_UUID,
     device_id: device.device.device_id,
     kdf_salt: [],
     hpke_sk: b64ToByteArray(device.hpke_sk),

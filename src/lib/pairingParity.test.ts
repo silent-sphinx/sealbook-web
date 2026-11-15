@@ -5,6 +5,9 @@ import init from "../pkg/sealbook_wasm.js";
 import {
   coreConfirmationGroups,
   coreErrorOf,
+  coreLoginStartRequest,
+  coreNewDevice,
+  coreOpaqueLoginStart,
   coreFormatConfirmation,
   coreNormalizeConfirmation,
   corePairApprove,
@@ -17,6 +20,7 @@ import {
   coreRosterAcceptSealed,
 } from "./wasm";
 import { confirmationGroups, formatConfirmation, normalizeConfirmation } from "./pairing";
+import { deviceFromSecrets, toCoreState } from "./clientCore";
 import { readFixture } from "../test/fixtures";
 import type {
   CoreDevice,
@@ -266,5 +270,22 @@ describe("the shared pairing fixture", () => {
     for (const poll of fixture.polls) {
       expect(corePairStatus(poll.status, poll.body)).toBe(poll.state);
     }
+  });
+});
+
+describe("a device that has just joined by pairing", () => {
+  // It has no account or collection id until its first login fills them in,
+  // and that login hands its state to core. The challenge body here is not a
+  // real one, so core refuses it; what matters is that it got as far as the
+  // body rather than refusing the state.
+  it("has a state core reads, so it can sign in", () => {
+    const state = toCoreState(deviceFromSecrets("https://sealbook.test", "alice", coreNewDevice()));
+    let refusal: unknown;
+    try {
+      coreLoginStartRequest(state, coreOpaqueLoginStart("a password").request, "{}");
+    } catch (err) {
+      refusal = err;
+    }
+    expect(String(refusal)).not.toMatch(/CoreDeviceState|UUID/);
   });
 });
