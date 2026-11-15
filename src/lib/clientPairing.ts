@@ -1,32 +1,41 @@
-import { bytesFromJson } from "./bytes";
 import {
   corePairApprove,
   corePairApprovePath,
+  corePairApprovePoll,
+  corePairCancelPath,
+  corePairConfirm,
+  corePairConfirmPath,
+  corePairFinish,
   corePairJoinAccept,
-  corePairJoinBody,
+  corePairJoinPoll,
+  corePairLookupPath,
   corePairPath,
   corePairPreview,
-  corePairPoll,
+  corePairRespond,
+  corePairRespondPath,
+  corePairStart,
   coreNewDevice,
 } from "./wasm";
+import { bytesFromJson } from "./bytes";
 import { pinSealedRoster, syncRoster, verifiedRosterCore } from "./roster";
-import { apiRoot, getJson, getTextStatus, postJson } from "./transport";
+import { apiRoot, getJson, getTextStatus, postJson, postText } from "./transport";
 import { checkProtocol, deviceFromSecrets, type Session } from "./clientCore";
 import { rotateVault } from "./clientAuth";
-import type { CoreDevice, CorePairPreview, PairPoll } from "./wasm";
+import type { CoreDevice, CorePairPreview, CorePairResponse } from "./wasm";
 import type { DeviceState, Roster } from "./types";
 
 /**
- * A pairing request as this device checked it.
- *
- * `confirm` is the code this device computed, not the one the server sent.
- * Computed over the joining device's keys as previewed *and* the anchor of a
- * roster this device verified from its own pin. Displaying the server's code
- * instead would make the user's comparison prove only that the joining device's
- * code reached the server unmodified: a server that substituted the keys could
- * show the real code and keep the ones it had swapped in.
+ * Pairing over a PAKE. The joining device shows an eight-word code; the user
+ * types or scans it into a device that is already signed in. Only the first
+ * three words reach the server. The other five are the password for a CPace run
+ * bound to the joining device's keys, so the two devices only agree if both
+ * hold the same code and the approving device is looking at the keys the
+ * joining device actually has. Nothing is compared by eye. The steps are
+ * documented on `sealbook_core::pairing`.
  */
+
 export type PairPreview = CorePairPreview;
+export type PairResponse = CorePairResponse;
 
 export type DeviceSummary = {
   device_id: string;
@@ -35,96 +44,178 @@ export type DeviceSummary = {
   xwing_hpke_pk: string;
 };
 
-export async function pairJoin(
-  server: string,
-  username: string,
-): Promise<{
+/**
+ * A pairing this device has asked to join. `secret` is this device's half of
+ * the CPace run and lives in memory only; `state` has no roster pin until the
+ * pairing is approved, so it is not persisted before then.
+ */
+export type JoinPairing = {
   pairId: string;
-  pairCode: string;
-  confirm: string;
-  rosterSeq: number;
-  rosterTranscript: string;
+  /** The eight words to show. */
+  code: string;
+  /** The same code, as a QR code holds it. */
+  qrText: string;
+  device: CoreDevice;
+  secret: string;
   state: DeviceState;
-}> {
+};
+
+export type PairJoinStep =
+  | { kind: "wait"; afterMs: number }
+  | { kind: "ready"; state: DeviceState }
+  | { kind: "expired" };
+
+export type PairPreviewStep =
+  | { kind: "wait"; afterMs: number }
+  | { kind: "preview"; preview: PairPreview }
+  | { kind: "expired" };
+
+export async function pairJoin(server: string, username: string): Promise<JoinPairing> {
   const root = apiRoot(server);
   await checkProtocol(root);
   // One generator for every new device, whether it arrives by registering,
   // recovering or pairing, so the three cannot drift apart again.
-  const device = coreNewDevice();
-  const keys: CoreDevice = device.device;
-  const body = corePairJoinBody(username, keys, device.mldsa_seed, device.ed25519_sk);
-  const served = await postJson<unknown>(`${root}/v1/pair/join`, JSON.parse(body));
-  // Core checks the anchor, computes the code this device shows, and refuses a
-  // server copy that is not it.
-  const joined = corePairJoinAccept(keys, JSON.stringify(served));
-  const state = deviceFromSecrets(root, username, device);
-  // The anchor the user is about to confirm by comparing codes. Pinning it here
-  // means the roster this device is served after the approval has to be a signed
-  // step from the one the code committed to.
-  state.roster_seq = joined.pin.roster_seq;
-  state.roster_transcript = joined.pin.transcript;
+  const generated = coreNewDevice();
+  const device: CoreDevice = generated.device;
+  const started = corePairStart(username, device, generated.mldsa_seed, generated.ed25519_sk);
+  const served = await postJson<unknown>(`${root}/v1/pair/join`, JSON.parse(started.body));
+  const joined = corePairJoinAccept(JSON.stringify(served));
   return {
     pairId: joined.pair_id,
-    pairCode: joined.pair_code,
-    confirm: joined.confirm,
-    rosterSeq: joined.pin.roster_seq,
-    rosterTranscript: joined.pin.transcript,
-    state,
+    code: started.code,
+    qrText: started.qr_text,
+    device,
+    secret: started.state,
+    state: deviceFromSecrets(root, username, generated),
   };
 }
 
 /**
- * What a joining device does after a poll of its pairing.
- *
- * The status code matters here, not just the body: a code that has timed out is
- * a 404, so a poll that read only the body would wait on a pairing that is gone.
+ * One poll of a pairing this device is joining, acted on. When the approving
+ * device has answered, this sends the reply sealed for it, with `description`
+ * saying what this device is. When the pairing is approved, this opens the
+ * roster pin it carries: the state it returns then is pinned and can sign in.
  */
-export async function pairPoll(server: string, pairCode: string): Promise<PairPoll> {
+export async function pairJoinStep(
+  pairing: JoinPairing,
+  description: string,
+): Promise<PairJoinStep> {
+  const root = pairing.state.server;
+  let status: number | undefined;
+  let text = "";
   try {
-    const { status, text } = await getTextStatus(`${apiRoot(server)}${corePairPath(pairCode)}`);
-    return corePairPoll(status, text);
+    ({ status, text } = await getTextStatus(`${root}${corePairPath(pairing.pairId)}`));
   } catch {
-    return corePairPoll(undefined, "");
+    status = undefined;
   }
-}
-
-export async function pairPreview(session: Session, pairCode: string): Promise<PairPreview> {
-  const served = await getJson<unknown>(
-    `${apiRoot(session.state.server)}${corePairPath(pairCode)}`,
-    session.token,
-  );
-  // The anchor is a roster this device verified from its own pin, never the
-  // server's device list. Core checks everything about the approval that does
-  // not need the typed code, so a preview that cannot lead to a valid approval
-  // fails before the user is asked to compare anything.
-  const verified = await verifiedRosterCore(session);
-  const preview = corePairPreview(
-    session.collectionKey,
-    session.keyEpoch,
-    verified,
-    JSON.stringify(served),
-  );
-  session.roster = JSON.parse(verified.roster_json) as Roster;
-  return preview;
+  const decision = corePairJoinPoll(status, text);
+  if (decision === "Ready") {
+    const pin = corePairFinish(pairing.secret, pairing.device, pairing.pairId, text);
+    return {
+      kind: "ready",
+      state: { ...pairing.state, roster_seq: pin.roster_seq, roster_transcript: pin.transcript },
+    };
+  }
+  if (decision === "Expired") return { kind: "expired" };
+  if (decision === "Confirm") {
+    const reply = corePairConfirm(pairing.secret, pairing.device, pairing.pairId, text, description);
+    try {
+      await postText(`${root}${corePairConfirmPath(pairing.pairId)}`, reply);
+    } catch {
+      // Treated like a poll that got no answer: the next poll still says
+      // `Confirm`, so the reply is sent again, until the pairing expires.
+      const retry = corePairJoinPoll(undefined, "");
+      return { kind: "wait", afterMs: typeof retry === "object" ? retry.Wait.after_ms : 0 };
+    }
+    return { kind: "wait", afterMs: 0 };
+  }
+  return { kind: "wait", afterMs: decision.Wait.after_ms };
 }
 
 /**
- * Approves a joining device: wraps the collection key for it, signs the grant,
- * and signs the roster that adds it.
+ * Answers a code typed or scanned on this signed-in device. A string that is not
+ * a pairing code is refused before anything is sent, and the checks that need no
+ * reply from the joining device are made before the code is spent.
+ */
+export async function pairRespond(session: Session, typed: string): Promise<PairResponse> {
+  const root = apiRoot(session.state.server);
+  const path = corePairLookupPath(typed);
+  const served = await getJson<unknown>(`${root}${path}`, session.token);
+  // The roster is one this device verified from its own pin, never the
+  // server's device list.
+  const verified = await verifiedRosterCore(session);
+  const responded = corePairRespond(
+    session.collectionKey,
+    session.keyEpoch,
+    verified,
+    session.state.username,
+    typed,
+    JSON.stringify(served),
+  );
+  await postJson<unknown>(
+    `${root}${corePairRespondPath(responded.response.nameplate)}`,
+    JSON.parse(responded.body),
+    session.token,
+  );
+  return responded.response;
+}
+
+/**
+ * One poll of a pairing this device has answered. A reply that does not open
+ * means the code was mistyped or the keys were swapped; the code is then spent,
+ * so the pairing is cancelled before the refusal is thrown.
+ */
+export async function pairPreviewStep(
+  session: Session,
+  response: PairResponse,
+): Promise<PairPreviewStep> {
+  const root = apiRoot(session.state.server);
+  let status: number | undefined;
+  let text = "";
+  try {
+    ({ status, text } = await getTextStatus(
+      `${root}${corePairPath(response.nameplate)}`,
+      session.token,
+    ));
+  } catch {
+    status = undefined;
+  }
+  const decision = corePairApprovePoll(status, text);
+  if (decision === "Expired") return { kind: "expired" };
+  if (decision !== "Preview") return { kind: "wait", afterMs: decision.Wait.after_ms };
+  const verified = await verifiedRosterCore(session);
+  try {
+    const preview = corePairPreview(
+      session.collectionKey,
+      session.keyEpoch,
+      verified,
+      response,
+      text,
+    );
+    session.roster = JSON.parse(verified.roster_json) as Roster;
+    return { kind: "preview", preview };
+  } catch (err) {
+    // The refusal is what the user has to see. A cancel that fails changes
+    // nothing they can act on: the code is spent either way, and the server
+    // drops the pairing when it expires.
+    await pairCancel(session, response).catch(() => undefined);
+    throw err;
+  }
+}
+
+/**
+ * Approves the device a preview showed: wraps the collection key for it, signs
+ * the grant and the roster step that adds it, and seals that step's pin for it.
  *
  * The roster is verified again here rather than reused from the preview: the
  * user has been looking at a screen in between, and a rotation or another
- * pairing may have landed. The confirmation code is recomputed from that roster
- * and the typed code compared against it, never against anything the server
- * supplied. The roster step is what lets the joining device, and every other
- * device, accept the new one without trusting the server's device list.
+ * pairing may have landed.
  */
 export async function pairApprove(
   session: Session,
-  pairCode: string,
+  response: PairResponse,
   preview: PairPreview,
-  confirmation: string,
-): Promise<string> {
+): Promise<void> {
   const { state } = session;
   const verified = await verifiedRosterCore(session);
   const approval = corePairApprove(
@@ -139,18 +230,26 @@ export async function pairApprove(
     session.collectionKey,
     session.keyEpoch,
     verified,
+    response,
     preview,
-    confirmation,
   );
-  await postJson<{ status: string }>(
-    `${apiRoot(state.server)}${corePairApprovePath(pairCode)}`,
+  await postJson<unknown>(
+    `${apiRoot(state.server)}${corePairApprovePath(response.nameplate)}`,
     JSON.parse(approval.body),
     session.token,
   );
   // The account is on the roster this device just signed, so move the pin onto
   // it rather than waiting to be served it back.
   pinSealedRoster(session, JSON.parse(approval.roster_json) as Roster);
-  return approval.confirm;
+}
+
+/** Gives up on a pairing this device answered. */
+export async function pairCancel(session: Session, response: PairResponse): Promise<void> {
+  await postText(
+    `${apiRoot(session.state.server)}${corePairCancelPath(response.nameplate)}`,
+    "",
+    session.token,
+  );
 }
 
 /**

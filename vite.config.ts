@@ -79,6 +79,10 @@ export default defineConfig(({ mode }) => {
           cleanupOutdatedCaches: true,
           // The wasm core is past workbox's 2 MiB default, and the app cannot start offline without it.
           maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+          // The QR scanner is only used to approve a pairing, which needs the
+          // server anyway, so its ~1 MB decoder is fetched when a scan starts
+          // rather than precached for every visit.
+          globIgnores: ["**/node_modules/**/*", "**/zxing_reader-*", "**/ponyfill-*"],
           navigateFallbackDenylist: [/^\/v1\//, /^\/health$/],
         },
       }),

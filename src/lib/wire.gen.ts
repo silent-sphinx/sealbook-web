@@ -529,12 +529,15 @@ export interface ManifestResponse {
  * via the `definition` "PairApproveRequest".
  */
 export interface PairApproveRequest {
-  confirmation: string;
   grant: DualSignatureBody;
   /**
    * The current roster plus the new device, signed by the approver.
    */
   roster: RosterBody;
+  /**
+   * The pin of `roster`, sealed for the joining device.
+   */
+  sealed_pin: Base64Url;
   wrap: KeyWrapBody;
 }
 /**
@@ -563,43 +566,91 @@ export interface RosterBody {
   signer: RosterSignerBody;
 }
 /**
+ * The joining device's answer once it has the approving device's share.
+ * Accepted once per pairing.
+ *
+ * This interface was referenced by `SealbookWireTypes`'s JSON-Schema
+ * via the `definition` "PairConfirmRequest".
+ */
+export interface PairConfirmRequest {
+  hello: Base64Url;
+}
+/**
+ * A pairing has two devices talking through the server: the joining device,
+ * which shows an eight-word code, and an approving device the user types or
+ * scans it into. The server sees only the code's first three words, the
+ * nameplate. The other five are the password for a CPace run whose two shares
+ * travel in these bodies, and the joining device's keys are bound into it, so
+ * everything sealed under the run's keys proves both devices hold the same code
+ * and the same keys. See `sealbook_crypto::pairing`.
+ *
  * This interface was referenced by `SealbookWireTypes`'s JSON-Schema
  * via the `definition` "PairJoinRequest".
  */
 export interface PairJoinRequest {
   device: DevicePublicKeys;
   enrollment_signature: DualSignatureBody;
+  /**
+   * The code's first three words, hyphen-joined.
+   */
+  nameplate: string;
+  /**
+   * The joining device's CPace share.
+   */
+  share: Base64Url;
+  /**
+   * The CPace session id the joining device picked.
+   */
+  sid: Base64Url;
   username: string;
 }
 /**
+ * The same for every username, including one with no account: nothing in it
+ * depends on the account, so it cannot be used to test usernames.
+ *
  * This interface was referenced by `SealbookWireTypes`'s JSON-Schema
  * via the `definition` "PairJoinResponse".
  */
 export interface PairJoinResponse {
-  confirm: string;
-  pair_code: string;
   pair_id: string;
-  /**
-   * The roster the joining device must anchor on, and which `confirm` commits
-   * to: the account's current roster sequence and its transcript.
-   */
-  roster_seq: number;
-  roster_transcript: Base64Url;
 }
 /**
+ * The approving device's CPace share. Accepted once per pairing.
+ *
+ * This interface was referenced by `SealbookWireTypes`'s JSON-Schema
+ * via the `definition` "PairRespondRequest".
+ */
+export interface PairRespondRequest {
+  share: Base64Url;
+}
+/**
+ * A pairing as the server holds it, from either side.
+ *
+ * `status` is `pending` until the approving device has sent its share,
+ * `responded` until the joining device has answered with `hello`, `confirmed`
+ * until the approval, and `ready` after it. The approving device, looking up
+ * by nameplate with a session on the account, is served the joining device's
+ * half; the joining device, polling by pair id, is served the approving
+ * device's. Empty byte fields are absent.
+ *
  * This interface was referenced by `SealbookWireTypes`'s JSON-Schema
  * via the `definition` "PairStatusResponse".
  */
 export interface PairStatusResponse {
-  confirm: string;
+  approver_share?: Base64Url;
   device?: DevicePublicKeys | null;
+  /**
+   * Sealed by the joining device for the approving one.
+   */
+  hello?: Base64Url;
+  joiner_share?: Base64Url;
   pair_id: string;
   /**
-   * The roster sequence the joining device anchored on, for the account's own
-   * devices only. It lets an approver whose roster has moved on since the
-   * pairing started say so, rather than reporting a bare code mismatch.
+   * Sealed by the approving device for the joining one: the roster pin to
+   * trust from.
    */
-  roster_seq?: number | null;
+  sealed_pin?: Base64Url;
+  sid?: Base64Url;
   status: string;
   username?: string | null;
 }

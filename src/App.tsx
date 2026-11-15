@@ -45,9 +45,11 @@ import {
   loginAccount,
   normalizeServer,
   pairApprove,
+  pairCancel,
   pairJoin,
-  pairPreview,
-  pairPoll,
+  pairJoinStep,
+  pairPreviewStep,
+  pairRespond,
   putAccountSettings,
   putAddressBook,
   putCalendar,
@@ -60,6 +62,9 @@ import {
   revokeSession,
   thisDeviceName,
   type DeviceLabel,
+  type JoinPairing,
+  type PairPreview,
+  type PairResponse,
   type Session,
   type VaultListing,
   type VaultProgress,
@@ -269,13 +274,17 @@ export default function App() {
   const [pendingNav, setPendingNav] = useState<{ run: () => void } | null>(null);
   const [deletingContact, setDeletingContact] = useState<Contact | null>(null);
   const [deletingAddressBook, setDeletingAddressBook] = useState<AddressBook | null>(null);
-  const [pairId, setPairId] = useState("");
-  const [pairConfirm, setPairConfirm] = useState("");
+  // The pairing this device has asked to join. Its secret half of the run is
+  // held here and nowhere else, so a reload starts the pairing again.
+  const [joinPairing, setJoinPairing] = useState<JoinPairing | null>(null);
+  // Set once the pairing is approved: the device state with its roster pin.
   const [pairState, setPairState] = useState<DeviceState | null>(null);
   const [pairApproved, setPairApproved] = useState(false);
   const [addCode, setAddCode] = useState("");
-  const [addConfirm, setAddConfirm] = useState<string | null>(null);
-  const [addPreview, setAddPreview] = useState<Awaited<ReturnType<typeof pairPreview>> | null>(null);
+  // This device's answer to the code, which holds the run's keys until the
+  // approval, and the joining device as its reply showed it.
+  const [addResponse, setAddResponse] = useState<PairResponse | null>(null);
+  const [addPreview, setAddPreview] = useState<PairPreview | null>(null);
   const [adding, setAdding] = useState(false);
   const [copied, setCopied] = useState(false);
   const [search, setSearch] = useState("");
@@ -609,25 +618,33 @@ export default function App() {
     }
   }, [shownAccent]);
 
-  // Poll for pairing approval. Stops when the request expires.
+  // Poll the pairing this device is joining. Each step is acted on as it comes:
+  // the reply to the approving device's answer, then the pin once approved.
   useEffect(() => {
-    if (screen !== "pair" || !pairId || pairApproved) {
+    if (screen !== "pair" || !joinPairing || pairApproved) {
       return;
     }
     let cancelled = false;
     let timer = 0;
 
     const tick = async () => {
-      const next = await pairPoll("", pairId);
-      if (cancelled) return;
-      if (next === "Ready") {
-        setPairApproved(true);
-      } else if (next === "Expired") {
-        setError("That pairing request expired. Start again.");
-      } else {
-        timer = window.setTimeout(() => {
-          void tick();
-        }, next.Wait.after_ms);
+      try {
+        const next = await pairJoinStep(joinPairing, browserPlatform());
+        if (cancelled) return;
+        if (next.kind === "ready") {
+          setPairState(next.state);
+          setPairApproved(true);
+        } else if (next.kind === "expired") {
+          setError("That pairing request expired or was turned down. Start again.");
+        } else {
+          timer = window.setTimeout(() => {
+            void tick();
+          }, next.afterMs);
+        }
+      } catch (err) {
+        // Only core refuses here, and a refusal ends the pairing: the other
+        // device's answer did not verify.
+        if (!cancelled) setError(friendlyError(err));
       }
     };
 
@@ -636,7 +653,47 @@ export default function App() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [screen, pairId, pairApproved]);
+  }, [screen, joinPairing, pairApproved]);
+
+  // Wait for the joining device's reply to this device's answer. A reply that
+  // does not open spends the code, so the flow goes back to the start and the
+  // user makes a fresh code on the new device.
+  useEffect(() => {
+    if (!session || !addResponse || addPreview) {
+      return;
+    }
+    let cancelled = false;
+    let timer = 0;
+
+    const tick = async () => {
+      try {
+        const next = await pairPreviewStep(session, addResponse);
+        if (cancelled) return;
+        if (next.kind === "preview") {
+          setAddPreview(next.preview);
+        } else if (next.kind === "expired") {
+          setAddResponse(null);
+          setAddCode("");
+          setError("That pairing code expired. Start again on the new device.");
+        } else {
+          timer = window.setTimeout(() => {
+            void tick();
+          }, next.afterMs);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setAddResponse(null);
+        setAddCode("");
+        setError(friendlyError(err));
+      }
+    };
+
+    void tick();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [session, addResponse, addPreview]);
 
   // Idle auto-lock. The warning is an in-app countdown, not window.confirm:
   // a native prompt suspends the event loop, so a user who walked away left the
@@ -723,9 +780,8 @@ export default function App() {
     setBusy(true);
     void pairJoin(normalizeServer(connectionDomain), linkedUsername)
       .then((joined) => {
-        setPairId(joined.pairCode);
-        setPairConfirm(joined.confirm);
-        setPairState(joined.state);
+        setJoinPairing(joined);
+        setPairState(null);
         setPairApproved(false);
         setPassword("");
         setScreen("pair");
@@ -1051,8 +1107,7 @@ export default function App() {
   }
 
   function resetPair() {
-    setPairId("");
-    setPairConfirm("");
+    setJoinPairing(null);
     setPairState(null);
     setPairApproved(false);
     setCopied(false);
@@ -1078,7 +1133,8 @@ export default function App() {
     setHiddenBooks(new Set());
     setViewingArchive(false);
     setAdding(false);
-    setAddConfirm(null);
+    setAddResponse(null);
+    setAddPreview(null);
     setAddCode("");
     setComposing(false);
     setViewingContact(null);
@@ -1273,9 +1329,8 @@ export default function App() {
     setError(null);
     try {
       const joined = await pairJoin(normalizeServer(connectionDomain), username.trim());
-      setPairId(joined.pairCode);
-      setPairConfirm(joined.confirm);
-      setPairState(joined.state);
+      setJoinPairing(joined);
+      setPairState(null);
       setPairApproved(false);
       setPassword("");
       setScreen("pair");
@@ -1369,26 +1424,40 @@ export default function App() {
     }
   }
 
-  async function onAddDevice(event: FormEvent) {
-    event.preventDefault();
-    if (!session || !addCode.trim()) {
+  /** Answers a code typed or scanned on this device. */
+  async function respondToCode(code: string) {
+    if (!session || !code.trim()) {
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      if (!addConfirm) {
-        const preview = await pairPreview(session, addCode.trim());
-        setAddPreview(preview);
-        setAddConfirm(preview.confirm);
-        return;
-      }
-      if (!addPreview) {
-        throw new Error("Pairing preview expired");
-      }
-      await pairApprove(session, addCode.trim(), addPreview, addConfirm);
+      setAddResponse(await pairRespond(session, code));
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onAddDevice(event: FormEvent) {
+    event.preventDefault();
+    if (!session) {
+      return;
+    }
+    if (!addResponse) {
+      await respondToCode(addCode);
+      return;
+    }
+    if (!addPreview) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await pairApprove(session, addResponse, addPreview);
       setAddCode("");
-      setAddConfirm(null);
+      setAddResponse(null);
       setAddPreview(null);
       setAdding(false);
     } catch (err) {
@@ -1396,6 +1465,18 @@ export default function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * Leaves the add-device flow, dropping a pairing this device answered but did
+   * not approve. Best effort: the server forgets the pairing when it expires.
+   */
+  function abandonAddDevice() {
+    if (session && addResponse) {
+      void pairCancel(session, addResponse).catch(() => undefined);
+    }
+    setAddResponse(null);
+    setAddPreview(null);
   }
 
   async function onAdd(draft: ContactDraft) {
@@ -1899,8 +1980,8 @@ export default function App() {
         connectionDomain={connectionDomain}
         saveDomain={saveDomain}
         error={error}
-        pairId={pairId}
-        pairConfirm={pairConfirm}
+        pairCode={joinPairing?.code ?? ""}
+        pairQrText={joinPairing?.qrText ?? ""}
         pairApproved={pairApproved}
         password={password}
         busy={busy}
@@ -2155,7 +2236,8 @@ export default function App() {
                 className={`inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface/70 px-2.5 py-1.5 text-xs font-medium text-text transition-all duration-150 hover:bg-surface hover:border-line-light cursor-pointer sm:px-3 ${focusRing}`}
                 onClick={() => {
                   setAdding(true);
-                  setAddConfirm(null);
+                  setAddResponse(null);
+                  setAddPreview(null);
                   setError(null);
                 }}
               >
@@ -2432,19 +2514,24 @@ export default function App() {
           busy={busy}
           error={error}
           addCode={addCode}
-          addConfirm={addConfirm}
+          stage={addPreview ? "approve" : addResponse ? "waiting" : "code"}
+          description={addPreview?.description ?? ""}
           onCodeChange={(code) => {
             setAddCode(code);
-            setAddConfirm(null);
+          }}
+          onScanned={(code) => {
+            setAddCode(code);
+            void respondToCode(code);
           }}
           onSubmit={onAddDevice}
           onBackToCode={() => {
-            setAddConfirm(null);
+            abandonAddDevice();
+            setAddCode("");
             setError(null);
           }}
           onClose={() => {
+            abandonAddDevice();
             setAdding(false);
-            setAddConfirm(null);
             setAddCode("");
             setError(null);
           }}

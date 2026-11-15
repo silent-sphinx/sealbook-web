@@ -1,41 +1,15 @@
 /**
- * Display helpers for pairing confirmation codes.
- *
- * Protocol v2 raised these from 13 to 26 base-32 characters (65 to 130 bits),
- * so a malicious server cannot search for a second preimage that would let it
- * substitute its own device keys. At that length the code has to be grouped to
- * stay comparable by eye.
+ * Display helpers for pairing codes.
  *
  * Presentation only, and deliberately not through core: these run in components
- * that otherwise never load the wasm module. The decision they used to serve --
- * whether a typed code matches the one for a pairing -- is core's, which
- * normalizes the code it is given. `pairingParity.test.ts` holds the grouping
- * here to the same shared fixture core is held to, so what the user compares
- * across two screens stays identical.
+ * that otherwise never load the wasm module. Whether a code is one is core's
+ * decision, made when the code is used (`corePairLookupPath`).
  */
 
-/** Characters per display group. Matches the Sealbook CLI. */
-const GROUP_SIZE = 4;
+/** Words in a pairing code. Mirrors `PAIR_CODE_WORDS` in sealbook-crypto. */
+export const PAIR_CODE_WORDS = 8;
 
-/** Splits a confirmation code into groups for display. */
-export function confirmationGroups(code: string): string[] {
-  const normalized = normalizeConfirmation(code);
-  const groups: string[] = [];
-  for (let i = 0; i < normalized.length; i += GROUP_SIZE) {
-    groups.push(normalized.slice(i, i + GROUP_SIZE));
-  }
-  return groups;
-}
-
-/** Formats a confirmation code as space-separated groups. */
-export function formatConfirmation(code: string): string {
-  return confirmationGroups(code).join(" ");
-}
-
-/**
- * Strips spacing and case differences, so a code can be compared or entered
- * exactly as it is displayed.
- */
-export function normalizeConfirmation(entered: string): string {
-  return entered.replace(/[\s-]/gu, "").toUpperCase();
+/** The words of a code, for a screen that shows them one by one. */
+export function pairCodeWords(code: string): string[] {
+  return code.trim().split(/\s+/u).filter(Boolean);
 }

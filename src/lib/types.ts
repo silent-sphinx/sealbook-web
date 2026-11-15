@@ -39,8 +39,8 @@ export type DeviceState = {
    * Every later roster has to be reachable from this one along device-signed
    * steps, which is what stops the server inserting a device of its own: a
    * device on the list would be handed the collection key at the next rotation.
-   * A joining device gets its first pin from the pairing anchor, which the user
-   * vouched for by comparing the confirmation code.
+   * A joining device gets its first pin from the approving device, sealed under
+   * the keys of the pairing's CPace run, so the server cannot choose it.
    */
   roster_seq?: number;
   /** Base64. Empty until a roster has been pinned. */

@@ -1,34 +1,56 @@
-import { useId, useRef, type FormEvent, type KeyboardEvent, type ClipboardEvent } from "react";
+import { useId, useRef, useState, type FormEvent, type KeyboardEvent, type ClipboardEvent } from "react";
 import { Modal } from "./Modal";
-import { confirmationGroups } from "../lib/pairing";
-import { btnPrimary, btnSecondary, eyebrow } from "../lib/styles";
+import { PAIR_CODE_WORDS, pairCodeWords } from "../lib/pairing";
+import { btnPrimary, btnSecondary } from "../lib/styles";
 import { ErrorMessage } from "./ErrorMessage";
+import { QrScanner, canScan } from "./QrScanner";
 
-const WORD_COUNT = 8;
+const WORD_COUNT = PAIR_CODE_WORDS;
+const QR_PREFIX = "SEALBOOK-PAIR:";
+
+/**
+ * Where an approval has got to: the code is being entered, this device has
+ * answered and waits for the new device's reply, or the reply opened and the
+ * user is asked to agree.
+ */
+export type AddDeviceStage = "code" | "waiting" | "approve";
 
 type Props = {
   busy: boolean;
   error: string | null;
   addCode: string;
-  addConfirm: string | null;
+  stage: AddDeviceStage;
+  /** What the new device says it is, once its reply has opened. */
+  description: string;
   onCodeChange: (code: string) => void;
+  /** A code read from a QR, as words, to answer straight away. */
+  onScanned: (code: string) => void;
   onSubmit: (event: FormEvent) => void;
   onBackToCode: () => void;
   onClose: () => void;
 };
 
+/** The words a scanned pairing QR holds, as the boxes show them. */
+function wordsFromScan(text: string): string {
+  const body = text.toUpperCase().startsWith(QR_PREFIX) ? text.slice(QR_PREFIX.length) : text;
+  return pairCodeWords(body.toLowerCase()).join(" ");
+}
+
 export function AddDeviceModal({
   busy,
   error,
   addCode,
-  addConfirm,
+  stage,
+  description,
   onCodeChange,
+  onScanned,
   onSubmit,
   onBackToCode,
   onClose,
 }: Props) {
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const codeLabelId = useId();
+  const [scanning, setScanning] = useState(false);
 
   const rawWords = addCode.split(" ");
   const words = Array.from({ length: WORD_COUNT }, (_, i) => rawWords[i] ?? "");
@@ -104,11 +126,19 @@ export function AddDeviceModal({
 
   return (
     <Modal
-      title={addConfirm ? "Verify & approve device" : "Add a new device"}
+      title={stage === "approve" ? "Approve device" : "Add a new device"}
       onClose={onClose}
     >
       <form onSubmit={onSubmit} className="p-6 sm:p-7">
-        {!addConfirm ? (
+        {stage === "code" && scanning ? (
+          <QrScanner
+            onScan={(text) => {
+              setScanning(false);
+              onScanned(wordsFromScan(text));
+            }}
+            onCancel={() => setScanning(false)}
+          />
+        ) : stage === "code" ? (
           <div>
             <p className="text-sm text-mute leading-relaxed mb-5">
               Authorize a new computer, phone, or tablet to access your encrypted vault without sharing your password.
@@ -128,7 +158,7 @@ export function AddDeviceModal({
                   2
                 </span>
                 <p className="text-sm text-mute leading-snug">
-                  Type the eight-word pairing code displayed there below.
+                  Scan the code it shows, or type its eight words below.
                 </p>
               </div>
             </div>
@@ -136,6 +166,16 @@ export function AddDeviceModal({
             <div className="mt-6">
               <div className="flex items-center justify-between mb-3">
                 <span id={codeLabelId} className="text-sm font-medium text-text">Pairing code</span>
+                <span className="flex items-center gap-2">
+                {canScan() ? (
+                  <button
+                    type="button"
+                    onClick={() => setScanning(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1 text-xs font-medium text-accent hover:border-line-light hover:text-accent-dim transition-colors cursor-pointer"
+                  >
+                    Scan QR code
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={handleClipboardPaste}
@@ -147,6 +187,7 @@ export function AddDeviceModal({
                   </svg>
                   Paste from clipboard
                 </button>
+                </span>
               </div>
               <div role="group" aria-labelledby={codeLabelId} className="grid grid-cols-4 gap-2">
                 {words.map((word, i) => (
@@ -188,29 +229,47 @@ export function AddDeviceModal({
                 disabled={busy || !allFilled}
                 className={btnPrimary}
               >
-                {busy ? "Checking…" : "Next: Verify code →"}
+                {busy ? "Connecting…" : "Connect →"}
+              </button>
+            </div>
+          </div>
+        ) : stage === "waiting" ? (
+          <div>
+            <div
+              role="status"
+              className="flex items-center justify-center gap-3 rounded-xl border border-line-light/60 bg-surface/40 py-6 text-sm text-mute"
+            >
+              <span className="flex items-center gap-1" aria-hidden="true">
+                {[0, 150, 300].map((delay) => (
+                  <span
+                    key={delay}
+                    className="h-1.5 w-1.5 animate-dot-bounce rounded-full bg-accent"
+                    style={{ animationDelay: `${delay}ms` }}
+                  />
+                ))}
+              </span>
+              <span>Waiting for the new device…</span>
+            </div>
+
+            {error ? <ErrorMessage className="mt-4 text-left">{error}</ErrorMessage> : null}
+
+            <div className="mt-8 flex items-center justify-end gap-3 border-t border-line pt-4">
+              <button type="button" className={btnSecondary} onClick={onBackToCode}>
+                Back
               </button>
             </div>
           </div>
         ) : (
           <div>
-            <p className="text-sm text-mute leading-relaxed mb-4">
-              Verify that both devices show this exact confirmation code before approving:
+            <p className="text-sm text-mute leading-relaxed">
+              The new device matched the code. It says it is:
             </p>
-
-            <div className="my-6 rounded-2xl border border-accent/25 bg-surface/40 p-6 text-center shadow-lg shadow-accent/5">
-              <p className={`mb-2 ${eyebrow}`}>
-                Confirmation code
-              </p>
-              <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 font-mono text-2xl font-bold tracking-[0.2em] text-accent">
-                {confirmationGroups(addConfirm ?? "").map((group, index) => (
-                  <span key={`${index}-${group}`}>{group}</span>
-                ))}
-              </p>
-            </div>
-
-            <p className="text-xs text-mute text-center leading-relaxed">
-              If the code matches the one displayed on your new device screen, click <strong className="text-text font-semibold">Approve device</strong> below to securely transfer your vault encryption keys.
+            <p className="my-5 rounded-xl border border-line bg-surface/40 px-4 py-3 text-center text-base font-semibold text-text">
+              {description || "A device that did not say what it is"}
+            </p>
+            <p className="text-xs text-mute leading-relaxed">
+              Approving gives it your vault's encryption keys. Only approve if you are holding this
+              device and started the pairing yourself.
             </p>
 
             {error ? <ErrorMessage className="mt-4 text-left">{error}</ErrorMessage> : null}
@@ -222,13 +281,9 @@ export function AddDeviceModal({
                 onClick={onBackToCode}
                 disabled={busy}
               >
-                Back
+                Don't approve
               </button>
-              <button
-                type="submit"
-                disabled={busy}
-                className={btnPrimary}
-              >
+              <button type="submit" disabled={busy} className={btnPrimary}>
                 {busy ? "Approving…" : "Approve device"}
               </button>
             </div>

@@ -159,19 +159,23 @@ import init, {
   core_manifest_sign_root,
   core_manifest_signer,
   core_manifest_verify,
-  core_confirmation_groups,
-  core_format_confirmation,
-  core_normalize_confirmation,
   core_open_row,
   core_unreadable_rows,
   core_pair_approve,
   core_pair_approve_path,
+  core_pair_approve_poll,
+  core_pair_cancel_path,
+  core_pair_confirm,
+  core_pair_confirm_path,
+  core_pair_finish,
   core_pair_join_accept,
-  core_pair_join_body,
+  core_pair_join_poll,
+  core_pair_lookup_path,
   core_pair_path,
   core_pair_preview,
-  core_pair_poll,
-  core_pair_status,
+  core_pair_respond,
+  core_pair_respond_path,
+  core_pair_start,
   core_pin_roster,
   core_roster_accept,
   core_roster_accept_key,
@@ -222,7 +226,6 @@ import init, {
   manifest_sign,
   object_content_digest,
   open_object,
-  pair_confirmation_code,
   payload_schema_version,
   protocol_version,
   roster_seal_device,
@@ -298,6 +301,7 @@ import type {
   CoreRecurrence,
   CorePayloadKind,
   CorePairPreview,
+  CorePairResponse,
   CoreRoster,
   CoreRosterPin,
   CoreSealedRow,
@@ -309,9 +313,11 @@ import type {
   ManifestPlan,
   ManifestSigner,
   PairApproval,
+  PairApprovePoll,
+  PairJoinPoll,
   PairJoined,
-  PairPoll,
-  PairStatus,
+  PairResponded,
+  PairStarted,
   PasswordChange,
   PasswordChangeStarted,
   RecoverStarted,
@@ -395,35 +401,6 @@ export async function initWasm(): Promise<void> {
     return;
   }
   log.debug("crypto module versions match", { ...built });
-}
-
-/**
- * The pairing code both screens show.
- *
- * `rosterSeq` and `rosterTranscript` are the roster anchor the code commits to,
- * which is what makes the user's comparison authenticate the approver to the
- * joining device as well as the other way round. The joining side uses the anchor
- * `pair/join` served; the approving side must use the pin of a roster it verified
- * itself, never one the server handed it.
- */
-export function pairConfirmationCode(
-  pairId: string,
-  deviceId: string,
-  mldsaPk: string,
-  ed25519Pk: string,
-  hpkePk: string,
-  rosterSeq: number,
-  rosterTranscript: string,
-): string {
-  return pair_confirmation_code(
-    pairId,
-    deviceId,
-    mldsaPk,
-    ed25519Pk,
-    hpkePk,
-    BigInt(rosterSeq),
-    rosterTranscript,
-  );
 }
 
 export function createEnrollment(password: string, collectionId: string): Enrollment {
@@ -1096,88 +1073,103 @@ export function coreRotationEntries(
 }
 
 // ── Core: pairing ──
+//
+// The steps are documented on `sealbook_core::pairing`. The `state` of a
+// `PairStarted` and the `keys` of a `CorePairResponse` are secret, and are kept
+// in memory only.
 
 export type {
   CoreDevice,
   CorePairPreview,
+  CorePairResponse,
   PairApproval,
+  PairApprovePoll,
+  PairJoinPoll,
   PairJoined,
-  PairPoll,
-  PairStatus,
+  PairResponded,
+  PairStarted,
 };
 
-/** The join request body, with the enrollment signature over the new keys. */
-export function corePairJoinBody(
+/** Makes the joining device's code and join request. */
+export function corePairStart(
   username: string,
   device: CoreDevice,
   mldsaSeed: string,
   ed25519Sk: string,
-): string {
-  return core_pair_join_body(username, device, mldsaSeed, ed25519Sk);
+): PairStarted {
+  return core_pair_start(username, device, mldsaSeed, ed25519Sk);
+}
+
+export function corePairJoinAccept(body: string): PairJoined {
+  return core_pair_join_accept(body);
 }
 
 /**
- * Checks the join response and computes the code the joining device shows.
- *
- * The code is this device's own, not the server's copy: a server that
- * substituted the keys could show the real code and keep the ones it swapped
- * in. Throws when the two do not agree.
+ * What a joining device does after a poll. `status` is undefined when the
+ * request got no answer. An expired code is a 404, so the status matters as
+ * well as the body.
  */
-export function corePairJoinAccept(
+export function corePairJoinPoll(status: number | undefined, body: string): PairJoinPoll {
+  return core_pair_join_poll(status, body);
+}
+
+/** The joining device's reply, sealed for the approving device. */
+export function corePairConfirm(
+  state: string,
   device: CoreDevice,
+  pairId: string,
   body: string,
-): PairJoined {
-  return core_pair_join_accept(device, body);
+  description: string,
+): string {
+  return core_pair_confirm(state, device, pairId, body, description);
 }
 
-/**
- * What a joining device does after a poll: stop because it was approved or has
- * expired, or ask again after the stated wait. `status` is undefined when the
- * request got no answer.
- */
-export function corePairPoll(
-  status: number | undefined,
+/** The roster pin the approving device sealed, once the pairing is ready. */
+export function corePairFinish(
+  state: string,
+  device: CoreDevice,
+  pairId: string,
   body: string,
-): PairPoll {
-  return core_pair_poll(status, body);
+): CoreRosterPin {
+  return core_pair_finish(state, device, pairId, body);
 }
 
-/**
- * Where a poll says the pairing has got to.
- *
- * Takes the status code as well as the body: an expired code is a 404, so a
- * poll that read only the body would wait on a pairing that is gone.
- */
-export function corePairStatus(status: number, body: string): PairStatus {
-  return core_pair_status(status, body);
+/** The path that looks a typed or scanned code up. Throws if it is not a code. */
+export function corePairLookupPath(typed: string): string {
+  return core_pair_lookup_path(typed);
 }
 
-/** The server-relative path that looks a pairing up, from a code as typed. */
-export function corePairPath(pairKey: string): string {
-  return core_pair_path(pairKey);
+/** The approving device's answer, checked against a roster it verified. */
+export function corePairRespond(
+  ck: string,
+  keyEpoch: number,
+  verified: VerifiedRoster,
+  username: string,
+  typed: string,
+  body: string,
+): PairResponded {
+  return core_pair_respond(ck, BigInt(keyEpoch), verified, username, typed, body);
 }
 
-/** The server-relative path an approval posts to. */
-export function corePairApprovePath(pairKey: string): string {
-  return core_pair_approve_path(pairKey);
+/** What an approving device does after a poll. */
+export function corePairApprovePoll(status: number | undefined, body: string): PairApprovePoll {
+  return core_pair_approve_poll(status, body);
 }
 
-/**
- * Reads a pairing request and checks everything that does not need the typed
- * code, against a roster this device verified from its own pin.
- */
+/** Opens the joining device's reply. Throws `CodeMismatch` if it does not open. */
 export function corePairPreview(
   ck: string,
   keyEpoch: number,
   verified: VerifiedRoster,
+  response: CorePairResponse,
   body: string,
 ): CorePairPreview {
-  return core_pair_preview(ck, BigInt(keyEpoch), verified, body);
+  return core_pair_preview(ck, BigInt(keyEpoch), verified, response, body);
 }
 
 /**
  * Approves a joining device: wraps the collection key for it, signs the grant,
- * and signs the roster step that adds it.
+ * signs the roster step that adds it, and seals that step's pin for it.
  */
 export function corePairApprove(
   mldsaSeed: string,
@@ -1186,8 +1178,8 @@ export function corePairApprove(
   ck: string,
   keyEpoch: number,
   verified: VerifiedRoster,
+  response: CorePairResponse,
   preview: CorePairPreview,
-  typed: string,
 ): PairApproval {
   return core_pair_approve(
     mldsaSeed,
@@ -1196,24 +1188,29 @@ export function corePairApprove(
     ck,
     BigInt(keyEpoch),
     verified,
+    response,
     preview,
-    typed,
   );
 }
 
-/** Strips spacing and case differences from a typed confirmation code. */
-export function coreNormalizeConfirmation(entered: string): string {
-  return core_normalize_confirmation(entered);
+export function corePairPath(key: string): string {
+  return core_pair_path(key);
 }
 
-/** A confirmation code split into display groups. */
-export function coreConfirmationGroups(code: string): string[] {
-  return core_confirmation_groups(code);
+export function corePairRespondPath(key: string): string {
+  return core_pair_respond_path(key);
 }
 
-/** A confirmation code grouped for display. */
-export function coreFormatConfirmation(code: string): string {
-  return core_format_confirmation(code);
+export function corePairConfirmPath(key: string): string {
+  return core_pair_confirm_path(key);
+}
+
+export function corePairApprovePath(key: string): string {
+  return core_pair_approve_path(key);
+}
+
+export function corePairCancelPath(key: string): string {
+  return core_pair_cancel_path(key);
 }
 
 export type {

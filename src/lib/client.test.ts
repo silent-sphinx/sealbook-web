@@ -15,7 +15,8 @@ import {
   normalizeServer,
   setProxyLoopback,
   pairApprove,
-  pairPreview,
+  pairPreviewStep,
+  pairRespond,
   putAccountSettings,
   putContact,
   rotateAuthenticated,
@@ -51,7 +52,9 @@ import {
   newUuid,
   objectContentDigest,
   openObject,
-  pairConfirmationCode,
+  corePairConfirm,
+  corePairFinish,
+  corePairStart,
   rosterSealDevice,
   rosterVerify,
   sealObject,
@@ -387,105 +390,156 @@ describe("syncRoster", () => {
 });
 
 describe("pairing approval", () => {
-  /** The joining device, and the code it shows for the anchor it was served. */
-  function joiner(approver: Account) {
-    const device = createDevice();
-    const pairId = newUuid();
-    const anchor = {
-      seq: approver.session.state.roster_seq!,
-      transcript: approver.session.state.roster_transcript!,
+  /**
+   * A joining device and a server relaying its pairing. The joining device is
+   * core itself, as the other clients run it; the approving side is the code
+   * under test. `shown` is the device the server shows the approver, which a
+   * server swapping keys would replace.
+   */
+  function pairing(approver: Account, shown?: DevicePublic) {
+    const joining = createDevice();
+    const keys = deviceKeys(joining);
+    const started = corePairStart("alice", keys, joining.mldsa_seed, joining.ed25519_sk);
+    const join = JSON.parse(started.body) as {
+      nameplate: string;
+      sid: string;
+      share: string;
+      device: DevicePublic;
     };
-    const confirm = pairConfirmationCode(
-      pairId,
-      device.device_id,
-      device.mldsa_pk,
-      device.ed25519_pk,
-      device.hpke_pk,
-      anchor.seq,
-      anchor.transcript,
-    );
-    return { device, pairId, confirm, anchor };
-  }
-
-  function pairRoutes(approver: Account, join: ReturnType<typeof joiner>, overrides?: {
-    device?: DevicePublic;
-    confirm?: string;
-    rosterSeq?: number;
-  }) {
-    return server({
-      "/roster": () => ({ rosters: [approver.roster] }),
-      "/approve": () => ({ pair_id: join.pairId, status: "ready", confirm: join.confirm }),
-      "/v1/pair/PAIRCODE": () => ({
-        pair_id: join.pairId,
-        status: "pending",
-        confirm: overrides?.confirm ?? join.confirm,
-        device: overrides?.device ?? deviceKeys(join.device),
-        roster_seq: overrides?.rosterSeq ?? join.anchor.seq,
-      }),
+    const pairId = newUuid();
+    const pair = { status: "pending", approverShare: "", hello: "" };
+    const view = () => ({
+      pair_id: pairId,
+      status: pair.status,
+      username: "alice",
+      device: shown ?? join.device,
+      sid: join.sid,
+      joiner_share: join.share,
+      ...(pair.hello ? { hello: pair.hello } : {}),
     });
+    const routes = server({
+      "/roster": () => ({ rosters: [approver.roster] }),
+      "/respond": (_url, body) => {
+        pair.approverShare = (body as { share: string }).share;
+        pair.status = "responded";
+        return view();
+      },
+      "/approve": () => {
+        pair.status = "ready";
+        return view();
+      },
+      "/cancel": () => {
+        pair.status = "cancelled";
+        return {};
+      },
+      [`/v1/pair/${join.nameplate}`]: () => view(),
+    });
+    const joinerView = (extra: Record<string, string> = {}) =>
+      JSON.stringify({
+        pair_id: pairId,
+        status: pair.status,
+        approver_share: pair.approverShare,
+        ...extra,
+      });
+    return {
+      code: started.code,
+      keys,
+      routes,
+      /** The joining device's reply, as its next poll would send it. */
+      reply(description = "Firefox on macOS") {
+        const sent = corePairConfirm(started.state, keys, pairId, joinerView(), description);
+        pair.hello = (JSON.parse(sent) as { hello: string }).hello;
+        pair.status = "confirmed";
+      },
+      /** The joining device opening the pin the approval sealed for it. */
+      finish(sealedPin: string) {
+        return corePairFinish(
+          started.state,
+          keys,
+          pairId,
+          joinerView({ sealed_pin: sealedPin }),
+        );
+      },
+    };
   }
 
-  it("signs the roster that adds the device and sends the code it computed", async () => {
+  function calledEnding(routes: ReturnType<typeof server>, suffix: string): boolean {
+    return routes.fetchMock.mock.calls.some(([url]) => new URL(url).pathname.endsWith(suffix));
+  }
+
+  it("pairs the device whose code was typed, and pins it on the roster it signs", async () => {
     const approver = account();
-    const join = joiner(approver);
-    const { sent } = pairRoutes(approver, join);
+    const join = pairing(approver);
 
-    const preview = await pairPreview(approver.session, "PAIRCODE");
-    // Computed here from a verified roster, not taken from the server, and it
-    // comes out as the code the joining device is showing.
-    expect(preview.confirm).toBe(join.confirm);
+    // Typed in capitals with a stray space, as a user might.
+    const response = await pairRespond(approver.session, ` ${join.code.toUpperCase()}  `);
+    expect(await pairPreviewStep(approver.session, response)).toEqual({
+      kind: "wait",
+      afterMs: expect.any(Number) as number,
+    });
 
-    const confirm = await pairApprove(approver.session, "PAIRCODE", preview, preview.confirm);
-    expect(confirm).toBe(join.confirm);
+    join.reply();
+    const step = await pairPreviewStep(approver.session, response);
+    if (step.kind !== "preview") throw new Error(`expected a preview, got ${step.kind}`);
+    expect(step.preview.description).toBe("Firefox on macOS");
+    expect(step.preview.device).toEqual(join.keys);
 
-    const body = sent["/approve"] as {
+    await pairApprove(approver.session, response, step.preview);
+    const body = join.routes.sent["/approve"] as {
       roster: Roster;
-      confirmation: string;
-      grant: { mldsa: string; ed25519: string };
+      sealed_pin: string;
       wrap: { recipient_id: string };
     };
-    expect(body.confirmation).toBe(join.confirm);
-    expect(body.grant.mldsa.length).toBeGreaterThan(0);
-    expect(body.wrap.recipient_id).toBe(join.device.device_id);
+    expect(body.wrap.recipient_id).toBe(join.keys.device_id);
     expect(body.roster.roster_seq).toBe(2);
     expect(body.roster.devices.map((device) => device.device_id).sort()).toEqual(
-      [approver.enrollment.device_id, join.device.device_id].sort(),
+      [approver.enrollment.device_id, join.keys.device_id].sort(),
     );
-    // The step has to verify from the roster the joining device anchored on,
-    // which is what that device will check it against.
-    const verified = rosterVerify(
-      approver.collectionId,
-      join.anchor.seq,
-      join.anchor.transcript,
-      [approver.roster, body.roster],
-      approver.session.collectionKey,
-      1,
-      join.device.device_id,
-    );
-    expect(verified.pin_seq).toBe(2);
-    // And the approver moves its own pin onto the roster it just signed.
+    // The approver moves its own pin onto the roster it just signed, and the
+    // joining device opens the very same pin from the approval.
     expect(approver.session.state.roster_seq).toBe(2);
+    expect(join.finish(body.sealed_pin)).toEqual({
+      roster_seq: 2,
+      transcript: approver.session.state.roster_transcript,
+    });
   });
 
-  it("refuses a preview whose device keys are not the ones the code covers", async () => {
+  it("refuses what is not a pairing code before anything is sent", async () => {
     const approver = account();
-    const join = joiner(approver);
-    // A server substituting its own device keys while replaying the real code is
-    // the attack the roster anchor closes: the code no longer recomputes.
-    const intruder = createDevice();
-    pairRoutes(approver, join, { device: deviceKeys(intruder) });
+    const join = pairing(approver);
+    await expect(pairRespond(approver.session, "these are not eight words")).rejects.toThrow(
+      /"Code"/u,
+    );
+    expect(join.routes.fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a code one word off, and spends it", async () => {
+    const approver = account();
+    const join = pairing(approver);
+    const words = join.code.split(" ");
+    words[7] = words[7] === "zoo" ? "zone" : "zoo";
+
+    const response = await pairRespond(approver.session, words.join(" "));
+    join.reply();
     // Core's refusal, not a sentence: `friendlyError` is where this client
-    // words it, and the other two word the same refusal for themselves.
-    await expect(pairPreview(approver.session, "PAIRCODE")).rejects.toThrow(/ServerCode/u);
+    // words it, and the other clients word the same refusal for themselves.
+    await expect(pairPreviewStep(approver.session, response)).rejects.toThrow(/CodeMismatch/u);
+    expect(calledEnding(join.routes, "/cancel")).toBe(true);
+    expect(join.routes.sent["/approve"]).toBeUndefined();
+    expect(approver.session.state.roster_seq).toBe(1);
   });
 
-  it("refuses when the account's roster moved on while the pairing waited", async () => {
+  it("refuses the reply when the server showed other keys than the joining device holds", async () => {
     const approver = account();
-    const join = joiner(approver);
-    // The joining device anchored on a roster that is no longer the current one,
-    // so the two sides would fold different anchors into the code.
-    pairRoutes(approver, join, { rosterSeq: join.anchor.seq + 1 });
-    await expect(pairPreview(approver.session, "PAIRCODE")).rejects.toThrow(/RosterMoved/u);
+    // The attack the PAKE closes: a server showing the approver its own device
+    // while relaying everything else as it is. The keys are bound into the run,
+    // so the joining device's reply does not open.
+    const join = pairing(approver, deviceKeys(createDevice()));
+
+    const response = await pairRespond(approver.session, join.code);
+    join.reply();
+    await expect(pairPreviewStep(approver.session, response)).rejects.toThrow(/CodeMismatch/u);
+    expect(join.routes.sent["/approve"]).toBeUndefined();
   });
 });
 
@@ -2276,12 +2330,15 @@ describe("apiRoot", () => {
 });
 
 describe("every request", () => {
+  // Any eight list words: the lookup is the request under test.
+  const CODE = "abandon ability able about above absent absorb abstract";
+
   it("is bounded by an abort signal, so a server that answers nothing cannot hang the caller", async () => {
     const owner = account();
-    const { fetchMock } = server({ "/v1/pair/PAIRCODE": () => ({}) });
+    const { fetchMock } = server({ "/v1/pair/abandon-ability-able": () => ({}) });
 
     // The answer is beside the point here; what was sent is the subject.
-    await expect(pairPreview(owner.session, "PAIRCODE")).rejects.toThrow();
+    await expect(pairRespond(owner.session, CODE)).rejects.toThrow();
 
     const [, options] = fetchMock.mock.calls[0]!;
     expect(options?.signal).toBeInstanceOf(AbortSignal);
@@ -2300,7 +2357,7 @@ describe("every request", () => {
       }),
     );
 
-    await expect(pairPreview(owner.session, "PAIRCODE")).rejects.toBeInstanceOf(
+    await expect(pairRespond(owner.session, CODE)).rejects.toBeInstanceOf(
       ServerUnreachableError,
     );
   });

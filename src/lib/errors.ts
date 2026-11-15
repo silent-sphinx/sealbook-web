@@ -78,9 +78,6 @@ export function friendlyError(err: unknown): string {
   if (err instanceof Error && err.name === "OfflineUnavailableError") {
     return raw;
   }
-  if (text.includes("confirmation")) {
-    return "The two devices don't show the same code. Start the pairing again.";
-  }
   if (text.includes("unfinished recovery")) {
     return coreErrorMessage('{"kind":"RecoveryRotationPending"}') ?? raw;
   }

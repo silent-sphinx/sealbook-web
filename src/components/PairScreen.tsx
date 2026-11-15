@@ -3,15 +3,18 @@ import { AuthCard, Brand, Step } from "./AuthLayout";
 import { CopyIcon, CheckIcon } from "./AppIcons";
 import { PasswordField } from "./PasswordField";
 import { authField, authLabel, authPrimary, chipButton, ghost } from "../lib/styles";
-import { confirmationGroups } from "../lib/pairing";
+import { pairCodeWords } from "../lib/pairing";
 import { ErrorMessage } from "./ErrorMessage";
+import { QrCode } from "./QrCode";
 
 interface PairScreenProps {
   connectionDomain: string;
   saveDomain: (value: string) => boolean;
   error: string | null;
-  pairId: string;
-  pairConfirm: string;
+  /** The eight words this device shows. */
+  pairCode: string;
+  /** The same code, as the QR code holds it. */
+  pairQrText: string;
   pairApproved: boolean;
   password: string;
   busy: boolean;
@@ -27,8 +30,8 @@ export function PairScreen({
   connectionDomain,
   saveDomain,
   error,
-  pairId,
-  pairConfirm,
+  pairCode,
+  pairQrText,
   pairApproved,
   password,
   busy,
@@ -39,7 +42,7 @@ export function PairScreen({
   onBack,
   onGoToRecover,
 }: PairScreenProps) {
-  const pairWords = pairId.split(" ").filter(Boolean);
+  const pairWords = pairCodeWords(pairCode);
 
   return (
     <AuthCard
@@ -60,7 +63,14 @@ export function PairScreen({
           </p>
         </Step>
 
-        <Step number={2} title="Enter this pairing code" state={pairApproved ? "done" : "active"}>
+        <Step number={2} title="Enter or scan this code there" state={pairApproved ? "done" : "active"}>
+          {pairQrText ? (
+            <QrCode
+              text={pairQrText}
+              label="Pairing code as a QR code"
+              className="mb-3 h-40 w-40 p-1.5"
+            />
+          ) : null}
           <div className="flex flex-wrap gap-1.5">
             {pairWords.map((word, index) => (
               <span
@@ -75,7 +85,7 @@ export function PairScreen({
           <button
             type="button"
             onClick={() => {
-              void navigator.clipboard.writeText(pairId);
+              void navigator.clipboard.writeText(pairCode);
               onCopied(true);
               setTimeout(() => onCopied(false), 2000);
             }}
@@ -86,19 +96,10 @@ export function PairScreen({
           </button>
         </Step>
 
-        <Step number={3} title="Verify code" last state={pairApproved ? "done" : "waiting"}>
+        <Step number={3} title="Approve it there" last state={pairApproved ? "done" : "waiting"}>
           <p className="text-sm leading-relaxed text-mute">
-            Confirm both devices show this code:
-          </p>
-          <div className="mt-3 rounded-xl border border-accent/25 bg-gradient-to-b from-accent/10 to-accent/[0.03] px-4 py-4 text-center">
-            <p className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 font-mono text-xl font-bold tracking-[0.08em] text-accent">
-              {confirmationGroups(pairConfirm).map((group, index) => (
-                <span key={`${index}-${group}`}>{group}</span>
-              ))}
-            </p>
-          </div>
-          <p className="mt-2 text-xs leading-relaxed text-mute">
-            Check the other device, then approve the pairing there.
+            Your other device shows what is joining and asks before adding it. The code only
+            works once, so start again here if it was mistyped.
           </p>
         </Step>
       </div>

@@ -4,8 +4,10 @@
  *
  * The code is one string in `App`'s state drawn as eight boxes, so every path
  * that fills a box has to split what it was given and report the whole code
- * back. What is under test is that splitting, the clamp at eight words, and
- * that the approve step is only reachable once the code is complete.
+ * back. What is under test is that splitting, the clamp at eight words, that
+ * the code is only sent once it is complete, the scan option where a camera
+ * exists, and the two stages after the code: waiting for the new device, and
+ * asking before approving what it says it is.
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -20,6 +22,7 @@ type Props = Parameters<typeof AddDeviceModal>[0];
 function mount(overrides: Partial<Props> = {}) {
   const spies = {
     onCodeChange: vi.fn<(code: string) => void>(),
+    onScanned: vi.fn<(code: string) => void>(),
     onSubmit: vi.fn<(event: { preventDefault: () => void }) => void>((event) =>
       event.preventDefault(),
     ),
@@ -31,7 +34,8 @@ function mount(overrides: Partial<Props> = {}) {
       busy={false}
       error={null}
       addCode=""
-      addConfirm={null}
+      stage="code"
+      description=""
       {...spies}
       {...overrides}
     />,
@@ -146,14 +150,14 @@ describe("AddDeviceModal, entering the code", () => {
   it("will not verify a code that is not finished", () => {
     mount({ addCode: "alpha bravo charlie" });
 
-    const submit = screen.getByRole("button", { name: "Next: Verify code →" });
+    const submit = screen.getByRole("button", { name: "Connect →" });
     expect((submit as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("verifies a complete code", () => {
     const { onSubmit } = mount({ addCode: EIGHT });
 
-    fireEvent.click(screen.getByRole("button", { name: "Next: Verify code →" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connect →" }));
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
@@ -165,37 +169,74 @@ describe("AddDeviceModal, entering the code", () => {
   });
 });
 
-describe("AddDeviceModal, approving the device", () => {
-  it("shows the confirmation code in groups, and nothing to type into", () => {
-    mount({ addCode: EIGHT, addConfirm: "ABCD2345" });
-
-    expect(screen.getByRole("heading", { name: "Verify & approve device" })).not.toBeNull();
-    expect(screen.queryAllByRole("textbox")).toHaveLength(0);
-    expect(screen.getByText("ABCD")).not.toBeNull();
-    expect(screen.getByText("2345")).not.toBeNull();
+describe("AddDeviceModal, scanning", () => {
+  it("offers no scan where the browser has no camera", () => {
+    mount();
+    expect(screen.queryByRole("button", { name: "Scan QR code" })).toBeNull();
   });
 
-  it("goes back to the code without approving", () => {
-    const { onBackToCode, onSubmit } = mount({ addCode: EIGHT, addConfirm: "ABCD2345" });
+  it("opens the camera, and says so plainly when it is not allowed", async () => {
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: () => Promise.reject(new DOMException("denied", "NotAllowedError")),
+      },
+    });
+    mount();
 
+    fireEvent.click(screen.getByRole("button", { name: "Scan QR code" }));
+
+    expect(screen.getByLabelText("Camera view")).not.toBeNull();
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toMatch(/Camera access was not allowed/u),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Type the words instead" }));
+    expect(boxes()).toHaveLength(8);
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: undefined });
+  });
+});
+
+describe("AddDeviceModal, after the code", () => {
+  it("waits for the new device, with nothing to type and a way back", () => {
+    const { onBackToCode, onSubmit } = mount({ addCode: EIGHT, stage: "waiting" });
+
+    expect(screen.getByRole("status").textContent).toMatch(/Waiting for the new device/u);
+    expect(screen.queryAllByRole("textbox")).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
-
     expect(onBackToCode).toHaveBeenCalledTimes(1);
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it("shows what the new device says it is before approving", () => {
+    mount({ addCode: EIGHT, stage: "approve", description: "Firefox on macOS" });
+
+    expect(screen.getByRole("heading", { name: "Approve device" })).not.toBeNull();
+    expect(screen.getByText("Firefox on macOS")).not.toBeNull();
+  });
+
   it("approves the device", () => {
-    const { onSubmit } = mount({ addCode: EIGHT, addConfirm: "ABCD2345" });
+    const { onSubmit } = mount({ addCode: EIGHT, stage: "approve", description: "Pixel 8a" });
 
     fireEvent.click(screen.getByRole("button", { name: "Approve device" }));
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it("holds both buttons while the transfer is running", () => {
-    mount({ addCode: EIGHT, addConfirm: "ABCD2345", busy: true });
+  it("can be turned down", () => {
+    const { onBackToCode, onSubmit } = mount({ addCode: EIGHT, stage: "approve" });
 
-    expect((screen.getByRole("button", { name: "Back" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Don't approve" }));
+
+    expect(onBackToCode).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("holds both buttons while the transfer is running", () => {
+    mount({ addCode: EIGHT, stage: "approve", busy: true });
+
+    expect((screen.getByRole("button", { name: "Don't approve" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
     expect((screen.getByRole("button", { name: "Approving…" }) as HTMLButtonElement).disabled).toBe(
       true,
     );

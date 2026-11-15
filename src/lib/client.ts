@@ -83,13 +83,22 @@ export {
   rotateVault,
 } from "./clientAuth";
 
-export type { DeviceSummary, PairPreview } from "./clientPairing";
+export type {
+  DeviceSummary,
+  JoinPairing,
+  PairJoinStep,
+  PairPreview,
+  PairPreviewStep,
+  PairResponse,
+} from "./clientPairing";
 export {
   listDevices,
   pairApprove,
+  pairCancel,
   pairJoin,
-  pairPreview,
-  pairPoll,
+  pairJoinStep,
+  pairPreviewStep,
+  pairRespond,
   revokeDevice,
 } from "./clientPairing";
 
