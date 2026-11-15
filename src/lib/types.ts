@@ -52,6 +52,8 @@ export type RosterVerified = {
   roster: Roster;
   pin_seq: number;
   pin_transcript: string;
+  /** False for a roster that predates key commitments. */
+  key_committed: boolean;
 };
 
 /** The vault features an account can turn off; settings is always on. */

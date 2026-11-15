@@ -130,6 +130,7 @@ async function verifiedRosterChain(session: Session): Promise<RosterVerified> {
     roster: JSON.parse(verified.roster_json) as Roster,
     pin_seq: verified.pin.roster_seq,
     pin_transcript: verified.pin.transcript,
+    key_committed: verified.key_committed,
   };
 }
 
@@ -141,6 +142,7 @@ export async function syncRoster(session: Session): Promise<Roster> {
   const verified = await verifiedRosterChain(session);
   rememberRosterPin(session, verified.pin_seq, verified.pin_transcript);
   session.roster = verified.roster;
+  session.rosterLacksKeyCommitment = !verified.key_committed;
   return verified.roster;
 }
 
@@ -160,6 +162,7 @@ export async function adoptKey(
   session.collectionKey = collectionKey;
   session.keyEpoch = keyEpoch;
   session.roster = roster;
+  session.rosterLacksKeyCommitment = !verified.key_committed;
   return roster;
 }
 
@@ -176,6 +179,7 @@ export function pinSealedRoster(session: Session, roster: Roster): void {
   }
   rememberRosterPin(session, verified.pin.roster_seq, verified.pin.transcript);
   session.roster = roster;
+  session.rosterLacksKeyCommitment = !verified.key_committed;
 }
 
 export async function rosterDevices(

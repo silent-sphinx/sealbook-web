@@ -105,7 +105,12 @@ import {
   visibleAddressBooks,
 } from "./lib/addressBook";
 import { emptyDraft, sortContacts } from "./lib/contact";
-import { coreContactIndex, type ContactSearchIndex, type VaultSearchIndex } from "./lib/wasm";
+import {
+  coreContactIndex,
+  coreLegacyRosterMessage,
+  type ContactSearchIndex,
+  type VaultSearchIndex,
+} from "./lib/wasm";
 import { buildVaultIndex, KIND_FEATURE, type SearchHit } from "./lib/vaultSearch";
 import { resolveEvent } from "./lib/calendarSearch";
 import { extractRecoveryWords } from "./lib/phrase";
@@ -2009,6 +2014,11 @@ export default function App() {
           <div className="border-b border-warning/25 bg-warning/10 px-5 py-2 text-center text-xs font-medium text-warning" role="alert">
             {unopened} item{unopened === 1 ? "" : "s"} in this vault could not be opened by this
             device, so {unopened === 1 ? "it is" : "they are"} not shown. Nothing has been changed.
+          </div>
+        ) : null}
+        {session.rosterLacksKeyCommitment && !session.recoveryPending ? (
+          <div className="border-b border-warning/25 bg-warning/10 px-5 py-2 text-center text-xs font-medium text-warning" role="alert">
+            {coreLegacyRosterMessage()}
           </div>
         ) : null}
         {session.recoveryPending ? (

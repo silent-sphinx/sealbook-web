@@ -83,6 +83,12 @@ export type Session = {
    * happens; `completeRecoveryRotation` is what finishes it.
    */
   recoveryPending?: boolean;
+  /**
+   * True when the roster this device last pinned predates key commitments, so
+   * the collection key was checked by the roster's MAC alone. Generating a new
+   * recovery phrase rotates onto a roster that commits to the key.
+   */
+  rosterLacksKeyCommitment?: boolean;
   offline?: boolean;
 };
 

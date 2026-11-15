@@ -75,6 +75,7 @@ import init, {
   core_contact_write,
   core_contacts_import,
   core_error_message,
+  core_legacy_roster_message,
   core_csv_import,
   core_notes_import,
   core_notes_write_json,
@@ -926,6 +927,11 @@ export function coreErrorOf(err: unknown): CoreError | null {
     return null;
   }
   return null;
+}
+
+/** The warning for an account whose roster predates key commitments. */
+export function coreLegacyRosterMessage(): string {
+  return core_legacy_roster_message();
 }
 
 /**

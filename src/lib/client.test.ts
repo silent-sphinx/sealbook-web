@@ -70,6 +70,7 @@ import {
   serializeAccountSettings,
 } from "./accountSettings";
 import { emptyDraft } from "./contact";
+import { readFixture } from "../test/fixtures";
 import {
   DEFAULT_TASK_LIST_ID,
   serializeTask,
@@ -1837,6 +1838,47 @@ describe("refreshCollectionKey", () => {
     expect(await refreshCollectionKey(owner.session)).toBe(2);
     expect(owner.session.collectionKey).toBe(rotatedKey);
     expect(owner.session.state.roster_seq).toBe(2);
+    expect(owner.session.rosterLacksKeyCommitment).toBe(false);
+  });
+});
+
+describe("a roster that predates key commitments", () => {
+  it("still verifies, and marks the session so the app can ask for a rotation", async () => {
+    const legacy = JSON.parse(readFixture("rosters/legacy.json")) as {
+      collection_id: string;
+      collection_key: string;
+      key_epoch: number;
+      device_id: string;
+      pin: { roster_seq: number; transcript: string };
+      rosters: Roster[];
+    };
+    const session: Session = {
+      state: {
+        server: SERVER,
+        username: "alice",
+        account_id: newUuid(),
+        collection_id: legacy.collection_id,
+        device_id: legacy.device_id,
+        session_token: "token",
+        kdf_salt: [],
+        hpke_sk: [],
+        mldsa_seed: [],
+        ed25519_sk: [],
+        manifest_seq: 1,
+        roster_seq: legacy.pin.roster_seq,
+        roster_transcript: legacy.pin.transcript,
+      },
+      collectionKey: legacy.collection_key,
+      token: "token",
+      latestRevision: 0,
+      keyEpoch: legacy.key_epoch,
+      manifestSeq: 1,
+    };
+    server({ "/roster": rosterHistory(legacy.rosters) });
+
+    await syncRoster(session);
+
+    expect(session.rosterLacksKeyCommitment).toBe(true);
   });
 });
 

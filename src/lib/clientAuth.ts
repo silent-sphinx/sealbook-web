@@ -128,6 +128,9 @@ export async function loginAccount(state: DeviceState, password: string): Promis
     recovery_pending: session.recoveryPending === true,
     ms: elapsed(loginStarted),
   });
+  if (session.rosterLacksKeyCommitment) {
+    log.warn("the account's roster predates key commitments; a rotation upgrades it");
+  }
   if (session.recoveryPending) {
     log.warn(
       "a recovery is unfinished, so the phrase used for it still opens this vault and " +
