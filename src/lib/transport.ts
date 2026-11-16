@@ -149,7 +149,11 @@ export function normalizeServer(server: string): string {
 // requests ride the Vite proxy (vite.config.ts). A host with no proxy turns this
 // off once at bootstrap: in a browser extension a relative path resolves against
 // the extension's own package, where every request 404s.
-let proxyLoopback = true;
+//
+// Only in development. A production build served from one origin and pointed at
+// a server on localhost:8443 means a different origin, so collapsing the address
+// would send every request back to the page's own host.
+let proxyLoopback = import.meta.env.DEV;
 
 export function setProxyLoopback(enabled: boolean): void {
   proxyLoopback = enabled;

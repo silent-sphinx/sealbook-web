@@ -230,8 +230,6 @@ export function DomainSettings({
     <>
       <div className="mt-4 flex justify-center">
         <div className="flex max-w-full items-center gap-2 rounded-full border border-line bg-surface/40 py-1 pr-1 pl-3 text-xs text-mute backdrop-blur-sm">
-          <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
-          <Icon name="lock" className="h-3 w-3 shrink-0" />
           <span className="min-w-0 truncate">
             <span className="sr-only">Server </span>
             <span className="text-text/80">{serverLabel(value)}</span>
