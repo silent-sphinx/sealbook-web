@@ -43,8 +43,9 @@ jobs:
           path: sealbook
           ref: ${{ steps.pin.outputs.sha }}
           token: ${{ secrets.SEALBOOK_REPO_TOKEN }}
+          persist-credentials: false
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: stable
           target: wasm32-unknown-unknown
@@ -71,7 +72,7 @@ jobs:
           cache: npm
           cache-dependency-path: sealbook-web/package-lock.json
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
 
       - name: Build the WebAssembly package
         run: npm run wasm
