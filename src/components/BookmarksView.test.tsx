@@ -712,4 +712,30 @@ describe("BookmarksView, offline", () => {
     expect(link.getAttribute("href")).toBe("https://doc.rust-lang.org/book/");
     expect(link.getAttribute("rel")).toBe("noreferrer noopener");
   });
+
+  it("shows a stored URL that is not http(s) as text, with no link to follow", () => {
+    mount({
+      collections: [DEFAULT_COLLECTION],
+      bookmarks: [
+        aBookmark({ id: "b1", title: "Worm", url: "ms-msdt:/id PCWDiagnostic" }),
+        aBookmark({ id: "b2", title: "Script", url: "javascript:alert(1)" }),
+      ],
+    });
+
+    expect(screen.queryByRole("link", { name: "Worm" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Script" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open Worm" })).toBeNull();
+    expect(screen.getByText("Worm")).toBeDefined();
+  });
+
+  it("links a scheme-less stored URL as https, not as a relative path", () => {
+    mount({
+      collections: [DEFAULT_COLLECTION],
+      bookmarks: [aBookmark({ id: "b1", title: "Docs", url: "example.com/docs" })],
+    });
+
+    expect(screen.getByRole("link", { name: "Docs" }).getAttribute("href")).toBe(
+      "https://example.com/docs",
+    );
+  });
 });

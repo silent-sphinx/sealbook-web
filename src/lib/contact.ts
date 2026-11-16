@@ -382,3 +382,22 @@ export function parseContact(
     paddedSize,
   };
 }
+
+/**
+ * A `mailto:` link for an address, or undefined when the value is not a single
+ * plain address. A stored value such as `a@b.c?bcc=x&body=...` would otherwise
+ * hand the mail client parameters the contact never held.
+ */
+export function mailtoHref(value: string): string | undefined {
+  const address = value.trim();
+  return /^[^\s@?&#<>,;"%]+@[^\s@?&#<>,;"%]+$/u.test(address) ? `mailto:${address}` : undefined;
+}
+
+/**
+ * A `tel:` link for a number written with the usual spaces, dashes, dots and
+ * brackets, or undefined for anything else (an extension, a label, a URL).
+ */
+export function telHref(value: string): string | undefined {
+  const digits = value.trim().replace(/[\s().-]/gu, "");
+  return /^\+?\d{3,}$/u.test(digits) ? `tel:${digits}` : undefined;
+}

@@ -8,6 +8,8 @@ import {
   contactValidationError,
   dateKindLabel,
   emptyDraft,
+  mailtoHref,
+  telHref,
   parseContact,
   parseDraft,
   serializeCard,
@@ -366,5 +368,30 @@ describe("addressLines", () => {
   it("is empty for no address at all", () => {
     expect(addressLines()).toEqual([]);
     expect(addressLines({})).toEqual([]);
+  });
+});
+
+describe("mailtoHref and telHref", () => {
+  it("links a plain address and refuses one that carries mail-client parameters", () => {
+    expect(mailtoHref(" ada@example.com ")).toBe("mailto:ada@example.com");
+    expect(mailtoHref("ada+work@example.com")).toBe("mailto:ada+work@example.com");
+    for (const value of [
+      "a@b.c?attach=/etc/passwd",
+      "a@b.c&body=hi",
+      "a@b.c,d@e.f",
+      "a@b.c\nbcc:x@y.z",
+      "not an address",
+      "",
+    ]) {
+      expect(mailtoHref(value)).toBeUndefined();
+    }
+  });
+
+  it("links a number written the usual ways and refuses anything else", () => {
+    expect(telHref("+44 (0)20 7946-0958")).toBe("tel:+4402079460958");
+    expect(telHref("020.7946.0958")).toBe("tel:02079460958");
+    for (const value of ["020 7946 0958 ext 5", "call me", "tel:123;phone-context=x", "javascript:1", "12"]) {
+      expect(telHref(value)).toBeUndefined();
+    }
   });
 });

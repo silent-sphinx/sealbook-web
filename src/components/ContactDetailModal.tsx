@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
-import { addressLines, channelKindLabel, dateKindLabel, isOngoing } from "../lib/contact";
+import { addressLines, channelKindLabel, dateKindLabel, isOngoing, mailtoHref, telHref } from "../lib/contact";
 import {
   formatDateRange,
   lifeEventOrder,
@@ -240,7 +240,7 @@ export function ContactDetailModal({
             icon={<MailIcon />}
             label={channelKindLabel(e.kind, e.label)}
             value={e.value}
-            href={`mailto:${e.value}`}
+            href={mailtoHref(e.value)}
           />
         ))}
         {contact.phones.map((p) => (
@@ -249,7 +249,7 @@ export function ContactDetailModal({
             icon={<PhoneIcon />}
             label={channelKindLabel(p.kind, p.label)}
             value={p.value}
-            href={`tel:${p.value}`}
+            href={telHref(p.value)}
           />
         ))}
         {socials.map((s) => {

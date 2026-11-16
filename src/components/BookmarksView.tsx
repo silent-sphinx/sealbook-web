@@ -15,6 +15,7 @@ import {
   DEFAULT_BOOKMARK_COLLECTION_ID,
   emptyBookmarkDraft,
   hiddenFromAllIds,
+  bookmarkHref,
   isValidUrl,
   normalizeTags,
   normalizeUrl,
@@ -773,7 +774,7 @@ export function BookmarksView({
                       />
                       <div className="min-w-0 flex-1">
                         <a
-                          href={bookmark.url || undefined}
+                          href={bookmarkHref(bookmark.url)}
                           target="_blank"
                           rel="noreferrer noopener"
                           className={`block truncate text-sm font-medium text-text hover:text-accent ${focusRing}`}
@@ -788,7 +789,7 @@ export function BookmarksView({
                         </p>
                       </div>
                       <a
-                        href={bookmark.url || undefined}
+                        href={bookmarkHref(bookmark.url)}
                         target="_blank"
                         rel="noreferrer noopener"
                         aria-label={`Open ${bookmark.title}`}

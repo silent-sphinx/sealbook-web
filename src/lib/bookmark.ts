@@ -195,6 +195,18 @@ export function isValidUrl(url: string): boolean {
   }
 }
 
+/**
+ * The URL to put in an `href`, or undefined to show the text alone.
+ *
+ * A stored URL is only as trustworthy as whichever client or build wrote it,
+ * and `javascript:`, `data:` or an external protocol handler would otherwise
+ * be one click from running. A scheme-less value gets the same `https://` the
+ * form would have given it.
+ */
+export function bookmarkHref(url: string): string | undefined {
+  return isValidUrl(url) ? normalizeUrl(url) : undefined;
+}
+
 /** The host, for the second line of a list row. Falls back to the whole URL. */
 export function bookmarkHost(url: string): string {
   try {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   bookmarkHost,
+  bookmarkHref,
   bookmarkMatches,
   buildCollectionTree,
   canMoveCollection,
@@ -341,5 +342,16 @@ describe("bookmarkMatches", () => {
     expect(bookmarkMatches(bookmark, "reading")).toBe(true);
     expect(bookmarkMatches(bookmark, "chapter")).toBe(true);
     expect(bookmarkMatches(bookmark, "zanzibar")).toBe(false);
+  });
+});
+
+describe("bookmarkHref", () => {
+  it("is the normalized URL for http(s) and nothing else", () => {
+    expect(bookmarkHref("https://example.com/a")).toBe("https://example.com/a");
+    expect(bookmarkHref("http://example.com")).toBe("http://example.com");
+    expect(bookmarkHref("example.com/a")).toBe("https://example.com/a");
+    for (const url of ["javascript:alert(1)", "data:text/html,x", "file:///etc/passwd", "ms-msdt:/id x", ""]) {
+      expect(bookmarkHref(url)).toBeUndefined();
+    }
   });
 });
