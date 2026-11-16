@@ -61,6 +61,23 @@ export function pinnedPostureFromProfile(p: CryptoProfile): PinnedPosture {
   };
 }
 
+const SHOWN_MAX = 40;
+
+/**
+ * A value the server reported, made safe to put in a sentence of this app's.
+ *
+ * `/health/crypto` is answered before anything is authenticated, by whoever
+ * runs the address entered, so what it says about itself must not be able to
+ * carry a notice or a link into the sign-in screen. Only the characters a
+ * protocol or suite name is made of survive, and only the first few.
+ */
+export function shown(value: unknown): string {
+  if (typeof value !== "string") return "an unrecognised value";
+  const token = value.replace(/[^A-Za-z0-9._+-]/gu, "").slice(0, SHOWN_MAX);
+  if (!token) return "an unrecognised value";
+  return value.length > SHOWN_MAX || token !== value ? `${token}…` : token;
+}
+
 export function hasFatal(findings: readonly ProfileFinding[]): boolean {
   return findings.some((f) => f.severity === "fatal");
 }
@@ -113,7 +130,7 @@ export function evaluateCryptoProfile(
       expected: PROTOCOL_VERSION,
       reported: reported.protocol,
       message:
-        `This server speaks ${reported.protocol}. This app speaks ${PROTOCOL_VERSION}. ` +
+        `This server speaks ${shown(reported.protocol)}. This app speaks ${PROTOCOL_VERSION}. ` +
         "Update whichever is older, then connect again.",
     });
   }
@@ -123,7 +140,7 @@ export function evaluateCryptoProfile(
     OBJECT_AEAD,
     reported.object_aead,
     (got) =>
-      `This server seals objects with ${got}. This app only reads ${OBJECT_AEAD}. ` +
+      `This server seals objects with ${shown(got)}. This app only reads ${OBJECT_AEAD}. ` +
       "They cannot exchange data, so nothing was sent.",
   );
 
@@ -140,7 +157,7 @@ export function evaluateCryptoProfile(
       expected: SIGNATURE_ALGORITHMS.join(", "),
       reported: sigs.join(", "),
       message:
-        `This server signs with ${sigs.join(" and ")}. This app verifies ${SIGNATURE_ALGORITHMS.join(" and ")}. ` +
+        `This server signs with ${sigs.map(shown).join(" and ")}. This app verifies ${SIGNATURE_ALGORITHMS.join(" and ")}. ` +
         "Without both, it cannot trust what the server serves.",
     });
   }
@@ -150,7 +167,7 @@ export function evaluateCryptoProfile(
     HPKE_CIPHERSUITE,
     reported.hpke_ciphersuite,
     (got) =>
-      `This server wraps keys with ${got}. This app only uses ${HPKE_CIPHERSUITE}, ` +
+      `This server wraps keys with ${shown(got)}. This app only uses ${HPKE_CIPHERSUITE}, ` +
       "so it cannot share a key with this server.",
   );
 
@@ -159,7 +176,7 @@ export function evaluateCryptoProfile(
     OPAQUE_KSF,
     reported.opaque_ksf,
     (got) =>
-      `This server stretches passwords with ${got} instead of ${OPAQUE_KSF}. ` +
+      `This server stretches passwords with ${shown(got)} instead of ${OPAQUE_KSF}. ` +
       "A weaker setting makes guessing your password from stolen server data easier. " +
       "Sealbook will not register or sign in here.",
   );
@@ -233,7 +250,7 @@ export function evaluateCryptoProfile(
       severity: "warn",
       expected: TLS_VERSION,
       reported: reported.tls_version,
-      message: `This server reports TLS ${reported.tls_version}. Sealbook expects ${TLS_VERSION}.`,
+      message: `This server reports TLS ${shown(reported.tls_version)}. Sealbook expects ${TLS_VERSION}.`,
     });
   }
 
@@ -247,7 +264,7 @@ export function evaluateCryptoProfile(
       expected: PHRASE_SCHEME,
       reported: reported.phrase_recovery_scheme,
       message:
-        `This server advertises a recovery method (${reported.phrase_recovery_scheme}) this app ` +
+        `This server advertises a recovery method (${shown(reported.phrase_recovery_scheme)}) this app ` +
         "does not recognize. You can sign in, but restoring this account from your phrase might fail.",
     });
   }

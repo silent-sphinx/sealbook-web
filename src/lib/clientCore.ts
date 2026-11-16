@@ -23,6 +23,7 @@ import {
   evaluateCryptoProfile,
   hasFatal,
   pinnedPostureFromProfile,
+  shown,
   type CryptoProfile,
   type PinnedPosture,
 } from "./profile";
@@ -504,7 +505,7 @@ export async function checkProtocol(root: string): Promise<PinnedPosture> {
   });
   if (!speaksProtocol(report.protocol)) {
     throw new ServerUnsafeError(
-      `This server speaks protocol ${report.protocol ?? "an unknown version"}, ` +
+      `This server speaks protocol ${report.protocol === undefined ? "an unknown version" : shown(report.protocol)}, ` +
         `and this app speaks ${PROTOCOL_VERSION}. Update whichever is older.`,
     );
   }

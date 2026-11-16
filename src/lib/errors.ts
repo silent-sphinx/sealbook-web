@@ -42,11 +42,14 @@ export function friendlyError(err: unknown): string {
   // Another device wrote while this one was reading. Transient, and the message
   // already says so, so it is passed through rather than flattened into the
   // generic fallback at the bottom.
+  // Said by the server as often as by this app, and a server's wording is its
+  // own to choose, so one that came over the wire is replaced by fixed text.
+  const fromServer = err instanceof Error && err.name === "ApiError";
   if (text.includes("kept changing")) {
-    return raw;
+    return fromServer ? "The vault kept changing while it was being read. Try again." : raw;
   }
   if (text.includes("too large")) {
-    return raw;
+    return fromServer ? "That is too large for the server to accept." : raw;
   }
   // Checked before the roster branch below, which this message would otherwise
   // match: the history ran out rather than anything failing to verify, and the

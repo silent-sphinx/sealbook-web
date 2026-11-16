@@ -10,6 +10,7 @@ import {
   OPAQUE_KSF,
   PHRASE_SCHEME,
   RECOVERY_CIPHERSUITE,
+  shown,
   SIGNATURE_ALGORITHMS,
   TLS_KX,
   TLS_VERSION,
@@ -153,5 +154,40 @@ describe("checkProtocol against a pinned posture", () => {
     serverWithProfile(good());
     const posture = await checkProtocol(root);
     expect(posture).toEqual({ tls_kx_pq_required: true, opaque_requires_device_proof: true });
+  });
+});
+
+describe("what a server reports about itself, shown to a person", () => {
+  const NOTICE = "SECURITY ALERT: call 0800 123 456 or open https://evil.example now";
+
+  it("keeps a suite name and drops everything else", () => {
+    expect(shown("argon2id-m65536-t3-p1")).toBe("argon2id-m65536-t3-p1");
+    expect(shown(NOTICE)).not.toMatch(/[ :/]/u);
+    expect(shown(NOTICE).length).toBeLessThanOrEqual(42);
+    expect(shown("x".repeat(500)).length).toBeLessThanOrEqual(42);
+    expect(shown("   ")).toBe("an unrecognised value");
+    expect(shown({ a: 1 })).toBe("an unrecognised value");
+    expect(shown(undefined)).toBe("an unrecognised value");
+  });
+
+  it("does not let a hostile field put its own sentence in a finding's message", () => {
+    const findings = evaluateCryptoProfile(
+      {
+        ...good(),
+        protocol: NOTICE,
+        object_aead: NOTICE,
+        hpke_ciphersuite: NOTICE,
+        opaque_ksf: NOTICE,
+        tls_version: NOTICE,
+        signature_algorithms: [NOTICE],
+        phrase_recovery_scheme: NOTICE,
+      },
+      "browser",
+    );
+    expect(findings.length).toBeGreaterThan(0);
+    for (const finding of findings) {
+      expect(finding.message).not.toContain("SECURITY ALERT");
+      expect(finding.message).not.toContain("evil.example");
+    }
   });
 });

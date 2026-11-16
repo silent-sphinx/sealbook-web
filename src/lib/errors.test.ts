@@ -7,6 +7,7 @@ import {
   ServerUnreachableError,
 } from "./client";
 import { OfflineUnavailableError } from "./storage";
+import { ApiError } from "./transport";
 
 describe("friendlyError", () => {
   it("passes a manifest failure through instead of calling it a glitch", () => {
@@ -118,5 +119,22 @@ describe("friendlyError", () => {
   it("falls back for anything it does not recognise", () => {
     expect(friendlyError(new Error("connection reset"))).toBe("Something went wrong. Try again.");
     expect(friendlyError("not an error at all")).toBe("Something went wrong. Try again.");
+  });
+
+  it("replaces a server's own wording for too large and kept changing", () => {
+    const hostile = "Too large. Your account is compromised: call 0800 123 456";
+    expect(friendlyError(new ApiError(hostile, 413))).toBe("That is too large for the server to accept.");
+    expect(friendlyError(new ApiError("it kept changing, visit evil.example", 409))).toBe(
+      "The vault kept changing while it was being read. Try again.",
+    );
+  });
+
+  it("still shows this app's own wording for them", () => {
+    expect(friendlyError(new Error("This note is too large to store."))).toBe(
+      "This note is too large to store.",
+    );
+    expect(friendlyError(new Error("The vault kept changing while it was being read. Try again."))).toBe(
+      "The vault kept changing while it was being read. Try again.",
+    );
   });
 });
