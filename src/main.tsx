@@ -4,6 +4,7 @@ import App from "./App";
 import { UpdatePrompt } from "./components/UpdatePrompt";
 import "./index.css";
 import { describeError, elapsed, log, logStartup } from "./lib/log";
+import { insecureContextReason } from "./lib/secureContext";
 import { initWasm } from "./lib/wasm";
 
 const root = createRoot(document.getElementById("root")!);
@@ -47,7 +48,20 @@ window.addEventListener("unhandledrejection", (event) => {
 
 const started = performance.now();
 
-initWasm()
+const insecure = insecureContextReason();
+if (insecure) {
+  log.error("this page is not a secure context, so the app will not start", { reason: insecure });
+  root.render(
+    <div className="flex min-h-screen items-center justify-center px-5 text-center">
+      <p className="max-w-sm text-sm text-mute">{insecure}</p>
+    </div>,
+  );
+} else {
+  void start();
+}
+
+function start() {
+  return initWasm()
   .then(() => {
     log.info("crypto module ready", { ms: elapsed(started) });
     root.render(
@@ -69,3 +83,4 @@ initWasm()
       </div>,
     );
   });
+}

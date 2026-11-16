@@ -72,6 +72,18 @@ docker compose up --build
 
 Open `http://localhost:8080`.
 
+The compose file publishes the port on the loopback interface only. The
+container serves plain HTTP, and browsers withhold the cryptography Sealbook
+needs from a plain-HTTP page anywhere but localhost, so to use it from other
+machines put a TLS terminator in front that also sends
+`Strict-Transport-Security`, and publish the container's port to that rather
+than to the network.
+
+Give the app an origin of its own, such as `sealbook.example.com`. Everything
+served from one origin shares its local storage, IndexedDB and service-worker
+scope, so another site or app on the same origin could read what this one
+keeps in the browser.
+
 The Docker Compose file also contains only the web client. Configure a
 reachable Sealbook server in the web UI's connection settings.
 

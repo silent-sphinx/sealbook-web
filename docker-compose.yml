@@ -5,8 +5,13 @@ services:
       dockerfile: sealbook-web/Dockerfile
     container_name: sealbook-web
     restart: unless-stopped
+    # Loopback only. This container speaks plain HTTP, and a browser withholds
+    # its cryptography from a plain-HTTP page anywhere but localhost, so the
+    # app is only usable here or behind a TLS terminator that also sends HSTS.
+    # Put one in front, give it an origin of its own, and publish this port to
+    # it rather than to the network.
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
     # nginx answering for the SPA entry point is what "up" means here; the
     # image carries no curl, so this uses the busybox wget it does have.
     healthcheck:
