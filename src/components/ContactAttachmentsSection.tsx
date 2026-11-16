@@ -6,7 +6,7 @@ import {
   MAX_ATTACHMENT_SIZE,
   uploadAttachment,
 } from "../lib/attachments";
-import { optimizeAttachmentThumbnail } from "../lib/image";
+import { optimizeAttachmentThumbnail, safeImageSrc } from "../lib/image";
 import { friendlyError } from "../lib/errors";
 import { focusRing } from "../lib/styles";
 import { PaneSection } from "./PaneControls";
@@ -437,9 +437,9 @@ function Thumbnail({ attachment, onClick }: { attachment: NoteAttachment; onClic
       title={attachment.filename}
       className={`group relative aspect-square overflow-hidden rounded-lg border border-line bg-surface transition-colors hover:border-accent-dim ${focusRing}`}
     >
-      {attachment.thumbnail ? (
+      {safeImageSrc(attachment.thumbnail) ? (
         <img
-          src={attachment.thumbnail}
+          src={safeImageSrc(attachment.thumbnail)}
           alt={attachment.filename}
           className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
         />

@@ -1,9 +1,16 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
+import { waitFor } from "@testing-library/react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import "../test/dom";
 import { ImportExportSection } from "./ImportExportSection";
 import type { Session } from "../lib/client";
+
+const { putContact } = vi.hoisted(() => ({ putContact: vi.fn(async () => "new-id") }));
+vi.mock("../lib/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/client")>()),
+  putContact,
+}));
 
 /**
  * Nothing here reaches the server: the drop zone is inert until a file is
@@ -64,5 +71,28 @@ describe("ImportExportSection", () => {
     renderSection();
     const zone = screen.getByRole("button", { name: /contacts file to import/iu });
     expect(zone.tabIndex).toBe(0);
+  });
+
+  it("stores no remote photo URL from an imported vCard", async () => {
+    putContact.mockClear();
+    const { container } = renderSection();
+    const vcf = [
+      "BEGIN:VCARD",
+      "VERSION:3.0",
+      "FN:Ada Lovelace",
+      "EMAIL:ada@example.com",
+      "PHOTO;VALUE=uri:https://tracker.example/p.png",
+      "END:VCARD",
+    ].join("\r\n");
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, {
+      target: { files: [new File([vcf], "ada.vcf", { type: "text/vcard" })] },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Import/u }));
+
+    await waitFor(() => expect(putContact).toHaveBeenCalledTimes(1));
+    const draft = (putContact.mock.calls[0] as unknown as [unknown, { avatar?: string }])[1];
+    expect(draft.avatar).toBeUndefined();
   });
 });

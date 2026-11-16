@@ -1,4 +1,5 @@
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
+import { safeImageSrc } from "../lib/image";
 import { tonePill } from "../lib/styles";
 import type { Contact } from "../lib/types";
 
@@ -91,10 +92,11 @@ export function Avatar({
     ? { width: pixelSize, height: pixelSize, fontSize: pixelSize * 0.4 }
     : undefined;
 
-  if (avatar && !imgError) {
+  const avatarSrc = safeImageSrc(avatar);
+  if (avatarSrc && !imgError) {
     return (
       <img
-        src={avatar}
+        src={avatarSrc}
         alt={name}
         draggable={false}
         onError={() => setImgError(true)}

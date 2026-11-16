@@ -4,6 +4,18 @@
  * and compresses to modern WebP (with JPEG fallback) at ~10-20 KB.
  */
 
+/**
+ * The value if it can be shown without a network request: an inline image or
+ * a blob this page made. Anything else, an `https:` URL above all, would make
+ * the browser contact whoever controls that host each time the picture drew.
+ * Vault contents are not trusted to be only what this app wrote, since an
+ * import keeps whatever a vCard or CSV named.
+ */
+export function safeImageSrc(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  return /^data:image\//iu.test(value) || /^blob:/iu.test(value) ? value : undefined;
+}
+
 const AVATAR_SIZE = 256;
 const AVATAR_QUALITY = 0.82;
 

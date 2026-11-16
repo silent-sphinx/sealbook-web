@@ -4,7 +4,7 @@ import type { Session } from "../lib/client";
 import { deleteAddressBook, deleteContact, putContact } from "../lib/client";
 import { DEFAULT_ADDRESS_BOOK_ID, bookNameById, resolveAddressBookId } from "../lib/addressBook";
 import { sortContacts } from "../lib/contact";
-import { optimizeAvatar } from "../lib/image";
+import { optimizeAvatar, safeImageSrc } from "../lib/image";
 import { describeError, log } from "../lib/log";
 import {
   parseImportContent,
@@ -141,7 +141,10 @@ export function ImportExportSection({
         // leaving the originals as parsed means a re-run after a partial
         // failure starts from the same drafts rather than from edited ones.
         const draft = { ...parsedContacts[i], addressBookId: finalBookId };
-        if (draft.avatar && (draft.avatar.startsWith("data:") || draft.avatar.startsWith("blob:"))) {
+        // A remote photo URL is dropped rather than stored: every device would
+        // fetch it on each render.
+        if (draft.avatar && !safeImageSrc(draft.avatar)) draft.avatar = undefined;
+        if (draft.avatar) {
           try {
             draft.avatar = await optimizeAvatar(draft.avatar);
           } catch (e) {
