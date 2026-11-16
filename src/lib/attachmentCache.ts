@@ -22,6 +22,7 @@ import {
   idbTouchAttachment,
   type CachedAttachmentRow,
 } from "./idb";
+import { localStorageKdf } from "./wasm";
 import { ATTACHMENT_CACHE_SALT_KEY, deriveStorageKey, deviceEnrolled } from "./storage";
 import type { NoteAttachment } from "./types";
 
@@ -95,7 +96,7 @@ function cacheKey(): Promise<CryptoKey | null> {
   // them in a browser the user has just cleared.
   if (!deviceEnrolled()) return Promise.resolve(null);
   sessionPassword = null;
-  keyPromise = deriveStorageKey(password, cacheSalt()).catch((err) => {
+  keyPromise = deriveStorageKey(password, cacheSalt(), localStorageKdf()).catch((err) => {
     log.warn("the attachment cache key could not be derived, so attachments are not cached", {
       reason: describeError(err),
     });

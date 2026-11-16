@@ -4,6 +4,7 @@ import { idbClearAttachments } from "./idb";
 import { clearLocalStore } from "./localStore";
 import type { PinnedPosture } from "./profile";
 import type { DeviceState } from "./types";
+import { localStorageKdf, localStorageKey } from "./wasm";
 
 const KEY = "sealbook.device";
 export const DEVICE_STORAGE_KEY = KEY;
@@ -29,6 +30,8 @@ export type DeviceMetadata = Pick<
 type DeviceEnvelope = {
   version: number;
   metadata: DeviceMetadata;
+  /** The stretching suite the key came from; absent on a record made under PBKDF2. */
+  kdf?: string;
   salt: string;
   iv: string;
   ciphertext: string;
@@ -139,7 +142,26 @@ export function loadDeviceMetadata(): DeviceMetadata | null {
   return null;
 }
 
-export async function deriveStorageKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
+/**
+ * The key for something this browser keeps under the password. A record that
+ * names no suite predates Argon2id and was made under PBKDF2, which is kept
+ * only so such a record can still be read and then re-saved.
+ *
+ * The Argon2id run is synchronous wasm, so it holds the page for as long as it
+ * takes.
+ */
+export async function deriveStorageKey(
+  password: string,
+  salt: Uint8Array,
+  kdf?: string,
+): Promise<CryptoKey> {
+  if (kdf) {
+    const raw = b64ToByteArray(localStorageKey(password, b64encode(salt), kdf));
+    return crypto.subtle.importKey("raw", Uint8Array.from(raw), "AES-GCM", false, [
+      "encrypt",
+      "decrypt",
+    ]);
+  }
   return crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
@@ -205,19 +227,35 @@ export function deviceEnrolled(): boolean {
   }
 }
 
+/**
+ * What the ciphertext is bound to, so the plaintext `metadata` beside it (which
+ * prefills sign-in and names the server) cannot be swapped for another
+ * account's or another server's without the record failing to open. A fixed
+ * field order, not the stored object's, so it survives a round trip.
+ */
+function metadataAad(metadata: DeviceMetadata): Uint8Array<ArrayBuffer> {
+  const { server, username, account_id, collection_id, device_id } = metadata;
+  return new TextEncoder().encode(
+    JSON.stringify([server, username, account_id, collection_id, device_id]),
+  );
+}
+
 export async function saveDevice(state: DeviceState, password: string): Promise<void> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await deriveStorageKey(password, salt);
+  const kdf = localStorageKdf();
+  const key = await deriveStorageKey(password, salt, kdf);
   const { session_token: _sessionToken, ...secretState } = state;
+  const metadata = metadataOf(state);
   const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
+    { name: "AES-GCM", iv, additionalData: metadataAad(metadata) },
     key,
     new TextEncoder().encode(JSON.stringify(secretState)),
   );
   const envelope: DeviceEnvelope = {
     version: STORAGE_VERSION,
-    metadata: metadataOf(state),
+    metadata,
+    kdf,
     salt: b64encode(salt),
     iv: b64encode(iv),
     ciphertext: b64encode(new Uint8Array(ciphertext)),
@@ -278,20 +316,39 @@ export async function loadDevice(password: string): Promise<DeviceState | null> 
     });
     return null;
   }
+  let state: DeviceState;
   try {
     const salt = Uint8Array.from(b64ToByteArray(stored.salt));
-    const key = await deriveStorageKey(password, salt);
+    const key = await deriveStorageKey(password, salt, stored.kdf);
     const plaintext = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: Uint8Array.from(b64ToByteArray(stored.iv)) },
+      {
+        name: "AES-GCM",
+        iv: Uint8Array.from(b64ToByteArray(stored.iv)),
+        // A record without a suite predates the binding.
+        ...(stored.kdf ? { additionalData: metadataAad(stored.metadata) } : {}),
+      },
       key,
       Uint8Array.from(b64ToByteArray(stored.ciphertext)),
     );
-    return JSON.parse(new TextDecoder().decode(plaintext)) as DeviceState;
+    state = JSON.parse(new TextDecoder().decode(plaintext)) as DeviceState;
   } catch {
     // Expected on a wrong password: the AEAD tag is what checks it.
     log.debug("the stored device record did not decrypt under this password");
     return null;
   }
+  if (!stored.kdf) {
+    // The password is in hand, which is the only time an older record can be
+    // moved off PBKDF2. Failing to is not a failed unlock.
+    try {
+      await saveDevice(state, password);
+      log.info("the stored device record was re-saved under Argon2id");
+    } catch (err) {
+      log.warn("the stored device record could not be re-saved under Argon2id", {
+        reason: describeError(err),
+      });
+    }
+  }
+  return state;
 }
 
 /**

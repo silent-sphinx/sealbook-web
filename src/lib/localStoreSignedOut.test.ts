@@ -11,7 +11,10 @@ import {
   saveLocalVault,
   saveOutbox,
 } from "./localStore";
-import { DEVICE_STORAGE_KEY } from "./storage";
+import { idbGet, idbPut } from "./idb";
+import { b64encode } from "./bytes";
+import { coreLocalVaultWrite } from "./wasm";
+import { DEVICE_STORAGE_KEY, deriveStorageKey } from "./storage";
 
 const stored: Record<string, string> = {};
 
@@ -47,5 +50,31 @@ describe("the local store after another tab signed out", () => {
     expect(await saveLocalVault(emptyVault())).toBe(false);
     await expect(saveOutbox(EMPTY_OUTBOX)).rejects.toBeInstanceOf(OutboxStorageError);
     expect(await loadLocalVault()).toBeNull();
+  });
+});
+
+describe("the local store's key stretching", () => {
+  it("reads a copy sealed under PBKDF2 and writes the next one under Argon2id", async () => {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ciphertext = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      await deriveStorageKey("correct horse", salt),
+      new TextEncoder().encode(coreLocalVaultWrite(emptyVault())),
+    );
+    await idbPut("local-vault", {
+      version: 1,
+      salt: b64encode(salt),
+      iv: b64encode(iv),
+      ciphertext: b64encode(new Uint8Array(ciphertext)),
+    });
+
+    openLocalStore("correct horse");
+    expect(await loadLocalVault()).not.toBeNull();
+
+    expect(await saveLocalVault(emptyVault())).toBe(true);
+    const rewritten = await idbGet<{ kdf?: string }>("local-vault");
+    expect(rewritten?.kdf).toMatch(/^argon2id-/u);
+    expect(await loadLocalVault()).not.toBeNull();
   });
 });

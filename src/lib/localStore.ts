@@ -8,6 +8,7 @@ import { b64ToByteArray, b64encode } from "./bytes";
 import { describeError, log } from "./log";
 import { idbDelete, idbGet, idbPut } from "./idb";
 import { deriveStorageKey, deviceEnrolled } from "./storage";
+import { localStorageKdf } from "./wasm";
 import {
   coreLocalVaultRead,
   coreLocalVaultWrite,
@@ -29,6 +30,8 @@ const QUEUED_KEY = "sealbook.queued-changes";
 
 type Envelope = {
   version: number;
+  /** The stretching suite; absent on a record made under PBKDF2. */
+  kdf?: string;
   salt: string;
   iv: string;
   ciphertext: string;
@@ -75,25 +78,28 @@ export function localStoreOpen(): boolean {
   return password !== null;
 }
 
-function keyFor(salt: string): Promise<CryptoKey> {
-  const held = keys.get(salt);
+function keyFor(salt: string, kdf?: string): Promise<CryptoKey> {
+  const id = `${kdf ?? ""}:${salt}`;
+  const held = keys.get(id);
   if (held) return held;
   if (!password) return Promise.reject(new Error("the local store is closed"));
-  const key = deriveStorageKey(password, Uint8Array.from(b64ToByteArray(salt)));
-  keys.set(salt, key);
+  const key = deriveStorageKey(password, Uint8Array.from(b64ToByteArray(salt)), kdf);
+  keys.set(id, key);
   return key;
 }
 
 async function seal(text: string): Promise<Envelope> {
   writeSalt ??= b64encode(crypto.getRandomValues(new Uint8Array(16)));
   const iv = crypto.getRandomValues(new Uint8Array(12));
+  const kdf = localStorageKdf();
   const ciphertext = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
-    await keyFor(writeSalt),
+    await keyFor(writeSalt, kdf),
     new TextEncoder().encode(text),
   );
   return {
     version: ENVELOPE_VERSION,
+    kdf,
     salt: writeSalt,
     iv: b64encode(iv),
     ciphertext: b64encode(new Uint8Array(ciphertext)),
@@ -107,7 +113,7 @@ async function open(record: string): Promise<{ text: string | null; present: boo
   try {
     const plaintext = await crypto.subtle.decrypt(
       { name: "AES-GCM", iv: Uint8Array.from(b64ToByteArray(stored.iv)) },
-      await keyFor(stored.salt),
+      await keyFor(stored.salt, stored.kdf),
       Uint8Array.from(b64ToByteArray(stored.ciphertext)),
     );
     writeSalt ??= stored.salt;

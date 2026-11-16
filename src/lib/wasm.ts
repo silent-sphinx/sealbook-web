@@ -233,6 +233,8 @@ import init, {
   rotation_sign,
   seal_object,
   sealed_content_type,
+  local_storage_kdf,
+  local_storage_key,
   unwrap_ck,
   wrap_ck_for_device,
 } from "../pkg/sealbook_wasm.js";
@@ -490,6 +492,16 @@ export function rosterVerify(
       selfDeviceId,
     ),
   ) as RosterVerified;
+}
+
+/** The suite new at-rest records are keyed under. */
+export function localStorageKdf(): string {
+  return local_storage_kdf();
+}
+
+/** The base64 key for at-rest records, stretched from the password. */
+export function localStorageKey(password: string, saltB64: string, suite: string): string {
+  return local_storage_key(password, saltB64, suite);
 }
 
 export function unwrapCk(
