@@ -16,13 +16,16 @@ import { pinSealedRoster, verifiedRoster } from "./roster";
 import { apiRoot, postJson } from "./transport";
 import {
   alignKeyEpoch,
+  entryFor,
   manifestContext,
   manifestState,
   rememberManifestSeq,
+  requireManifestAbsenceOk,
   serializeVault,
+  verifyManifest,
   type Session,
 } from "./clientCore";
-import { walkChanges } from "./clientVault";
+import { walkChanges, type ChangesWalk } from "./clientVault";
 import type { CoreSealedRow } from "./wasm";
 import type { ManifestBody, RotatedObject } from "./types";
 
@@ -43,6 +46,23 @@ export function rotateAuthenticated(
   return serializeVault(fresh.state.collection_id, () =>
     rotateAuthenticatedInner(fresh, revokeDeviceId, password, onProgress),
   );
+}
+
+/**
+ * Checks a full walk against the manifest it came with, and that this is the
+ * manifest `manifestState` verified, so the rows and the sequence the plan is
+ * built on describe one state of the collection.
+ */
+export async function verifyWalk(session: Session, walk: ChangesWalk, seq: number): Promise<void> {
+  if (!walk.manifestJson) {
+    requireManifestAbsenceOk(session);
+    return;
+  }
+  await verifyManifest(session, walk.manifestJson, walk.objects.map(entryFor));
+  const walkSeq = (JSON.parse(walk.manifestJson) as ManifestBody).manifest_seq;
+  if (walkSeq !== seq) {
+    throw new Error("The vault changed while the key was being rotated. Try again.");
+  }
 }
 
 async function rotateAuthenticatedInner(
@@ -74,9 +94,13 @@ async function rotateAuthenticatedInner(
   // one it can rotate: what used to stop here at a single page was this
   // client's own read, not anything the protocol could not carry.
   //
-  // `manifestState` verified the collection above, so what is re-encrypted below
-  // is what a device signed for rather than whatever the server chose to serve.
+  // The walk is a separate read from `manifestState`, so its rows are checked
+  // against the manifest it was served with before anything is re-encrypted.
+  // Opening a row proves nothing here: a tombstone needs no ciphertext, and an
+  // older ciphertext relabelled with the current revision opens like the real
+  // one. Without this the rotation would sign the server's forgeries as its own.
   const walk = await walkChanges(fresh);
+  await verifyWalk(fresh, walk, seq);
   const plan = coreRotationPlan(
     fresh.collectionKey,
     collectionId,
