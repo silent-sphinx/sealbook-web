@@ -21,6 +21,8 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       {
+        // The dev server's React Refresh preamble is an inline script, which
+        // the meta policy in index.html would otherwise block.
         name: "sealbook-dev-csp",
         transformIndexHtml(html, context) {
           if (!context.server) {
@@ -97,10 +99,10 @@ export default defineConfig(({ mode }) => {
       },
       headers: {
         "Content-Security-Policy":
-          "default-src 'self' blob:; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https: wss:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https: wss:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
         "X-Frame-Options": "DENY",
         "X-Content-Type-Options": "nosniff",
-        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "Referrer-Policy": "no-referrer",
         "Cross-Origin-Opener-Policy": "same-origin",
         "Cross-Origin-Resource-Policy": "same-origin",
       },

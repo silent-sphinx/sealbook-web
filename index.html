@@ -8,6 +8,13 @@
     <meta name="theme-color" content="#161616" />
     <title>Sealbook</title>
     <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+    <!--
+      The same policy as security-headers.conf, minus frame-ancestors, which a
+      meta tag cannot carry. Here so it travels with the bundle and the service
+      worker's cached copy, wherever dist/ is served from. A test keeps the two
+      in step.
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https: wss:; object-src 'none'; base-uri 'self'; form-action 'self'" />
     <meta name="referrer" content="no-referrer" />
     <style>
       /*
