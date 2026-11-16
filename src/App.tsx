@@ -120,6 +120,7 @@ import { buildVaultIndex, KIND_FEATURE, type SearchHit } from "./lib/vaultSearch
 import { resolveEvent } from "./lib/calendarSearch";
 import { extractRecoveryWords } from "./lib/phrase";
 import { findInvalidBip39Words } from "./lib/bip39Words";
+import { announceSessionEnd, listenForSessionEnd } from "./lib/sessionChannel";
 import { closeAttachmentCache, primeAttachmentCache } from "./lib/attachmentCache";
 import {
   clearDevice,
@@ -695,6 +696,15 @@ export default function App() {
     };
   }, [session, addResponse, addPreview]);
 
+  // The handler is reached through a ref because `lock` and `endSignOut` close
+  // over this render's state, and the subscription is made once.
+  const followSessionEnd = useRef<(end: "lock" | "sign-out") => void>(() => {});
+  followSessionEnd.current = (end) => {
+    log.info("another tab ended the session", { end });
+    void (end === "lock" ? lock() : endSignOut());
+  };
+  useEffect(() => listenForSessionEnd((end) => followSessionEnd.current(end)), []);
+
   // Idle auto-lock. The warning is an in-app countdown, not window.confirm:
   // a native prompt suspends the event loop, so a user who walked away left the
   // vault unlocked behind an unanswered dialog forever. The lock timer runs to
@@ -1192,7 +1202,19 @@ export default function App() {
     }
   }
 
+  // The user's own lock and sign-out, which every other tab follows. A tab that
+  // is only following calls `lock` or `endSignOut` directly so it does not echo.
+  function lockEverywhere() {
+    announceSessionEnd("lock");
+    return lock();
+  }
+
   async function signOut() {
+    announceSessionEnd("sign-out");
+    await endSignOut();
+  }
+
+  async function endSignOut() {
     await lock();
     await clearDevice();
     setShownAccent(null);
@@ -2266,7 +2288,7 @@ export default function App() {
                 aria-label="Lock"
                 title="Lock"
                 className={`inline-flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-semibold text-bg shadow-[0_4px_14px_-4px_var(--color-accent-ring)] transition-all duration-150 hover:brightness-110 active:scale-[0.98] cursor-pointer sm:px-3 ${focusRing}`}
-                onClick={lock}
+                onClick={lockEverywhere}
               >
                 <LockIcon />
                 <span className="hidden sm:inline">Lock</span>

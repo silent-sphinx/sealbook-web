@@ -22,7 +22,7 @@ import {
   idbTouchAttachment,
   type CachedAttachmentRow,
 } from "./idb";
-import { ATTACHMENT_CACHE_SALT_KEY, deriveStorageKey } from "./storage";
+import { ATTACHMENT_CACHE_SALT_KEY, deriveStorageKey, deviceEnrolled } from "./storage";
 import type { NoteAttachment } from "./types";
 
 const RECORD_VERSION = 1;
@@ -91,6 +91,9 @@ function cacheKey(): Promise<CryptoKey | null> {
   if (keyPromise) return keyPromise;
   const password = sessionPassword;
   if (!password) return Promise.resolve(null);
+  // Another tab signed out: minting a salt and caching files here would leave
+  // them in a browser the user has just cleared.
+  if (!deviceEnrolled()) return Promise.resolve(null);
   sessionPassword = null;
   keyPromise = deriveStorageKey(password, cacheSalt()).catch((err) => {
     log.warn("the attachment cache key could not be derived, so attachments are not cached", {

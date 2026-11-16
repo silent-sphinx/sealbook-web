@@ -13,6 +13,7 @@ import {
   writeCachedAttachment,
 } from "./attachmentCache";
 import { idbAttachmentIndex, idbGetAttachment, idbPutAttachment } from "./idb";
+import { ATTACHMENT_CACHE_SALT_KEY, DEVICE_STORAGE_KEY } from "./storage";
 import type { NoteAttachment } from "./types";
 
 function reference(id: string): NoteAttachment {
@@ -39,6 +40,8 @@ beforeEach(() => {
     },
     removeItem: (key: string) => delete stored[key],
   };
+  // The cache only writes for an enrolled device.
+  stored[DEVICE_STORAGE_KEY] = "{}";
   globalThis.indexedDB = new IDBFactory();
 });
 
@@ -76,6 +79,14 @@ describe("the attachment cache", () => {
     expect(await readCachedAttachment(reference("a"))).toBeNull();
     await writeCachedAttachment("a", new Blob(["a photo"]));
     expect(await (await readCachedAttachment(reference("a")))?.text()).toBe("a photo");
+  });
+
+  it("caches nothing once another tab has signed this device out", async () => {
+    primeAttachmentCache("correct horse");
+    delete stored[DEVICE_STORAGE_KEY];
+    await writeCachedAttachment("a", new Blob(["a photo"]));
+    expect(await idbGetAttachment("a")).toBeNull();
+    expect(stored[ATTACHMENT_CACHE_SALT_KEY]).toBeUndefined();
   });
 
   it("reads nothing while the cache is closed", async () => {

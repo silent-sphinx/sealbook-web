@@ -6,6 +6,7 @@ import type { PinnedPosture } from "./profile";
 import type { DeviceState } from "./types";
 
 const KEY = "sealbook.device";
+export const DEVICE_STORAGE_KEY = KEY;
 /** Where the snapshot used to live, before it outgrew localStorage. */
 const LEGACY_VAULT_KEY = "sealbook.vault";
 const DOMAIN_KEY = "sealbook.connection-domain";
@@ -186,6 +187,21 @@ export class DeviceStorageError extends Error {
     );
     this.name = "DeviceStorageError";
     this.cause = cause;
+  }
+}
+
+/**
+ * Whether this browser still holds an enrolled device record. Stores that
+ * outlive a session check it before writing, because a tab that was open when
+ * another one signed out would otherwise write its data back into a browser the
+ * user has just cleared. A storage area that cannot be read counts as enrolled,
+ * so the check never takes away a write that would have worked.
+ */
+export function deviceEnrolled(): boolean {
+  try {
+    return localStorage.getItem(KEY) !== null;
+  } catch {
+    return true;
   }
 }
 

@@ -7,7 +7,7 @@
 import { b64ToByteArray, b64encode } from "./bytes";
 import { describeError, log } from "./log";
 import { idbDelete, idbGet, idbPut } from "./idb";
-import { deriveStorageKey } from "./storage";
+import { deriveStorageKey, deviceEnrolled } from "./storage";
 import {
   coreLocalVaultRead,
   coreLocalVaultWrite,
@@ -134,7 +134,7 @@ export async function loadLocalVault(): Promise<LocalVault | null> {
 
 /** Resolves false when the copy could not be stored, so offline use is stale. */
 export async function saveLocalVault(vault: LocalVault): Promise<boolean> {
-  if (!password) return false;
+  if (!password || !deviceEnrolled()) return false;
   const written = await idbPut(VAULT_RECORD, await seal(coreLocalVaultWrite(vault)));
   if (!written) {
     log.warn("the vault copy could not be saved, so offline use will show older data");
@@ -167,6 +167,7 @@ export async function loadOutbox(): Promise<Outbox> {
 /** Raises `OutboxStorageError` when the browser will not take it. */
 export async function saveOutbox(outbox: Outbox): Promise<void> {
   if (!password) throw new OutboxStorageError(new Error("the local store is closed"));
+  if (!deviceEnrolled()) throw new OutboxStorageError(new Error("this device was signed out"));
   let envelope: Envelope;
   try {
     envelope = await seal(coreOutboxWrite(outbox));
