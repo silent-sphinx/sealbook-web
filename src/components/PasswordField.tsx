@@ -14,6 +14,9 @@ function splitMargin(className: string): { margin: string; rest: string } {
   return { margin: margin.join(" "), rest: rest.join(" ") };
 }
 
+// Spellcheck and keyboard learning are switched off whatever the visibility:
+// once the toggle makes this a text input, the password would otherwise be
+// sent to spellcheck services as typed.
 export const PasswordField = forwardRef<HTMLInputElement, Props>(function PasswordField(
   { className = "", ...props },
   ref,
@@ -23,6 +26,9 @@ export const PasswordField = forwardRef<HTMLInputElement, Props>(function Passwo
   return (
     <div className={`relative ${margin}`}>
       <input
+        spellCheck={false}
+        autoCorrect="off"
+        autoCapitalize="none"
         {...props}
         ref={ref}
         type={visible ? "text" : "password"}

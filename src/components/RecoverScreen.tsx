@@ -128,6 +128,15 @@ export function RecoverScreen({
               }}
               placeholder="Paste or type all 24 words separated by spaces…"
               rows={4}
+              // These words open the vault, so keep them away from spellcheck
+              // services, keyboard dictionaries and writing-assistant extensions.
+              spellCheck={false}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="none"
+              data-gramm="false"
+              data-gramm_editor="false"
+              data-enable-grammarly="false"
               className="box-border block w-full bg-transparent px-3.5 py-2.5 font-mono text-sm leading-relaxed text-text outline-none placeholder:text-mute/50 resize-none"
               required
             />
