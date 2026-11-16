@@ -1175,7 +1175,15 @@ export default function App() {
   async function lock() {
     const active = session;
     setSession(null);
+    // What a person typed that opens the vault goes with the session. The new
+    // words stay while the screen that shows them once is still waiting to be
+    // acknowledged: they come back with the unlock, and clearing them would
+    // lose the only copy before it was written down.
     setPassword("");
+    setConfirmPassword("");
+    setRecoveryPassword("");
+    setFinishingRecovery(false);
+    if (screen !== "phrase") setPhrase("");
     closeAttachmentCache();
     closeOutbox();
     closeLocalStore();
