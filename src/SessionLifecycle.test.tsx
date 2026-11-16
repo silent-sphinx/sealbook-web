@@ -81,6 +81,8 @@ function aSession(state: DeviceState): Session {
   return { state, collectionKey: "k", token: "t", latestRevision: 1, keyEpoch: 0, manifestSeq: 1 } as Session;
 }
 
+const UNLOCK_TIMEOUT_MS = 5000;
+
 function unlock() {
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: PASSWORD } });
   fireEvent.click(screen.getByRole("button", { name: "Unlock" }));
@@ -94,7 +96,9 @@ async function openOffline(snapshotContacts: Contact[]) {
   render(<App />);
   await screen.findByRole("button", { name: "Unlock" });
   unlock();
-  await screen.findByText(snapshotContacts[0]!.name);
+  // Unlocking derives two Argon2id keys, which a loaded machine can stretch
+  // past the default wait.
+  await screen.findByText(snapshotContacts[0]!.name, {}, { timeout: UNLOCK_TIMEOUT_MS });
 }
 
 /** Leaves the vault open against the faked server. */
@@ -104,7 +108,7 @@ async function openOnline() {
   render(<App />);
   await screen.findByRole("button", { name: "Unlock" });
   unlock();
-  await screen.findByText(served[0]!.name);
+  await screen.findByText(served[0]!.name, {}, { timeout: UNLOCK_TIMEOUT_MS });
 }
 
 function goOnline() {

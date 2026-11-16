@@ -3,9 +3,9 @@
  *
  * Attachments arrive from the server sealed and are opened for display, so
  * caching them to avoid re-downloading a photo on every view means writing
- * account content to this origin. That content is kept under the same AES-GCM
- * key the vault snapshot uses, derived from the password once per session and
- * held in memory only: a device handed on after sign-out holds nothing
+ * account content to this origin. That content is kept under an AES-GCM key
+ * derived from the password once per session and held in memory only, without
+ * the password: a device handed on after sign-out holds nothing
  * readable, and `clearDevice` empties the store outright.
  *
  * The cache is a convenience, never a source of truth. Every failure here falls
@@ -38,7 +38,8 @@ export const ATTACHMENT_CACHE_BUDGET = 64 * 1024 * 1024;
  */
 export const MAX_CACHED_ATTACHMENT_SIZE = 16 * 1024 * 1024;
 
-let sessionPassword: string | null = null;
+let primed = 0;
+const KEY_DELAY_MS = 250;
 let keyPromise: Promise<CryptoKey | null> | null = null;
 
 /**
@@ -66,43 +67,48 @@ function cacheSalt(): Uint8Array<ArrayBuffer> {
   return salt;
 }
 
-/** Opens the cache for a session. The key itself is derived on first use. */
+/**
+ * Opens the cache for a session. The key is derived from the password once and
+ * the password is not kept, so what this page holds afterwards is a key that
+ * opens the cache and nothing that opens the account.
+ *
+ * The derivation is put off a moment so the unlock that called this has drawn
+ * before the page stops for it, and started whether or not an attachment is
+ * viewed, since the password is gone by then.
+ */
 export function primeAttachmentCache(password: string): void {
   if (!password) return;
-  sessionPassword = password;
-  keyPromise = null;
-}
-
-/**
- * Forgets the key and the password it came from, on lock or sign-out. The
- * entries stay, unreadable.
- */
-export function closeAttachmentCache(): void {
-  sessionPassword = null;
-  keyPromise = null;
-}
-
-/**
- * The cache key, derived once and on demand rather than at unlock: 600,000
- * PBKDF2 iterations are too much work to add to every unlock, most of which go
- * on to view no attachment at all, and the unlock has two such derivations in
- * front of it already. The password is held only until this runs.
- */
-function cacheKey(): Promise<CryptoKey | null> {
-  if (keyPromise) return keyPromise;
-  const password = sessionPassword;
-  if (!password) return Promise.resolve(null);
-  // Another tab signed out: minting a salt and caching files here would leave
-  // them in a browser the user has just cleared.
-  if (!deviceEnrolled()) return Promise.resolve(null);
-  sessionPassword = null;
-  keyPromise = deriveStorageKey(password, cacheSalt(), localStorageKdf()).catch((err) => {
-    log.warn("the attachment cache key could not be derived, so attachments are not cached", {
-      reason: describeError(err),
-    });
-    return null;
+  const generation = ++primed;
+  keyPromise = new Promise<void>((resolve) => setTimeout(resolve, KEY_DELAY_MS)).then(async () => {
+    if (generation !== primed) return null;
+    // Another tab signed out: minting a salt and caching files here would
+    // leave them in a browser the user has just cleared.
+    if (!deviceEnrolled()) return null;
+    try {
+      return await deriveStorageKey(password, cacheSalt(), localStorageKdf());
+    } catch (err) {
+      log.warn("the attachment cache key could not be derived, so attachments are not cached", {
+        reason: describeError(err),
+      });
+      return null;
+    }
   });
-  return keyPromise;
+}
+
+/** Takes a key the offline copy's derivation also produced, so no second one is run. */
+export function installAttachmentCacheKey(key: CryptoKey): void {
+  primed += 1;
+  keyPromise = Promise.resolve(key);
+}
+
+/** Forgets the key, on lock or sign-out. The entries stay, unreadable. */
+export function closeAttachmentCache(): void {
+  primed += 1;
+  keyPromise = null;
+}
+
+function cacheKey(): Promise<CryptoKey | null> {
+  return keyPromise ?? Promise.resolve(null);
 }
 
 function boundTo(id: string): Uint8Array<ArrayBuffer> {
@@ -115,15 +121,9 @@ function boundTo(id: string): Uint8Array<ArrayBuffer> {
  * gone, so it is dead weight against the budget.
  */
 export async function readCachedAttachment(attachment: NoteAttachment): Promise<Blob | null> {
-  if (!sessionPassword && !keyPromise) return null;
+  if (!keyPromise) return null;
   const record = await idbGetAttachment(attachment.id);
-  if (!record || record.version !== RECORD_VERSION) {
-    // A miss costs a download, so the key is started here rather than waited
-    // on: it is then ready for the write that follows, in parallel with the
-    // transfer instead of ahead of it.
-    void cacheKey();
-    return null;
-  }
+  if (!record || record.version !== RECORD_VERSION) return null;
   const key = await cacheKey();
   if (!key) return null;
   try {

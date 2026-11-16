@@ -121,7 +121,7 @@ import { resolveEvent } from "./lib/calendarSearch";
 import { extractRecoveryWords } from "./lib/phrase";
 import { findInvalidBip39Words } from "./lib/bip39Words";
 import { announceSessionEnd, listenForSessionEnd } from "./lib/sessionChannel";
-import { closeAttachmentCache, primeAttachmentCache } from "./lib/attachmentCache";
+import { closeAttachmentCache } from "./lib/attachmentCache";
 import {
   clearDevice,
   loadConnectionDomain,
@@ -894,7 +894,6 @@ export default function App() {
 
   async function openSession(next: Session, passwordForStorage: string) {
     await saveDevice(next.state, passwordForStorage);
-    primeAttachmentCache(passwordForStorage);
     openLocalStore(passwordForStorage);
     setStored(next.state);
     setSession(next);
@@ -903,7 +902,6 @@ export default function App() {
 
   async function persistSession(next: Session, passwordForStorage: string) {
     await saveDevice(next.state, passwordForStorage);
-    primeAttachmentCache(passwordForStorage);
     await rekeyLocalStore(passwordForStorage);
     setPassword(passwordForStorage);
     setStored(next.state);
@@ -1298,7 +1296,6 @@ export default function App() {
         objects: currentVault().objects.length,
         queued: currentOutbox().writes.length,
       });
-      primeAttachmentCache(password);
       applyListing(offline, listed, listed.addressBooks);
       setVaultOpened(true);
       setSession(offline);
@@ -1340,7 +1337,6 @@ export default function App() {
       const defaultTimezone = rememberBrowserTimezone();
       setTimezoneState(defaultTimezone);
       await saveDevice(next.state, password);
-      primeAttachmentCache(password);
       openLocalStore(password);
       setStored(next.state);
       setSession(next);

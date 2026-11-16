@@ -7,6 +7,7 @@ import {
   EMPTY_OUTBOX,
   loadLocalVault,
   openLocalStore,
+  rekeyLocalStore,
   OutboxStorageError,
   saveLocalVault,
   saveOutbox,
@@ -14,7 +15,7 @@ import {
 import { idbGet, idbPut } from "./idb";
 import { b64encode } from "./bytes";
 import { coreLocalVaultWrite } from "./wasm";
-import { DEVICE_STORAGE_KEY, deriveStorageKey } from "./storage";
+import { DEVICE_STORAGE_KEY, deriveStorageKey, STORE_SALT_KEY } from "./storage";
 
 const stored: Record<string, string> = {};
 
@@ -76,5 +77,60 @@ describe("the local store's key stretching", () => {
     const rewritten = await idbGet<{ kdf?: string }>("local-vault");
     expect(rewritten?.kdf).toMatch(/^argon2id-/u);
     expect(await loadLocalVault()).not.toBeNull();
+  });
+});
+
+async function reopen(password: string) {
+  closeLocalStore();
+  openLocalStore(password);
+}
+
+describe("the local store without the password", () => {
+  it("opens again under the same password and not under another", async () => {
+    openLocalStore("correct horse");
+    expect(await saveLocalVault(emptyVault())).toBe(true);
+
+    await reopen("correct horse");
+    expect(await loadLocalVault()).not.toBeNull();
+
+    await reopen("wrong horse");
+    expect(await loadLocalVault()).toBeNull();
+  });
+
+  it("writes under one salt that its tabs share, rather than one each", async () => {
+    openLocalStore("correct horse");
+    await saveLocalVault(emptyVault());
+    const first = stored[STORE_SALT_KEY];
+    expect(first).toBeDefined();
+
+    await reopen("correct horse");
+    await saveLocalVault(emptyVault());
+    expect(stored[STORE_SALT_KEY]).toBe(first);
+    expect((await idbGet<{ salt: string }>("local-vault"))?.salt).toBe(first);
+  });
+
+  it("does not write a record nothing can open when the vault locks mid-save", async () => {
+    openLocalStore("correct horse");
+    await saveLocalVault(emptyVault());
+
+    const saving = saveOutbox(EMPTY_OUTBOX);
+    closeLocalStore();
+    await saving.catch(() => undefined);
+
+    const record = await idbGet<{ salt?: string | null }>("outbox");
+    if (record) expect(typeof record.salt).toBe("string");
+  });
+
+  it("re-seals the copy for a changed password, which then opens and the old one does not", async () => {
+    openLocalStore("old password!!");
+    await saveLocalVault(emptyVault());
+    await saveOutbox(EMPTY_OUTBOX);
+
+    await rekeyLocalStore("new password!!");
+    await reopen("new password!!");
+    expect(await loadLocalVault()).not.toBeNull();
+
+    await reopen("old password!!");
+    expect(await loadLocalVault()).toBeNull();
   });
 });

@@ -15,6 +15,11 @@ const POSTURE_KEY = "sealbook.server-posture";
 /** Read by `attachmentCache.ts`, which derives its key the same way this does. */
 export const ATTACHMENT_CACHE_SALT_KEY = "sealbook.attachment-cache-salt";
 /**
+ * The salt this browser's offline copy is written under, shared by its tabs so
+ * a record one wrote is a key another already holds. Sign-out removes it.
+ */
+export const STORE_SALT_KEY = "sealbook.store-salt";
+/**
  * A plaintext copy of the vault's accent, so the lock screen can wear it before
  * the settings decrypt. A colour name is all it reveals, and sign-out removes it.
  */
@@ -155,13 +160,7 @@ export async function deriveStorageKey(
   salt: Uint8Array,
   kdf?: string,
 ): Promise<CryptoKey> {
-  if (kdf) {
-    const raw = b64ToByteArray(localStorageKey(password, b64encode(salt), kdf));
-    return crypto.subtle.importKey("raw", Uint8Array.from(raw), "AES-GCM", false, [
-      "encrypt",
-      "decrypt",
-    ]);
-  }
+  if (kdf) return aesKeyFrom(stretchPassword(password, salt, kdf));
   return crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
@@ -174,6 +173,27 @@ export async function deriveStorageKey(
     false,
     ["encrypt", "decrypt"],
   );
+}
+
+/** The raw output of the password stretch, for callers that derive more than one key from it. */
+export function stretchPassword(password: string, salt: Uint8Array, kdf: string): Uint8Array {
+  return Uint8Array.from(b64ToByteArray(localStorageKey(password, b64encode(salt), kdf)));
+}
+
+export function aesKeyFrom(bytes: Uint8Array): Promise<CryptoKey> {
+  return crypto.subtle.importKey("raw", Uint8Array.from(bytes), "AES-GCM", false, [
+    "encrypt",
+    "decrypt",
+  ]);
+}
+
+/**
+ * A second key from the same stretch, so one derivation serves two stores. The
+ * label keeps the two keys unrelated: neither reveals the other.
+ */
+export async function companionKey(bytes: Uint8Array, label: string): Promise<CryptoKey> {
+  const input = new Uint8Array([...new TextEncoder().encode(label), 0, ...bytes]);
+  return aesKeyFrom(new Uint8Array(await crypto.subtle.digest("SHA-256", input)));
 }
 
 function awaitImportPassword(password: string): Promise<CryptoKey> {
@@ -361,6 +381,7 @@ export async function clearDevice(): Promise<void> {
     localStorage.removeItem(KEY);
     localStorage.removeItem(LEGACY_VAULT_KEY);
     localStorage.removeItem(ATTACHMENT_CACHE_SALT_KEY);
+    localStorage.removeItem(STORE_SALT_KEY);
     localStorage.removeItem(ACCENT_HINT_KEY);
   } catch (err) {
     // A throwing storage area must not stop the stores below being emptied.
