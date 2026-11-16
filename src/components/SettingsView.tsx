@@ -62,6 +62,8 @@ import type { WeekStart } from "../lib/calendarModel";
 import { AUTO_LOCK_OPTIONS, autoLockLabel, MIN_PASSWORD_LENGTH, passwordProblem, type AutoLockMinutes } from "../lib/appState";
 import { PAGE_GROUPS, pageForSection, type SettingsPage, type SettingsSection } from "../lib/settingsModel";
 import { CheckIcon, CopyIcon } from "./AppIcons";
+import { clearClipboard } from "../lib/clipboard";
+import { printRecoveryWords } from "../lib/printPhrase";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Modal } from "./Modal";
 import { PasswordField } from "./PasswordField";
@@ -504,32 +506,7 @@ export function SettingsView({
 
   function printWords() {
     if (!newWords) return;
-    const win = window.open("", "_blank", "noopener,noreferrer");
-    if (win) {
-      const doc = win.document;
-      doc.title = "Sealbook Recovery Words";
-      doc.body.style.cssText = "font-family:system-ui,sans-serif;padding:40px;max-width:480px;margin:0 auto";
-      const heading = doc.createElement("h2");
-      heading.textContent = "Sealbook Recovery Words";
-      heading.style.margin = "0 0 4px";
-      const note = doc.createElement("p");
-      note.textContent = "Keep this document safe and secret. Replaces all previous phrases.";
-      note.style.cssText = "color:#666;margin:0 0 24px;font-size:14px";
-      const table = doc.createElement("table");
-      table.style.cssText = "border-collapse:collapse;font-size:15px";
-      newWords.forEach((word, index) => {
-        const row = table.insertRow();
-        const number = row.insertCell();
-        number.textContent = String(index + 1);
-        number.style.cssText = "text-align:right;padding-right:12px;color:#888;font-variant-numeric:tabular-nums";
-        const value = row.insertCell();
-        value.textContent = word;
-        value.style.fontFamily = "monospace";
-      });
-      doc.body.append(heading, note, table);
-      win.focus();
-      win.print();
-    }
+    printRecoveryWords(newWords, "Keep this document safe and secret. Replaces all previous phrases.");
   }
 
   function copyWords() {
@@ -537,8 +514,8 @@ export function SettingsView({
     navigator.clipboard.writeText(newWords.join(" ")).then(() => {
       setCopiedPhrase(true);
       setTimeout(() => {
-        void navigator.clipboard.writeText("").catch(() => undefined);
         setCopiedPhrase(false);
+        clearClipboard();
       }, 2500);
     });
   }
@@ -615,6 +592,10 @@ export function SettingsView({
           Print
         </button>
       </div>
+      <p className="border-t border-line px-4 py-2.5 text-[11px] leading-relaxed text-mute">
+        Copying leaves the words in any clipboard history, and the download is a plain text file
+        in your Downloads folder, which may be synced. Printing keeps them off the device.
+      </p>
     </div>
   ) : null;
 

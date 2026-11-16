@@ -1,6 +1,7 @@
 import { AuthCard, Brand } from "./AuthLayout";
 import { authPrimary, authSecondary } from "../lib/styles";
 import { formatRecoveryWordsFile } from "../lib/phrase";
+import { printRecoveryWords } from "../lib/printPhrase";
 import { Icon } from "./Icon";
 
 interface PhraseScreenProps {
@@ -32,37 +33,7 @@ export function PhraseScreen({
   }
 
   function printWords() {
-    const win = window.open("", "_blank", "noopener,noreferrer");
-    if (!win) return;
-    const doc = win.document;
-    doc.title = "Sealbook Recovery Words";
-    doc.body.style.cssText =
-      "font-family:system-ui,sans-serif;padding:40px;max-width:480px;margin:0 auto";
-
-    const heading = doc.createElement("h2");
-    heading.style.margin = "0 0 4px";
-    heading.textContent = "Sealbook Recovery Words";
-
-    const note = doc.createElement("p");
-    note.style.cssText = "color:#666;margin:0 0 24px;font-size:14px";
-    note.textContent = "Keep this document safe and secret.";
-
-    const table = doc.createElement("table");
-    table.style.cssText = "border-collapse:collapse;font-size:15px";
-    words.forEach((word, index) => {
-      const row = table.insertRow();
-      const numCell = row.insertCell();
-      numCell.style.cssText =
-        "text-align:right;padding-right:12px;color:#888;font-variant-numeric:tabular-nums";
-      numCell.textContent = String(index + 1);
-      const wordCell = row.insertCell();
-      wordCell.style.fontFamily = "monospace";
-      wordCell.textContent = word;
-    });
-
-    doc.body.append(heading, note, table);
-    win.focus();
-    win.print();
+    printRecoveryWords(words, "Keep this document safe and secret.");
   }
 
   return (
@@ -105,6 +76,10 @@ export function PhraseScreen({
           Print
         </button>
       </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-mute">
+        The download is a plain text file in your Downloads folder, which may be synced or
+        indexed. Delete it once the words are somewhere safe.
+      </p>
       <button
         type="button"
         className={`${authPrimary} mt-4`}
