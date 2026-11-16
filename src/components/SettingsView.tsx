@@ -59,7 +59,7 @@ import type {
 } from "../lib/types";
 import { allTimezones, utcOffsetLabel } from "../lib/timezone";
 import type { WeekStart } from "../lib/calendarModel";
-import { AUTO_LOCK_OPTIONS, autoLockLabel, type AutoLockMinutes } from "../lib/appState";
+import { AUTO_LOCK_OPTIONS, autoLockLabel, MIN_PASSWORD_LENGTH, passwordProblem, type AutoLockMinutes } from "../lib/appState";
 import { PAGE_GROUPS, pageForSection, type SettingsPage, type SettingsSection } from "../lib/settingsModel";
 import { CheckIcon, CopyIcon } from "./AppIcons";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -353,11 +353,9 @@ export function SettingsView({
       setPasswordMsg({ type: "error", text: "Please enter your current password to confirm." });
       return;
     }
-    if (newPassword.length < 8) {
-      setPasswordMsg({
-        type: "error",
-        text: "Password must be at least 8 characters long.",
-      });
+    const weak = passwordProblem(newPassword);
+    if (weak) {
+      setPasswordMsg({ type: "error", text: weak });
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -679,7 +677,7 @@ export function SettingsView({
       content = (
         <SettingsGroup
           title="Change password"
-          description="Use at least 8 characters. Other signed-in devices keep their own keys and are not signed out."
+          description={`Use at least ${MIN_PASSWORD_LENGTH} characters. Other signed-in devices keep their own keys and are not signed out.`}
         >
           <form onSubmit={handleChangePassword} className={formColumn}>
             <div>
@@ -702,7 +700,7 @@ export function SettingsView({
                 id={`${ids}-new-password`}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="At least 8 characters"
+                placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
                 className={field}
                 autoComplete="new-password"
               />

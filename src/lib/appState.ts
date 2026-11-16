@@ -51,6 +51,43 @@ export function saveAutoLockMinutes(minutes: AutoLockMinutes): void {
   }
 }
 
+export const MIN_PASSWORD_LENGTH = 12;
+
+// Only what a length check lets through: anything shorter is already refused.
+const COMMON_PASSWORDS = new Set([
+  "password1234",
+  "password12345",
+  "passw0rd1234",
+  "123456789012",
+  "1234567890123",
+  "qwertyuiop12",
+  "qwertyuiopas",
+  "qwertyuiop123",
+  "iloveyou1234",
+  "letmein12345",
+  "administrator",
+  "changemechangeme",
+  "abcdefghijkl",
+]);
+
+/**
+ * Why a password is not accepted for a new account or a new password, or null.
+ *
+ * The password also wraps every secret this browser holds at rest, and OPAQUE
+ * keeps the server from judging it, so this is the only place a floor can sit.
+ * Signing in with an older, shorter password is unaffected.
+ */
+export function passwordProblem(value: string): string | null {
+  if ([...value].length < MIN_PASSWORD_LENGTH) {
+    return `Use at least ${MIN_PASSWORD_LENGTH} characters.`;
+  }
+  const lowered = value.toLowerCase();
+  if (new Set(lowered).size === 1 || COMMON_PASSWORDS.has(lowered)) {
+    return "That password is too easy to guess. Choose a less common one.";
+  }
+  return null;
+}
+
 export function passwordStrength(value: string): { score: number; label: string } {
   if (!value) return { score: 0, label: "" };
   let score = 0;

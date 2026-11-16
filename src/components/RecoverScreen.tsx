@@ -215,7 +215,7 @@ export function RecoverScreen({
             value={password}
             onChange={(e) => onPasswordChange(e.target.value)}
             autoComplete="new-password"
-            placeholder="Choose a new password"
+            placeholder="At least 12 characters"
             className={authField}
             required
           />

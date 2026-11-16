@@ -151,6 +151,7 @@ import {
   saveOnboarding,
   saveWeekStart,
   saveAutoLockMinutes,
+  passwordProblem,
   type AutoLockMinutes,
   TIMEZONE_KEY,
   type MainTab,
@@ -1315,6 +1316,11 @@ export default function App() {
       setError("Passwords don't match.");
       return;
     }
+    const weak = passwordProblem(password);
+    if (weak) {
+      setError(weak);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -1391,6 +1397,11 @@ export default function App() {
     const invalidWords = findInvalidBip39Words(words);
     if (invalidWords.length > 0) {
       setError(`"${invalidWords[0]}" is not a valid BIP-39 recovery word. Please check for typos.`);
+      return;
+    }
+    const weak = passwordProblem(password);
+    if (weak) {
+      setError(weak);
       return;
     }
     setBusy(true);

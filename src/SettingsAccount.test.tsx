@@ -191,7 +191,15 @@ describe("changing the password", () => {
     mount("Password");
     fill("correct horse battery", "short", "short");
 
-    expect(await screen.findByText("Password must be at least 8 characters long.")).toBeDefined();
+    expect(await screen.findByText("Use at least 12 characters.")).toBeDefined();
+    expect(changePassword).not.toHaveBeenCalled();
+  });
+
+  it("refuses one that is long enough but common", async () => {
+    mount("Password");
+    fill("correct horse battery", "password1234", "password1234");
+
+    expect(await screen.findByText(/too easy to guess/u)).toBeDefined();
     expect(changePassword).not.toHaveBeenCalled();
   });
 
