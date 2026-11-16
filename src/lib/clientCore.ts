@@ -370,6 +370,60 @@ export function entryFor(object: {
   };
 }
 
+type WalkedRow = { id: string; revision: number; tombstone: boolean; nonce: string; ciphertext: string };
+
+/**
+ * Sets rows an incremental read returned against the entries the signed
+ * manifest holds for them. `"moved"` means the manifest is already past a row,
+ * so the read and the manifest describe different states and the read should be
+ * repeated; anything else that differs is a server serving what no device signed.
+ */
+export function checkRowsAgainstEntries(
+  rows: WalkedRow[],
+  entries: ManifestEntry[],
+): "verified" | "moved" {
+  const signed = new Map(entries.map((entry) => [entry.id, entry]));
+  let moved = false;
+  for (const row of rows) {
+    const entry = signed.get(row.id);
+    if (!entry) {
+      throw new ManifestError("The server returned an object that the vault manifest does not list.");
+    }
+    if (entry.revision > row.revision) {
+      moved = true;
+      continue;
+    }
+    const served = entryFor(row);
+    if (
+      entry.revision < row.revision ||
+      entry.tombstone !== served.tombstone ||
+      entry.content_digest !== served.content_digest
+    ) {
+      throw new ManifestError("The server returned an object that differs from the vault manifest.");
+    }
+  }
+  return moved ? "moved" : "verified";
+}
+
+/**
+ * Checks what an incremental read returned, which no whole-collection manifest
+ * check covers, against the signed entries for just those objects.
+ *
+ * Opening a row proves nothing here: a tombstone needs no ciphertext, and an
+ * older ciphertext relabelled with the current revision opens like the real one.
+ */
+export async function verifyWalkedRows(
+  session: Session,
+  rows: WalkedRow[],
+): Promise<"verified" | "moved"> {
+  if (rows.length === 0) return "verified";
+  const held = await manifestBucketState(session, rows.map((row) => row.id));
+  // A collection no device has signed yet has nothing to check against, and
+  // the buckets call has already applied the rule for one that should have.
+  if (held.plan.manifest_seq === 0) return "verified";
+  return checkRowsAgainstEntries(rows, held.entries);
+}
+
 export function sealPayload(
   session: Session,
   id: string,

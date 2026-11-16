@@ -14,6 +14,7 @@ import {
   sealPayload,
   serializeVault,
   verifyManifest,
+  verifyWalkedRows,
   type BucketedManifest,
   type Session,
 } from "./clientCore";
@@ -357,12 +358,25 @@ async function sendBatch(
   return rows;
 }
 
+/** Attempts at an incremental read that a concurrent write kept overtaking. */
+const MAX_CATCH_UP_READS = 3;
+
 /** Brings the vault copy up to date with what changed since its mark. */
 export async function catchUp(session: Session): Promise<void> {
   const vault = currentVault();
-  const walk = await walkChanges(session, vault.latest_revision);
+  let walk = await walkChanges(session, vault.latest_revision);
   if (walk.keyEpoch !== session.keyEpoch) {
     coreRequireKeyEpoch(walk.keyEpoch, await refreshCollectionKey(session));
+  }
+  // Only a walk that started over is the whole collection and checked against
+  // the manifest below; an incremental one is checked row by row against the
+  // signed entries for those objects, under the key epoch just aligned.
+  for (let read = 1; !walk.full; read += 1) {
+    if ((await verifyWalkedRows(session, walk.objects)) === "verified") break;
+    if (read === MAX_CATCH_UP_READS) {
+      throw new Error("The vault kept changing while it was being read. Try again.");
+    }
+    walk = await walkChanges(session, vault.latest_revision);
   }
   if (walk.full) {
     if (walk.manifestJson) {
