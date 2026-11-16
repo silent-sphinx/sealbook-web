@@ -53,7 +53,7 @@ import {
   sortNotebooks,
   sortNotes,
 } from "./note";
-import { parseContact, sortContacts } from "./contact";
+import { CONTACT_ATTACHMENTS_PROP, parseContact, sortContacts } from "./contact";
 import { describeError, log, elapsed } from "./log";
 import { importBatches } from "./vaultImport";
 import { apiRoot, failedStatus, getText, putJson } from "./transport";
@@ -215,7 +215,28 @@ export type VaultListing = {
    * also means the snapshot must not be overwritten with this listing.
    */
   unopened: number;
+  /**
+   * Rows this device opened but could not fully read: a payload that would not
+   * parse, or a note or contact carrying more attachment entries than core could
+   * read. Not an `unopened` row, since the listing is still faithful to what it
+   * shows, but whatever those entries pointed at looks unreferenced, so an
+   * attachment sweep must not run while there are any.
+   */
+  unreadReferences: number;
 };
+
+/**
+ * How many of a payload's attachment entries the parser dropped, from the stored
+ * array's length against what was read. `key` is where the entries live.
+ */
+function droppedAttachmentEntries(raw: string, key: string, readCount: number): number {
+  try {
+    const stored = (JSON.parse(raw) as Record<string, unknown>)[key];
+    return Array.isArray(stored) ? Math.max(0, stored.length - readCount) : 0;
+  } catch {
+    return 0;
+  }
+}
 
 /**
  * The stage a vault read has reached. Reported so the first read of a session,
@@ -612,6 +633,7 @@ export function listingFrom(objects: LocalObject[], unopened: number): VaultList
   let accountSettingsRaw: string | undefined;
   let accountSettingsId: string | undefined;
   const deviceLabels: DeviceLabel[] = [];
+  let unreadReferences = 0;
   for (const { id, content_type: contentType, payload: raw } of objects) {
     const obj = { id };
     try {
@@ -625,9 +647,12 @@ export function listingFrom(objects: LocalObject[], unopened: number): VaultList
         case "address_book":
           addressBooks.push(parseAddressBook(obj.id, raw));
           break;
-        case "note":
-          notes.push(parseNote(obj.id, raw));
+        case "note": {
+          const note = parseNote(obj.id, raw);
+          unreadReferences += droppedAttachmentEntries(raw, "attachments", note.attachments?.length ?? 0);
+          notes.push(note);
           break;
+        }
         case "notebook":
           notebooks.push(parseNotebook(obj.id, raw));
           break;
@@ -653,9 +678,16 @@ export function listingFrom(objects: LocalObject[], unopened: number): VaultList
             accountSettingsId = obj.id;
           }
           break;
-        case "contact":
-          contacts.push(parseContact(obj.id, raw, "", 0));
+        case "contact": {
+          const contact = parseContact(obj.id, raw, "", 0);
+          unreadReferences += droppedAttachmentEntries(
+            raw,
+            CONTACT_ATTACHMENTS_PROP,
+            contact.attachments?.length ?? 0,
+          );
+          contacts.push(contact);
           break;
+        }
         case "device_label":
           deviceLabels.push({ object_id: obj.id, payload: raw });
           break;
@@ -666,7 +698,9 @@ export function listingFrom(objects: LocalObject[], unopened: number): VaultList
           break;
       }
     } catch {
-      // unparseable; left out of the listing as an unknown shape is
+      // Left out of the listing as an unknown shape is, but unlike one it was a
+      // shape this build knows, so what it referenced is not known to be unused.
+      unreadReferences += 1;
     }
   }
   log.info("vault opened", {
@@ -681,6 +715,7 @@ export function listingFrom(objects: LocalObject[], unopened: number): VaultList
     tasks: tasks.length,
     task_lists: taskLists.length,
     unopened,
+    unread_references: unreadReferences,
   });
   return {
     addressBooks: sortAddressBooks(addressBooks),
@@ -698,5 +733,6 @@ export function listingFrom(objects: LocalObject[], unopened: number): VaultList
     accountSettingsId,
     deviceLabels,
     unopened,
+    unreadReferences,
   };
 }

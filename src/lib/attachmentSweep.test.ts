@@ -56,6 +56,14 @@ describe("sweepIfDue", () => {
     expect(sweep).not.toHaveBeenCalled();
   });
 
+  it("is skipped while a row's attachment entries could not all be read", async () => {
+    const sweep = vi.fn(async () => 0);
+    expect(await sweepIfDue(online, listing({ unreadReferences: 2 }), sweep, NOW)).toBeNull();
+    expect(sweep).not.toHaveBeenCalled();
+    // Not marked as done, so it is tried again once the rows can be read.
+    expect(localStorage.getItem("sealbook.attachmentSweep.col")).toBeNull();
+  });
+
   it("is skipped offline", async () => {
     const sweep = vi.fn(async () => 0);
     const offline = { ...online, offline: true } as unknown as Session;

@@ -18,8 +18,8 @@ export function referencedAttachmentIds(listing: VaultListing): Set<string> {
 
 /**
  * Sweeps orphaned attachments at most once a day. Skipped while the listing is
- * missing rows this device could not open, since one of them may reference a
- * photo. Returns the number removed, or null when nothing was attempted.
+ * missing rows this device could not open, or holds rows it could not read in
+ * full, since one of them may reference a photo. Returns the number removed, or null when nothing was attempted.
  */
 export async function sweepIfDue(
   session: Session,
@@ -27,13 +27,16 @@ export async function sweepIfDue(
   sweep: typeof sweepOrphanedAttachments = sweepOrphanedAttachments,
   now = Date.now(),
 ): Promise<number | null> {
-  if (session.offline || listing.unopened > 0) return null;
+  if (session.offline || listing.unopened > 0 || listing.unreadReferences > 0) return null;
+  // This device's own view too, so a write still queued keeps its photos. One it
+  // cannot read in full is as unsafe as a listing row.
+  const held = listingFrom(localObjects(), 0);
+  if (held.unreadReferences > 0) return null;
   const key = sweepKey(session.state.collection_id);
   const last = Number(localStorage.getItem(key));
   if (Number.isFinite(last) && now - last < SWEEP_INTERVAL_MS) return null;
   localStorage.setItem(key, String(now));
-  // This device's own view too, so a write still queued keeps its photos.
   const referenced = referencedAttachmentIds(listing);
-  for (const id of referencedAttachmentIds(listingFrom(localObjects(), 0))) referenced.add(id);
+  for (const id of referencedAttachmentIds(held)) referenced.add(id);
   return sweep(session, referenced, now);
 }
