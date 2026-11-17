@@ -886,3 +886,91 @@ describe("TasksView, the sidebar", () => {
     expect(side.queryByRole("button", { name: "New task" })).toBeNull();
   });
 });
+
+describe("TasksView, bulk editing", () => {
+  // The first pick uses the row's hover button; once selecting, each row has a checkbox.
+  const pickRow = (title: string) =>
+    fireEvent.click(
+      within(board()).queryByRole("checkbox", { name: `Select ${title}` }) ??
+        within(board()).getByRole("button", { name: `Select ${title}` }),
+    );
+  const bar = () => screen.getByRole("toolbar", { name: "Bulk edit tasks" });
+
+  it("selects tasks and completes them together", async () => {
+    mount({ tasks: [aTask("a"), aTask("b"), aTask("c")] });
+    pick("Default Task List");
+    expect(screen.queryByRole("toolbar", { name: "Bulk edit tasks" })).toBeNull();
+    pickRow("a");
+    pickRow("b");
+    expect(within(bar()).getByText("2 selected")).not.toBeNull();
+    fireEvent.click(within(bar()).getByRole("button", { name: /Actions/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Complete 2 tasks" }));
+    await waitFor(() => expect(writes).toHaveLength(2));
+    expect(writes.map((write) => write.id).sort()).toEqual(["a", "b"]);
+    expect(writes.every((write) => write.draft.done === true)).toBe(true);
+    expect(screen.queryByRole("toolbar", { name: "Bulk edit tasks" })).toBeNull();
+  });
+
+  it("extends a selection with shift and from the keyboard", () => {
+    mount({ tasks: [aTask("a"), aTask("b"), aTask("c")] });
+    pick("Default Task List");
+    pickRow("a");
+    fireEvent.click(within(board()).getByRole("checkbox", { name: "Select c" }), { shiftKey: true });
+    expect(within(bar()).getByText("3 selected")).not.toBeNull();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.queryByRole("toolbar", { name: "Bulk edit tasks" })).toBeNull();
+    fireEvent.keyDown(document.body, { key: "a", ctrlKey: true });
+    expect(within(bar()).getByText("3 selected")).not.toBeNull();
+  });
+
+  it("starts a selection on ctrl-click", () => {
+    mount({ tasks: [aTask("a"), aTask("b")] });
+    pick("Default Task List");
+    fireEvent.click(within(board()).getByRole("button", { name: /^a/ }), { ctrlKey: true });
+    expect(within(bar()).getByText("1 selected")).not.toBeNull();
+    expect(screen.queryByRole("region", { name: "a details" })).toBeNull();
+  });
+
+  it("moves the selection to another list", async () => {
+    const work = parseTaskList("work", serializeTaskList("Work"));
+    mount({ tasks: [aTask("a"), aTask("b")], taskLists: [DEFAULT_LIST, work] });
+    pick("Default Task List");
+    pickRow("a");
+    pickRow("b");
+    fireEvent.change(within(bar()).getByLabelText("Move selected tasks to"), { target: { value: "work" } });
+    await waitFor(() => expect(writes).toHaveLength(2));
+    expect(writes.every((write) => write.draft.taskListId === "work")).toBe(true);
+  });
+
+  it("sets one due date on the selection", async () => {
+    mount({ tasks: [aTask("a"), aTask("b")] });
+    pick("Default Task List");
+    pickRow("a");
+    pickRow("b");
+    fireEvent.change(within(bar()).getByLabelText("Set due date for selected tasks"), {
+      target: { value: "2030-05-01" },
+    });
+    await waitFor(() => expect(writes).toHaveLength(2));
+    expect(writes.every((write) => write.draft.dueDate === "2030-05-01")).toBe(true);
+  });
+
+  it("asks before deleting, then lifts subtasks that stay", async () => {
+    mount({ tasks: [aTask("p"), aTask("c", { parentId: "p" }), aTask("other")] });
+    pick("Default Task List");
+    pickRow("p");
+    pickRow("other");
+    fireEvent.click(within(bar()).getByRole("button", { name: /Actions/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete 2 tasks" }));
+    expect(deletes).toEqual([]);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(deletes.sort()).toEqual(["other", "p"]));
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toMatchObject({ id: "c", draft: { parentId: undefined } });
+  });
+
+  it("offers no selection when read only", () => {
+    mount({ tasks: [aTask("a")], readOnly: true });
+    pick("Default Task List");
+    expect(screen.queryByRole("button", { name: "Select a" })).toBeNull();
+  });
+});

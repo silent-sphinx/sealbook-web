@@ -1,13 +1,14 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 import { SidebarDrawer, SidebarHeader, type Sidebar } from "./SidebarDrawer";
 import { SplitHandle, useSplitPane } from "./SplitPane";
 import { TaskDetailPane } from "./TaskDetailPane";
 import { TaskForm } from "./TaskForm";
 import { SMART_VIEWS, TaskListSidebar } from "./TaskListSidebar";
-import { TaskAgendaList } from "./TaskAgendaList";
+import { TaskAgendaList, agendaVisibleIds, useAgendaFolds } from "./TaskAgendaList";
 import { TaskTreeList } from "./TaskTreeList";
-import type { TaskActions } from "./TaskTreeList";
+import type { TaskActions, TaskSelection } from "./TaskTreeList";
 import {
   ensureDefaultTaskList,
   deleteTask,
@@ -19,6 +20,7 @@ import {
 import { friendlyError } from "../lib/errors";
 import {
   btnHeader,
+  checkbox,
   focusRing,
   paneCount,
   paneHeader,
@@ -55,7 +57,10 @@ import {
   childCounts,
   taskAncestors,
   taskSubtree,
+  visibleTaskIds,
 } from "../lib/taskTree";
+import { planTaskBulk, type TaskBulkChange } from "../lib/taskBulk";
+import { useItemSelection } from "../lib/useItemSelection";
 import { TASKS_LEADING } from "../lib/splitPane";
 import { keyFor } from "../lib/calendarModel";
 import { utcToLocalInput } from "../lib/timezone";
@@ -112,6 +117,13 @@ async function writeTaskPlan(session: Session, plan: CoreTaskPlan): Promise<Task
   };
 }
 
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+const bulkControl =
+  "box-border h-8 shrink-0 cursor-pointer rounded-lg border border-line bg-surface py-0 pl-3 pr-3 text-xs font-medium leading-none text-mute outline-none focus:border-accent-dim";
+
 type FormState = { initial: TaskDraft; editingId: string | null; key: number };
 type Notice = { message: string; previous: Task; reopened: Task[] };
 
@@ -131,6 +143,9 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
   const [notice, setNotice] = useState<Notice | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const bulkMenu = useContextMenu();
+  const folds = useAgendaFolds();
   const formCount = useRef(0);
   const [handledFocus, setHandledFocus] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | undefined>();
@@ -235,6 +250,22 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     [tasks, scope, isSmart],
   );
 
+  const { folded, allUndated } = folds;
+  const selectable = useMemo(() => {
+    const byId = new Map(tasks.map((task) => [task.id, task]));
+    const ids = showAgenda
+      ? agendaVisibleIds(agenda, { folded, allUndated })
+      : visibleTaskIds(scopeTree ?? tree, expanded);
+    return ids.flatMap((id) => {
+      const task = byId.get(id);
+      return task ? [task] : [];
+    });
+  }, [tasks, showAgenda, agenda, folded, allUndated, scopeTree, tree, expanded]);
+  const selection = useItemSelection(selectable, {
+    enabled: !readOnlyMode,
+    paused: form !== null || confirmDelete !== null || deletingList !== null || confirmBulkDelete,
+  });
+
   const selected = selectedId ? (tasks.find((task) => task.id === selectedId) ?? null) : null;
   const selectedParent = selected?.parentId
     ? tasks.find((task) => task.id === selected.parentId)
@@ -307,6 +338,7 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
   }
 
   function changeScope(next: string) {
+    selection.clear();
     setScope(next);
     setSelectedId(null);
     setForm(null);
@@ -419,6 +451,57 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     await run(() => writeTaskPlan(session, plan));
   }
 
+  async function applyBulk(change: TaskBulkChange) {
+    const plan = planTaskBulk(change, selection.selectedItems, tasks, new Date(), timezone);
+    selection.clear();
+    setNotice(null);
+    if (plan.writes.length > 0 || plan.removed.length > 0) {
+      const ok = await run(async () => {
+        const saved: Task[] = [];
+        const removed: string[] = [];
+        try {
+          for (const { id, draft } of plan.writes) saved.push(await putTask(session, draft, id));
+          for (const id of plan.removed) {
+            await deleteTask(session, id);
+            removed.push(id);
+          }
+        } catch (err) {
+          // What did land stays on screen, so the failure leaves nothing half shown.
+          onApply?.({ tasks: saved, removedTaskIds: removed });
+          throw err;
+        }
+        return { tasks: saved, removedTaskIds: removed };
+      });
+      if (!ok) return;
+      if (selectedId && plan.removed.includes(selectedId)) setSelectedId(null);
+    }
+    if (plan.skipped > 0) {
+      setError(
+        `${plural(plan.skipped, "task")} left alone: written by a newer version of Sealbook. Update this client to change ${plan.skipped === 1 ? "it" : "them"}.`,
+      );
+    }
+  }
+
+  function bulkItems(): MenuItem[] {
+    const picked = selection.selectedItems;
+    const open = picked.filter((task) => !task.done).length;
+    const done = picked.length - open;
+    return [
+      ...(open > 0
+        ? [{ label: `Complete ${plural(open, "task")}`, onSelect: () => void applyBulk({ kind: "complete" }) }]
+        : []),
+      ...(done > 0
+        ? [{ label: `Reopen ${plural(done, "task")}`, onSelect: () => void applyBulk({ kind: "reopen" }) }]
+        : []),
+      { label: "Clear due date", onSelect: () => void applyBulk({ kind: "due" }) },
+      {
+        label: `Delete ${plural(picked.length, "task")}`,
+        danger: true,
+        onSelect: () => setConfirmBulkDelete(true),
+      },
+    ];
+  }
+
   async function createList(name: string, parentId?: string): Promise<string | undefined> {
     let created: string | undefined;
     await run(async () => {
@@ -481,6 +564,16 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
             tone: listTones.get(task.taskListId) ?? taskListTone(taskLists, task.taskListId),
           })
         : undefined,
+    selection: readOnlyMode
+      ? undefined
+      : ({
+          selecting: selection.selecting,
+          count: selection.selected.size,
+          isSelected: selection.isSelected,
+          onBegin: selection.begin,
+          onToggle: selection.toggle,
+          bulkItems,
+        } satisfies TaskSelection),
     onToggleDone: (task) => void toggleDone(task),
     onSelect: (task) => {
       setForm(null);
@@ -511,6 +604,7 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
           {error}
         </p>
       ) : null}
+      <ContextMenu state={bulkMenu.menu} onClose={bulkMenu.close} />
       {notice ? (
         <p role="status" className="flex shrink-0 items-center gap-3 border-b border-line bg-panel/60 px-4 py-2 text-xs text-mute lg:px-6">
           <span>{notice.message}</span>
@@ -610,6 +704,64 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
             </div>
           </header>
 
+          {selection.selecting ? (
+            <div
+              role="toolbar"
+              aria-label="Bulk edit tasks"
+              className="flex shrink-0 flex-wrap items-center gap-3 border-b border-line bg-panel/60 px-4 py-2 lg:px-6"
+            >
+              <input
+                type="checkbox"
+                ref={(node) => {
+                  if (node) node.indeterminate = selection.selected.size > 0 && selection.selected.size < selectable.length;
+                }}
+                checked={selectable.length > 0 && selection.selected.size === selectable.length}
+                onChange={selection.toggleAll}
+                aria-label="Select all tasks"
+                className={checkbox}
+              />
+              <span className="min-w-0 flex-1 text-xs text-mute" aria-live="polite">
+                {selection.selected.size} selected
+              </span>
+              <select
+                aria-label="Move selected tasks to"
+                value=""
+                disabled={disabled}
+                onChange={(event) => {
+                  if (event.target.value) void applyBulk({ kind: "move", taskListId: event.target.value });
+                }}
+                className={bulkControl}
+              >
+                <option value="">Move to…</option>
+                {listRows.map(({ item, depth }) => (
+                  <option key={item.id} value={item.id}>
+                    {`${"\u00a0\u00a0".repeat(depth)}${item.name}`}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="date"
+                aria-label="Set due date for selected tasks"
+                value=""
+                disabled={disabled}
+                onChange={(event) => {
+                  if (event.target.value) void applyBulk({ kind: "due", dueDate: event.target.value });
+                }}
+                className={bulkControl}
+              />
+              <button
+                type="button"
+                onClick={(event) => bulkMenu.open(event, bulkItems())}
+                disabled={disabled}
+                aria-haspopup="menu"
+                className={`${btnHeader} box-border`}
+              >
+                <span>Actions</span>
+                <Icon name="chevron" className="h-3 w-3 rotate-90" />
+              </button>
+            </div>
+          ) : null}
+
           <div
             ref={split.containerRef}
             style={split.cols}
@@ -620,6 +772,7 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
                 <TaskAgendaList
                   {...actions}
                   agenda={agenda}
+                  folds={folds}
                   tasks={tasks}
                   onAddDue={readOnlyMode ? undefined : startAddDue}
                 />
@@ -717,6 +870,22 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
           busy={saving}
           onClose={() => setConfirmDelete(null)}
           onConfirm={() => void removeTask(confirmDelete)}
+        />
+      ) : null}
+
+      {confirmBulkDelete ? (
+        <ConfirmDialog
+          title="Delete tasks"
+          heading={`Delete ${plural(selection.selected.size, "task")}?`}
+          body="They will be removed from every device signed in to this account. Their subtasks are kept and move up one level."
+          confirmLabel="Delete"
+          tone="danger"
+          busy={saving}
+          onClose={() => setConfirmBulkDelete(false)}
+          onConfirm={() => {
+            setConfirmBulkDelete(false);
+            void applyBulk({ kind: "delete" });
+          }}
         />
       ) : null}
 

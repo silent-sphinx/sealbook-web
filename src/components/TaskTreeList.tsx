@@ -24,6 +24,18 @@ function zoneAt(event: React.DragEvent): Zone {
   return "inside";
 }
 
+/** Multi-select over the rows, absent when a view does not offer it. */
+export type TaskSelection = {
+  selecting: boolean;
+  /** How many tasks are selected. */
+  count: number;
+  isSelected: (id: string) => boolean;
+  onBegin: (task: Task) => void;
+  onToggle: (task: Task, extend: boolean) => void;
+  /** The menu for the whole selection. */
+  bulkItems: () => MenuItem[];
+};
+
 export type TaskActions = {
   now: Date;
   timezone: string;
@@ -33,6 +45,7 @@ export type TaskActions = {
   activeId?: string;
   /** Left out when every row shares one list, so the pill is not repeated. */
   listFor?: (task: Task) => { name: string; tone: string } | undefined;
+  selection?: TaskSelection;
   onToggleDone: (task: Task) => void;
   onSelect: (task: Task) => void;
   onEdit: (task: Task) => void;
@@ -61,18 +74,32 @@ type RowProps = TaskActions & {
 
 function itemsFor(task: Task, actions: TaskActions): MenuItem[] {
   if (actions.readOnly) return [];
+  const { selection } = actions;
+  if (selection?.selecting && selection.isSelected(task.id) && selection.count > 1) {
+    return selection.bulkItems();
+  }
   return [
     { label: "Edit task", onSelect: () => actions.onEdit(task) },
     { label: "Add subtask", onSelect: () => actions.onAddChild(task.id) },
+    ...(selection
+      ? [
+          {
+            label: "Select task",
+            onSelect: () => (selection.selecting ? selection.onToggle(task, false) : selection.onBegin(task)),
+          },
+        ]
+      : []),
     { label: "Delete task", danger: true, onSelect: () => actions.onDelete(task) },
   ];
 }
 
 export function TaskRow(props: RowProps) {
   const { task, depth = 0, parentTitle, lead, className = "", dropLine, dragProps, menu, ...actions } = props;
-  const { now, timezone, readOnly, counts, highlightId, activeId, listFor, onToggleDone, onSelect, onAddChild, onDelete } = actions;
+  const { now, timezone, readOnly, counts, highlightId, activeId, listFor, selection, onToggleDone, onSelect, onAddChild, onDelete } = actions;
   const list = listFor?.(task);
   const current = activeId === task.id || highlightId === task.id;
+  const picking = selection?.selecting === true && !readOnly;
+  const picked = picking && selection.isSelected(task.id);
   const due = dueLabel(task, now, timezone);
   const overdue = isOverdue(task, now, timezone);
   const priority = priorityLabel(task.priority);
@@ -105,7 +132,11 @@ export function TaskRow(props: RowProps) {
       onContextMenu={(event) => menu.open(event, itemsFor(task, actions))}
       style={{ paddingLeft: `calc(0.5rem + ${depth * 1.5}rem)` }}
       className={`list-row relative flex items-start gap-2 border-b border-l-2 border-line/60 py-2.5 pr-3 transition-colors duration-150 ${
-        current ? "border-l-accent bg-surface/70" : "border-l-transparent hover:bg-surface/40"
+        picked
+          ? "border-l-transparent bg-accent/10"
+          : current
+            ? "border-l-accent bg-surface/70"
+            : "border-l-transparent hover:bg-surface/40"
       } ${className}`}
     >
       {dropLine ? (
@@ -118,19 +149,39 @@ export function TaskRow(props: RowProps) {
         />
       ) : null}
       {lead ?? <span aria-hidden="true" className="h-5 w-5 shrink-0" />}
-      <label className="hit-area relative flex h-5 shrink-0 cursor-pointer items-center">
-        <input
-          type="checkbox"
-          checked={task.done === true}
-          disabled={readOnly}
-          onChange={() => onToggleDone(task)}
-          aria-label={`Complete ${task.title}`}
-          className="h-4 w-4 cursor-pointer accent-accent disabled:cursor-default"
-        />
-      </label>
+      {picking ? (
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={picked}
+          aria-label={`Select ${task.title}`}
+          onClick={(event) => selection.onToggle(task, event.shiftKey)}
+          className={`hit-area relative mr-2 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-accent ${
+            picked ? "bg-accent text-bg" : "text-transparent"
+          } ${focusRing}`}
+        >
+          <Icon name="check" className="h-2.5 w-2.5" />
+        </button>
+      ) : (
+        <label className="hit-area relative flex h-5 shrink-0 cursor-pointer items-center">
+          <input
+            type="checkbox"
+            checked={task.done === true}
+            disabled={readOnly}
+            onChange={() => onToggleDone(task)}
+            aria-label={`Complete ${task.title}`}
+            className="h-4 w-4 cursor-pointer accent-accent disabled:cursor-default"
+          />
+        </label>
+      )}
       <button
         type="button"
-        onClick={() => onSelect(task)}
+        onClick={(event) => {
+          if (!selection || readOnly) onSelect(task);
+          else if (selection.selecting) selection.onToggle(task, event.shiftKey);
+          else if (event.ctrlKey || event.metaKey) selection.onBegin(task);
+          else onSelect(task);
+        }}
         className={`ml-1 flex min-w-0 flex-1 items-start gap-3 rounded-sm text-left ${focusRing}`}
       >
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -161,8 +212,19 @@ export function TaskRow(props: RowProps) {
           </span>
         ) : null}
       </button>
-      {readOnly ? null : (
+      {readOnly || picking ? null : (
         <span className="list-row-actions -my-1 ml-1 flex shrink-0 items-center gap-0.5">
+          {selection ? (
+            <button
+              type="button"
+              onClick={() => selection.onBegin(task)}
+              title="Select"
+              aria-label={`Select ${task.title}`}
+              className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
+            >
+              <Icon name="check" />
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => onAddChild(task.id)}

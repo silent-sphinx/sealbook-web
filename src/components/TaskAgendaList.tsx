@@ -21,21 +21,53 @@ const SECTIONS: { key: SectionKey; label: string; folded?: boolean; addOffset?: 
   { key: "done_today", label: "Done today", folded: true },
 ];
 
+export type AgendaFolds = {
+  folded: ReadonlySet<SectionKey>;
+  allUndated: boolean;
+  toggle: (key: SectionKey) => void;
+  showAllUndated: () => void;
+};
+
+/** Kept by the view, so it can tell which rows are on screen. */
+export function useAgendaFolds(): AgendaFolds {
+  const [folded, setFolded] = useState<ReadonlySet<SectionKey>>(
+    () => new Set(SECTIONS.filter((section) => section.folded).map((section) => section.key)),
+  );
+  const [allUndated, setAllUndated] = useState(false);
+  return {
+    folded,
+    allUndated,
+    toggle: (key) =>
+      setFolded((current) => {
+        const next = new Set(current);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      }),
+    showAllUndated: () => setAllUndated(true),
+  };
+}
+
+/** The ids the agenda lists right now, top to bottom, leaving out folded and capped rows. */
+export function agendaVisibleIds(agenda: TaskAgenda, { folded, allUndated }: Pick<AgendaFolds, "folded" | "allUndated">): string[] {
+  return SECTIONS.flatMap(({ key }) => {
+    if (folded.has(key)) return [];
+    return key === "undated" && !allUndated ? agenda[key].slice(0, UNDATED_SHOWN) : agenda[key];
+  });
+}
+
 type Props = TaskActions & {
   agenda: TaskAgenda;
+  folds: AgendaFolds;
   tasks: Task[];
   /** Starts a task due `offset` days from today. Absent when read only. */
   onAddDue?: (offset: number) => void;
 };
 
-export function TaskAgendaList({ agenda, tasks, onAddDue, ...actions }: Props) {
+export function TaskAgendaList({ agenda, folds, tasks, onAddDue, ...actions }: Props) {
+  const { folded, allUndated } = folds;
   const menu = useContextMenu();
   const byId = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
-  const [folded, setFolded] = useState<ReadonlySet<SectionKey>>(
-    () => new Set(SECTIONS.filter((section) => section.folded).map((section) => section.key)),
-  );
-  const [allUndated, setAllUndated] = useState(false);
-
   const open = SECTIONS.filter((section) => section.key !== "done_today").reduce(
     (sum, section) => sum + agenda[section.key].length,
     0,
@@ -55,15 +87,6 @@ export function TaskAgendaList({ agenda, tasks, onAddDue, ...actions }: Props) {
     );
   }
 
-  function toggle(key: SectionKey) {
-    setFolded((current) => {
-      const next = new Set(current);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
-
   return (
     <div>
       <ContextMenu state={menu.menu} onClose={menu.close} />
@@ -78,7 +101,7 @@ export function TaskAgendaList({ agenda, tasks, onAddDue, ...actions }: Props) {
             <div className="flex items-center gap-2 bg-panel/40 px-3 py-1.5">
               <button
                 type="button"
-                onClick={() => toggle(key)}
+                onClick={() => folds.toggle(key)}
                 aria-expanded={!closed}
                 className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-sm text-left text-[11px] font-semibold uppercase tracking-[0.14em] ${
                   key === "overdue" ? "text-danger" : "text-mute"
@@ -118,7 +141,7 @@ export function TaskAgendaList({ agenda, tasks, onAddDue, ...actions }: Props) {
                   <li>
                     <button
                       type="button"
-                      onClick={() => setAllUndated(true)}
+                      onClick={folds.showAllUndated}
                       className={`w-full px-9 py-2 text-left text-xs font-medium text-accent hover:underline ${focusRing}`}
                     >
                       {`Show all ${ids.length}`}

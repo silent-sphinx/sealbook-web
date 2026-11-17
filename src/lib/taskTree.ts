@@ -45,6 +45,19 @@ export function flattenTaskTree(nodes: TaskTreeNode[]): TaskTreeNode[] {
   return out;
 }
 
+/** The ids a tree lists top to bottom when only the `expanded` parents show their subtasks. */
+export function visibleTaskIds(nodes: TaskTreeNode[], expanded: ReadonlySet<string>): string[] {
+  const out: string[] = [];
+  const walk = (list: TaskTreeNode[]) => {
+    for (const node of list) {
+      out.push(node.task.id);
+      if (expanded.has(node.task.id)) walk(node.children);
+    }
+  };
+  walk(nodes);
+  return out;
+}
+
 export function taskAncestors(tasks: Task[], id: string): string[] {
   return treeAncestors(tasks, id);
 }
