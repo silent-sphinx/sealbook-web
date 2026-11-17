@@ -116,6 +116,12 @@ function goOnline() {
   window.dispatchEvent(new Event("online"));
 }
 
+/** The banner that asks for the password, which is not kept to sign in again unasked. */
+async function signInAgain(password = PASSWORD) {
+  fireEvent.change(await screen.findByLabelText("Password"), { target: { value: password } });
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+}
+
 function goOffline() {
   setOnline(false);
   window.dispatchEvent(new Event("offline"));
@@ -160,6 +166,8 @@ describe("an offline vault", () => {
     expect(flushed).toEqual([]);
 
     goOnline();
+    expect(loginAccount).not.toHaveBeenCalled();
+    await signInAgain();
 
     await waitFor(() => expect(flushed.length).toBeGreaterThan(0));
     const sent = flushed[0]!;
@@ -173,6 +181,8 @@ describe("an offline vault", () => {
     await openOffline([aContact("Ada Lovelace", "c1")]);
 
     goOnline();
+    expect(loginAccount).not.toHaveBeenCalled();
+    await signInAgain();
 
     await waitFor(() => expect(loginAccount).toHaveBeenCalledTimes(1));
     // The server's listing replaces the snapshot's, rather than being merged
@@ -188,6 +198,7 @@ describe("an offline vault", () => {
     await openOffline([aContact("Ada Lovelace", "c1")]);
 
     goOnline();
+    await signInAgain();
 
     await waitFor(() => expect(loginAccount).toHaveBeenCalledTimes(1));
     // Rather than an empty vault or a lock screen, which would both read as

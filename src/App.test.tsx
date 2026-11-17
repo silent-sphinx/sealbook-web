@@ -40,6 +40,27 @@ describe("the lock screen", () => {
   });
 });
 
+describe("a pairing link", () => {
+  afterEach(() => {
+    window.history.replaceState(null, "", "/");
+    vi.unstubAllGlobals();
+  });
+
+  it("fills in the username and waits for the click that starts pairing", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    setConnectionDomain();
+    window.history.replaceState(null, "", "/?pair=1&username=grace");
+
+    render(<App />);
+
+    const username = (await screen.findByLabelText("Username")) as HTMLInputElement;
+    expect(username.value).toBe("grace");
+    expect(screen.getByRole("button", { name: "Start pairing →" })).toBeDefined();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
 describe("unlocking offline", () => {
   it("opens the vault from the stored snapshot", async () => {
     await enrolDevice(PASSWORD);

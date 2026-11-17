@@ -316,6 +316,11 @@ export default function App() {
   // was used still opens it. The banner asks for the password to finish.
   const [finishingRecovery, setFinishingRecovery] = useState(false);
   const [recoveryPassword, setRecoveryPassword] = useState("");
+  // The password is dropped once a session is open, so a reconnect after going
+  // offline, or after the outbox reports a sign-in is needed, asks for it again.
+  const [reconnectPrompt, setReconnectPrompt] = useState(false);
+  const [reconnectPassword, setReconnectPassword] = useState("");
+  const [reconnectError, setReconnectError] = useState<string | null>(null);
   const unlockPasswordRef = useRef<HTMLInputElement>(null);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [tabPillRect, setTabPillRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
@@ -785,21 +790,11 @@ export default function App() {
     if (!linkedUsername) {
       return;
     }
+    // Only filled in: starting a pairing request is the user's click, so a link
+    // someone else sends cannot open one by being followed.
     setMode("signin");
     setUsername(linkedUsername);
-    setError(null);
-    setBusy(true);
-    void pairJoin(normalizeServer(connectionDomain), linkedUsername)
-      .then((joined) => {
-        setJoinPairing(joined);
-        setPairState(null);
-        setPairApproved(false);
-        setPassword("");
-        setScreen("pair");
-      })
-      .catch((err) => setError(friendlyError(err)))
-      .finally(() => setBusy(false));
-  }, [connectionDomain, session, stored]);
+  }, [session, stored]);
 
   useEffect(() => {
     const handleOffline = () => {
@@ -814,7 +809,7 @@ export default function App() {
         void sync(session);
         return;
       }
-      if (password) void reconnect(session);
+      setReconnectPrompt(true);
     };
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
@@ -822,22 +817,37 @@ export default function App() {
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
     };
-    // As above: `refresh` is redeclared every render, and the only state it
-    // reads is `password`, which is already a dependency. It takes the session
-    // to load as an argument rather than closing over one.
+    // `sync` is redeclared every render and reads only setters and the session
+    // it is given.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [password, session]);
+  }, [session]);
 
-  /** Signs in again with the held password, then sends what is queued. */
-  async function reconnect(current: Session) {
+  // Nothing typed to open the vault outlives the sign-in that used it.
+  useEffect(() => {
+    if (!session) return;
+    setPassword("");
+    setConfirmPassword("");
+  }, [session]);
+
+  /** Signs in again with the password just typed, then sends what is queued. */
+  async function onReconnect(event: FormEvent) {
+    event.preventDefault();
+    if (!session || !reconnectPassword) return;
+    setBusy(true);
+    setReconnectError(null);
     try {
-      const reconnected = await loginAccount(current.state, password);
+      const reconnected = await loginAccount(session.state, reconnectPassword);
+      setReconnectPassword("");
+      setReconnectPrompt(false);
       setSession(reconnected);
       await refresh(reconnected);
     } catch (err) {
       log.warn("could not reconnect; still showing this device's copy", {
         reason: describeError(err),
       });
+      setReconnectError(friendlyError(err));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -887,9 +897,7 @@ export default function App() {
   }, [outboxState.pending, outboxState.queued]);
 
   useEffect(() => {
-    if (!session || !outboxState.signIn || !password) return;
-    void reconnect(session);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (session && outboxState.signIn) setReconnectPrompt(true);
   }, [session, outboxState.signIn]);
 
   async function openSession(next: Session, passwordForStorage: string) {
@@ -903,7 +911,6 @@ export default function App() {
   async function persistSession(next: Session, passwordForStorage: string) {
     await saveDevice(next.state, passwordForStorage);
     await rekeyLocalStore(passwordForStorage);
-    setPassword(passwordForStorage);
     setStored(next.state);
     setSession(next);
   }
@@ -1181,6 +1188,9 @@ export default function App() {
     setConfirmPassword("");
     setRecoveryPassword("");
     setFinishingRecovery(false);
+    setReconnectPrompt(false);
+    setReconnectPassword("");
+    setReconnectError(null);
     if (screen !== "phrase") setPhrase("");
     closeAttachmentCache();
     closeOutbox();
@@ -2137,6 +2147,45 @@ export default function App() {
         {session.rosterLacksKeyCommitment && !session.recoveryPending ? (
           <div className="border-b border-warning/25 bg-warning/10 px-5 py-2 text-center text-xs font-medium text-warning" role="alert">
             {coreLegacyRosterMessage()}
+          </div>
+        ) : null}
+        {reconnectPrompt && (session.offline || outboxState.signIn) ? (
+          <div className="border-b border-warning/25 bg-warning/10 px-5 py-2.5 text-center text-xs font-medium text-warning" role="alert">
+            <form onSubmit={(event) => void onReconnect(event)} className="mx-auto flex max-w-md flex-wrap items-center justify-center gap-2">
+              <span>Enter your password to sign in again and sync.</span>
+              <label htmlFor="reconnect-password" className="sr-only">
+                Password
+              </label>
+              <PasswordField
+                id="reconnect-password"
+                value={reconnectPassword}
+                onChange={(e) => setReconnectPassword(e.target.value)}
+                autoComplete="current-password"
+                placeholder="Your password"
+                className="min-w-0 flex-1 rounded-lg border border-warning/30 bg-bg/80 px-3 py-1.5 text-xs text-text outline-none focus:border-warning/60 focus:ring-1 focus:ring-warning/40"
+                required
+              />
+              <button
+                type="submit"
+                disabled={busy || !reconnectPassword}
+                className={`rounded-lg bg-warning px-3 py-1.5 text-xs font-semibold text-bg transition-all hover:brightness-110 disabled:opacity-50 cursor-pointer ${focusRing}`}
+              >
+                {busy ? "Signing in…" : "Sign in"}
+              </button>
+              <button
+                type="button"
+                className={`rounded-lg px-2 py-1.5 text-xs text-warning/80 hover:text-warning disabled:opacity-50 cursor-pointer ${focusRing}`}
+                onClick={() => {
+                  setReconnectPrompt(false);
+                  setReconnectPassword("");
+                  setReconnectError(null);
+                }}
+                disabled={busy}
+              >
+                Later
+              </button>
+            </form>
+            {reconnectError ? <p className="mt-1.5">{reconnectError}</p> : null}
           </div>
         ) : null}
         {session.recoveryPending ? (
