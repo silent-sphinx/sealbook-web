@@ -34,16 +34,13 @@ import { CalendarSections } from "./CalendarSidebar";
 import { DayView as ExtractedDayView, MonthGrid as ExtractedMonthGrid, WeekView as ExtractedWeekView, YearView as ExtractedYearView } from "./CalendarViews";
 import {
   dateFromKey,
-  EventSpan,
   formatWeekRange,
   keyFor,
   monthDays,
   occurrencesIn,
   shiftDays,
   shiftEndWithStart,
-  spanCoversDay,
   weekDays,
-  weekdayLabels,
   type WeekStart,
 } from "../lib/calendarModel";
 import { resolveEvent, searchEvents, type SearchResult } from "../lib/calendarSearch";
@@ -355,13 +352,6 @@ export function CalendarView({
   const { visibleEvents, spans } = useMemo(
     () => occurrencesIn(filtered, rangeStart, rangeEnd, maxSpanDays, timezone),
     [filtered, maxSpanDays, rangeEnd, rangeStart, timezone],
-  );
-
-  // The sidebar mini-month always shows its own month, independent of the mode
-  // the main area is in, so it needs occurrences expanded over that window.
-  const { visibleEvents: miniEvents, spans: miniSpans } = useMemo(
-    () => occurrencesIn(filtered, days[0], days[days.length - 1], maxSpanDays, timezone),
-    [days, filtered, maxSpanDays, timezone],
   );
 
   const viewKey = `${mode}:${keyFor(rangeStart)}`;
@@ -787,7 +777,6 @@ export function CalendarView({
             title="Calendar"
             action={!readOnlyMode ? <button type="button" onClick={() => openNewTask()} className={sidebarHeaderAction} aria-label="Create event"><Icon name="plus" className="h-4 w-4" /></button> : null}
           />
-          <MiniMonth month={month} days={days} weekStart={weekStart} selected={selected} events={miniEvents} spans={miniSpans} onSelect={(day) => { selectDay(day); sidebar.close(); }} />
           <CalendarSections
             calendars={activeCals}
             archived={archivedCals}
@@ -1201,8 +1190,4 @@ function ViewSwitcher({ mode, onChange }: { mode: ViewMode; onChange: (mode: Vie
 function ImportProgressModal({ title, description, current, total }: { title: string; description: string; current: number; total: number }) {
   const percent = total > 0 ? Math.round((current / total) * 100) : 0;
   return <div className="fixed inset-0 z-[60] flex animate-fade-in items-center justify-center bg-black/70 p-4 backdrop-blur-md"><section role="dialog" aria-modal="true" className="glow-edge relative animate-scale-in w-full max-w-sm rounded-2xl border border-line bg-panel p-6 shadow-2xl shadow-black/50"><h3 className="text-base font-semibold text-text">{title}</h3><p className="mt-1 text-xs text-mute">{description}</p><div className="mt-5 h-2 overflow-hidden rounded-full bg-surface"><div className="h-full rounded-full bg-accent transition-all" style={{ width: `${percent}%` }} /></div><p className="mt-2 text-right text-[11px] tabular-nums text-mute">{total ? `${current} of ${total}` : "Preparing..."}</p></section></div>;
-}
-
-function MiniMonth({ month, days, weekStart, selected, events, spans, onSelect }: { month: Date; days: Date[]; weekStart: WeekStart; selected: string; events: CalendarEvent[]; spans: Map<string, EventSpan>; onSelect: (day: Date) => void }) {
-  return <div className="mt-5"><div className="mb-3 flex items-center justify-between text-xs font-semibold"><span>{month.toLocaleDateString([], { month: "long", year: "numeric" })}</span><span className="text-[10px] uppercase tracking-[0.14em] text-mute">{month.toLocaleDateString([], { month: "short" })}</span></div><div className="grid grid-cols-7 gap-y-1 text-center text-[10px] text-mute">{weekdayLabels(weekStart, "narrow").map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}{days.map((day) => { const key = keyFor(day); const marked = events.some((event) => { const span = spans.get(event.id); return span ? spanCoversDay(span, day) : false; }); return <button key={key} type="button" onClick={() => onSelect(day)} className={`relative flex h-6 items-center justify-center rounded-full text-[11px] transition-colors ${day.getMonth() === month.getMonth() ? "text-text" : "text-mute/60"} ${selected === key ? "bg-accent font-semibold text-bg" : "hover:bg-surface"} ${focusRing}`} aria-label={day.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long", year: "numeric" })}><span>{day.getDate()}</span>{marked && selected !== key ? <i className="absolute bottom-0.5 h-0.5 w-0.5 rounded-full bg-accent" /> : null}</button>; })}</div></div>;
 }
