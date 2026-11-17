@@ -13,6 +13,7 @@ import {
   type ExportFormat,
 } from "../lib/importExport";
 import { btnPrimary, btnSecondary, fieldLabel, selectField } from "../lib/styles";
+import { useExportPasswordConfirm } from "./ExportPasswordConfirm";
 import {
   FileDrop,
   ImportPreview,
@@ -60,6 +61,7 @@ export function ImportExportSection({
   const [exportBookFilter, setExportBookFilter] = useState<string>("ALL");
   const [exportFormat, setExportFormat] = useState<ExportFormat>("vcf");
   const [exportMsg, setExportMsg] = useState<Notice>(null);
+  const passwordConfirm = useExportPasswordConfirm();
 
   const exportContacts = sortContacts(
     exportBookFilter === "ALL"
@@ -180,12 +182,17 @@ export function ImportExportSection({
     }
   }
 
-  function handleExecuteExport() {
+  async function handleExecuteExport() {
     if (exportContacts.length === 0) {
       setExportMsg({
         type: "error",
         text: "No contacts available to export in the selected address book.",
       });
+      return;
+    }
+    const problem = await passwordConfirm.confirm();
+    if (problem !== null) {
+      setExportMsg({ type: "error", text: problem });
       return;
     }
     setExportMsg(null);
@@ -326,12 +333,13 @@ export function ImportExportSection({
             </select>
           </div>
         </div>
+        {passwordConfirm.field}
         <NoticeLine notice={exportMsg} />
         <div className={actionRow}>
           <button
             type="button"
-            disabled={exportContacts.length === 0}
-            onClick={handleExecuteExport}
+            disabled={exportContacts.length === 0 || !passwordConfirm.hasPassword}
+            onClick={() => void handleExecuteExport()}
             className={btnPrimary}
           >
             Export {contactCount(exportContacts.length)}

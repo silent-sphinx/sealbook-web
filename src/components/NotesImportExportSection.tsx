@@ -18,6 +18,7 @@ import {
   type NoteImportResult,
 } from "../lib/noteExport";
 import { btnPrimary, btnSecondary, fieldLabel, selectField } from "../lib/styles";
+import { useExportPasswordConfirm } from "./ExportPasswordConfirm";
 import {
   FileDrop,
   ImportPreview,
@@ -64,6 +65,7 @@ export function NotesImportExportSection({
   const [exportNotebookFilter, setExportNotebookFilter] = useState<string>(ALL_NOTEBOOKS);
   const [exportFormat, setExportFormat] = useState<NoteExportFormat>("md");
   const [exportMsg, setExportMsg] = useState<Notice>(null);
+  const passwordConfirm = useExportPasswordConfirm();
 
   const exportNotes = sortNotes(
     exportNotebookFilter === ALL_NOTEBOOKS
@@ -155,9 +157,14 @@ export function NotesImportExportSection({
     }
   }
 
-  function runExport() {
+  async function runExport() {
     if (exportNotes.length === 0) {
       setExportMsg({ type: "error", text: "No notes to export in the selected notebook." });
+      return;
+    }
+    const problem = await passwordConfirm.confirm();
+    if (problem !== null) {
+      setExportMsg({ type: "error", text: problem });
       return;
     }
     setExportMsg(null);
@@ -283,9 +290,10 @@ export function NotesImportExportSection({
             </select>
           </div>
         </div>
+        {passwordConfirm.field}
         <NoticeLine notice={exportMsg} />
         <div className={actionRow}>
-          <button type="button" disabled={exportNotes.length === 0} onClick={runExport} className={btnPrimary}>
+          <button type="button" disabled={exportNotes.length === 0 || !passwordConfirm.hasPassword} onClick={() => void runExport()} className={btnPrimary}>
             Export {noteCount(exportNotes.length)}
           </button>
         </div>

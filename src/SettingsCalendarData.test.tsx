@@ -33,6 +33,7 @@ const putCalendarEvents = vi.hoisted(() =>
 const deleteCalendar = vi.hoisted(() => vi.fn<(session: Session, id: string) => Promise<void>>());
 const deleteCalendarEvent = vi.hoisted(() => vi.fn<(session: Session, id: string) => Promise<void>>());
 const triggerDownload = vi.hoisted(() => vi.fn<(filename: string, mime: string, data: string) => void>());
+const loadDevice = vi.hoisted(() => vi.fn<(password: string) => Promise<object | null>>());
 
 vi.mock("./lib/client", async () => {
   const actual = await vi.importActual<typeof import("./lib/client")>("./lib/client");
@@ -49,6 +50,11 @@ vi.mock("./lib/client", async () => {
 vi.mock("./lib/importExport", async () => {
   const actual = await vi.importActual<typeof import("./lib/importExport")>("./lib/importExport");
   return { ...actual, triggerDownload };
+});
+
+vi.mock("./lib/storage", async () => {
+  const actual = await vi.importActual<typeof import("./lib/storage")>("./lib/storage");
+  return { ...actual, loadDevice };
 });
 
 import { SettingsHarness } from "./test/settings";
@@ -281,11 +287,20 @@ describe("importing into a calendar created for the file", () => {
   });
 });
 
+function confirmWith(password: string): void {
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: password } });
+}
+
 describe("exporting", () => {
+  beforeEach(() => {
+    loadDevice.mockReset().mockImplementation(async (password) => (password === "hunter2" ? {} : null));
+  });
+
   it("writes the chosen calendar's events as ICS", async () => {
     mount([anEvent("event-1", "Standup", WORK_ID), anEvent("event-2", "Dentist", DEFAULT_CALENDAR_ID)]);
 
     fireEvent.change(screen.getByLabelText("Source calendar"), { target: { value: WORK_ID } });
+    confirmWith("hunter2");
     fireEvent.click(screen.getByRole("button", { name: "Export 1 event" }));
 
     await waitFor(() => expect(triggerDownload).toHaveBeenCalledTimes(1));
@@ -300,6 +315,7 @@ describe("exporting", () => {
     mount([anEvent("event-1", "Standup", WORK_ID), anEvent("event-2", "Dentist", DEFAULT_CALENDAR_ID)]);
 
     fireEvent.change(screen.getByLabelText("Export format"), { target: { value: "json" } });
+    confirmWith("hunter2");
     fireEvent.click(screen.getByRole("button", { name: "Export 2 events" }));
 
     await waitFor(() => expect(triggerDownload).toHaveBeenCalledTimes(1));
@@ -308,6 +324,20 @@ describe("exporting", () => {
     expect(mime).toBe("application/json");
     // Lossless, so the stored ids and the carry are in the file.
     expect(JSON.parse(body).map((event: CalendarEvent) => event.id)).toEqual(["event-1", "event-2"]);
+  });
+
+  it("writes nothing until a password is typed, nor on a wrong one", async () => {
+    mount([anEvent("event-1", "Standup", WORK_ID)]);
+
+    fireEvent.change(screen.getByLabelText("Source calendar"), { target: { value: WORK_ID } });
+    const exportButton = screen.getByRole("button", { name: "Export 1 event" });
+    expect(exportButton.hasAttribute("disabled")).toBe(true);
+
+    confirmWith("wrong");
+    fireEvent.click(exportButton);
+
+    await screen.findByText("Wrong password.");
+    expect(triggerDownload).not.toHaveBeenCalled();
   });
 
   it("offers no export when the calendar chosen is empty", () => {

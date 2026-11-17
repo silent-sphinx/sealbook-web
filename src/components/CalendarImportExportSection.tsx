@@ -6,6 +6,7 @@ import { friendlyError } from "../lib/errors";
 import { formatIcs, parseCalendarImport } from "../lib/ics";
 import { triggerDownload } from "../lib/importExport";
 import { btnPrimary, btnSecondary, fieldLabel, selectField } from "../lib/styles";
+import { useExportPasswordConfirm } from "./ExportPasswordConfirm";
 import type { Calendar, CalendarEvent } from "../lib/types";
 import { DEFAULT_CALENDAR_COLOR } from "../lib/types";
 import {
@@ -58,6 +59,7 @@ export function CalendarImportExportSection({
   const [exportCalendarId, setExportCalendarId] = useState("all");
   const [exportFormat, setExportFormat] = useState<"ics" | "json">("ics");
   const [exportMsg, setExportMsg] = useState<Notice>(null);
+  const passwordConfirm = useExportPasswordConfirm();
 
   const exportEvents = exportCalendarId === "all"
     ? calendarEvents
@@ -178,9 +180,14 @@ export function CalendarImportExportSection({
     }
   }
 
-  function runExport() {
+  async function runExport() {
     if (exportEvents.length === 0) {
       setExportMsg({ type: "error", text: "No events available to export in the selected calendar." });
+      return;
+    }
+    const problem = await passwordConfirm.confirm();
+    if (problem !== null) {
+      setExportMsg({ type: "error", text: problem });
       return;
     }
     setExportMsg(null);
@@ -312,9 +319,10 @@ export function CalendarImportExportSection({
             </select>
           </div>
         </div>
+        {passwordConfirm.field}
         <NoticeLine notice={exportMsg} />
         <div className={actionRow}>
-          <button type="button" disabled={exportEvents.length === 0} onClick={runExport} className={btnPrimary}>
+          <button type="button" disabled={exportEvents.length === 0 || !passwordConfirm.hasPassword} onClick={() => void runExport()} className={btnPrimary}>
             Export {plural(exportEvents.length, "event")}
           </button>
         </div>

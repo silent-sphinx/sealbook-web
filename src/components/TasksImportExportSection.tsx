@@ -13,6 +13,7 @@ import {
 import { newTaskId, putTask, putTaskList } from "../lib/taskApi";
 import { generateTaskExportData, parseTaskImport, type TaskImportResult } from "../lib/taskExport";
 import { btnPrimary, btnSecondary, fieldLabel, selectField } from "../lib/styles";
+import { useExportPasswordConfirm } from "./ExportPasswordConfirm";
 import {
   FileDrop,
   ImportPreview,
@@ -56,6 +57,7 @@ export function TasksImportExportSection({ session, tasks, taskLists, onRefresh 
   const [importMsg, setImportMsg] = useState<Notice>(null);
   const [exportListFilter, setExportListFilter] = useState<string>(ALL_TASK_LISTS);
   const [exportMsg, setExportMsg] = useState<Notice>(null);
+  const passwordConfirm = useExportPasswordConfirm();
 
   const exportTasks = sortTasks(
     exportListFilter === ALL_TASK_LISTS
@@ -148,9 +150,14 @@ export function TasksImportExportSection({ session, tasks, taskLists, onRefresh 
     }
   }
 
-  function runExport() {
+  async function runExport() {
     if (exportTasks.length === 0) {
       setExportMsg({ type: "error", text: "No tasks to export in the selected list." });
+      return;
+    }
+    const problem = await passwordConfirm.confirm();
+    if (problem !== null) {
+      setExportMsg({ type: "error", text: problem });
       return;
     }
     setExportMsg(null);
@@ -257,9 +264,10 @@ export function TasksImportExportSection({ session, tasks, taskLists, onRefresh 
             ))}
           </select>
         </div>
+        {passwordConfirm.field}
         <NoticeLine notice={exportMsg} />
         <div className={actionRow}>
-          <button type="button" disabled={exportTasks.length === 0} onClick={runExport} className={btnPrimary}>
+          <button type="button" disabled={exportTasks.length === 0 || !passwordConfirm.hasPassword} onClick={() => void runExport()} className={btnPrimary}>
             Export {plural(exportTasks.length, "task")}
           </button>
         </div>

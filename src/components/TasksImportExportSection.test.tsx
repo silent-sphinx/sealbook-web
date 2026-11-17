@@ -43,6 +43,11 @@ vi.mock("../lib/importExport", async () => {
   };
 });
 
+vi.mock("../lib/storage", async () => {
+  const actual = await vi.importActual<typeof import("../lib/storage")>("../lib/storage");
+  return { ...actual, loadDevice: async (password: string) => (password === "hunter2" ? {} : null) };
+});
+
 const { TasksImportExportSection } = await import("./TasksImportExportSection");
 
 const SESSION = { state: { username: "ada" } } as unknown as Session;
@@ -145,11 +150,26 @@ describe("importing tasks", () => {
   });
 });
 
+function confirmWith(password: string): void {
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: password } });
+}
+
 describe("exporting tasks", () => {
-  it("downloads every task with its fields", () => {
+  it("asks for the password, and writes nothing on a wrong one", async () => {
+    mount([aTask("water")]);
+    const exportButton = screen.getByRole("button", { name: "Export 1 task" });
+    expect((exportButton as HTMLButtonElement).disabled).toBe(true);
+    confirmWith("wrong");
+    fireEvent.click(exportButton);
+    await screen.findByText("Wrong password.");
+    expect(downloads).toHaveLength(0);
+  });
+
+  it("downloads every task with its fields", async () => {
     mount([aTask("water", { dueDate: "2026-10-30", taskListId: "work" }), aTask("old", { done: true })]);
+    confirmWith("hunter2");
     fireEvent.click(screen.getByRole("button", { name: "Export 2 tasks" }));
-    expect(downloads).toHaveLength(1);
+    await waitFor(() => expect(downloads).toHaveLength(1));
     const body = JSON.parse(downloads[0]!.data);
     expect(downloads[0]!.mime).toBe("application/json");
     expect(body.tasks).toHaveLength(2);
@@ -159,10 +179,12 @@ describe("exporting tasks", () => {
     });
   });
 
-  it("exports only the list that is chosen", () => {
+  it("exports only the list that is chosen", async () => {
     mount([aTask("water", { taskListId: "work" }), aTask("old")]);
     fireEvent.change(screen.getByLabelText("Source list"), { target: { value: "work" } });
+    confirmWith("hunter2");
     fireEvent.click(screen.getByRole("button", { name: "Export 1 task" }));
+    await waitFor(() => expect(downloads).toHaveLength(1));
     expect(JSON.parse(downloads[0]!.data).tasks.map((task: { id: string }) => task.id)).toEqual(["water"]);
   });
 

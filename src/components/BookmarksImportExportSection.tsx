@@ -20,6 +20,7 @@ import {
 } from "../lib/bookmarkExport";
 import { btnPrimary, btnSecondary, fieldLabel, selectField } from "../lib/styles";
 import { BookmarkFolderEditor } from "./BookmarkFolderEditor";
+import { useExportPasswordConfirm } from "./ExportPasswordConfirm";
 import {
   FileDrop,
   ImportPreview,
@@ -66,6 +67,7 @@ export function BookmarksImportExportSection({
 
   const [exportCollectionFilter, setExportCollectionFilter] = useState<string>(ALL_COLLECTIONS);
   const [exportMsg, setExportMsg] = useState<Notice>(null);
+  const passwordConfirm = useExportPasswordConfirm();
 
   const exportBookmarks = sortBookmarks(
     exportCollectionFilter === ALL_COLLECTIONS
@@ -163,9 +165,14 @@ export function BookmarksImportExportSection({
     }
   }
 
-  function runExport() {
+  async function runExport() {
     if (exportBookmarks.length === 0) {
       setExportMsg({ type: "error", text: "No bookmarks to export in the selected collection." });
+      return;
+    }
+    const problem = await passwordConfirm.confirm();
+    if (problem !== null) {
+      setExportMsg({ type: "error", text: problem });
       return;
     }
     setExportMsg(null);
@@ -303,9 +310,10 @@ export function BookmarksImportExportSection({
             ))}
           </select>
         </div>
+        {passwordConfirm.field}
         <NoticeLine notice={exportMsg} />
         <div className={actionRow}>
-          <button type="button" disabled={exportBookmarks.length === 0} onClick={runExport} className={btnPrimary}>
+          <button type="button" disabled={exportBookmarks.length === 0 || !passwordConfirm.hasPassword} onClick={() => void runExport()} className={btnPrimary}>
             Export {bookmarkCount(exportBookmarks.length)}
           </button>
         </div>
