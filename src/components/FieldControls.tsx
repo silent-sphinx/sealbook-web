@@ -1,4 +1,4 @@
-import { useState, type ReactNode, type Ref } from "react";
+import { useId, useState, type ReactNode, type Ref } from "react";
 
 import { fieldBase, focusRing, ghost, sectionBar, sidebarSectionAction } from "../lib/styles";
 import { CHIP_TONE, type ChipTone } from "./PaneControls";
@@ -266,6 +266,7 @@ export function TagsInput({
   placeholder,
   disabled,
   disabledPlaceholder,
+  suggestions,
   onAdd,
   onRemove,
 }: {
@@ -277,20 +278,40 @@ export function TagsInput({
   placeholder: string;
   disabled?: boolean;
   disabledPlaceholder?: string;
+  /** Earlier entries offered while typing; ones already in `values` are left out. */
+  suggestions?: string[];
   onAdd: (value: string) => void;
   onRemove: (id: string) => void;
 }) {
   const [draft, setDraft] = useState("");
+  const [focused, setFocused] = useState(false);
+  const [highlight, setHighlight] = useState(-1);
+  const listId = useId();
 
-  function commit() {
-    const value = draft.trim();
+  const needle = draft.trim().toLowerCase();
+  const matches =
+    focused && needle && suggestions
+      ? suggestions
+          .filter(
+            (name) =>
+              name.toLowerCase().includes(needle) &&
+              name.toLowerCase() !== needle &&
+              !values.some((row) => row.value.toLowerCase() === name.toLowerCase()),
+          )
+          .sort((a, b) => Number(b.toLowerCase().startsWith(needle)) - Number(a.toLowerCase().startsWith(needle)))
+          .slice(0, 6)
+      : [];
+
+  function commit(text = draft) {
+    const value = text.trim();
     setDraft("");
+    setHighlight(-1);
     if (!value || disabled) return;
     onAdd(value);
   }
 
   return (
-    <div className="flex min-h-10 min-w-0 flex-wrap items-center gap-1.5 rounded-lg border border-line bg-bg px-2 py-1.5 transition-colors duration-150 focus-within:border-accent-dim focus-within:ring-1 focus-within:ring-accent-ring">
+    <div className="relative flex min-h-10 min-w-0 flex-wrap items-center gap-1.5 rounded-lg border border-line bg-bg px-2 py-1.5 transition-colors duration-150 focus-within:border-accent-dim focus-within:ring-1 focus-within:ring-accent-ring">
       {values.map((row) => (
         <span
           key={row.id}
@@ -309,21 +330,76 @@ export function TagsInput({
       ))}
       <input
         value={draft}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          setHighlight(-1);
+        }}
         onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === ",") {
+          if (matches.length > 0 && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
             e.preventDefault();
-            commit();
+            const step = e.key === "ArrowDown" ? 1 : -1;
+            setHighlight((current) => (current + step + matches.length) % matches.length);
+          } else if (
+            e.key === "Tab" &&
+            matches.length > 0 &&
+            (e.shiftKey ? highlight >= 0 : highlight < matches.length - 1)
+          ) {
+            // Tab walks the list; past its last entry (or back out of its first) focus moves on as usual.
+            e.preventDefault();
+            setHighlight((current) => current + (e.shiftKey ? -1 : 1));
+          } else if (e.key === "Escape" && matches.length > 0) {
+            e.stopPropagation();
+            setFocused(false);
+          } else if (e.key === "Enter" || e.key === ",") {
+            e.preventDefault();
+            commit(e.key === "Enter" && matches[highlight] ? matches[highlight] : draft);
           } else if (e.key === "Backspace" && draft === "" && values.length > 0) {
             onRemove(values[values.length - 1]!.id);
           }
         }}
-        onBlur={commit}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          setFocused(false);
+          commit();
+        }}
         placeholder={disabled ? disabledPlaceholder : placeholder}
         disabled={disabled}
         aria-label={label}
+        role="combobox"
+        aria-expanded={matches.length > 0}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={matches[highlight] ? `${listId}-${highlight}` : undefined}
         className="h-6 min-w-[8rem] flex-1 bg-transparent px-1 text-sm text-text outline-none placeholder:text-mute/70 disabled:placeholder:text-mute/50"
       />
+      {matches.length > 0 ? (
+        <div
+          id={listId}
+          role="listbox"
+          aria-label={`${label} suggestions`}
+          className="absolute left-0 right-0 top-full z-20 mt-1 rounded-xl border border-line bg-panel p-1 shadow-lg"
+        >
+          {matches.map((name, index) => (
+            <div
+              key={name}
+              id={`${listId}-${index}`}
+              role="option"
+              tabIndex={-1}
+              aria-selected={index === highlight}
+              // mousedown, not click: the input's blur would otherwise commit the half-typed text first.
+              onMouseDown={(e) => {
+                e.preventDefault();
+                commit(name);
+              }}
+              className={`cursor-pointer rounded-lg px-2.5 py-1.5 text-sm text-text ${
+                index === highlight ? "bg-surface" : "hover:bg-surface"
+              }`}
+            >
+              {name}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
