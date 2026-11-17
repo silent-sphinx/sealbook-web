@@ -852,7 +852,6 @@ export function BookmarksView({
       <div className="sb-shell grid min-h-0 flex-1" style={sidebar.cols}>
         <SidebarDrawer title="Bookmarks" sidebar={sidebar}>
           <SidebarHeader
-            eyebrow="My links"
             title="Bookmarks"
             action={
               !readOnlyMode ? (

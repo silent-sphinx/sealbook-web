@@ -702,7 +702,6 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
       <div className="sb-shell grid min-h-0 flex-1" style={sidebar.cols}>
         <SidebarDrawer title="Notes" sidebar={sidebar}>
           <SidebarHeader
-            eyebrow="My notes"
             title="Notes"
             onTitleClick={() => void goHome()}
             action={

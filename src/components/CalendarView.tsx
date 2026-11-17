@@ -784,7 +784,6 @@ export function CalendarView({
       <div className="sb-shell grid min-h-0 flex-1 lg:h-full" style={sidebar.cols}>
         <SidebarDrawer title="Calendars" sidebar={sidebar}>
           <SidebarHeader
-            eyebrow="My calendar"
             title="Calendar"
             action={!readOnlyMode ? <button type="button" onClick={() => openNewTask()} className={sidebarHeaderAction} aria-label="Create event"><Icon name="plus" className="h-4 w-4" /></button> : null}
           />

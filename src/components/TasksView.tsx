@@ -527,7 +527,6 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
       <div className="sb-shell grid min-h-0 flex-1" style={sidebar.cols}>
         <SidebarDrawer title="Tasks" sidebar={sidebar}>
           <SidebarHeader
-            eyebrow="My to-dos"
             title="Tasks"
             action={
               !readOnlyMode ? (

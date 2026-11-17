@@ -288,7 +288,6 @@ export function ContactsTab({
       <div className="sb-shell grid min-h-0 flex-1 lg:h-full" style={sidebar.cols}>
         <SidebarDrawer title="Contacts and address books" sidebar={sidebar}>
           <SidebarHeader
-            eyebrow="My contacts"
             title="Contacts"
             action={
               <button
