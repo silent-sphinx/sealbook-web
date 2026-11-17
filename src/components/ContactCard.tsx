@@ -25,9 +25,9 @@ export function ContactCard({
   onContextMenu?: (event: ReactMouseEvent, contact: Contact) => void;
 }) {
   const subtitle =
-    contact.work[0]?.organization ||
+    contact.phones[0]?.value ||
     contact.email ||
-    contact.phones[0]?.value;
+    contact.work[0]?.organization;
 
   return (
     <li
