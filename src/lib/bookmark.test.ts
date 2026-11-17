@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   bookmarkHost,
+  bookmarkWithTagAdded,
+  bookmarkWithTagRemoved,
   bookmarkHref,
   bookmarkMatches,
   buildCollectionTree,
@@ -353,5 +355,32 @@ describe("bookmarkHref", () => {
     for (const url of ["javascript:alert(1)", "data:text/html,x", "file:///etc/passwd", "ms-msdt:/id x", ""]) {
       expect(bookmarkHref(url)).toBeUndefined();
     }
+  });
+});
+
+describe("bulk tag helpers", () => {
+  const bookmark: Bookmark = {
+    id: "x",
+    url: "https://x.example.com/",
+    title: "x",
+    collectionId: DEFAULT_BOOKMARK_COLLECTION_ID,
+    tags: ["Rust"],
+    raw: '{"future":1}',
+  };
+
+  it("adds a tag, keeping raw so unknown fields survive", () => {
+    const draft = bookmarkWithTagAdded(bookmark, "web");
+    expect(draft?.tags).toEqual(["Rust", "web"]);
+    expect(draft?.raw).toBe(bookmark.raw);
+  });
+
+  it("changes nothing for a tag already present in another case or a blank one", () => {
+    expect(bookmarkWithTagAdded(bookmark, "rust")).toBeNull();
+    expect(bookmarkWithTagAdded(bookmark, "  ")).toBeNull();
+  });
+
+  it("removes a tag regardless of case, and ignores one that is absent", () => {
+    expect(bookmarkWithTagRemoved(bookmark, "rust")?.tags).toEqual([]);
+    expect(bookmarkWithTagRemoved(bookmark, "nope")).toBeNull();
   });
 });

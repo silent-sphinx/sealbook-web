@@ -139,6 +139,27 @@ export function bookmarkWritable(draft: BookmarkDraft): boolean {
   return !draft.raw || coreBookmarkParse("", draft.raw).readable;
 }
 
+/**
+ * The draft a bulk "add tag" writes, or null when it would change nothing (the
+ * tag is blank, already there in any case, or the bookmark is at the tag cap),
+ * so a bulk action rewrites only the bookmarks it changes.
+ */
+export function bookmarkWithTagAdded(bookmark: Bookmark, tag: string): BookmarkDraft | null {
+  const current = normalizeTags(bookmark.tags ?? []);
+  const next = normalizeTags([...current, tag]);
+  if (next.length === current.length) return null;
+  return { ...bookmarkDraft(bookmark), tags: next };
+}
+
+/** As `bookmarkWithTagAdded`, for taking a tag off; matched regardless of case. */
+export function bookmarkWithTagRemoved(bookmark: Bookmark, tag: string): BookmarkDraft | null {
+  const key = tag.trim().toLowerCase();
+  const current = bookmark.tags ?? [];
+  const next = current.filter((entry) => entry.toLowerCase() !== key);
+  if (!key || next.length === current.length) return null;
+  return { ...bookmarkDraft(bookmark), tags: next };
+}
+
 export function resolveCollectionId(collectionId?: string): string {
   return collectionId?.trim() || DEFAULT_BOOKMARK_COLLECTION_ID;
 }

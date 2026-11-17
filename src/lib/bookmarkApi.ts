@@ -7,7 +7,7 @@ import {
   serializeBookmarkCollection,
   sortCollections,
 } from "./bookmark";
-import { putSealed } from "./client";
+import { putSealed, putSealedMany } from "./client";
 import type { BookmarkCollection, BookmarkDraft } from "./types";
 import type { Session } from "./client";
 import { newUuid } from "./wasm";
@@ -32,6 +32,30 @@ export async function putBookmark(
 
 export async function deleteBookmark(session: Session, id: string): Promise<void> {
   await putSealed(session, id, BOOKMARK_CONTENT_TYPE, true, "");
+}
+
+/** Rewrites existing bookmarks in one flush; raises `RefusedWrites` for those refused. */
+export async function putBookmarks(
+  session: Session,
+  bookmarks: { id: string; draft: BookmarkDraft }[],
+): Promise<void> {
+  await putSealedMany(
+    session,
+    bookmarks.map(({ id, draft }) => ({
+      id,
+      contentType: BOOKMARK_CONTENT_TYPE,
+      tombstone: false,
+      payload: serializeBookmark(draft),
+    })),
+  );
+}
+
+/** Tombstones every bookmark in one flush; raises `RefusedWrites` for those refused. */
+export async function deleteBookmarks(session: Session, ids: string[]): Promise<void> {
+  await putSealedMany(
+    session,
+    ids.map((id) => ({ id, contentType: BOOKMARK_CONTENT_TYPE, tombstone: true, payload: "" })),
+  );
 }
 
 export async function putBookmarkCollection(

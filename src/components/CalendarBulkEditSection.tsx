@@ -11,7 +11,7 @@ import {
   type TitleMatch,
 } from "../lib/calendarBulk";
 import { friendlyError } from "../lib/errors";
-import { btnDanger, btnPrimary, eyebrow, field, fieldLabel, selectField, textAction } from "../lib/styles";
+import { btnDanger, btnPrimary, checkbox, eyebrow, field, fieldLabel, selectField, textAction } from "../lib/styles";
 import type { Calendar, CalendarEvent } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { NoticeLine, SettingsGroup, actionRow, type Notice } from "./SettingsKit";
@@ -47,8 +47,6 @@ type Props = {
 function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
-
-const checkbox = "h-3.5 w-3.5 shrink-0 cursor-pointer accent-[var(--color-accent)]";
 
 export function CalendarBulkEditSection({ session, calendars, calendarEvents, timezone, onRefresh }: Props) {
   const ids = useId();

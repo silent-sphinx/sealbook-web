@@ -59,6 +59,8 @@ export const sidebarRowAction =
   `hit-area relative flex h-6 w-6 items-center justify-center rounded-md text-mute transition-colors hover:bg-elevated ${focusRing}`;
 export const sidebarRowState = (active: boolean) =>
   active ? "bg-surface text-text" : "text-mute hover:bg-surface/40 hover:text-text";
+/** A selection checkbox, in the accent colour. */
+export const checkbox = "h-3.5 w-3.5 shrink-0 cursor-pointer accent-[var(--color-accent)]";
 /** A row's leading mark: checkbox, swatch, dot or icon. */
 export const sidebarMark = "flex h-4 w-4 shrink-0 items-center justify-center";
 /** A tree row's disclosure column, ahead of its mark. */

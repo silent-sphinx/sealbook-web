@@ -51,10 +51,12 @@ export { vaultObject } from "./outbox";
 export {
   deleteBookmark,
   deleteBookmarkCollection,
+  deleteBookmarks,
   ensureDefaultBookmarkCollection,
   newBookmarkId,
   putBookmark,
   putBookmarkCollection,
+  putBookmarks,
 } from "./bookmarkApi";
 export {
   deleteTask,
