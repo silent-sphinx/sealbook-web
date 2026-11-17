@@ -43,6 +43,11 @@ type Props<C extends SidebarCollection> = {
   canMove?: (id: string, parentId: string | null) => boolean;
   onMove?: (id: string, parentId: string | null) => Promise<unknown> | void;
   extraMenuItems?: (collection: C) => MenuItem[];
+  /** Lets a drag that starts outside the sidebar, such as a bookmark, land on a row. */
+  externalDrop?: {
+    canDrop: (collectionId: string) => boolean;
+    onDrop: (collectionId: string) => void;
+  };
   /** Drawn under an open collection, after its subcollections. */
   renderContents?: (collection: C) => ReactNode;
   readOnly?: boolean;
@@ -72,6 +77,7 @@ export function CollectionSidebar<C extends SidebarCollection>({
   canMove,
   onMove,
   extraMenuItems,
+  externalDrop,
   renderContents,
   readOnly = false,
   busy = false,
@@ -209,8 +215,11 @@ export function CollectionSidebar<C extends SidebarCollection>({
 
   function row(collection: C) {
     const selected = selectedId === collection.id;
-    const droppable =
+    const internalDroppable =
       nesting && dragging !== null && dragging !== collection.id && canMove!(dragging, collection.id);
+    const externalDroppable =
+      dragging === null && !readOnly && Boolean(externalDrop?.canDrop(collection.id));
+    const droppable = internalDroppable || externalDroppable;
     return (
       <div
         draggable={nesting && !readOnly}
@@ -233,9 +242,13 @@ export function CollectionSidebar<C extends SidebarCollection>({
         onDrop={(event) => {
           if (!droppable) return;
           event.preventDefault();
+          setDropTarget(null);
+          if (externalDroppable) {
+            externalDrop!.onDrop(collection.id);
+            return;
+          }
           const id = event.dataTransfer.getData(DRAG_TYPE);
           setDragging(null);
-          setDropTarget(null);
           if (id) void onMove!(id, collection.id);
         }}
         onContextMenu={(event) => {

@@ -471,9 +471,7 @@ describe("BookmarksView, the list", () => {
     mount({ collections: [DEFAULT_COLLECTION] });
 
     expect(screen.getByText("No bookmarks here yet")).not.toBeNull();
-    expect(
-      screen.getByText("Saved links are encrypted on this device before they leave it."),
-    ).not.toBeNull();
+    expect(screen.queryByText(/encrypted on this device/)).toBeNull();
   });
 
   it("moves a bookmark with the row's own collection picker", async () => {
@@ -544,6 +542,37 @@ describe("BookmarksView, nested collections", () => {
     selectCollection("Reading");
     expect(within(board()).queryByText("Collections")).toBeNull();
     expect(screen.queryByRole("button", { name: "Open Papers" })).toBeNull();
+  });
+
+  it("searches the whole vault or only the open collection", async () => {
+    mount({
+      collections: [DEFAULT_COLLECTION, parent],
+      bookmarks: [
+        aBookmark({ id: "b1", title: "Rust in reading", collectionId: parent.id }),
+        aBookmark({ id: "b2", title: "Rust elsewhere" }),
+      ],
+    });
+    selectCollection("Reading");
+    fireEvent.change(screen.getByLabelText("Search bookmarks"), { target: { value: "rust" } });
+    await waitFor(() => expect(screen.queryByText("Rust elsewhere")).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: /^Search scope/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Search all" }));
+    expect(document.activeElement).toBe(screen.getByLabelText("Search bookmarks"));
+    await waitFor(() => expect(screen.getByText("Rust elsewhere")).not.toBeNull());
+    expect(screen.getByText("Rust in reading")).not.toBeNull();
+  });
+
+  it("shows the search scope only while the search bar is expanded", () => {
+    mount({ bookmarks: [aBookmark({ id: "b1", title: "One" })] });
+    const input = screen.getByLabelText("Search bookmarks");
+    expect(screen.queryByRole("button", { name: /^Search scope/ })).toBeNull();
+    fireEvent.focus(input);
+    expect(screen.getByRole("button", { name: /^Search scope/ })).toBeTruthy();
+    fireEvent.blur(input);
+    expect(screen.queryByRole("button", { name: /^Search scope/ })).toBeNull();
+    fireEvent.change(input, { target: { value: "one" } });
+    expect(screen.getByRole("button", { name: /^Search scope/ })).toBeTruthy();
   });
 
   it("opens a collection from its card", () => {
@@ -918,12 +947,22 @@ describe("bulk editing", () => {
     expect(screen.getByRole("menuitem", { name: /Add tag to 2 bookmarks/ })).toBeTruthy();
   });
 
-  it("starts a selection from the row menu and with ctrl-click", () => {
+  it("does not offer Select in the row menu", () => {
     mount({ bookmarks: three() });
     const row = document.querySelector('[data-bookmark-id="a"]') as HTMLElement;
     fireEvent.contextMenu(row, { clientX: 10, clientY: 10 });
-    fireEvent.click(screen.getByRole("menuitem", { name: "Select" }));
-    expect(screen.getByText("1 selected")).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: "Select" })).toBeNull();
+  });
+
+  it("closes the sort menu when Sort is clicked again", () => {
+    mount({ bookmarks: three() });
+    const sort = screen.getByRole("button", { name: /^Sort:/ });
+    fireEvent.pointerDown(sort);
+    fireEvent.click(sort);
+    expect(screen.getByRole("menu")).toBeTruthy();
+    fireEvent.pointerDown(sort);
+    fireEvent.click(sort);
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it("enters selection with ctrl-click on a row", () => {
@@ -955,5 +994,113 @@ describe("bulk editing", () => {
     fireEvent.change(screen.getByLabelText("Tag"), { target: { value: "x" } });
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     await waitFor(() => expect(writes.map((write) => write.id)).toEqual(["ok"]));
+  });
+});
+
+describe("collection cards on All bookmarks", () => {
+  const reading: BookmarkCollection = { id: "collection-reading", name: "Reading", raw: "{}" };
+  const work: BookmarkCollection = { id: "collection-work", name: "Work", raw: "{}" };
+
+  /** A drag as the browser sends it: the event needs a `dataTransfer` to read and write. */
+  function dragTransfer() {
+    return { setData: () => {}, getData: () => "", effectAllowed: "", dropEffect: "" };
+  }
+
+  function card(name: string): HTMLElement {
+    return within(board()).getByRole("button", { name: `Open ${name}` }).parentElement as HTMLElement;
+  }
+
+  it("renames a collection from its right-click menu", async () => {
+    mount({ collections: [DEFAULT_COLLECTION, reading] });
+    fireEvent.contextMenu(card("Reading"), { clientX: 10, clientY: 10 });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rename collection" }));
+    const input = within(board()).getByLabelText("Rename Reading");
+    fireEvent.change(input, { target: { value: "To read" } });
+    fireEvent.submit(input.closest("form") as HTMLElement);
+
+    await waitFor(() => expect(collectionWrites).toHaveLength(1));
+    expect(collectionWrites[0]).toMatchObject({ id: reading.id, name: "To read" });
+  });
+
+  it("leaves the name alone when the rename is cancelled", () => {
+    mount({ collections: [DEFAULT_COLLECTION, reading] });
+    fireEvent.contextMenu(card("Reading"), { clientX: 10, clientY: 10 });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rename collection" }));
+    fireEvent.keyDown(within(board()).getByLabelText("Rename Reading"), { key: "Escape" });
+
+    expect(collectionWrites).toHaveLength(0);
+    expect(within(board()).getByRole("button", { name: "Open Reading" })).toBeTruthy();
+  });
+
+  it("deletes a collection from its right-click menu, but not the default", async () => {
+    mount({ collections: [DEFAULT_COLLECTION, reading] });
+    fireEvent.contextMenu(card("Default Collection"), { clientX: 10, clientY: 10 });
+    expect(screen.queryByRole("menuitem", { name: "Delete collection" })).toBeNull();
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    fireEvent.contextMenu(card("Reading"), { clientX: 10, clientY: 10 });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete collection" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Delete collection" })).getByRole("button", {
+        name: "Delete",
+      }),
+    );
+    await waitFor(() => expect(collectionDeletes).toEqual([reading.id]));
+  });
+
+  it("moves a bookmark into a collection dropped on its card", async () => {
+    mount({
+      collections: [DEFAULT_COLLECTION, reading],
+      bookmarks: [aBookmark({ id: "a" })],
+    });
+    const row = document.querySelector('[data-bookmark-id="a"]') as HTMLElement;
+    fireEvent.dragStart(row, { dataTransfer: dragTransfer() });
+    fireEvent.dragOver(card("Reading"), { dataTransfer: dragTransfer() });
+    fireEvent.drop(card("Reading"), { dataTransfer: dragTransfer() });
+
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]).toMatchObject({ id: "a", draft: { collectionId: reading.id } });
+  });
+
+  it("moves a bookmark into a collection dropped on its sidebar row", async () => {
+    mount({
+      collections: [DEFAULT_COLLECTION, reading],
+      bookmarks: [aBookmark({ id: "a" })],
+    });
+    const row = document.querySelector('[data-bookmark-id="a"]') as HTMLElement;
+    const target = within(sidebar()).getByRole("button", { name: /^Reading/ }).parentElement as HTMLElement;
+    fireEvent.dragStart(row, { dataTransfer: dragTransfer() });
+    fireEvent.dragOver(target, { dataTransfer: dragTransfer() });
+    fireEvent.drop(target, { dataTransfer: dragTransfer() });
+
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]!.draft.collectionId).toBe(reading.id);
+  });
+
+  it("nests a collection card dropped on another card", async () => {
+    mount({ collections: [DEFAULT_COLLECTION, reading, work] });
+    fireEvent.dragStart(card("Work"), { dataTransfer: dragTransfer() });
+    fireEvent.dragOver(card("Reading"), { dataTransfer: dragTransfer() });
+    fireEvent.drop(card("Reading"), { dataTransfer: dragTransfer() });
+
+    await waitFor(() => expect(collectionWrites).toHaveLength(1));
+    expect(collectionWrites[0]).toMatchObject({ id: work.id, parentId: reading.id });
+  });
+
+  it("does not accept a collection dropped on itself", () => {
+    mount({ collections: [DEFAULT_COLLECTION, reading] });
+    fireEvent.dragStart(card("Reading"), { dataTransfer: dragTransfer() });
+    fireEvent.drop(card("Reading"), { dataTransfer: dragTransfer() });
+    expect(collectionWrites).toHaveLength(0);
+  });
+
+  it("does not make rows or cards draggable when read-only", () => {
+    mount({
+      collections: [DEFAULT_COLLECTION, reading],
+      bookmarks: [aBookmark({ id: "a" })],
+      readOnly: true,
+    });
+    expect(card("Reading").getAttribute("draggable")).toBe("false");
+    expect(document.querySelector('[data-bookmark-id="a"]')!.getAttribute("draggable")).toBe("false");
   });
 });

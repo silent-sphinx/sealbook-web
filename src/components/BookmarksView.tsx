@@ -66,6 +66,7 @@ import {
   sidebarCount,
   sidebarHeaderAction,
   sidebarMark,
+  sidebarNameInput,
   sidebarRowState,
   sidebarSectionAction,
 } from "../lib/styles";
@@ -99,6 +100,9 @@ const ALL = "all";
 
 type BulkKind = "addTag" | "removeTag" | "move" | "delete";
 
+/** What is being dragged. Held in state because a drop target cannot read a payload during dragover. */
+type DragItem = { kind: "bookmark"; ids: string[] } | { kind: "collection"; id: string };
+
 function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
@@ -119,12 +123,20 @@ export function BookmarksView({
   const [scope, setScope] = useState<string>(ALL);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const [searchScope, setSearchScope] = useState<"all" | "collection">("collection");
   const [sort, setSort] = useState<BookmarkSort>(loadBookmarkSort);
   const [draft, setDraft] = useState<BookmarkDraft | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [tags, setTags] = useState<string[]>([]);
   const [creatingCollection, setCreatingCollection] = useState(false);
   const menu = useContextMenu();
+  const [drag, setDrag] = useState<DragItem | null>(null);
+  const [dropCardId, setDropCardId] = useState<string | null>(null);
+  const [renamingCardId, setRenamingCardId] = useState<string | null>(null);
+  const [cardName, setCardName] = useState("");
+  const cardRenameDone = useRef(false);
   const [confirmDelete, setConfirmDelete] = useState<Bookmark | null>(null);
   const [deletingCollection, setDeletingCollection] =
     useState<BookmarkCollection | null>(null);
@@ -208,7 +220,7 @@ export function BookmarksView({
 
   const visible = useMemo(() => {
     const scoped =
-      scope === ALL
+      scope === ALL || (deferredSearch.trim() && searchScope === "all")
         ? bookmarks.filter(
             (bookmark) =>
               !hiddenFromAll.has(resolveCollectionId(bookmark.collectionId)),
@@ -225,7 +237,28 @@ export function BookmarksView({
       tagged.filter((bookmark) => bookmarkMatches(bookmark, deferredSearch)),
       sort,
     );
-  }, [bookmarks, scope, deferredSearch, hiddenFromAll, tagFilter, sort]);
+  }, [bookmarks, scope, searchScope, deferredSearch, hiddenFromAll, tagFilter, sort]);
+
+  // Open while typing in the field, while it holds a query, and while its own
+  // menu has the focus; otherwise the scope control would crowd an idle field.
+  const searchExpanded =
+    searchFocused || search !== "" || menu.menu?.trigger === "search-scope";
+
+  function searchScopeItems(): MenuItem[] {
+    return (
+      [
+        ["all", "Search all"],
+        ["collection", "Search collection"],
+      ] as const
+    ).map(([key, label]) => ({
+      label: key === searchScope ? `\u2713 ${label}` : label,
+      onSelect: () => {
+        setSearchScope(key);
+        // Focus returns to the field, which is what keeps the bar expanded.
+        searchInput.current?.focus();
+      },
+    }));
+  }
 
   function sortItems(): MenuItem[] {
     return BOOKMARK_SORTS.map(({ key, label }) => ({
@@ -470,15 +503,7 @@ export function BookmarksView({
   function bookmarkMenuFor(bookmark: Bookmark): MenuItem[] {
     if (readOnlyMode) return [];
     if (selected.has(bookmark.id) && selected.size > 1) return bulkItems();
-    const [edit, ...rest] = bookmarkItemsFor(bookmark);
-    return [
-      edit!,
-      {
-        label: "Select",
-        onSelect: () => (selecting ? toggleSelected(bookmark, false) : beginSelecting(bookmark)),
-      },
-      ...rest,
-    ];
+    return bookmarkItemsFor(bookmark);
   }
 
   function closeForm() {
@@ -586,6 +611,37 @@ export function BookmarksView({
         onSelect: () => void toggleHideFromAll(collection),
       },
     ];
+  }
+
+  function cardItemsFor(collection: BookmarkCollection): MenuItem[] {
+    if (readOnlyMode) return [];
+    const items: MenuItem[] = [
+      {
+        label: "Rename collection",
+        onSelect: () => {
+          cardRenameDone.current = false;
+          setCardName(collection.name);
+          setRenamingCardId(collection.id);
+        },
+      },
+      ...collectionExtras(collection),
+    ];
+    if (collection.id !== DEFAULT_BOOKMARK_COLLECTION_ID) {
+      items.push({
+        label: "Delete collection",
+        danger: true,
+        onSelect: () => setDeletingCollection(collection),
+      });
+    }
+    return items;
+  }
+
+  function commitCardRename(collection: BookmarkCollection) {
+    if (cardRenameDone.current) return;
+    cardRenameDone.current = true;
+    const name = cardName.trim();
+    setRenamingCardId(null);
+    if (name && name !== collection.name) void renameCollection(collection, name);
   }
 
   function bookmarkItemsFor(bookmark: Bookmark): MenuItem[] {
@@ -725,6 +781,49 @@ export function BookmarksView({
     }
   }
 
+  /** Moves bookmarks in one write; ones already there or not writable are left alone. */
+  async function moveBookmarks(ids: string[], collectionId: string) {
+    const writes = bookmarks
+      .filter(
+        (bookmark) =>
+          ids.includes(bookmark.id) &&
+          bookmarkWritable(bookmark) &&
+          resolveCollectionId(bookmark.collectionId) !== collectionId,
+      )
+      .map((bookmark) => ({ id: bookmark.id, draft: { ...bookmarkDraft(bookmark), collectionId } }));
+    if (writes.length === 0) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await putBookmarks(session, writes);
+      await onRefresh();
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function canDropOnCollection(collectionId: string): boolean {
+    if (!drag || readOnlyMode) return false;
+    if (drag.kind === "bookmark") return true;
+    return drag.id !== collectionId && canMoveCollection(collections, drag.id, collectionId);
+  }
+
+  function dropOnCollection(collectionId: string) {
+    const current = drag;
+    setDrag(null);
+    setDropCardId(null);
+    if (!current) return;
+    if (current.kind === "bookmark") void moveBookmarks(current.ids, collectionId);
+    else void moveCollection(current.id, collectionId);
+  }
+
+  function endDrag() {
+    setDrag(null);
+    setDropCardId(null);
+  }
+
   const disabled = busy || saving || readOnlyMode;
 
   return (
@@ -824,6 +923,7 @@ export function BookmarksView({
               canMove={(id, parentId) => canMoveCollection(collections, id, parentId)}
               onMove={moveCollection}
               extraMenuItems={collectionExtras}
+              externalDrop={{ canDrop: canDropOnCollection, onDrop: dropOnCollection }}
               readOnly={readOnlyMode}
               busy={busy || saving}
             />
@@ -861,7 +961,8 @@ export function BookmarksView({
               ) : null}
               <button
                 type="button"
-                onClick={(event) => menu.open(event, sortItems())}
+                data-menu-trigger
+                onClick={(event) => menu.toggle(event, sortItems(), "sort")}
                 aria-haspopup="menu"
                 aria-label={`Sort: ${bookmarkSortLabel(sort)}`}
                 title={`Sort: ${bookmarkSortLabel(sort)}`}
@@ -870,17 +971,40 @@ export function BookmarksView({
                 <Icon name="text" className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Sort</span>
               </button>
-              <div className="relative min-w-0 flex-1 sm:flex-none">
-                <Icon
-                  name="search"
-                  className={searchIcon}
-                />
+              <div
+                className="relative min-w-0 flex-1 sm:flex-none"
+                onFocus={() => setSearchFocused(true)}
+                onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) setSearchFocused(false);
+                }}
+              >
+                <Icon name="search" className={searchIcon} />
+                {searchExpanded ? (
+                <button
+                  type="button"
+                  data-menu-trigger
+                  onClick={(event) => menu.toggle(event, searchScopeItems(), "search-scope")}
+                  aria-haspopup="menu"
+                  aria-label={`Search scope: ${searchScope === "all" ? "all" : "collection"}`}
+                  title="Search scope"
+                  className={`absolute left-7 top-1/2 flex h-6 -translate-y-1/2 items-center gap-0.5 rounded-md px-1.5 text-xs font-medium text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
+                >
+                  <span>{searchScope === "all" ? "All" : "Collection"}</span>
+                  <Icon name="chevron" className="h-3 w-3 rotate-90" />
+                </button>
+                ) : null}
                 <input
+                  ref={searchInput}
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search bookmarks"
                   aria-label="Search bookmarks"
-                  className={`${searchField} sm:w-52 sm:focus:w-72`}
+                  style={
+                    searchExpanded
+                      ? { paddingLeft: searchScope === "all" ? "5.25rem" : "8rem" }
+                      : undefined
+                  }
+                  className={`${searchField} ${searchExpanded ? "sm:w-80" : "sm:w-52"}`}
                 />
                 {search ? (
                   <button
@@ -1035,27 +1159,81 @@ export function BookmarksView({
                   Collections
                 </p>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                  {topCollections.map((collection) => (
-                    <button
-                      key={collection.id}
-                      type="button"
-                      onClick={() => setScope(collection.id)}
-                      aria-label={`Open ${collection.name}`}
-                      className={`flex items-center gap-2.5 rounded-xl border border-line bg-panel/60 px-3 py-2.5 text-left transition-colors hover:border-line-light hover:bg-panel ${focusRing}`}
-                    >
-                      <span
-                        aria-hidden="true"
-                        className="h-3 w-3 shrink-0 rounded-full"
-                        style={{ background: collectionTone(collections, collection.id) }}
-                      />
-                      <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">
-                        {collection.name}
-                      </span>
-                      <span className="shrink-0 text-[10px] tabular-nums text-mute">
-                        {countByCollection.get(collection.id) || ""}
-                      </span>
-                    </button>
-                  ))}
+                  {topCollections.map((collection) =>
+                    renamingCardId === collection.id ? (
+                      <form
+                        key={collection.id}
+                        autoComplete="off"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          commitCardRename(collection);
+                        }}
+                      >
+                        <input
+                          autoFocus
+                          value={cardName}
+                          onChange={(event) => setCardName(event.target.value)}
+                          onBlur={() => commitCardRename(collection)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Escape") {
+                              cardRenameDone.current = true;
+                              setRenamingCardId(null);
+                            }
+                          }}
+                          aria-label={`Rename ${collection.name}`}
+                          className={sidebarNameInput}
+                        />
+                      </form>
+                    ) : (
+                      // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
+                      <div
+                        key={collection.id}
+                        draggable={!readOnlyMode}
+                        onDragStart={(event) => {
+                          event.dataTransfer.setData("text/plain", collection.name);
+                          event.dataTransfer.effectAllowed = "move";
+                          setDrag({ kind: "collection", id: collection.id });
+                        }}
+                        onDragEnd={endDrag}
+                        onDragOver={(event) => {
+                          if (!canDropOnCollection(collection.id)) return;
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = "move";
+                          setDropCardId(collection.id);
+                        }}
+                        onDragLeave={() =>
+                          setDropCardId((current) => (current === collection.id ? null : current))
+                        }
+                        onDrop={(event) => {
+                          if (!canDropOnCollection(collection.id)) return;
+                          event.preventDefault();
+                          dropOnCollection(collection.id);
+                        }}
+                        onContextMenu={(event) => menu.open(event, cardItemsFor(collection))}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setScope(collection.id)}
+                          aria-label={`Open ${collection.name}`}
+                          className={`flex w-full items-center gap-2.5 rounded-xl border bg-panel/60 px-3 py-2.5 text-left transition-colors hover:border-line-light hover:bg-panel ${focusRing} ${
+                            dropCardId === collection.id ? "border-accent-dim ring-1 ring-accent-ring" : "border-line"
+                          }`}
+                        >
+                          <span
+                            aria-hidden="true"
+                            className="h-3 w-3 shrink-0 rounded-full"
+                            style={{ background: collectionTone(collections, collection.id) }}
+                          />
+                          <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">
+                            {collection.name}
+                          </span>
+                          <span className="shrink-0 text-[10px] tabular-nums text-mute">
+                            {countByCollection.get(collection.id) || ""}
+                          </span>
+                        </button>
+                      </div>
+                    ),
+                  )}
                 </div>
               </div>
             ) : null}
@@ -1097,10 +1275,7 @@ export function BookmarksView({
               search.trim() ? (
                 <EmptyState title="No bookmarks match that search." />
               ) : (
-                <EmptyState
-                  title="No bookmarks here yet"
-                  body="Saved links are encrypted on this device before they leave it."
-                />
+                <EmptyState title="No bookmarks here yet" />
               )
             ) : (
               <ul className="divide-y divide-line/60 border-y border-line/60">
@@ -1113,6 +1288,15 @@ export function BookmarksView({
                     {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
                     <div
                       data-bookmark-id={bookmark.id}
+                      draggable={!readOnlyMode && bookmarkWritable(bookmark)}
+                      onDragStart={(event) => {
+                        event.dataTransfer.setData("text/plain", bookmark.title);
+                        event.dataTransfer.effectAllowed = "move";
+                        const ids =
+                          selecting && selected.has(bookmark.id) ? [...selected] : [bookmark.id];
+                        setDrag({ kind: "bookmark", ids });
+                      }}
+                      onDragEnd={endDrag}
                       className={`list-row flex items-center gap-2 px-3 py-2.5 transition-colors sm:gap-3 ${highlightId === bookmark.id ? "bg-surface/70" : "hover:bg-surface/40"}`}
                       onContextMenu={(event) =>
                         menu.open(event, bookmarkMenuFor(bookmark))

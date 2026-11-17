@@ -20,12 +20,24 @@ export type MenuItem = {
   disabledReason?: string;
 };
 
-export type MenuState = { x: number; y: number; items: MenuItem[] } | null;
+export type MenuState = { x: number; y: number; items: MenuItem[]; trigger?: string } | null;
 
 export function useContextMenu() {
   const [menu, setMenu] = useState<MenuState>(null);
   return {
     menu,
+    /**
+     * For a button that opens a menu: a second click on the same button closes
+     * it. The menu ignores pointerdowns on a `data-menu-trigger` element, so the
+     * click still finds the menu open instead of reopening one that has just shut.
+     */
+    toggle(event: ReactMouseEvent, items: MenuItem[], trigger: string) {
+      if (menu?.trigger === trigger) {
+        setMenu(null);
+        return;
+      }
+      this.open(event, items, trigger);
+    },
     /**
      * Call from `onContextMenu`; a row with no items opens nothing.
      *
@@ -34,16 +46,16 @@ export function useContextMenu() {
      * against the row instead. That is what makes the actions reachable without
      * a mouse now that the row's icons are gone.
      */
-    open(event: ReactMouseEvent, items: MenuItem[]) {
+    open(event: ReactMouseEvent, items: MenuItem[], trigger?: string) {
       if (items.length === 0) return;
       event.preventDefault();
       event.stopPropagation();
       if (event.clientX === 0 && event.clientY === 0) {
         const box = event.currentTarget.getBoundingClientRect();
-        setMenu({ x: box.left + box.width / 2, y: box.bottom, items });
+        setMenu({ x: box.left + box.width / 2, y: box.bottom, items, trigger });
         return;
       }
-      setMenu({ x: event.clientX, y: event.clientY, items });
+      setMenu({ x: event.clientX, y: event.clientY, items, trigger });
     },
     close() {
       setMenu(null);
@@ -85,7 +97,8 @@ export function ContextMenu({ state, onClose }: { state: MenuState; onClose: () 
     // to stop this listener. Checking containment instead lets outside clicks
     // close immediately while clicks on the menu's own buttons still land.
     const close = (event: Event) => {
-      if (ref.current?.contains(event.target as Node)) return;
+      const target = event.target as Element;
+      if (ref.current?.contains(target) || target.closest?.("[data-menu-trigger]")) return;
       onClose();
     };
     const onKey = (event: KeyboardEvent) => {
