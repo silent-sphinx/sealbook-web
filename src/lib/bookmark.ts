@@ -119,7 +119,7 @@ function collectionFrom(
   };
 }
 
-function collectionTo(collection: BookmarkCollection): CoreBookmarkCollection {
+export function collectionTo(collection: BookmarkCollection): CoreBookmarkCollection {
   return {
     id: collection.id,
     name: collection.name,

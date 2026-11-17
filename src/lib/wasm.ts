@@ -26,6 +26,10 @@ import init, {
   core_calendar_parse,
   core_calendar_write,
   core_bookmark_collection_keys,
+  core_bookmark_import,
+  core_bookmark_import_folders,
+  core_bookmark_import_plan,
+  core_bookmark_import_with_folder,
   core_bookmark_collection_name_by_id,
   core_bookmark_collection_parse,
   core_bookmark_collection_tone,
@@ -269,6 +273,12 @@ import type {
   CoreBookmarkCollection,
   CoreBookmarkCollectionDraft,
   CoreBookmarkDraft,
+  CoreBookmarkImport,
+  CoreBookmarkImportOptions,
+  CoreBookmarkImportPlan,
+  CoreFolderAction,
+  CoreFolderRule,
+  CoreImportFolder,
   CoreContact,
   CoreContactAddress,
   CoreContactChannel,
@@ -2065,6 +2075,12 @@ export type {
   CoreBookmarkCollection,
   CoreBookmarkCollectionDraft,
   CoreBookmarkDraft,
+  CoreBookmarkImport,
+  CoreBookmarkImportOptions,
+  CoreBookmarkImportPlan,
+  CoreFolderAction,
+  CoreFolderRule,
+  CoreImportFolder,
 };
 
 /** Every key a bookmark writer owns, and every key a collection writer owns. */
@@ -2090,6 +2106,41 @@ export function coreNormalizeUrl(url: string): string {
 
 export function coreNormalizeTags(tags: string[]): string[] {
   return [...core_normalize_tags(tags)];
+}
+
+/** The bookmarks in a browser's HTML export, a Sealbook export or a JSON array. Throws `Malformed` with a sentence. */
+export function coreBookmarkImport(text: string): CoreBookmarkImport {
+  return core_bookmark_import(text);
+}
+
+/**
+ * Where an import's bookmarks go: all in `target`, or in new collections
+ * mirroring the file's folders as `options` says, reusing those that exist.
+ */
+export function coreBookmarkImportPlan(
+  file: CoreBookmarkImport,
+  existing: CoreBookmarkCollection[],
+  target: string | undefined,
+  options: CoreBookmarkImportOptions,
+): CoreBookmarkImportPlan {
+  return core_bookmark_import_plan(file, existing, target, options);
+}
+
+/** The options with one folder's action set; a rule that restates the depth's default is dropped. */
+export function coreBookmarkImportWithFolder(
+  options: CoreBookmarkImportOptions,
+  path: string[],
+  action: CoreFolderAction,
+): CoreBookmarkImportOptions {
+  return core_bookmark_import_with_folder(options, path, action);
+}
+
+/** The folders of an import file with their sizes and what `options` does with each. */
+export function coreBookmarkImportFolders(
+  file: CoreBookmarkImport,
+  options: CoreBookmarkImportOptions,
+): CoreImportFolder[] {
+  return [...core_bookmark_import_folders(file, options)];
 }
 
 /** Reads a stored bookmark. Lenient: one that will not parse is still a row. */

@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 
-import { putBookmark } from "../lib/bookmarkApi";
+import { putBookmark, putBookmarkCollection } from "../lib/bookmarkApi";
 import type { Session } from "../lib/client";
 import { friendlyError } from "../lib/errors";
 import { triggerDownload } from "../lib/importExport";
@@ -13,9 +13,13 @@ import {
 import {
   generateBookmarkExportData,
   parseBookmarkImport,
+  importFolders,
+  NO_FOLDERS,
+  planBookmarkImport,
   type BookmarkImportResult,
 } from "../lib/bookmarkExport";
 import { btnPrimary, btnSecondary, fieldLabel, selectField } from "../lib/styles";
+import { BookmarkFolderEditor } from "./BookmarkFolderEditor";
 import {
   FileDrop,
   ImportPreview,
@@ -27,7 +31,8 @@ import {
   actionRow,
   type Notice,
 } from "./SettingsKit";
-import type { Bookmark, BookmarkCollection, BookmarkDraft } from "../lib/types";
+import type { Bookmark, BookmarkCollection } from "../lib/types";
+import type { CoreBookmarkImportOptions } from "../lib/wasm";
 
 const MAX_IMPORT_FILE_BYTES = 32 * 1024 * 1024;
 
@@ -57,6 +62,7 @@ export function BookmarksImportExportSection({
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
   const [importMsg, setImportMsg] = useState<Notice>(null);
+  const [folderOptions, setFolderOptions] = useState<CoreBookmarkImportOptions>(NO_FOLDERS);
 
   const [exportCollectionFilter, setExportCollectionFilter] = useState<string>(ALL_COLLECTIONS);
   const [exportMsg, setExportMsg] = useState<Notice>(null);
@@ -86,8 +92,8 @@ export function BookmarksImportExportSection({
           setImportMsg({
             type: "error",
             text: result.skipped > 0
-              ? `Every entry in "${file.name}" was missing a URL and title.`
-              : `No bookmarks could be read from "${file.name}". Expected a Sealbook export or a JSON array of bookmarks.`,
+              ? `Nothing in "${file.name}" could be imported: every entry was missing a URL or was not a web page.`
+              : `No bookmarks could be read from "${file.name}". Expected a browser bookmarks export, a Sealbook export or a JSON array of bookmarks.`,
           });
           return;
         }
@@ -107,13 +113,14 @@ export function BookmarksImportExportSection({
     setProgress(null);
     setIsCreatingCollection(false);
     setNewCollectionName("");
+    setFolderOptions(NO_FOLDERS);
   }
 
   async function runImport() {
-    if (!parsed || parsed.bookmarks.length === 0) return;
+    if (!parsed || !preview || preview.bookmarks.length === 0) return;
     setImporting(true);
     setImportMsg(null);
-    setProgress({ current: 0, total: parsed.bookmarks.length });
+    setProgress({ current: 0, total: preview.bookmarks.length });
     try {
       let collectionId = targetCollectionId;
       if (isCreatingCollection && newCollectionName.trim() && onCreateCollection) {
@@ -121,27 +128,33 @@ export function BookmarksImportExportSection({
         if (created) collectionId = created;
       }
 
-      for (let index = 0; index < parsed.bookmarks.length; index += 1) {
-        const draft: BookmarkDraft = { ...parsed.bookmarks[index], collectionId };
-        await putBookmark(session, draft);
-        setProgress({ current: index + 1, total: parsed.bookmarks.length });
+      const plan = planBookmarkImport(parsed, bookmarkCollections, collectionId, folderOptions);
+      for (const collection of plan.collections) {
+        await putBookmarkCollection(session, collection.name, collection.parentId, collection.id);
+      }
+      for (let index = 0; index < plan.bookmarks.length; index += 1) {
+        await putBookmark(session, plan.bookmarks[index]);
+        setProgress({ current: index + 1, total: plan.bookmarks.length });
       }
       await onRefresh();
 
-      const count = parsed.bookmarks.length;
+      const count = plan.bookmarks.length;
       const skipped = parsed.skipped;
-      const name = collectionNameById(bookmarkCollections, collectionId);
+      const made = plan.collections.length;
+      const where = made > 0
+        ? `${made} new collection${made === 1 ? "" : "s"}`
+        : `"${collectionNameById(bookmarkCollections, collectionId) || newCollectionName.trim()}"`;
       setImportMsg({
         type: "success",
-        text: `Imported ${count} bookmark${count === 1 ? "" : "s"} into "${name}".${
-          skipped ? ` ${skipped} entries were missing a URL and skipped.` : ""
-        }`,
+        text: `Imported ${count} bookmark${count === 1 ? "" : "s"} into ${where}.${
+          skipped ? ` ${skipped} entries were missing a URL or not a web page, and skipped.` : ""
+        }${plan.excluded ? ` ${plan.excluded} in skipped folders were left out.` : ""}`,
       });
       resetImport();
     } catch (err) {
       setImportMsg({
         type: "error",
-        text: `Import stopped after ${progress?.current ?? 0} of ${parsed.bookmarks.length}: ${friendlyError(err)}`,
+        text: `Import stopped after ${progress?.current ?? 0} of ${preview?.bookmarks.length ?? parsed.bookmarks.length}: ${friendlyError(err)}`,
       });
       await onRefresh();
     } finally {
@@ -172,6 +185,19 @@ export function BookmarksImportExportSection({
   }
 
 
+  const folders = parsed?.hasFolders ? importFolders(parsed, folderOptions) : [];
+  const preview = parsed
+    ? planBookmarkImport(parsed, bookmarkCollections, targetCollectionId, folderOptions)
+    : null;
+  const summary = preview
+    ? `${preview.bookmarks.length} bookmark${preview.bookmarks.length === 1 ? "" : "s"} will be imported` +
+      (preview.collections.length > 0
+        ? `, with ${preview.collections.length} new collection${preview.collections.length === 1 ? "" : "s"} made`
+        : "") +
+      (preview.excluded > 0 ? `. ${preview.excluded} in skipped folders will be left out` : "") +
+      "."
+    : "";
+
   const bookmarkCount = (count: number) => `${count} bookmark${count === 1 ? "" : "s"}`;
   const creating = isCreatingCollection || bookmarkCollections.length === 0;
 
@@ -179,15 +205,15 @@ export function BookmarksImportExportSection({
     <>
       <SettingsGroup
         title="Import bookmarks"
-        meta=".json"
-        description="Restore a Sealbook bookmark export with its collections, tags and notes, or bring in any JSON list of links."
+        meta=".html, .json"
+        description="Bring in the bookmarks file your browser exports, restore a Sealbook bookmark export, or use any JSON list of links."
       >
         {!importFile || !parsed ? (
           <FileDrop
             label="Choose a bookmarks file to import, or drop one here"
-            accept=".json,application/json"
-            formats=".json"
-            hint="A Sealbook bookmark export, or any JSON array of objects with a URL field"
+            accept=".html,.htm,.json,text/html,application/json"
+            formats=".html, .json"
+            hint="A bookmarks file exported from Firefox, Chrome, Safari or Edge, a Sealbook export, or a JSON array of objects with a URL field"
             onFile={handleFileRead}
           />
         ) : (
@@ -214,6 +240,21 @@ export function BookmarksImportExportSection({
               onValue={setTargetCollectionId}
               options={bookmarkCollections}
             />
+            {parsed.hasFolders ? (
+              <>
+                <BookmarkFolderEditor
+                  id={`${ids}-folders`}
+                  folders={folders}
+                  options={folderOptions}
+                  onOptions={setFolderOptions}
+                  collections={bookmarkCollections}
+                  disabled={importing}
+                />
+                <p className="text-xs text-mute" aria-live="polite">
+                  {summary}
+                </p>
+              </>
+            ) : null}
             <ImportPreview
               rows={parsed.bookmarks.slice(0, 3).map((draft) => ({ primary: draft.title, secondary: draft.url }))}
               total={parsed.bookmarks.length}
@@ -225,13 +266,13 @@ export function BookmarksImportExportSection({
               </button>
               <button
                 type="button"
-                disabled={importing || (isCreatingCollection && !newCollectionName.trim())}
+                disabled={importing || !preview || preview.bookmarks.length === 0 || (isCreatingCollection && !newCollectionName.trim())}
                 onClick={() => void runImport()}
                 className={btnPrimary}
               >
                 {importing
-                  ? `Importing (${progress?.current ?? 0}/${parsed.bookmarks.length})…`
-                  : `Import ${bookmarkCount(parsed.bookmarks.length)}`}
+                  ? `Importing (${progress?.current ?? 0}/${preview?.bookmarks.length ?? 0})…`
+                  : `Import ${bookmarkCount(preview?.bookmarks.length ?? 0)}`}
               </button>
             </div>
           </ImportReview>

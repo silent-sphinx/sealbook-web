@@ -1,4 +1,14 @@
+import { collectionTo } from "./bookmark";
 import type { Bookmark, BookmarkCollection, BookmarkDraft } from "./types";
+import {
+  coreBookmarkImport,
+  coreBookmarkImportFolders,
+  coreBookmarkImportPlan,
+  coreErrorOf,
+  type CoreBookmarkImport,
+  type CoreBookmarkImportOptions,
+  type CoreImportFolder,
+} from "./wasm";
 
 export type BookmarkExportEntry = {
   url: string;
@@ -26,7 +36,32 @@ type BookmarkExportPayload = {
 export type BookmarkImportResult = {
   bookmarks: BookmarkDraft[];
   skipped: number;
+  /** True when the file puts any bookmark in a folder. */
+  hasFolders: boolean;
+  /** The file as core read it, for `planBookmarkImport`. */
+  source: CoreBookmarkImport;
 };
+
+export type BookmarkImportPlan = {
+  /** Parents before the collections nested in them. */
+  collections: Array<{ id: string; name: string; parentId?: string }>;
+  bookmarks: BookmarkDraft[];
+  /** Bookmarks left out because their folder is skipped. */
+  excluded: number;
+};
+
+/** Folders this deep or less become collections; deeper ones merge into the folder above. */
+export const ALL_FOLDERS = 0xffff_ffff;
+
+export const NO_FOLDERS: CoreBookmarkImportOptions = { depth: 0, rules: [] };
+
+/** The folders of a read file as `options` would treat them, parents first. */
+export function importFolders(
+  read: BookmarkImportResult,
+  options: CoreBookmarkImportOptions,
+): CoreImportFolder[] {
+  return coreBookmarkImportFolders(read.source, options);
+}
 
 export function generateBookmarkExportData(
   bookmarks: Bookmark[],
@@ -64,57 +99,67 @@ export function generateBookmarkExportData(
   };
 }
 
+/**
+ * Reads a browser's HTML bookmarks export, a Sealbook export or a JSON array,
+ * with every bookmark filed in `targetCollectionId`. Throws an `Error` whose
+ * message is the sentence to show.
+ */
 export function parseBookmarkImport(
   content: string,
   targetCollectionId: string,
 ): BookmarkImportResult {
-  const parsed: unknown = JSON.parse(content);
-  if (!parsed || typeof parsed !== "object") {
-    throw new Error("Not a valid JSON file.");
+  try {
+    const read = coreBookmarkImport(content);
+    return {
+      bookmarks: read.bookmarks.map(({ draft }) => ({
+        url: draft.url,
+        title: draft.title,
+        ...(draft.notes ? { notes: draft.notes } : {}),
+        ...(draft.tags.length > 0 ? { tags: draft.tags } : {}),
+        collectionId: targetCollectionId,
+        ...(draft.created_at ? { createdAt: draft.created_at } : {}),
+      })),
+      skipped: read.skipped,
+      hasFolders: read.bookmarks.some((item) => item.folder.length > 0),
+      source: read,
+    };
+  } catch (error) {
+    const core = coreErrorOf(error);
+    throw core?.kind === "Malformed" ? new Error(core.detail) : error;
   }
-
-  const entries = extractEntries(parsed);
-  if (entries === null) {
-    throw new Error(
-      "Unrecognised format. Expected a Sealbook bookmark export or a JSON array of bookmarks.",
-    );
-  }
-
-  const bookmarks: BookmarkDraft[] = [];
-  let skipped = 0;
-  for (const entry of entries) {
-    if (!entry || typeof entry !== "object") {
-      skipped++;
-      continue;
-    }
-    const b = entry as Record<string, unknown>;
-    const url = typeof b.url === "string" ? b.url.trim() : "";
-    const title = typeof b.title === "string" ? b.title.trim() : "";
-    if (!url && !title) {
-      skipped++;
-      continue;
-    }
-    bookmarks.push({
-      url,
-      title: title || url,
-      ...(typeof b.notes === "string" && b.notes ? { notes: b.notes } : {}),
-      ...(Array.isArray(b.tags)
-        ? { tags: (b.tags as unknown[]).filter((t): t is string => typeof t === "string") }
-        : {}),
-      collectionId: targetCollectionId,
-      ...(typeof b.createdAt === "string" ? { createdAt: b.createdAt } : {}),
-      ...(typeof b.updatedAt === "string" ? { updatedAt: b.updatedAt } : {}),
-    });
-  }
-  return { bookmarks, skipped };
 }
 
-function extractEntries(parsed: unknown): unknown[] | null {
-  if (Array.isArray(parsed)) return parsed;
-  if (typeof parsed !== "object" || parsed === null) return null;
-  const obj = parsed as Record<string, unknown>;
-  if (obj["@type"] === "sealbook-bookmark-export" && Array.isArray(obj.bookmarks)) {
-    return obj.bookmarks;
-  }
-  return null;
+/**
+ * Where a read file's bookmarks go: all in `targetCollectionId`, or into
+ * collections that mirror the file's folders as `options` says, nested under the
+ * target unless that is the default collection.
+ */
+export function planBookmarkImport(
+  read: BookmarkImportResult,
+  existing: BookmarkCollection[],
+  targetCollectionId: string,
+  options: CoreBookmarkImportOptions,
+): BookmarkImportPlan {
+  const plan = coreBookmarkImportPlan(
+    read.source,
+    existing.map(collectionTo),
+    targetCollectionId,
+    options,
+  );
+  return {
+    collections: plan.collections.map(({ id, draft }) => ({
+      id,
+      name: draft.name,
+      ...(draft.parent_id ? { parentId: draft.parent_id } : {}),
+    })),
+    bookmarks: plan.bookmarks.map((draft) => ({
+      url: draft.url,
+      title: draft.title,
+      ...(draft.notes ? { notes: draft.notes } : {}),
+      ...(draft.tags.length > 0 ? { tags: draft.tags } : {}),
+      collectionId: draft.collection_id,
+      ...(draft.created_at ? { createdAt: draft.created_at } : {}),
+    })),
+    excluded: plan.excluded,
+  };
 }
