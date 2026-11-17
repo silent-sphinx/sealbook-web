@@ -43,6 +43,7 @@ import {
   type Session,
 } from "../lib/client";
 import { friendlyError } from "../lib/errors";
+import { useItemSelection } from "../lib/useItemSelection";
 import {
   btnHeader,
   btnPrimary,
@@ -143,9 +144,6 @@ export function BookmarksView({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [selecting, setSelecting] = useState(false);
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const [anchorId, setAnchorId] = useState<string | null>(null);
   const [bulk, setBulk] = useState<BulkKind | null>(null);
   const [bulkText, setBulkText] = useState("");
   const [bulkCollection, setBulkCollection] = useState(DEFAULT_BOOKMARK_COLLECTION_ID);
@@ -295,61 +293,16 @@ export function BookmarksView({
     if (tagFilter && !tagList.some((tag) => tag.key === tagFilter)) setTagFilter(null);
   }, [tagList, tagFilter]);
 
-  // Selection never outlives what is on screen: moving scope or narrowing the
-  // search must not leave a bulk action aimed at rows the user cannot see.
-  useEffect(() => {
-    setSelected((current) => {
-      if (current.size === 0) return current;
-      const shown = new Set(visible.map((bookmark) => bookmark.id));
-      const kept = [...current].filter((id) => shown.has(id));
-      return kept.length === current.size ? current : new Set(kept);
-    });
-  }, [visible]);
-
-  // Narrowing the view can empty a selection the user never cleared by hand.
-  const hadSelection = useRef(false);
-  useEffect(() => {
-    if (selected.size > 0) hadSelection.current = true;
-    else if (hadSelection.current) {
-      hadSelection.current = false;
-      setSelecting(false);
-    }
-  }, [selected]);
-
-  useEffect(() => {
-    if (!selecting || bulk) return;
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") endSelecting();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [selecting, bulk]);
-
-  useEffect(() => {
-    if (readOnlyMode || bulk || draft) return;
-    function onKey(event: KeyboardEvent) {
-      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== "a") return;
-      const target = event.target as HTMLElement | null;
-      // Leave text editing and open dialogs to the browser's own select-all.
-      if (target?.closest("input, textarea, select, [contenteditable='true'], [role='dialog']")) return;
-      if (document.querySelector("[role='dialog']")) return;
-      if (visible.length === 0) return;
-      event.preventDefault();
-      if (selecting && selected.size === visible.length) {
-        endSelecting();
-        return;
-      }
-      setSelecting(true);
-      setSelected(new Set(visible.map((bookmark) => bookmark.id)));
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [readOnlyMode, bulk, draft, visible, selecting, selected]);
-
-  const selectedBookmarks = useMemo(
-    () => visible.filter((bookmark) => selected.has(bookmark.id)),
-    [visible, selected],
-  );
+  const selection = useItemSelection(visible, { enabled: !readOnlyMode, paused: bulk !== null || draft !== null });
+  const {
+    selected,
+    selectedItems: selectedBookmarks,
+    selecting,
+    begin: beginSelecting,
+    toggle: toggleSelected,
+    toggleAll,
+    clear: endSelecting,
+  } = selection;
 
   const countByCollection = useMemo(() => {
     const counts = new Map<string, number>();
@@ -378,44 +331,6 @@ export function BookmarksView({
     setTags(bookmark.tags ?? []);
     setEditingId(bookmark.id);
     setError(null);
-  }
-
-  function endSelecting() {
-    setSelecting(false);
-    setSelected(new Set());
-    setAnchorId(null);
-  }
-
-  function beginSelecting(bookmark: Bookmark) {
-    setSelecting(true);
-    setSelected(new Set([bookmark.id]));
-    setAnchorId(bookmark.id);
-  }
-
-  /** Plain click toggles; Shift+click adds the run between it and the last click. */
-  function toggleSelected(bookmark: Bookmark, extend: boolean) {
-    const next = new Set(selected);
-    const from = extend && anchorId ? visible.findIndex((item) => item.id === anchorId) : -1;
-    if (from >= 0) {
-      const to = visible.findIndex((item) => item.id === bookmark.id);
-      const [low, high] = from < to ? [from, to] : [to, from];
-      for (const item of visible.slice(low, high + 1)) next.add(item.id);
-    } else if (next.has(bookmark.id)) {
-      next.delete(bookmark.id);
-    } else {
-      next.add(bookmark.id);
-    }
-    if (next.size === 0) {
-      endSelecting();
-      return;
-    }
-    setSelected(next);
-    setAnchorId(bookmark.id);
-  }
-
-  function toggleAll() {
-    if (selected.size === visible.length) endSelecting();
-    else setSelected(new Set(visible.map((bookmark) => bookmark.id)));
   }
 
   function openBulk(kind: BulkKind) {
@@ -492,7 +407,7 @@ export function BookmarksView({
     } catch (err) {
       if (err instanceof RefusedWrites) {
         await onRefresh();
-        setSelected(new Set(err.refused.keys()));
+        selection.select(err.refused.keys());
       }
       setBulkError(friendlyError(err));
     } finally {
