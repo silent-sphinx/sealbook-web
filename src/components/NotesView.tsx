@@ -25,8 +25,6 @@ import {
   payloadFitsObjectLimit,
   buildSearchIndex,
   indexMatches,
-  notebookNameById,
-  notePreview,
   noteWordCount,
   notebookTone,
   parseNote,
@@ -37,8 +35,6 @@ import {
 import { ancestorsOf, buildNoteTree, canReparent, noteSubtree } from "../lib/noteTree";
 import {
   focusRing,
-  searchField,
-  searchIcon,
   sidebarHeaderAction,
   sidebarSectionAction,
 } from "../lib/styles";
@@ -46,6 +42,7 @@ import type { Note, NoteDraft, Notebook } from "../lib/types";
 import type { OutboxState } from "../lib/outbox";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { CollectionSidebar, SidebarAddRow } from "./CollectionSidebar";
+import { RenameNoteDialog } from "./RenameNoteDialog";
 import { NoteTreeList } from "./NoteTreeList";
 import { NotebookPages } from "./NotebookPages";
 import { NotesOverview } from "./NotesOverview";
@@ -135,6 +132,9 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   const [creatingNotebook, setCreatingNotebook] = useState(false);
   const [deletingNotebook, setDeletingNotebook] = useState<Notebook | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Note | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState<Note[] | null>(null);
+  const [renaming, setRenaming] = useState<Note | null>(null);
+  const [renamingNotebook, setRenamingNotebook] = useState<Notebook | null>(null);
   const [error, setError] = useState<string | null>(null);
   const menu = useContextMenu();
 
@@ -508,11 +508,8 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     }
   }
 
-  async function removeNote() {
-    const target = confirmDelete;
-    if (!target) return;
+  async function removeNotes(ids: string[]): Promise<boolean> {
     setError(null);
-    const ids = noteSubtree(notes, target.id);
     try {
       for (const id of ids) {
         autosaver.drop(id);
@@ -520,7 +517,6 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
       // Any write already in flight has to land before the tombstones do.
       await autosaver.flush();
       await deleteNotes(session, ids);
-      setConfirmDelete(null);
       if (ids.includes(editingId.current ?? "")) {
         editingId.current = null;
         setSelectedId(null);
@@ -528,6 +524,74 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
         setSaveState("clean");
       }
       savedThisSession.current = false;
+      await onRefresh();
+      return true;
+    } catch (err) {
+      setError(friendlyError(err));
+      return false;
+    }
+  }
+
+  async function removeNote() {
+    const target = confirmDelete;
+    if (!target) return;
+    if (await removeNotes(noteSubtree(notes, target.id))) setConfirmDelete(null);
+  }
+
+  async function renameNote(note: Note, title: string) {
+    setRenaming(null);
+    if (!noteDraftWritable(note)) {
+      setError("This note was written by a newer version of Sealbook. Update this client before editing it.");
+      return;
+    }
+    if (editingId.current === note.id && draft) {
+      edit({ title });
+      return;
+    }
+    setError(null);
+    try {
+      await autosaver.flush();
+      await putNote(session, { ...note, title }, note.id);
+      await onRefresh();
+    } catch (err) {
+      setError(friendlyError(err));
+    }
+  }
+
+  /** Each note with everything inside it, since deleting or moving a note takes its subtree. */
+  function withSubtrees(picked: Note[]): string[] {
+    return [...new Set(picked.flatMap((note) => noteSubtree(notes, note.id)))];
+  }
+
+  async function removeBulk() {
+    const picked = bulkDeleting;
+    if (!picked) return;
+    setBulkDeleting(null);
+    await removeNotes(withSubtrees(picked));
+  }
+
+  /** As `moveToNotebook`, for several notes: each note's subtree moves with it. */
+  async function moveNotesToNotebook(picked: Note[], notebookId: string) {
+    const ids = new Set(withSubtrees(picked));
+    setError(null);
+    const editing = editingId.current;
+    const moving = notes.filter(
+      (note) =>
+        ids.has(note.id) &&
+        resolveNotebookId(note.notebookId) !== notebookId &&
+        noteDraftWritable(note),
+    );
+    try {
+      await autosaver.flush();
+      const stored = moving.filter((note) => note.id !== editing);
+      if (stored.length > 0) {
+        await putNotes(
+          session,
+          stored.map((note) => ({ id: note.id, draft: { ...note, notebookId } })),
+        );
+      }
+      // The open note is written by the editor, so its buffer is not left behind.
+      if (editing && draft && moving.some((note) => note.id === editing)) edit({ notebookId });
       await onRefresh();
     } catch (err) {
       setError(friendlyError(err));
@@ -619,50 +683,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   }, [notes]);
 
   const notebookContents =
-    searching ? (
-      flatMatches.length === 0 ? (
-        <p className="px-1 py-2 text-xs leading-relaxed text-mute">
-          {`No note matches \u201c${deferredSearch.trim()}\u201d.`}
-        </p>
-      ) : (
-        <ul>
-          {flatMatches.map((note) => (
-            <li key={note.id} className="list-row group relative flex items-stretch">
-              <button
-                type="button"
-                onClick={() => openNote(note)}
-                onContextMenu={(event) =>
-                  menu.open(
-                    event,
-                    [
-                      {
-                        label: "Delete note",
-                        danger: true,
-                        onSelect: () => setConfirmDelete(note),
-                      },
-                    ],
-                  )
-                }
-                aria-current={selectedId === note.id ? "true" : undefined}
-                className={`flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-lg px-2 py-1.5 text-left transition-colors ${
-                  selectedId === note.id ? "bg-surface" : "hover:bg-surface/40"
-                } ${focusRing}`}
-              >
-                <span className="flex w-full min-w-0 items-center gap-1.5">
-                  <span className="min-w-0 flex-1 truncate text-xs">{note.title}</span>
-                </span>
-                <span className="w-full truncate text-[11px] text-mute">
-                  {notePreview(note.body, 60) || "Empty note"}
-                </span>
-                <span className="w-full truncate text-[10px] text-mute">
-                  {notebookNameById(notebooks, note.notebookId)}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )
-    ) : tree.length === 0 ? (
+    tree.length === 0 ? (
       <p className="px-1 py-2 text-xs leading-relaxed text-mute">
         No notes here yet.
       </p>
@@ -717,19 +738,6 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
             }
           />
 
-          <div className="mt-5 flex items-center gap-1.5">
-            <div className="relative min-w-0 flex-1">
-              <Icon name="search" className={searchIcon} />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search notes"
-                aria-label="Search notes"
-                className={searchField}
-              />
-            </div>
-          </div>
-
           <SidebarSection
             label="Notebooks"
             action={
@@ -756,6 +764,9 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
               onSelect={(id) => {
                 setScope(id);
                 setBrowsing(id);
+                // An open note would otherwise keep the main pane.
+                void closeEditor();
+                setSearch("");
               }}
               onCreate={(name) => createNotebook(name)}
               onRename={(notebook, name) => renameNotebook(notebook.id, name)}
@@ -784,7 +795,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
                 >
                   <Icon name="back" className="h-3.5 w-3.5" />
                 </button>
-                <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-xs text-mute">
+                <nav aria-label="Breadcrumb" className="ml-1 flex min-w-0 flex-1 lg:ml-4 items-center gap-1 overflow-hidden text-xs text-mute">
                   {breadcrumb.map((crumb) => (
                     <span key={crumb.id} className="flex min-w-0 shrink items-center gap-1">
                       <button
@@ -913,20 +924,45 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
               <NotebookPages
                 notebook={browsingNotebook}
                 notes={notes}
-                onBack={() => setBrowsing(null)}
+                notebooks={notebooks}
+                search={search}
+                onSearch={setSearch}
+                results={searching ? flatMatches : null}
+                query={deferredSearch.trim()}
+                dialogOpen={confirmDelete !== null || deletingNotebook !== null || bulkDeleting !== null || renaming !== null || renamingNotebook !== null}
+                onBack={() => {
+                  setBrowsing(null);
+                  setSearch("");
+                }}
                 onOpenNote={openNote}
                 onNewNote={() => newNote()}
+                onMoveNotes={(picked, notebookId) => void moveNotesToNotebook(picked, notebookId)}
+                onDeleteNotes={setBulkDeleting}
+                onRenameNote={setRenaming}
+                onDeleteNote={setConfirmDelete}
               />
             ) : (
               <NotesOverview
                 notebooks={notebooks}
                 notes={notes}
                 onOpenNotebook={(id) => {
+                  setSearch("");
                   setScope(id);
                   setBrowsing(id);
                 }}
+                search={search}
+                onSearch={setSearch}
+                results={searching ? flatMatches : null}
+                query={deferredSearch.trim()}
+                dialogOpen={confirmDelete !== null || deletingNotebook !== null || bulkDeleting !== null || renaming !== null || renamingNotebook !== null}
                 onOpenNote={openNote}
                 onNewNote={() => newNote()}
+                onMoveNotes={(picked, notebookId) => void moveNotesToNotebook(picked, notebookId)}
+                onDeleteNotes={setBulkDeleting}
+                onRenameNote={setRenaming}
+                onDeleteNote={setConfirmDelete}
+                onRenameNotebook={setRenamingNotebook}
+                onDeleteNotebook={setDeletingNotebook}
               />
             )
           )}
@@ -945,6 +981,44 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
           confirmLabel="Delete note"
           onConfirm={() => void removeNote()}
           onClose={() => setConfirmDelete(null)}
+        />
+      ) : null}
+
+      {renamingNotebook ? (
+        <RenameNoteDialog
+          key={renamingNotebook.id}
+          kind="notebook"
+          title={renamingNotebook.name}
+          onSave={(name) => {
+            const target = renamingNotebook;
+            setRenamingNotebook(null);
+            if (name && name !== target.name) void renameNotebook(target.id, name);
+          }}
+          onClose={() => setRenamingNotebook(null)}
+        />
+      ) : null}
+      {renaming ? (
+        <RenameNoteDialog
+          key={renaming.id}
+          title={renaming.title}
+          onSave={(title) => void renameNote(renaming, title)}
+          onClose={() => setRenaming(null)}
+        />
+      ) : null}
+
+      {bulkDeleting ? (
+        <ConfirmDialog
+          title="Delete notes"
+          heading={`Delete ${bulkDeleting.length} note${bulkDeleting.length === 1 ? "" : "s"}?`}
+          body={(() => {
+            const inside = withSubtrees(bulkDeleting).length - bulkDeleting.length;
+            return `This permanently removes the selected notes${
+              inside > 0 ? ` and the ${inside} note${inside === 1 ? "" : "s"} inside them` : ""
+            } from your encrypted vault across all paired devices. This cannot be undone.`;
+          })()}
+          confirmLabel="Delete notes"
+          onConfirm={() => void removeBulk()}
+          onClose={() => setBulkDeleting(null)}
         />
       ) : null}
 

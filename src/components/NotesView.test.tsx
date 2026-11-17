@@ -388,7 +388,10 @@ describe("NotesView, finding a note", () => {
 
     expect(screen.getByRole("button", { name: "Work, 0 notes" })).not.toBeNull();
     const recent = screen.getByRole("heading", { name: "Recently modified" }).parentElement as HTMLElement;
-    const titles = within(recent).getAllByRole("button").map((button) => button.textContent);
+    const titles = within(recent)
+      .getAllByRole("button")
+      .filter((button) => button.getAttribute("role") !== "checkbox")
+      .map((button) => button.textContent);
     expect(titles[0]).toContain("Newer");
     expect(titles[1]).toContain("Older");
   });
@@ -438,31 +441,45 @@ describe("NotesView, finding a note", () => {
     expect(screen.getByRole("button", { name: "Child" })).not.toBeNull();
   });
 
-  it("flattens the tree while searching, so a nested hit is reachable", async () => {
+  it("puts search in the pane header, not the sidebar", () => {
+    mount({ notes: [aNote({ id: "a", title: "Shopping" })] });
+    const sidebar = document.querySelector("aside") as HTMLElement;
+    expect(within(sidebar).queryByLabelText("Search notes")).toBeNull();
+    const header = screen.getByRole("heading", { name: "All notes" }).closest("header") as HTMLElement;
+    expect(within(header).getByLabelText("Search notes")).not.toBeNull();
+  });
+
+  it("searches every notebook from the overview, naming the one a hit is in", async () => {
     mount({
+      notebooks: [DEFAULT_BOOK, { id: "work", name: "Work", raw: "{}" }],
       notes: [
-        aNote({ id: "parent", title: "Shopping" }),
-        aNote({ id: "child", title: "Hardware", parentId: "parent", body: "hinges" }),
+        aNote({ id: "w", title: "Standup", notebookId: "work", body: "hinges" }),
+        aNote({ id: "x", title: "Recipes" }),
       ],
     });
 
     fireEvent.change(screen.getByLabelText("Search notes"), { target: { value: "hinges" } });
 
-    const sidebar = document.querySelector("aside") as HTMLElement;
-    await waitFor(() => expect(within(sidebar).getByText("Hardware")).not.toBeNull());
-    expect(within(sidebar).queryByText("Shopping")).toBeNull();
+    const pane = (await screen.findByRole("heading", { name: "Results" })).closest("section") as HTMLElement;
+    expect(within(pane).getByText("Standup")).not.toBeNull();
+    expect(within(pane).getByText("Work")).not.toBeNull();
+    expect(within(pane).queryByText("Recipes")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(screen.getByRole("heading", { name: "Recently modified" })).not.toBeNull();
   });
 
-  it("searches every notebook and names the one a hit is in", async () => {
+  it("filters a notebook's pages from its own header", async () => {
     mount({
-      notebooks: [{ id: "work", name: "Work", raw: "{}" }],
-      notes: [aNote({ id: "w", title: "Standup", notebookId: "work", body: "hinges" })],
+      notes: [
+        aNote({ id: "a", title: "Alpha", body: "hinges" }),
+        aNote({ id: "b", title: "Beta" }),
+      ],
     });
-
-    fireEvent.change(screen.getByLabelText("Search notes"), { target: { value: "hinges" } });
-
-    await waitFor(() => expect(screen.getAllByText("Standup")[0]).not.toBeNull());
-    expect(screen.getAllByText("Work").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: /^Default Notebook, \d+ notes?$/ }));
+    const pane = within(document.querySelector("section") as HTMLElement);
+    fireEvent.change(pane.getByLabelText("Search notes"), { target: { value: "hinges" } });
+    await waitFor(() => expect(pane.queryByText("Beta")).toBeNull());
+    expect(pane.getByText("Alpha")).not.toBeNull();
   });
 
   it("names the search that matched nothing", async () => {
@@ -898,5 +915,177 @@ describe("NotesView, exporting one note", () => {
       URL.createObjectURL = createObjectURL;
       URL.revokeObjectURL = revokeObjectURL;
     }
+  });
+});
+
+describe("NotesView, bulk editing", () => {
+  const pane = () => within(document.querySelector("section") as HTMLElement);
+  const pick = (title: string) => fireEvent.click(pane().getByRole("checkbox", { name: `Select ${title}` }));
+  const bar = () => pane().getByRole("toolbar", { name: "Bulk edit notes" });
+  const three = () => [
+    aNote({ id: "a", title: "Alpha" }),
+    aNote({ id: "b", title: "Beta" }),
+    aNote({ id: "c", title: "Gamma" }),
+  ];
+
+  it("never offers selection in the sidebar", () => {
+    mount({ notes: three() });
+    const aside = within(document.querySelector("aside") as HTMLElement);
+    expect(aside.queryByRole("checkbox")).toBeNull();
+    expect(aside.queryByRole("button", { name: /^Select / })).toBeNull();
+  });
+
+  it("selects notes in the overview, shows the bar and clears on Escape", () => {
+    mount({ notes: three() });
+    expect(pane().queryByRole("toolbar", { name: "Bulk edit notes" })).toBeNull();
+    pick("Alpha");
+    pick("Beta");
+    expect(within(bar()).getByText("2 selected")).not.toBeNull();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(pane().queryByRole("toolbar", { name: "Bulk edit notes" })).toBeNull();
+  });
+
+  it("extends with shift and selects all from the keyboard", () => {
+    mount({ notes: three() });
+    pick("Alpha");
+    fireEvent.click(pane().getByRole("checkbox", { name: "Select Gamma" }), { shiftKey: true });
+    expect(within(bar()).getByText("3 selected")).not.toBeNull();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    fireEvent.keyDown(document.body, { key: "a", ctrlKey: true });
+    expect(within(bar()).getByText("3 selected")).not.toBeNull();
+  });
+
+  it("starts on ctrl-click without opening the note", () => {
+    mount({ notes: three() });
+    fireEvent.click(pane().getByRole("button", { name: /Alpha/ }), { ctrlKey: true });
+    expect(within(bar()).getByText("1 selected")).not.toBeNull();
+    expect(screen.queryByLabelText("Note title")).toBeNull();
+  });
+
+  it("selects pages in a notebook and moves them, with what is inside, to another", async () => {
+    const work: Notebook = { id: "notebook-work", name: "Work", raw: "{}" };
+    mount({
+      notebooks: [DEFAULT_BOOK, work],
+      notes: [...three(), aNote({ id: "a1", title: "Inner", parentId: "a" })],
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Default Notebook, \d+ notes?$/ }));
+    pick("Alpha");
+    pick("Beta");
+    fireEvent.change(within(bar()).getByLabelText("Move selected notes to"), {
+      target: { value: work.id },
+    });
+    await waitFor(() => expect(writes).toHaveLength(3));
+    expect(writes.map((write) => write.id).sort()).toEqual(["a", "a1", "b"]);
+    expect(writes.every((write) => write.draft.notebookId === work.id)).toBe(true);
+    expect(moveBatches).toBe(1);
+    await waitFor(() => expect(pane().queryByRole("toolbar", { name: "Bulk edit notes" })).toBeNull());
+  });
+
+  it("asks before deleting, and takes what is inside each note with it", async () => {
+    mount({ notes: [...three(), aNote({ id: "a1", title: "Inner", parentId: "a" })] });
+    fireEvent.click(screen.getByRole("button", { name: /^Default Notebook, \d+ notes?$/ }));
+    pick("Alpha");
+    pick("Beta");
+    fireEvent.click(within(bar()).getByRole("button", { name: "Delete" }));
+    expect(deletes).toEqual([]);
+    const dialog = screen.getByRole("dialog", { name: "Delete notes" });
+    expect(dialog.textContent).toContain("Delete 2 notes?");
+    expect(dialog.textContent).toContain("the 1 note inside them");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete notes" }));
+    await waitFor(() => expect(deletes.sort()).toEqual(["a", "a1", "b"]));
+    expect(deleteBatches).toBe(1);
+  });
+});
+
+describe("NotesView, leaving a note for its notebook", () => {
+  it("shows the notebook's pages when its row is clicked with a note open", async () => {
+    mount({ notes: [aNote({ id: "a", title: "Alpha" }), aNote({ id: "b", title: "Beta" })] });
+    await openNote("Alpha");
+    const aside = within(document.querySelector("aside") as HTMLElement);
+    fireEvent.click(aside.getByRole("button", { name: /^Default Notebook/ }));
+    await waitFor(() => expect(screen.queryByLabelText("Note title")).toBeNull());
+    expect(screen.getByRole("button", { name: "All notebooks" })).not.toBeNull();
+    const pane = (screen.getByRole("button", { name: "All notebooks" }).closest("section")) as HTMLElement;
+    expect(within(pane).getByText("Beta")).not.toBeNull();
+  });
+});
+
+describe("NotesView, the notebook page views", () => {
+  const openBook = () => fireEvent.click(screen.getByRole("button", { name: /^Default Notebook, \d+ notes?$/ }));
+  const pane = () => within(document.querySelector("section") as HTMLElement);
+
+  afterEach(() => localStorage.clear());
+
+  it("shows pages as a grid, and as a table that opens and selects the same way", () => {
+    mount({ notes: [aNote({ id: "a", title: "Alpha", body: "first" }), aNote({ id: "b", title: "Beta" })] });
+    openBook();
+    expect(pane().queryByRole("table")).toBeNull();
+    expect(pane().getByRole("radio", { name: "Grid" }).getAttribute("aria-checked")).toBe("true");
+
+    fireEvent.click(pane().getByRole("radio", { name: "Table" }));
+    const table = pane().getByRole("table");
+    expect(within(table).getAllByRole("row")).toHaveLength(3);
+    expect(within(table).getByText("first")).not.toBeNull();
+
+    fireEvent.click(within(table).getByRole("checkbox", { name: "Select Alpha" }));
+    fireEvent.click(within(table).getByRole("checkbox", { name: "Select Beta" }));
+    expect(within(pane().getByRole("toolbar", { name: "Bulk edit notes" })).getByText("2 selected")).not.toBeNull();
+  });
+
+  it("opens a note from its table row, and remembers the view", async () => {
+    mount({ notes: [aNote({ id: "a", title: "Alpha" })] });
+    openBook();
+    fireEvent.click(pane().getByRole("radio", { name: "Table" }));
+    expect(localStorage.getItem("sealbook.notes.pages-view")).toBe("table");
+    fireEvent.click(within(pane().getByRole("table")).getByRole("button", { name: "Alpha" }));
+    await screen.findByLabelText("Note title");
+  });
+});
+
+describe("NotesView, right-clicking a note in the main pane", () => {
+  const pane = () => within(document.querySelector("section") as HTMLElement);
+
+  it("renames a note from the overview and keeps its body", async () => {
+    mount({ notes: [aNote({ id: "a", title: "Alpha", body: "keep me" })] });
+    fireEvent.contextMenu(pane().getByRole("button", { name: /Alpha/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rename note" }));
+    const dialog = screen.getByRole("dialog", { name: "Rename note" });
+    fireEvent.change(within(dialog).getByLabelText("Note name"), { target: { value: "Omega" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Rename" }));
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]).toMatchObject({ id: "a", draft: { title: "Omega", body: "keep me" } });
+    await waitFor(() => expect(pane().getByText("Omega")).not.toBeNull());
+  });
+
+  it("deletes a note from a notebook's table row, after confirming", async () => {
+    mount({ notes: [aNote({ id: "a", title: "Alpha" }), aNote({ id: "b", title: "Beta" })] });
+    fireEvent.click(screen.getByRole("button", { name: /^Default Notebook, \d+ notes?$/ }));
+    fireEvent.click(pane().getByRole("radio", { name: "Table" }));
+    fireEvent.contextMenu(within(pane().getByRole("table")).getByRole("button", { name: "Alpha" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete note" }));
+    expect(deletes).toEqual([]);
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Delete note" })).getByRole("button", { name: "Delete note" }));
+    await waitFor(() => expect(deletes).toEqual(["a"]));
+    localStorage.clear();
+  });
+
+  it("offers the bulk menu on a note inside a selection", () => {
+    mount({ notes: [aNote({ id: "a", title: "Alpha" }), aNote({ id: "b", title: "Beta" })] });
+    fireEvent.click(pane().getByRole("checkbox", { name: "Select Alpha" }));
+    fireEvent.click(pane().getByRole("checkbox", { name: "Select Beta" }));
+    fireEvent.contextMenu(pane().getByRole("button", { name: /Alpha/ }));
+    expect(screen.getByRole("menuitem", { name: "Delete 2 notes" })).not.toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Rename note" })).toBeNull();
+  });
+});
+
+describe("NotesView, right-clicking a notebook cover", () => {
+  it("offers open and rename, and no delete for the default notebook", () => {
+    mount({ notes: [aNote({ id: "a", title: "Alpha" })] });
+    fireEvent.contextMenu(screen.getByRole("button", { name: /^Default Notebook, \d+ notes?$/ }));
+    expect(screen.getByRole("menuitem", { name: "Open notebook" })).not.toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rename notebook" }));
+    expect(screen.getByRole("dialog", { name: "Rename notebook" })).not.toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Delete notebook" })).toBeNull();
   });
 });
