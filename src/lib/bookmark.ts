@@ -7,8 +7,9 @@ import {
   coreBookmarkCollectionWrite,
   coreBookmarkParse,
   coreBookmarkWrite,
+  coreOrderBookmarks,
 } from "./wasm";
-import type { CoreBookmark, CoreBookmarkCollection } from "./wasm";
+import type { BookmarkSortKey, CoreBookmark, CoreBookmarkCollection } from "./wasm";
 import { sortByRecency, sortContainers } from "./order";
 
 // Mirrors of the Rust constants in
@@ -243,6 +244,66 @@ export function sortBookmarks(bookmarks: Bookmark[]): Bookmark[] {
     name: (bookmark) => bookmark.title,
     stamp: (bookmark) => bookmark.updatedAt ?? bookmark.createdAt,
   });
+}
+
+/** The keys are core's `CoreBookmarkSort`; only the labels are the web's. */
+export const BOOKMARK_SORTS: readonly { key: BookmarkSort; label: string }[] = [
+  { key: "updated", label: "Recently updated" },
+  { key: "added-newest", label: "Newest added" },
+  { key: "added-oldest", label: "Oldest added" },
+  { key: "title-asc", label: "Title A to Z" },
+  { key: "title-desc", label: "Title Z to A" },
+  { key: "site", label: "Site A to Z" },
+];
+
+export type BookmarkSort = BookmarkSortKey;
+
+export const DEFAULT_BOOKMARK_SORT: BookmarkSort = "updated";
+
+const BOOKMARK_SORT_STORAGE_KEY = "sealbook.bookmarks.sort";
+
+export function isBookmarkSort(value: unknown): value is BookmarkSort {
+  return BOOKMARK_SORTS.some((sort) => sort.key === value);
+}
+
+export function bookmarkSortLabel(sort: BookmarkSort): string {
+  return BOOKMARK_SORTS.find((entry) => entry.key === sort)?.label ?? "";
+}
+
+/**
+ * The bookmarks in the chosen order. Core owns the comparison, so the web and
+ * Android list the same vault the same way.
+ */
+export function sortBookmarksBy(bookmarks: Bookmark[], sort: BookmarkSort): Bookmark[] {
+  if (sort === "updated") return sortBookmarks(bookmarks);
+  const ids = coreOrderBookmarks(
+    bookmarks.map((bookmark, index) => ({
+      id: String(index),
+      title: bookmark.title,
+      url: bookmark.url,
+      created_at: bookmark.createdAt,
+      updated_at: bookmark.updatedAt,
+    })),
+    sort,
+  );
+  return ids.map((position) => bookmarks[Number(position)]);
+}
+
+export function loadBookmarkSort(): BookmarkSort {
+  try {
+    const stored = localStorage.getItem(BOOKMARK_SORT_STORAGE_KEY);
+    return isBookmarkSort(stored) ? stored : DEFAULT_BOOKMARK_SORT;
+  } catch {
+    return DEFAULT_BOOKMARK_SORT;
+  }
+}
+
+export function storeBookmarkSort(sort: BookmarkSort): void {
+  try {
+    localStorage.setItem(BOOKMARK_SORT_STORAGE_KEY, sort);
+  } catch {
+    // Storage unavailable; the choice then lasts for this session only.
+  }
 }
 
 export function sortCollections(

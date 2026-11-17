@@ -23,7 +23,12 @@ import {
   normalizeTags,
   normalizeUrl,
   resolveCollectionId,
-  sortBookmarks,
+  sortBookmarksBy,
+  BOOKMARK_SORTS,
+  bookmarkSortLabel,
+  loadBookmarkSort,
+  storeBookmarkSort,
+  type BookmarkSort,
   sortCollections,
 } from "../lib/bookmark";
 import {
@@ -41,6 +46,7 @@ import { friendlyError } from "../lib/errors";
 import {
   btnHeader,
   btnPrimary,
+  btnHeaderSecondary,
   btnSecondary,
   checkbox,
   eyebrow,
@@ -113,6 +119,7 @@ export function BookmarksView({
   const [scope, setScope] = useState<string>(ALL);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<BookmarkSort>(loadBookmarkSort);
   const [draft, setDraft] = useState<BookmarkDraft | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [tags, setTags] = useState<string[]>([]);
@@ -214,10 +221,21 @@ export function BookmarksView({
           bookmark.tags?.some((tag) => tag.toLowerCase() === tagFilter),
         )
       : scoped;
-    return sortBookmarks(
+    return sortBookmarksBy(
       tagged.filter((bookmark) => bookmarkMatches(bookmark, deferredSearch)),
+      sort,
     );
-  }, [bookmarks, scope, deferredSearch, hiddenFromAll, tagFilter]);
+  }, [bookmarks, scope, deferredSearch, hiddenFromAll, tagFilter, sort]);
+
+  function sortItems(): MenuItem[] {
+    return BOOKMARK_SORTS.map(({ key, label }) => ({
+      label: key === sort ? `\u2713 ${label}` : label,
+      onSelect: () => {
+        setSort(key);
+        storeBookmarkSort(key);
+      },
+    }));
+  }
 
   // Keyed by lowercase so "Rust" and "rust" are one tag, as normalizeTags treats them.
   const tagList = useMemo(() => {
@@ -841,6 +859,17 @@ export function BookmarksView({
                   <span className="sm:hidden">New</span>
                 </button>
               ) : null}
+              <button
+                type="button"
+                onClick={(event) => menu.open(event, sortItems())}
+                aria-haspopup="menu"
+                aria-label={`Sort: ${bookmarkSortLabel(sort)}`}
+                title={`Sort: ${bookmarkSortLabel(sort)}`}
+                className={btnHeaderSecondary}
+              >
+                <Icon name="text" className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Sort</span>
+              </button>
               <div className="relative min-w-0 flex-1 sm:flex-none">
                 <Icon
                   name="search"

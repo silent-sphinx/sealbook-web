@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   bookmarkHost,
   bookmarkWithTagAdded,
@@ -19,6 +19,9 @@ import {
   serializeBookmark,
   serializeBookmarkCollection,
   sortBookmarks,
+  sortBookmarksBy,
+  loadBookmarkSort,
+  storeBookmarkSort,
   BOOKMARK_COLLECTION_CONTENT_TYPE,
   BOOKMARK_CONTENT_TYPE,
 } from "./bookmark";
@@ -323,6 +326,63 @@ describe("sortBookmarks", () => {
       aBookmark("b", "Banana"),
     ]);
     expect(sorted.map((bookmark) => bookmark.id)).toEqual(["a", "c", "b"]);
+  });
+});
+
+describe("sortBookmarksBy", () => {
+  const withDetail = (id: string, title: string, url: string, createdAt?: string): Bookmark => ({
+    ...aBookmark(id, title),
+    url,
+    createdAt,
+  });
+  const items = [
+    withDetail("a", "Item 10", "https://www.zeta.com/x", "2024-01-01T00:00:00Z"),
+    withDetail("b", "item 2", "https://alpha.org/y", "2025-01-01T00:00:00Z"),
+    withDetail("c", "Banana", "https://alpha.org/z"),
+  ];
+  const ids = (sort: Parameters<typeof sortBookmarksBy>[1]) =>
+    sortBookmarksBy(items, sort).map((bookmark) => bookmark.id);
+
+  it("orders titles naturally, ignoring case", () => {
+    expect(ids("title-asc")).toEqual(["c", "b", "a"]);
+    expect(ids("title-desc")).toEqual(["a", "b", "c"]);
+  });
+
+  it("orders by date added and puts a bookmark with no date last either way", () => {
+    expect(ids("added-newest")).toEqual(["b", "a", "c"]);
+    expect(ids("added-oldest")).toEqual(["a", "b", "c"]);
+  });
+
+  it("orders by site without the www prefix, then by the default order", () => {
+    expect(ids("site")).toEqual(["b", "c", "a"]);
+  });
+});
+
+describe("the stored sort", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("falls back to the default for a value it does not know", () => {
+    const store = new Map<string, string>([["sealbook.bookmarks.sort", "nonsense"]]);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+    });
+    expect(loadBookmarkSort()).toBe("updated");
+    storeBookmarkSort("title-desc");
+    expect(loadBookmarkSort()).toBe("title-desc");
+  });
+
+  it("uses the default when storage is unavailable", () => {
+    vi.stubGlobal("localStorage", {
+      getItem: () => {
+        throw new Error("blocked");
+      },
+      setItem: () => {
+        throw new Error("blocked");
+      },
+    });
+    expect(loadBookmarkSort()).toBe("updated");
+    expect(() => storeBookmarkSort("site")).not.toThrow();
   });
 });
 
