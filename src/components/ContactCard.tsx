@@ -1,6 +1,7 @@
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { safeImageSrc } from "../lib/image";
 import { tonePill } from "../lib/styles";
+import { Icon } from "./Icon";
 import type { Contact } from "../lib/types";
 
 export function ContactCard({
@@ -8,14 +9,19 @@ export function ContactCard({
   bookName,
   bookTone,
   selected = false,
+  checked = false,
   onSelect,
+  onToggleChecked,
   onContextMenu,
 }: {
   contact: Contact;
   bookName?: string;
   bookTone?: string;
   selected?: boolean;
-  onSelect?: (contact: Contact) => void;
+  /** Whether the contact is in the bulk selection. */
+  checked?: boolean;
+  onSelect?: (contact: Contact, event: ReactMouseEvent) => void;
+  onToggleChecked?: (contact: Contact, extendRange: boolean) => void;
   onContextMenu?: (event: ReactMouseEvent, contact: Contact) => void;
 }) {
   const subtitle =
@@ -25,17 +31,32 @@ export function ContactCard({
 
   return (
     <li
-      className={`group flex items-center gap-3 border-b border-line/60 transition-colors duration-150 ${selected ? "bg-surface/70" : "hover:bg-surface/40"}`}
+      className={`group flex items-center gap-3 border-b border-l-2 border-b-line/60 transition-colors duration-150 ${selected ? "border-l-accent" : "border-l-transparent"} ${checked ? "bg-accent/10" : selected ? "bg-surface/70" : "hover:bg-surface/40"}`}
     >
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={checked}
+        aria-label={`Select ${contact.name}`}
+        onClick={(event) => onToggleChecked?.(contact, event.shiftKey)}
+        className="shrink-0 rounded-full py-2.5 pl-4 outline-none focus-visible:ring-2 focus-visible:ring-accent-ring sm:pl-5 lg:pl-6"
+      >
+        {checked ? (
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-bg">
+            <Icon name="check" className="h-4 w-4" />
+          </span>
+        ) : (
+          <Avatar name={contact.name} avatar={contact.avatar} />
+        )}
+      </button>
       <button
         type="button"
         aria-label={`View ${contact.name}`}
         aria-current={selected ? "true" : undefined}
-        onClick={() => onSelect?.(contact)}
+        onClick={(event) => onSelect?.(contact, event)}
         onContextMenu={(event) => onContextMenu?.(event, contact)}
-        className={`flex min-w-0 flex-1 items-center gap-3 border-l-2 px-4 py-2.5 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring sm:px-5 lg:px-6 ${selected ? "border-accent" : "border-transparent"}`}
+        className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pr-4 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring sm:pr-5 lg:pr-6"
       >
-        <Avatar name={contact.name} avatar={contact.avatar} />
         <div className="min-w-0 flex-1">
           <p className={`truncate font-medium tracking-tight ${selected ? "text-accent" : "text-text"}`}>
             {contact.name}

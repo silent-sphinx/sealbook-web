@@ -1,4 +1,4 @@
-import { useMemo, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { SidebarDrawer, SidebarHeader, SidebarSection, useSidebar } from "./SidebarDrawer";
 import { SplitHandle, useSplitPane } from "./SplitPane";
 import { AddressBookList, ArchivedAddressBooks } from "./AddressBookList";
@@ -18,6 +18,7 @@ import {
 } from "../lib/addressBook";
 import {
   btnHeader,
+  checkbox,
   btnPrimary,
   focusRing,
   ghost,
@@ -36,6 +37,7 @@ import {
 } from "../lib/styles";
 import type { Session } from "../lib/client";
 import type { LinkableSection } from "../lib/contactProfile";
+import type { ContactBulkChange } from "../lib/contactBulk";
 import type { AddressBook, Contact, ContactDraft } from "../lib/types";
 import { Icon } from "./Icon";
 import { EmptyState } from "./EmptyState";
@@ -81,7 +83,10 @@ interface ContactsTabProps {
   onSetViewingArchive: (value: boolean) => void;
   onSetEditingDetail: (value: boolean) => void;
   onPromptDelete: (contact: Contact) => void;
+  onPromptBulkDelete: (contacts: Contact[]) => void;
+  deletingContacts: Contact[] | null;
   onToggleArchive: (contact: Contact) => Promise<void>;
+  onBulkEdit: (contacts: Contact[], change: ContactBulkChange) => Promise<void>;
   onSaveViewedContact: (draft: ContactDraft) => Promise<boolean>;
   onLinkInSection?: (section: LinkableSection, targetId: string) => Promise<void>;
   onUnlinkFromSection?: (section: LinkableSection, contactId: string) => Promise<void>;
@@ -129,7 +134,10 @@ export function ContactsTab({
   onSetViewingArchive,
   onSetEditingDetail,
   onPromptDelete,
+  onPromptBulkDelete,
+  deletingContacts,
   onToggleArchive,
+  onBulkEdit,
   onSaveViewedContact,
   onLinkInSection,
   onUnlinkFromSection,
@@ -146,6 +154,103 @@ export function ContactsTab({
   );
 
   const menu = useContextMenu();
+
+  const [checkedIds, setCheckedIds] = useState<ReadonlySet<string>>(new Set());
+  // Drop ids that left the list (archived, moved out of view, filtered away) so
+  // the bulk bar never acts on a contact the user can no longer see.
+  useEffect(() => {
+    setCheckedIds((current) => {
+      const visible = new Set(filtered.map((contact) => contact.id));
+      const kept = [...current].filter((id) => visible.has(id));
+      return kept.length === current.size ? current : new Set(kept);
+    });
+  }, [filtered]);
+  const checkedContacts = useMemo(
+    () => filtered.filter((contact) => checkedIds.has(contact.id)),
+    [checkedIds, filtered],
+  );
+  const selecting = checkedIds.size > 0;
+  const movableBooks = useMemo(() => activeAddressBooks(addressBooks), [addressBooks]);
+
+  // The row last toggled, which a shift-click extends a range from.
+  const [anchorId, setAnchorId] = useState<string | null>(null);
+
+  function toggleChecked(contact: Contact, extendRange = false) {
+    const anchorAt = anchorId === null ? -1 : filtered.findIndex((c) => c.id === anchorId);
+    if (extendRange && anchorAt !== -1) {
+      const at = filtered.findIndex((c) => c.id === contact.id);
+      const [from, to] = anchorAt < at ? [anchorAt, at] : [at, anchorAt];
+      setCheckedIds((current) => {
+        const next = new Set(current);
+        for (const inRange of filtered.slice(from, to + 1)) next.add(inRange.id);
+        return next;
+      });
+      return;
+    }
+    setAnchorId(contact.id);
+    setCheckedIds((current) => {
+      const next = new Set(current);
+      if (!next.delete(contact.id)) next.add(contact.id);
+      return next;
+    });
+  }
+
+  function endSelecting() {
+    setCheckedIds(new Set());
+    setAnchorId(null);
+  }
+
+  useEffect(() => {
+    if (!selecting) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") endSelecting();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selecting]);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== "a") return;
+      const target = event.target as HTMLElement | null;
+      // Leave text editing and open dialogs to the browser's own select-all.
+      if (target?.closest("input, textarea, select, [contenteditable='true'], [role='dialog']")) return;
+      if (document.querySelector("[role='dialog']") || filtered.length === 0) return;
+      event.preventDefault();
+      if (checkedIds.size === filtered.length) endSelecting();
+      else setCheckedIds(new Set(filtered.map((contact) => contact.id)));
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [filtered, checkedIds]);
+
+  async function runBulk(change: ContactBulkChange) {
+    const targets = checkedContacts;
+    endSelecting();
+    await onBulkEdit(targets, change);
+  }
+
+  /** The actions on the whole selection. Moving has its own dropdown in the bar. */
+  function bulkItems(): MenuItem[] {
+    const count = `${checkedIds.size} contact${checkedIds.size === 1 ? "" : "s"}`;
+    return [
+      {
+        label: viewingArchive ? `Restore ${count} from archive` : `Archive ${count}`,
+        onSelect: () =>
+          onGuardEditing(() => void runBulk({ kind: viewingArchive ? "restore" : "archive" })),
+      },
+      {
+        label: `Delete ${count}`,
+        danger: true,
+        onSelect: () =>
+          onGuardEditing(() => {
+            const targets = checkedContacts;
+            endSelecting();
+            onPromptBulkDelete(targets);
+          }),
+      },
+    ];
+  }
 
   /** The detail pane's own actions, reachable from the row itself. */
   function itemsFor(contact: Contact): MenuItem[] {
@@ -172,7 +277,10 @@ export function ContactsTab({
   }
 
   function openRowMenu(event: ReactMouseEvent, contact: Contact) {
-    menu.open(event, itemsFor(contact));
+    menu.open(
+      event,
+      checkedIds.has(contact.id) && checkedIds.size > 1 ? bulkItems() : itemsFor(contact),
+    );
   }
 
   return (
@@ -291,13 +399,70 @@ export function ContactsTab({
             </div>
           </header>
 
+          {selecting ? (
+            <div
+              role="toolbar"
+              aria-label="Bulk edit contacts"
+              className="flex shrink-0 items-center gap-3 border-b border-line bg-panel/60 px-4 py-2 lg:px-6"
+            >
+              <input
+                type="checkbox"
+                ref={(node) => {
+                  if (node) node.indeterminate = checkedIds.size > 0 && checkedIds.size < filtered.length;
+                }}
+                checked={filtered.length > 0 && checkedIds.size === filtered.length}
+                onChange={() =>
+                  checkedIds.size === filtered.length
+                    ? endSelecting()
+                    : setCheckedIds(new Set(filtered.map((contact) => contact.id)))
+                }
+                aria-label="Select all contacts"
+                className={checkbox}
+              />
+              <span className="min-w-0 flex-1 text-xs text-mute" aria-live="polite">
+                {checkedIds.size} selected
+              </span>
+              {!viewingArchive && movableBooks.length > 0 ? (
+                <select
+                  aria-label="Move selected contacts to"
+                  value=""
+                  disabled={busy}
+                  onChange={(event) => {
+                    const addressBookId = event.target.value;
+                    if (addressBookId) {
+                      onGuardEditing(() => void runBulk({ kind: "move", addressBookId }));
+                    }
+                  }}
+                  className="box-border h-8 shrink-0 cursor-pointer rounded-lg border border-line bg-surface py-0 pl-3 pr-8 text-xs font-medium leading-none text-mute outline-none focus:border-accent-dim"
+                >
+                  <option value="">Move to…</option>
+                  {movableBooks.map((book) => (
+                    <option key={book.id} value={book.id}>
+                      {book.name}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              <button
+                type="button"
+                onClick={(event) => menu.open(event, bulkItems())}
+                disabled={busy}
+                aria-haspopup="menu"
+                className={`${btnHeader} box-border`}
+              >
+                <span>Actions</span>
+                <Icon name="chevron" className="h-3 w-3 rotate-90" />
+              </button>
+            </div>
+          ) : null}
+
           <div
             ref={contactsSplit.containerRef}
             style={contactsSplit.cols}
             className="sb-split grid min-h-0 flex-1"
           >
             <div className={`min-w-0 overflow-y-auto ${viewingContact ? "hidden lg:block" : ""}`}>
-              {error && !composing && !deletingContact && !deletingAddressBook ? (
+              {error && !composing && !deletingContact && !deletingContacts && !deletingAddressBook ? (
                 <p className="border-b border-line/60 px-4 py-3 text-sm text-danger sm:px-5 lg:px-6" role="alert">{error}</p>
               ) : null}
 
@@ -353,17 +518,21 @@ export function ContactsTab({
                       key={card.id}
                       contact={card}
                       selected={viewingContact?.id === card.id}
+                      checked={checkedIds.has(card.id)}
+                      onToggleChecked={toggleChecked}
                       bookName={
                         soleShownBook && !viewingArchive
                           ? undefined
                           : bookNameById(addressBooks, card.addressBookId)
                       }
                       bookTone={bookToneById(addressBooks, card.addressBookId)}
-                      onSelect={(contact) =>
-                        onGuardEditing(() => {
-                          onSetError(null);
-                          onSetViewingContact(contact);
-                        })
+                      onSelect={(contact, event) =>
+                        selecting || event.ctrlKey || event.metaKey
+                          ? toggleChecked(contact, event.shiftKey)
+                          : onGuardEditing(() => {
+                              onSetError(null);
+                              onSetViewingContact(contact);
+                            })
                       }
                       onContextMenu={openRowMenu}
                     />

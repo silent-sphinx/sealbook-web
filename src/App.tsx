@@ -110,6 +110,7 @@ import {
   visibleAddressBooks,
 } from "./lib/addressBook";
 import { emptyDraft, sortContacts } from "./lib/contact";
+import { applyBulkChange, type ContactBulkChange } from "./lib/contactBulk";
 import {
   coreContactIndex,
   coreLegacyRosterMessage,
@@ -275,6 +276,7 @@ export default function App() {
   // The navigation an unsaved edit interrupted, replayed once it is discarded.
   const [pendingNav, setPendingNav] = useState<{ run: () => void } | null>(null);
   const [deletingContact, setDeletingContact] = useState<Contact | null>(null);
+  const [deletingContacts, setDeletingContacts] = useState<Contact[] | null>(null);
   const [deletingAddressBook, setDeletingAddressBook] = useState<AddressBook | null>(null);
   // The pairing this device has asked to join. Its secret half of the run is
   // held here and nowhere else, so a reload starts the pairing again.
@@ -1693,6 +1695,34 @@ export default function App() {
     }
   }
 
+  /**
+   * Applies one change to several contacts. A write that fails stops the run,
+   * and the list is re-read either way so it shows what was actually saved.
+   */
+  async function onBulkEdit(targets: Contact[], change: ContactBulkChange): Promise<void> {
+    if (!session || targets.length === 0) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    let failure: string | null = null;
+    try {
+      for (const contact of targets) {
+        await putContact(session, applyBulkChange(contact, change), contact.id);
+      }
+    } catch (err) {
+      failure = friendlyError(err);
+    }
+    if (change.kind !== "move" && viewingContact && targets.some((t) => t.id === viewingContact.id)) {
+      setViewingContact(null);
+    }
+    await refreshAfterSave(session);
+    if (failure) {
+      setError(failure);
+    }
+    setBusy(false);
+  }
+
   function promptDelete(contact: Contact) {
     setError(null);
     setDeletingContact(contact);
@@ -1706,6 +1736,35 @@ export default function App() {
     setError(null);
   }
 
+  /**
+   * Deletes contacts, then strips every link that pointed at them from the
+   * cards that remain, since the reverse link's target is now gone.
+   */
+  async function deleteContactsAndUnlink(session: Session, doomed: Contact[]): Promise<void> {
+    const doomedIds = new Set(doomed.map((contact) => contact.id));
+    for (const contact of doomed) {
+      await deleteContact(session, contact.id);
+    }
+    for (const other of contacts) {
+      if (doomedIds.has(other.id)) continue;
+      const profile = profileOf(other.profile);
+      const cleaned = { ...profile };
+      let changed = false;
+      for (const section of LINKABLE_SECTIONS) {
+        const filtered = profile[section].filter((p) => p.contactId === undefined || !doomedIds.has(p.contactId));
+        if (filtered.length === profile[section].length) continue;
+        cleaned[section] = filtered;
+        changed = true;
+      }
+      if (changed) {
+        await putContact(session, { ...other, profile: cleaned }, other.id);
+      }
+    }
+    if (viewingContact && doomedIds.has(viewingContact.id)) {
+      setViewingContact(null);
+    }
+  }
+
   async function onConfirmDelete() {
     if (!session || !deletingContact) {
       return;
@@ -1713,28 +1772,7 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
-      await deleteContact(session, deletingContact.id);
-
-      // Every section, since the card the reverse link points at is now gone.
-      for (const other of contacts) {
-        if (other.id === deletingContact.id) continue;
-        const profile = profileOf(other.profile);
-        const cleaned = { ...profile };
-        let changed = false;
-        for (const section of LINKABLE_SECTIONS) {
-          const filtered = profile[section].filter((p) => p.contactId !== deletingContact.id);
-          if (filtered.length === profile[section].length) continue;
-          cleaned[section] = filtered;
-          changed = true;
-        }
-        if (changed) {
-          await putContact(session, { ...other, profile: cleaned }, other.id);
-        }
-      }
-
-      if (viewingContact?.id === deletingContact.id) {
-        setViewingContact(null);
-      }
+      await deleteContactsAndUnlink(session, [deletingContact]);
       setDeletingContact(null);
       await refreshAfterSave(session);
     } catch (err) {
@@ -1742,6 +1780,40 @@ export default function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function promptBulkDelete(targets: Contact[]) {
+    setError(null);
+    setDeletingContacts(targets);
+  }
+
+  function closeBulkDelete() {
+    if (busy) {
+      return;
+    }
+    setDeletingContacts(null);
+    setError(null);
+  }
+
+  async function onConfirmBulkDelete() {
+    if (!session || !deletingContacts) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    let failure: string | null = null;
+    try {
+      await deleteContactsAndUnlink(session, deletingContacts);
+      setDeletingContacts(null);
+    } catch (err) {
+      failure = friendlyError(err);
+    }
+    // Re-read either way: a failure part way leaves some contacts deleted.
+    await refreshAfterSave(session);
+    if (failure) {
+      setError(failure);
+    }
+    setBusy(false);
   }
 
   async function onCreateNotebook(name: string): Promise<string | undefined> {
@@ -2496,7 +2568,10 @@ export default function App() {
           onSetViewingArchive={(v) => setViewingArchive(v)}
           onSetEditingDetail={setEditingDetail}
           onPromptDelete={promptDelete}
+          onPromptBulkDelete={promptBulkDelete}
+          deletingContacts={deletingContacts}
           onToggleArchive={onToggleArchive}
+          onBulkEdit={onBulkEdit}
           onSaveViewedContact={onSaveViewedContact}
           onLinkInSection={onLinkInSection}
           onUnlinkFromSection={onUnlinkFromSection}
@@ -2567,6 +2642,20 @@ export default function App() {
           error={error}
           onConfirm={onConfirmDelete}
           onClose={closeDelete}
+        />
+      ) : null}
+
+      {contactsEnabled && deletingContacts ? (
+        <ConfirmDialog
+          title="Delete contacts"
+          heading={`Delete ${deletingContacts.length} contact${deletingContacts.length === 1 ? "" : "s"}?`}
+          body="These contacts will be permanently deleted from your encrypted vault across all paired devices. This action cannot be undone."
+          confirmLabel={`Delete ${deletingContacts.length} contact${deletingContacts.length === 1 ? "" : "s"}`}
+          busyLabel="Deleting…"
+          busy={busy}
+          error={error}
+          onConfirm={onConfirmBulkDelete}
+          onClose={closeBulkDelete}
         />
       ) : null}
 
