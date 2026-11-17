@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { focusRing } from "../lib/styles";
 
@@ -120,6 +120,10 @@ export function ContextMenu({ state, onClose }: { state: MenuState; onClose: () 
 
   if (!state) return null;
 
+  // Destructive items always close the menu, set apart and in red, whatever
+  // order the caller built them in.
+  const ordered = [...state.items.filter((item) => !item.danger), ...state.items.filter((item) => item.danger)];
+
   return createPortal(
     <div
       ref={ref}
@@ -131,28 +135,32 @@ export function ContextMenu({ state, onClose }: { state: MenuState; onClose: () 
         top: placed?.top ?? state.y,
         visibility: placed ? "visible" : "hidden",
       }}
-      className="fixed z-50 min-w-[10rem] origin-top-left animate-scale-in overflow-hidden rounded-xl border border-line bg-panel py-1 shadow-lg shadow-black/40 [animation-duration:120ms]"
+      className="fixed z-50 min-w-[11rem] origin-top-left animate-scale-in overflow-hidden rounded-xl border border-line bg-panel p-1 shadow-lg shadow-black/40 [animation-duration:120ms]"
       onContextMenu={(event) => event.preventDefault()}
     >
-      {state.items.map((item, at) => (
-        <button
-          key={item.label}
-          type="button"
-          role="menuitem"
-          disabled={item.disabled}
-          title={item.disabled ? item.disabledReason : undefined}
-          onClick={() => {
-            onClose();
-            item.onSelect();
-          }}
-          className={`flex w-full items-center px-3 py-2 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-            item.danger
-              ? "text-danger hover:bg-danger/10"
-              : "text-text hover:bg-surface disabled:hover:bg-transparent"
-          } ${at > 0 && item.danger && !state.items[at - 1]?.danger ? "mt-1 border-t border-line pt-2" : ""} ${focusRing}`}
-        >
-          {item.label}
-        </button>
+      {ordered.map((item, at) => (
+        <Fragment key={item.label}>
+          {item.danger && at > 0 && !ordered[at - 1]?.danger ? (
+            <hr className="-mx-1 my-1 border-0 border-t border-line" />
+          ) : null}
+          <button
+            type="button"
+            role="menuitem"
+            disabled={item.disabled}
+            title={item.disabled ? item.disabledReason : undefined}
+            onClick={() => {
+              onClose();
+              item.onSelect();
+            }}
+            className={`flex w-full items-center rounded-lg px-2.5 py-2 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+              item.danger
+                ? "text-danger hover:bg-danger/10 focus-visible:bg-danger/10"
+                : "text-text hover:bg-surface focus-visible:bg-surface disabled:hover:bg-transparent"
+            } ${focusRing}`}
+          >
+            {item.label}
+          </button>
+        </Fragment>
       ))}
     </div>,
     document.body,
