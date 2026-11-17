@@ -121,4 +121,60 @@ describe("CollectionSidebar", () => {
     fireEvent.contextMenu(rowOf("Other"));
     expect(screen.queryByRole("menu")).toBeNull();
   });
+
+  describe("archive", () => {
+    const handlers = () => ({ onArchive: vi.fn(), onRestore: vi.fn() });
+
+    it("offers archive on a row and on its menu, but not on the protected one", () => {
+      const props = { ...handlers(), selectedId: "other" };
+      mount(props);
+      fireEvent.click(screen.getByRole("button", { name: "Archive Other" }));
+      expect(props.onArchive).toHaveBeenCalledWith(COLLECTIONS[3]);
+      expect(screen.queryByRole("button", { name: "Archive Root" })).toBeNull();
+      fireEvent.contextMenu(rowOf("Other"));
+      expect(screen.getByRole("menuitem", { name: "Archive list" })).not.toBeNull();
+    });
+
+    it("offers none of it without both handlers", () => {
+      mount({ selectedId: "other", onArchive: vi.fn() });
+      expect(screen.queryByRole("button", { name: "Archive Other" })).toBeNull();
+      expect(screen.queryByText("Archived lists")).toBeNull();
+    });
+
+    it("moves an archived collection, and what is nested in it, out of the tree", () => {
+      mount({
+        ...handlers(),
+        selectedId: "other",
+        collections: COLLECTIONS.map((c) => (c.id === "mid" ? { ...c, archived: true } : c)),
+      });
+      expect(screen.queryByRole("button", { name: "Mid" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Leaf" })).toBeNull();
+      expect(screen.getByRole("button", { name: /Archived lists/ }).getAttribute("aria-expanded")).toBe("false");
+    });
+
+    it("lists only the topmost archived collection, and restores it from the group", () => {
+      const props = handlers();
+      const archived = COLLECTIONS.map((c) =>
+        c.id === "mid" || c.id === "leaf" ? { ...c, archived: true } : c,
+      );
+      mount({ ...props, selectedId: "other", collections: archived });
+      const toggle = screen.getByRole("button", { name: /Archived lists/ });
+      expect(within(toggle).getByText("1")).not.toBeNull();
+      fireEvent.click(toggle);
+      expect(screen.queryByRole("button", { name: "Leaf" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Restore Mid" }));
+      expect(props.onRestore).toHaveBeenCalledWith(archived[1]);
+    });
+
+    it("opens the group while one of its collections is selected", () => {
+      mount({
+        ...handlers(),
+        selectedId: "other",
+        collections: COLLECTIONS.map((c) => (c.id === "other" ? { ...c, archived: true } : c)),
+      });
+      fireEvent.contextMenu(rowOf("Other"));
+      expect(screen.getByRole("menuitem", { name: "Restore list" })).not.toBeNull();
+      expect(screen.queryByRole("menuitem", { name: "Archive list" })).toBeNull();
+    });
+  });
 });

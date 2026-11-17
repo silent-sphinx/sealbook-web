@@ -114,8 +114,15 @@ function noteFrom(note: CoreNote): Note {
   };
 }
 
-export function serializeNotebook(name: string, color?: string, previousRaw?: string): string {
-  return coreNotebookWrite(name, color, previousRaw);
+/** `archived` left out keeps what `previousRaw` stores, so a rename never restores. */
+export function serializeNotebook(
+  name: string,
+  color?: string,
+  previousRaw?: string,
+  archived?: boolean,
+): string {
+  const stored = previousRaw ? (coreNotebookParse("", previousRaw).archived ?? false) : false;
+  return coreNotebookWrite(name, color, archived ?? stored, previousRaw);
 }
 
 export function parseNotebook(id: string, raw: string): Notebook {
@@ -127,6 +134,7 @@ function notebookFrom(notebook: CoreNotebook): Notebook {
     id: notebook.id,
     name: notebook.name,
     color: notebook.color ?? undefined,
+    archived: notebook.archived || undefined,
     raw: notebook.raw,
     readable: notebook.readable,
   };

@@ -17,6 +17,7 @@ import {
   putTaskList,
   type Session,
 } from "../lib/client";
+import { archivedIds } from "../lib/archive";
 import { friendlyError } from "../lib/errors";
 import {
   btnHeader,
@@ -103,7 +104,7 @@ type Props = {
 async function writeTaskPlan(session: Session, plan: CoreTaskPlan): Promise<TaskPatch> {
   const taskLists: TaskList[] = [];
   for (const { id, draft } of plan.lists) {
-    taskLists.push(await putTaskList(session, draft.name, draft.parent_id, id, draft.raw, draft.color));
+    taskLists.push(await putTaskList(session, draft.name, draft.parent_id, id, draft.raw, draft.color, draft.archived));
   }
   const tasks: Task[] = [];
   for (const { id, draft } of plan.tasks) tasks.push(await putTask(session, draftFrom(draft), id));
@@ -216,15 +217,23 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     [taskLists],
   );
 
-  const agenda = useMemo(() => taskAgenda(tasks, now, timezone), [tasks, now, timezone]);
+  // The smart views leave out an archived list's tasks; the list itself, opened
+  // from the archive, still shows them.
+  const awayLists = useMemo(() => archivedIds(taskLists), [taskLists]);
+  const liveTasks = useMemo(
+    () => tasks.filter((task) => !awayLists.has(resolveTaskListId(task.taskListId))),
+    [tasks, awayLists],
+  );
+
+  const agenda = useMemo(() => taskAgenda(liveTasks, now, timezone), [liveTasks, now, timezone]);
   const smartCounts = useMemo(() => {
-    const open = tasks.filter((task) => !task.done).length;
+    const open = liveTasks.filter((task) => !task.done).length;
     return {
       upnext: open,
       all: open,
-      completed: tasks.length - open,
+      completed: liveTasks.length - open,
     } satisfies Record<TaskScope, number>;
-  }, [tasks]);
+  }, [liveTasks]);
 
   const listCounts = useMemo(() => {
     const result = new Map<string, number>();
@@ -240,10 +249,12 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
   const scopeTree = useMemo(() => {
     if ((!isSmart && !searching) || showAgenda) return null;
     const scoped = isSmart
-      ? tasks.filter((task) => inScope(task, scope as TaskScope))
+      ? liveTasks.filter((task) => inScope(task, scope as TaskScope))
       : tasks.filter((task) => resolveTaskListId(task.taskListId) === scope);
-    return buildTaskTreeOf(scoped.filter((task) => taskMatches(task, deferredSearch)));
-  }, [tasks, scope, isSmart, searching, showAgenda, deferredSearch]);
+    // A search never reaches an archived list, even one opened from the archive.
+    const searchable = searching ? scoped.filter((task) => !awayLists.has(resolveTaskListId(task.taskListId))) : scoped;
+    return buildTaskTreeOf(searchable.filter((task) => taskMatches(task, deferredSearch)));
+  }, [tasks, liveTasks, awayLists, scope, isSmart, searching, showAgenda, deferredSearch]);
 
   const tree = useMemo(
     () => (isSmart ? [] : buildTaskTree(tasks, scope)),
@@ -518,6 +529,15 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     }));
   }
 
+  async function setListArchived(list: TaskList, archived: boolean) {
+    await run(async () => ({
+      taskLists: [
+        await putTaskList(session, list.name, list.parentId, list.id, list.raw, list.color, archived),
+      ],
+    }));
+    if (archived && (list.id === scope || awayLists.has(scope))) changeScope("all");
+  }
+
   async function recolorList(list: TaskList, color: string) {
     await run(async () => ({
       taskLists: [await putTaskList(session, list.name, list.parentId, list.id, list.raw, color)],
@@ -653,6 +673,8 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
             onRecolor={recolorList}
             onMove={moveList}
             onDelete={setDeletingList}
+            onArchive={(list) => void setListArchived(list, true)}
+            onRestore={(list) => void setListArchived(list, false)}
           />
         </SidebarDrawer>
 

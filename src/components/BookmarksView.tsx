@@ -42,6 +42,7 @@ import {
   RefusedWrites,
   type Session,
 } from "../lib/client";
+import { archivedIds } from "../lib/archive";
 import { friendlyError } from "../lib/errors";
 import { useItemSelection } from "../lib/useItemSelection";
 import {
@@ -214,7 +215,11 @@ export function BookmarksView({
    * nested under it: a subcollection's own links are reached from the sidebar,
    * so the two views never show the same bookmark twice.
    */
-  const hiddenFromAll = useMemo(() => hiddenFromAllIds(collectionTree), [collectionTree]);
+  const awayCollections = useMemo(() => archivedIds(collections), [collections]);
+  const hiddenFromAll = useMemo(
+    () => new Set([...hiddenFromAllIds(collectionTree), ...awayCollections]),
+    [collectionTree, awayCollections],
+  );
 
   const visible = useMemo(() => {
     const scoped =
@@ -226,16 +231,20 @@ export function BookmarksView({
         : bookmarks.filter(
             (bookmark) => resolveCollectionId(bookmark.collectionId) === scope,
           );
+    // A search never reaches an archived collection, even one opened from the archive.
+    const searchable = deferredSearch.trim()
+      ? scoped.filter((bookmark) => !awayCollections.has(resolveCollectionId(bookmark.collectionId)))
+      : scoped;
     const tagged = tagFilter
-      ? scoped.filter((bookmark) =>
+      ? searchable.filter((bookmark) =>
           bookmark.tags?.some((tag) => tag.toLowerCase() === tagFilter),
         )
-      : scoped;
+      : searchable;
     return sortBookmarksBy(
       tagged.filter((bookmark) => bookmarkMatches(bookmark, deferredSearch)),
       sort,
     );
-  }, [bookmarks, scope, searchScope, deferredSearch, hiddenFromAll, tagFilter, sort]);
+  }, [bookmarks, scope, searchScope, deferredSearch, hiddenFromAll, awayCollections, tagFilter, sort]);
 
   // Open while typing in the field, while it holds a query, and while its own
   // menu has the focus; otherwise the scope control would crowd an idle field.
@@ -272,6 +281,8 @@ export function BookmarksView({
   const tagList = useMemo(() => {
     const found = new Map<string, { name: string; count: number }>();
     for (const bookmark of bookmarks) {
+      // A tag found only on archived bookmarks would filter to nothing.
+      if (awayCollections.has(resolveCollectionId(bookmark.collectionId))) continue;
       for (const tag of bookmark.tags ?? []) {
         const key = tag.toLowerCase();
         const entry = found.get(key);
@@ -282,7 +293,7 @@ export function BookmarksView({
     return [...found.entries()]
       .map(([key, { name, count }]) => ({ key, name, count }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [bookmarks]);
+  }, [bookmarks, awayCollections]);
 
   /** The first spelling a tag was saved with wins, so "Rust" never sits beside "rust". */
   function canonicalTag(tag: string): string {
@@ -314,8 +325,11 @@ export function BookmarksView({
   }, [bookmarks]);
 
   const topCollections = useMemo(
-    () => (scope === ALL ? collectionTree.map((node) => node.item) : []),
-    [collectionTree, scope],
+    () =>
+      scope === ALL
+        ? collectionTree.map((node) => node.item).filter((item) => !awayCollections.has(item.id))
+        : [],
+    [collectionTree, scope, awayCollections],
   );
 
   function startAdd(collectionId?: string) {
@@ -596,6 +610,29 @@ export function BookmarksView({
     }
   }
 
+  async function setCollectionArchived(collection: BookmarkCollection, archived: boolean) {
+    setSaving(true);
+    setError(null);
+    try {
+      await putBookmarkCollection(
+        session,
+        collection.name,
+        collection.parentId,
+        collection.id,
+        collection.raw,
+        collection.color,
+        undefined,
+        archived,
+      );
+      if (archived && (scope === collection.id || awayCollections.has(scope))) setScope(ALL);
+      await onRefresh();
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function toggleHideFromAll(collection: BookmarkCollection) {
     setSaving(true);
     setError(null);
@@ -834,6 +871,8 @@ export function BookmarksView({
               onRename={renameCollection}
               onRecolor={changeCollectionColor}
               onDelete={setDeletingCollection}
+              onArchive={(collection) => void setCollectionArchived(collection, true)}
+              onRestore={(collection) => void setCollectionArchived(collection, false)}
               canMove={(id, parentId) => canMoveCollection(collections, id, parentId)}
               onMove={moveCollection}
               extraMenuItems={collectionExtras}

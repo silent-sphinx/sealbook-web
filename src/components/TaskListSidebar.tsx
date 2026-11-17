@@ -31,6 +31,8 @@ type Props = {
   onRecolor: (list: TaskList, color: string) => Promise<void>;
   onMove: (id: string, parentId: string | null) => Promise<void>;
   onDelete: (list: TaskList) => void;
+  onArchive: (list: TaskList) => void;
+  onRestore: (list: TaskList) => void;
 };
 
 export function TaskListSidebar({
@@ -46,6 +48,8 @@ export function TaskListSidebar({
   onRecolor,
   onMove,
   onDelete,
+  onArchive,
+  onRestore,
 }: Props) {
   const [creating, setCreating] = useState(false);
   return (
@@ -114,6 +118,8 @@ export function TaskListSidebar({
           onRename={onRename}
           onRecolor={onRecolor}
           onDelete={onDelete}
+          onArchive={onArchive}
+          onRestore={onRestore}
           canMove={(id, parentId) => canMoveTaskList(lists, id, parentId)}
           onMove={onMove}
           readOnly={readOnly}

@@ -85,6 +85,7 @@ export function serializeBookmarkCollection(
   previousRaw?: string,
   color?: string,
   hideFromAll?: boolean,
+  archived?: boolean,
 ): string {
   return coreBookmarkCollectionWrite({
     name,
@@ -94,6 +95,11 @@ export function serializeBookmarkCollection(
       hideFromAll ??
       (previousRaw
         ? coreBookmarkCollectionParse("", previousRaw).hide_from_all
+        : false),
+    archived:
+      archived ??
+      (previousRaw
+        ? coreBookmarkCollectionParse("", previousRaw).archived
         : false),
     raw: previousRaw,
   });
@@ -115,6 +121,7 @@ function collectionFrom(
     parentId: collection.parent_id,
     color: collection.color,
     hideFromAll: collection.hide_from_all || undefined,
+    archived: collection.archived || undefined,
     raw: collection.raw,
     readable: collection.readable,
   };
@@ -127,6 +134,7 @@ export function collectionTo(collection: BookmarkCollection): CoreBookmarkCollec
     parent_id: collection.parentId,
     color: collection.color,
     hide_from_all: collection.hideFromAll ?? false,
+    archived: collection.archived ?? false,
     readable: collection.readable ?? true,
     raw: collection.raw,
   };

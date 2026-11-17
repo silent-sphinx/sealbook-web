@@ -13,6 +13,7 @@ import {
   vaultObject,
 } from "../lib/client";
 import type { Session } from "../lib/client";
+import { archivedIds } from "../lib/archive";
 import { createAutosaver } from "../lib/autosave";
 import type { LocalObject } from "../lib/wasm";
 import { friendlyError } from "../lib/errors";
@@ -176,13 +177,24 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     })();
   }, [notebooks, onRefresh, session]);
 
+  // An archived notebook, and any note in one, stays out of the overview.
+  const awayNotebooks = useMemo(() => archivedIds(notebooks), [notebooks]);
+  const liveNotebooks = useMemo(
+    () => notebooks.filter((notebook) => !awayNotebooks.has(notebook.id)),
+    [notebooks, awayNotebooks],
+  );
+  const liveNotes = useMemo(
+    () => notes.filter((note) => !awayNotebooks.has(resolveNotebookId(note.notebookId))),
+    [notes, awayNotebooks],
+  );
+
   // A notebook that went away leaves the sidebar pointing at nothing.
   useEffect(() => {
     if (notebooks.length === 0) return;
     if (!notebooks.some((notebook) => notebook.id === scope)) {
-      setScope(notebooks[0].id);
+      setScope((liveNotebooks[0] ?? notebooks[0]).id);
     }
-  }, [notebooks, scope]);
+  }, [notebooks, liveNotebooks, scope]);
 
   const refusal = outbox?.failed.find((entry) => entry.write.id === selectedId)?.reason;
   const saveLabel =
@@ -212,10 +224,13 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
 
   const searchIndex = useMemo(() => buildSearchIndex(notes), [notes]);
 
-  /** Search spans every notebook and flattens the tree, since a hit may be anywhere. */
+  /**
+   * Search spans every notebook and flattens the tree, since a hit may be
+   * anywhere, but never reaches into an archived notebook.
+   */
   const flatMatches = useMemo(
-    () => sortNotes(notes.filter((note) => indexMatches(searchIndex.get(note.id), deferredSearch))),
-    [notes, searchIndex, deferredSearch],
+    () => sortNotes(liveNotes.filter((note) => indexMatches(searchIndex.get(note.id), deferredSearch))),
+    [liveNotes, searchIndex, deferredSearch],
   );
 
   const countedBody = useDeferredValue(draft?.body ?? "");
@@ -619,6 +634,20 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     }
   }
 
+  async function setNotebookArchived(notebook: Notebook, archived: boolean) {
+    setError(null);
+    try {
+      await putNotebook(session, notebook.name, notebook.id, notebook.raw, notebook.color, archived);
+      if (archived && scope === notebook.id) {
+        setScope(DEFAULT_NOTEBOOK_ID);
+        setBrowsing(null);
+      }
+      await onRefresh();
+    } catch (err) {
+      setError(friendlyError(err));
+    }
+  }
+
   async function recolorNotebook(notebook: Notebook, color: string) {
     setError(null);
     try {
@@ -772,6 +801,8 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
               onRename={(notebook, name) => renameNotebook(notebook.id, name)}
               onRecolor={(notebook, color) => recolorNotebook(notebook, color)}
               onDelete={(notebook) => setDeletingNotebook(notebook)}
+              onArchive={(notebook) => void setNotebookArchived(notebook, true)}
+              onRestore={(notebook) => void setNotebookArchived(notebook, false)}
               renderContents={() => (
                 <>
                   {notebookContents}
@@ -924,7 +955,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
               <NotebookPages
                 notebook={browsingNotebook}
                 notes={notes}
-                notebooks={notebooks}
+                notebooks={liveNotebooks}
                 search={search}
                 onSearch={setSearch}
                 results={searching ? flatMatches : null}
@@ -943,8 +974,8 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
               />
             ) : (
               <NotesOverview
-                notebooks={notebooks}
-                notes={notes}
+                notebooks={liveNotebooks}
+                notes={liveNotes}
                 onOpenNotebook={(id) => {
                   setSearch("");
                   setScope(id);

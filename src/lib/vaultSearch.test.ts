@@ -9,7 +9,10 @@ import type {
   Calendar,
   CalendarEvent,
   Contact,
+  Note,
+  Notebook,
   Task,
+  TaskList,
 } from "./types";
 
 const fixture = JSON.parse(readFixture("payloads/vault-search.json")) as {
@@ -72,6 +75,32 @@ describe("what the palette searches", () => {
     });
     const hits = buildVaultIndex(vault).search("lunch", 10);
     expect(hits.map((hit) => hit.id)).toEqual(["kept", "open"]);
+  });
+
+  it("leaves out whatever sits in an archived notebook, list or collection", () => {
+    const vault = data({
+      notebooks: [
+        { id: "old", name: "Old", archived: true } as Notebook,
+        { id: "live", name: "Live" } as Notebook,
+      ],
+      notes: [
+        { id: "n-old", notebookId: "old", raw: raw({ title: "Lunch plan", notebookId: "old" }) } as Note,
+        { id: "n-live", notebookId: "live", raw: raw({ title: "Lunch plan", notebookId: "live" }) } as Note,
+      ],
+      taskLists: [
+        { id: "l-old", name: "Old", archived: true } as TaskList,
+        { id: "l-sub", name: "Sub", parentId: "l-old" } as TaskList,
+      ],
+      tasks: [
+        { id: "t-old", done: false, taskListId: "l-old", raw: raw({ title: "Lunch task", taskListId: "l-old" }) } as Task,
+        { id: "t-sub", done: false, taskListId: "l-sub", raw: raw({ title: "Lunch task", taskListId: "l-sub" }) } as Task,
+      ],
+      collections: [{ id: "c-old", name: "Old", archived: true } as BookmarkCollection],
+      bookmarks: [
+        { id: "b-old", collectionId: "c-old", raw: raw({ url: "https://a.example", title: "Lunch spots", collectionId: "c-old" }) } as Bookmark,
+      ],
+    });
+    expect(buildVaultIndex(vault).search("lunch", 10).map((hit) => hit.id)).toEqual(["n-live"]);
   });
 
   it("leaves out archived contacts and contacts in archived books", () => {

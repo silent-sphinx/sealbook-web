@@ -7,14 +7,18 @@ import {
   sidebarMark,
   sidebarNameInput,
   sidebarRowAction,
+  sidebarRowState,
+  sidebarSubgroup,
 } from "../lib/styles";
+import { archivedIds } from "../lib/archive";
 import { ancestorsOf, buildTree, type TreeNode } from "../lib/tree";
 import { CollectionIcon, type CollectionKind } from "./AppIcons";
 import { ColourPalette, type PaletteState } from "./ColourPalette";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
+import { Icon } from "./Icon";
 import { PencilMark, PlusMark, TrashMark } from "./SidebarTree";
 
-export type SidebarCollection = { id: string; name: string; parentId?: string };
+export type SidebarCollection = { id: string; name: string; parentId?: string; archived?: boolean };
 
 type Props<C extends SidebarCollection> = {
   collections: C[];
@@ -38,6 +42,12 @@ type Props<C extends SidebarCollection> = {
   onCreate: (name: string, parentId?: string) => Promise<unknown> | void;
   onRename: (collection: C, name: string) => Promise<unknown> | void;
   onDelete: (collection: C) => void;
+  /**
+   * Both are needed for the archive. An archived collection, and any nested
+   * under it, leaves the tree for a group of its own at the foot.
+   */
+  onArchive?: (collection: C) => void;
+  onRestore?: (collection: C) => void;
   onRecolor?: (collection: C, color: string) => Promise<unknown> | void;
   /** Both are needed for nesting; without them collections stay flat. */
   canMove?: (id: string, parentId: string | null) => boolean;
@@ -73,6 +83,8 @@ export function CollectionSidebar<C extends SidebarCollection>({
   onCreate,
   onRename,
   onDelete,
+  onArchive,
+  onRestore,
   onRecolor,
   canMove,
   onMove,
@@ -83,7 +95,14 @@ export function CollectionSidebar<C extends SidebarCollection>({
   busy = false,
 }: Props<C>) {
   const nesting = Boolean(canMove && onMove);
-  const tree = useMemo(() => buildTree(collections, sort), [collections, sort]);
+  const archiving = Boolean(onArchive && onRestore);
+  const { live, archivedRoots } = useMemo(() => splitArchive(collections), [collections]);
+  const tree = useMemo(() => buildTree(live, sort), [live, sort]);
+  const archivedSorted = useMemo(() => sort(archivedRoots), [archivedRoots, sort]);
+  const selectedArchived = archivedRoots.some(
+    (root) => root.id === selectedId || ancestorsOf(collections, selectedId).includes(root.id),
+  );
+  const [archivedOpen, setArchivedOpen] = useState(false);
   const open = useMemo(
     () => new Set([selectedId, ...ancestorsOf(collections, selectedId)]),
     [collections, selectedId],
@@ -165,6 +184,11 @@ export function CollectionSidebar<C extends SidebarCollection>({
   function itemsFor(collection: C): MenuItem[] {
     if (readOnly) return [];
     const items: MenuItem[] = [];
+    if (collection.archived) {
+      items.push({ label: `Restore ${kindLabel}`, onSelect: () => onRestore?.(collection) });
+      items.push({ label: `Delete ${kindLabel}`, danger: true, onSelect: () => onDelete(collection) });
+      return items;
+    }
     if (nesting && subLabel) {
       items.push({ label: `Add ${subLabel}`, onSelect: () => startCreateUnder(collection) });
     }
@@ -173,6 +197,9 @@ export function CollectionSidebar<C extends SidebarCollection>({
       items.push({ label: "Change colour", onSelect: () => pickColour(collection) });
     }
     items.push(...(extraMenuItems?.(collection) ?? []));
+    if (archiving && collection.id !== protectedId) {
+      items.push({ label: `Archive ${kindLabel}`, onSelect: () => onArchive?.(collection) });
+    }
     if (collection.id !== protectedId) {
       items.push({
         label: `Delete ${kindLabel}`,
@@ -215,14 +242,15 @@ export function CollectionSidebar<C extends SidebarCollection>({
 
   function row(collection: C) {
     const selected = selectedId === collection.id;
+    const isArchived = collection.archived === true;
     const internalDroppable =
-      nesting && dragging !== null && dragging !== collection.id && canMove!(dragging, collection.id);
+      !isArchived && nesting && dragging !== null && dragging !== collection.id && canMove!(dragging, collection.id);
     const externalDroppable =
-      dragging === null && !readOnly && Boolean(externalDrop?.canDrop(collection.id));
+      dragging === null && !readOnly && !isArchived && Boolean(externalDrop?.canDrop(collection.id));
     const droppable = internalDroppable || externalDroppable;
     return (
       <div
-        draggable={nesting && !readOnly}
+        draggable={nesting && !readOnly && !isArchived}
         onDragStart={(event) => {
           event.dataTransfer.setData(DRAG_TYPE, collection.id);
           event.dataTransfer.effectAllowed = "move";
@@ -286,7 +314,7 @@ export function CollectionSidebar<C extends SidebarCollection>({
           </span>
           {readOnly ? null : (
             <span className="list-row-actions absolute inset-0 flex items-center justify-end gap-0.5">
-              {nesting && subLabel ? (
+              {nesting && subLabel && !isArchived ? (
                 <button
                   type="button"
                   onClick={() => startCreateUnder(collection)}
@@ -306,6 +334,17 @@ export function CollectionSidebar<C extends SidebarCollection>({
               >
                 <PencilMark />
               </button>
+              {archiving && collection.id !== protectedId ? (
+                <button
+                  type="button"
+                  onClick={() => (isArchived ? onRestore!(collection) : onArchive!(collection))}
+                  title={`${isArchived ? "Restore" : "Archive"} ${kindLabel}`}
+                  aria-label={`${isArchived ? "Restore" : "Archive"} ${collection.name}`}
+                  className={`${sidebarRowAction} ${isArchived ? "text-accent" : "hover:text-text"}`}
+                >
+                  <Icon name={isArchived ? "unarchive" : "archive"} className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
               {collection.id === protectedId ? null : (
                 <button
                   type="button"
@@ -346,6 +385,31 @@ export function CollectionSidebar<C extends SidebarCollection>({
   }
 
   const rootDroppable = nesting && dragging !== null && canMove!(dragging, null);
+  const archivedGroup = archiving && archivedSorted.length > 0 ? (
+    <div className={sidebarSubgroup}>
+      <button
+        type="button"
+        onClick={() => setArchivedOpen((current) => !current)}
+        aria-expanded={archivedOpen || selectedArchived}
+        className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${sidebarRowState(false)} ${focusRing}`}
+      >
+        <span className={sidebarMark}>
+          <Icon name="chevron" className={`h-3 w-3 transition-transform ${archivedOpen || selectedArchived ? "rotate-90" : ""}`} />
+        </span>
+        <span className="min-w-0 flex-1 truncate font-medium">Archived {kindLabel}s</span>
+        <span className={`shrink-0 ${sidebarCount}`}>{archivedSorted.length}</span>
+      </button>
+      {archivedOpen || selectedArchived ? (
+        <ul className="mt-0.5 space-y-0.5">
+          {archivedSorted.map((collection) => (
+            <li key={collection.id}>
+              {renamingId === collection.id ? nameInput(`Rename ${collection.name}`, collection) : row(collection)}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  ) : null;
 
   return (
     <div className="mt-2.5">
@@ -386,8 +450,23 @@ export function CollectionSidebar<C extends SidebarCollection>({
       ) : null}
 
       {creatingTop ? nameInput(`New ${kindLabel} name`, null, `${capitalise(kindLabel)} name`) : null}
+      {archivedGroup}
     </div>
   );
+}
+
+/**
+ * The tree holds only collections outside the archive. The archive lists the
+ * topmost archived ones, each carrying its subtree back when restored.
+ */
+function splitArchive<C extends SidebarCollection>(collections: C[]): { live: C[]; archivedRoots: C[] } {
+  const away = archivedIds(collections);
+  return {
+    live: collections.filter((collection) => !away.has(collection.id)),
+    archivedRoots: collections.filter(
+      (collection) => collection.archived === true && !(collection.parentId && away.has(collection.parentId)),
+    ),
+  };
 }
 
 function keepOrder<C>(siblings: C[]): C[] {

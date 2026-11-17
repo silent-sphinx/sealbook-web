@@ -44,9 +44,10 @@ export async function putTaskList(
   existingId?: string,
   previousRaw?: string,
   color?: string,
+  archived?: boolean,
 ): Promise<TaskList> {
   const id = existingId ?? newUuid();
-  const payload = serializeTaskList(name, parentId, previousRaw, color);
+  const payload = serializeTaskList(name, parentId, previousRaw, color, archived);
   await putSealed(session, id, TASK_LIST_CONTENT_TYPE, false, payload);
   return parseTaskList(id, payload);
 }

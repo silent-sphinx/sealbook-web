@@ -473,6 +473,8 @@ export type Notebook = {
   name: string;
   /** Explicit colour; absent means one derived from the id. See `notebookTone`. */
   color?: string;
+  /** Put away: out of the notebook list, its notes left as they are. */
+  archived?: boolean;
   raw: string;
   /** As `Note.readable`. */
   readable?: boolean;
@@ -529,6 +531,8 @@ export type BookmarkCollection = {
   color?: string;
   /** Keeps this collection, and any nested under it, out of "All Bookmarks". */
   hideFromAll?: boolean;
+  /** Put away: out of the collection list, its bookmarks left as they are. */
+  archived?: boolean;
   raw: string;
   readable?: boolean;
 };
@@ -599,6 +603,8 @@ export type TaskList = {
   name: string;
   parentId?: string;
   color?: string;
+  /** Put away: out of the list list, its tasks left as they are. */
+  archived?: boolean;
   raw: string;
   readable?: boolean;
 };

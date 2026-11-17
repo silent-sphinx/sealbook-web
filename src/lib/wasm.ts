@@ -1759,8 +1759,13 @@ export function coreNotebookParse(id: string, raw: string): CoreNotebook {
   return core_notebook_parse(id, raw);
 }
 
-export function coreNotebookWrite(name: string, color?: string, previousRaw?: string): string {
-  return core_notebook_write(name, color, previousRaw);
+export function coreNotebookWrite(
+  name: string,
+  color: string | undefined,
+  archived: boolean,
+  previousRaw?: string,
+): string {
+  return core_notebook_write(name, color, archived, previousRaw);
 }
 
 /**

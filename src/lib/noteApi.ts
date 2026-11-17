@@ -81,6 +81,7 @@ export async function putNotebook(
   existingId?: string,
   previousRaw?: string,
   color?: string,
+  archived?: boolean,
 ): Promise<string> {
   const id = existingId ?? newUuid();
   await putSealed(
@@ -88,7 +89,7 @@ export async function putNotebook(
     id,
     NOTEBOOK_CONTENT_TYPE,
     false,
-    serializeNotebook(name, color, previousRaw),
+    serializeNotebook(name, color, previousRaw, archived),
   );
   return id;
 }

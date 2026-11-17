@@ -1,5 +1,8 @@
 import { resolveAddressBookId } from "./addressBook";
+import { archivedIds } from "./archive";
 import { buildCollectionTree, hiddenFromAllIds, resolveCollectionId } from "./bookmark";
+import { resolveNotebookId } from "./note";
+import { resolveTaskListId } from "./task";
 import type {
   AddressBook,
   Bookmark,
@@ -50,7 +53,8 @@ export const KIND_FEATURE: Record<SearchKind, FeatureKey> = {
 
 /**
  * What the palette searches: what each tab lists by default. Archived
- * contacts and books, finished tasks, bookmarks kept out of "All Bookmarks"
+ * contacts and books, anything in an archived notebook, list or collection,
+ * finished tasks, bookmarks kept out of "All Bookmarks"
  * and events in archived calendars are left out, as is any disabled feature.
  */
 export function searchInputs(data: SearchData) {
@@ -84,11 +88,15 @@ export function searchInputs(data: SearchData) {
     name("event", data.calendars);
   }
   if (data.enabled("notes")) {
-    add("note", data.notes);
-    name("note", data.notebooks);
+    const archived = archivedIds(data.notebooks);
+    add("note", data.notes.filter((note) => !archived.has(resolveNotebookId(note.notebookId))));
+    name("note", data.notebooks.filter((notebook) => !archived.has(notebook.id)));
   }
   if (data.enabled("bookmarks")) {
-    const hidden = hiddenFromAllIds(buildCollectionTree(data.collections));
+    const hidden = new Set([
+      ...hiddenFromAllIds(buildCollectionTree(data.collections)),
+      ...archivedIds(data.collections),
+    ]);
     add(
       "bookmark",
       data.bookmarks.filter((bookmark) => !hidden.has(resolveCollectionId(bookmark.collectionId))),
@@ -96,8 +104,12 @@ export function searchInputs(data: SearchData) {
     name("bookmark", data.collections);
   }
   if (data.enabled("tasks")) {
-    add("task", data.tasks.filter((task) => !task.done));
-    name("task", data.taskLists);
+    const archived = archivedIds(data.taskLists);
+    add(
+      "task",
+      data.tasks.filter((task) => !task.done && !archived.has(resolveTaskListId(task.taskListId))),
+    );
+    name("task", data.taskLists.filter((list) => !archived.has(list.id)));
   }
   return { contacts, books, sources, containers };
 }
