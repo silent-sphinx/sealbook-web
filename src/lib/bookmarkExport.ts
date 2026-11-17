@@ -15,6 +15,8 @@ export type BookmarkExportEntry = {
   title: string;
   notes?: string;
   tags?: string[];
+  collectionId: string;
+  /** For readers that predate `collectionId`, and for a hand-edited file. */
   collectionName: string;
   createdAt?: string;
   updatedAt?: string;
@@ -73,6 +75,7 @@ export function generateBookmarkExportData(
     title: b.title,
     ...(b.notes ? { notes: b.notes } : {}),
     ...(b.tags && b.tags.length > 0 ? { tags: b.tags } : {}),
+    collectionId: b.collectionId,
     collectionName: collectionById.get(b.collectionId)?.name ?? "Default Collection",
     ...(b.createdAt ? { createdAt: b.createdAt } : {}),
     ...(b.updatedAt ? { updatedAt: b.updatedAt } : {}),

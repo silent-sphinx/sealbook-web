@@ -43,6 +43,30 @@ describe("a bookmark import", () => {
     });
   });
 
+  it("files each bookmark by collection id and rebuilds the tree from it", () => {
+    const collection = (id: string, name: string, parentId?: string) =>
+      parseBookmarkCollection(id, JSON.stringify({ "@type": "BookmarkCollection", name, parentId }));
+    const bookmark = (url: string, collectionId: string) => ({
+      id: url,
+      raw: "",
+      url,
+      title: "t",
+      collectionId,
+    });
+    const { data } = generateBookmarkExportData(
+      [bookmark("https://one.example", "b"), bookmark("https://two.example", "d")],
+      [collection("a", "Work"), collection("b", "Reading", "a"), collection("c", "Home"), collection("d", "Reading", "c")],
+    );
+    expect(JSON.parse(data).bookmarks.map((b: { collectionId: string }) => b.collectionId)).toEqual(["b", "d"]);
+    const read = parseBookmarkImport(data, "t");
+    expect(importFolders(read, { depth: ALL_FOLDERS, rules: [] }).map((f) => f.path)).toEqual([
+      ["Work"],
+      ["Work", "Reading"],
+      ["Home"],
+      ["Home", "Reading"],
+    ]);
+  });
+
   it("reads a bare JSON array", () => {
     const read = parseBookmarkImport('[{"url":"https://a.example/","title":" A "},{"notes":"x"}]', "t");
     expect(read.bookmarks).toMatchObject([{ url: "https://a.example/", title: "A", collectionId: "t" }]);
