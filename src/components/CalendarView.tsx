@@ -817,9 +817,9 @@ export function CalendarView({
               </div>
             </div>
             <div className="relative flex items-center gap-2">
+              {!readOnlyMode ? <button type="button" onClick={() => openNewTask()} aria-label="New event" className={`${btnHeader} @max-[36rem]:w-8 @max-[36rem]:px-0`}><Icon name="plus" className="h-3.5 w-3.5" /><span className="@max-[36rem]:hidden">New event</span></button> : null}
               <ViewSwitcher mode={mode} onChange={setMode} />
               <EventSearch query={search} results={searchResults} onQueryChange={setSearch} onPick={revealEvent} />
-              {!readOnlyMode ? <button type="button" onClick={() => openNewTask()} aria-label="New event" className={`${btnHeader} @max-[36rem]:w-8 @max-[36rem]:px-0`}><Icon name="plus" className="h-3.5 w-3.5" /><span className="@max-[36rem]:hidden">New event</span></button> : null}
             </div>
           </header>
           <div key={viewKey} className={`flex min-h-0 min-w-0 flex-1 flex-col ${shownView.motion}`}>
