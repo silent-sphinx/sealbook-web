@@ -83,8 +83,11 @@ import init, {
   core_csv_import,
   core_notes_import,
   core_notes_write_json,
+  CoreBookmarkOrderItem,
+  CoreBookmarkSort,
   CoreContactIndex,
   CoreVaultIndex,
+  core_order_bookmarks,
   core_order_by_name,
   core_order_by_recency,
   core_order_containers,
@@ -2420,6 +2423,18 @@ export function coreOrderByRecency(
   pinnedFirst: boolean,
 ): string[] {
   return core_order_by_recency(items, pinnedFirst);
+}
+
+export type BookmarkOrderItem = CoreBookmarkOrderItem;
+
+export type BookmarkSortKey = CoreBookmarkSort;
+
+/** Bookmark ids in the order `sort` names; core settles every tie. */
+export function coreOrderBookmarks(
+  items: BookmarkOrderItem[],
+  sort: BookmarkSortKey,
+): string[] {
+  return core_order_bookmarks(items, sort);
 }
 
 export type ContactSearchIndex = CoreContactIndex;
