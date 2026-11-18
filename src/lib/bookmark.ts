@@ -1,3 +1,4 @@
+import { normalizeTags } from "./tags";
 import { ancestorsOf, buildTree, canReparent, subtree } from "./tree";
 import type { TreeNode } from "./tree";
 import type { Bookmark, BookmarkCollection, BookmarkDraft } from "./types";
@@ -169,34 +170,10 @@ export function bookmarkWithTagRemoved(bookmark: Bookmark, tag: string): Bookmar
   return { ...bookmarkDraft(bookmark), tags: next };
 }
 
+export { normalizeTags };
+
 export function resolveCollectionId(collectionId?: string): string {
   return collectionId?.trim() || DEFAULT_BOOKMARK_COLLECTION_ID;
-}
-
-/**
- * Trimmed, de-duplicated case-insensitively, and capped.
- *
- * Anything that is not an array of strings reads as no tags: the field is the
- * one place a payload carries a container, so a malformed one must not reach the
- * renderer as an object.
- */
-const MAX_TAGS = 32;
-
-export function normalizeTags(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const entry of value) {
-    if (typeof entry !== "string") continue;
-    const tag = entry.trim();
-    if (!tag) continue;
-    const key = tag.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(tag);
-    if (out.length === MAX_TAGS) break;
-  }
-  return out;
 }
 
 /**

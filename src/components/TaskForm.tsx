@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { normalizeTags } from "../lib/bookmark";
 import { isAllDayDue, taskFitsObjectLimit } from "../lib/task";
+import { canonicalTag, normalizeTags } from "../lib/tags";
+import type { TagEntry } from "../lib/tags";
 import { localInputToUtc, utcToLocalInput } from "../lib/timezone";
 import {
   btnPrimary,
@@ -11,6 +12,7 @@ import {
 } from "../lib/styles";
 import type { RecurrenceFrequency, RecurrenceRule, TaskDraft } from "../lib/types";
 import { ErrorMessage } from "./ErrorMessage";
+import { TagsInput } from "./FieldControls";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const FREQUENCIES: { id: RecurrenceFrequency; unit: string }[] = [
@@ -31,6 +33,8 @@ type Props = {
   editing: boolean;
   listOptions: { id: string; name: string; depth: number }[];
   timezone: string;
+  /** Tags already used on tasks, for suggestions and for matching their spelling. */
+  knownTags: TagEntry[];
   disabled: boolean;
   onSubmit: (draft: TaskDraft) => void;
   onCancel: () => void;
@@ -43,14 +47,14 @@ function splitDue(dueDate: string | undefined, timezone: string): { date: string
   return { date: local.slice(0, 10), time: local.slice(11) };
 }
 
-export function TaskForm({ initial, editing, listOptions, timezone, disabled, onSubmit, onCancel }: Props) {
+export function TaskForm({ initial, editing, listOptions, timezone, knownTags, disabled, onSubmit, onCancel }: Props) {
   const [title, setTitle] = useState(initial.title);
   const [notes, setNotes] = useState(initial.notes ?? "");
   const [listId, setListId] = useState(initial.taskListId);
   const [date, setDate] = useState(() => splitDue(initial.dueDate, timezone).date);
   const [time, setTime] = useState(() => splitDue(initial.dueDate, timezone).time);
   const [priority, setPriority] = useState(initial.priority ?? 0);
-  const [tagText, setTagText] = useState((initial.tags ?? []).join(", "));
+  const [tags, setTags] = useState<string[]>(initial.tags ?? []);
   const [frequency, setFrequency] = useState<RecurrenceFrequency | "none">(
     initial.recurrence?.frequency ?? "none",
   );
@@ -102,7 +106,7 @@ export function TaskForm({ initial, editing, listOptions, timezone, disabled, on
       taskListId: listId,
       dueDate,
       priority: priority > 0 ? priority : undefined,
-      tags: normalizeTags(tagText.split(",")),
+      tags: normalizeTags(tags),
       recurrence,
       recurrenceAnchor: recurrence ? (unchanged ? (initial.recurrenceAnchor ?? dueDate) : dueDate) : undefined,
     };
@@ -230,15 +234,24 @@ export function TaskForm({ initial, editing, listOptions, timezone, disabled, on
           </label>
         </div>
       ) : null}
-      <label className={`mt-3 ${fieldLabel}`}>
+      <div className={`mt-3 ${fieldLabel}`}>
         Tags
-        <input
-          value={tagText}
-          onChange={(event) => setTagText(event.target.value)}
-          placeholder="Comma separated"
-          className={`mt-1.5 ${fieldBase}`}
-        />
-      </label>
+        <div className="mt-1.5">
+          <TagsInput
+            values={tags.map((tag) => ({ id: tag, value: tag }))}
+            label="Tags"
+            removeLabel="Remove tag"
+            placeholder="Type a tag and press Enter"
+            suggestions={knownTags.map((tag) => tag.name)}
+            onAdd={(value) =>
+              setTags((current) =>
+                normalizeTags([...current, ...value.split(",").map((tag) => canonicalTag(knownTags, tag))]),
+              )
+            }
+            onRemove={(id) => setTags((current) => current.filter((tag) => tag !== id))}
+          />
+        </div>
+      </div>
       <label className={`mt-3 ${fieldLabel}`}>
         Notes
         <textarea

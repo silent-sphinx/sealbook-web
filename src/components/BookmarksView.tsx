@@ -72,10 +72,12 @@ import {
   sidebarRowState,
   sidebarSectionAction,
 } from "../lib/styles";
+import { canonicalTag as canonicalTagIn, hasTag, tagVocabulary } from "../lib/tags";
 import { flattenTree } from "../lib/tree";
 import type { Bookmark, BookmarkCollection, BookmarkDraft } from "../lib/types";
 import { Icon } from "./Icon";
 import { TagsInput } from "./FieldControls";
+import { TagFilterBar } from "./TagFilterBar";
 import { ErrorMessage } from "./ErrorMessage";
 import { Modal } from "./Modal";
 import { EmptyState } from "./EmptyState";
@@ -236,9 +238,7 @@ export function BookmarksView({
       ? scoped.filter((bookmark) => !awayCollections.has(resolveCollectionId(bookmark.collectionId)))
       : scoped;
     const tagged = tagFilter
-      ? searchable.filter((bookmark) =>
-          bookmark.tags?.some((tag) => tag.toLowerCase() === tagFilter),
-        )
+      ? searchable.filter((bookmark) => hasTag(bookmark.tags, tagFilter))
       : searchable;
     return sortBookmarksBy(
       tagged.filter((bookmark) => bookmarkMatches(bookmark, deferredSearch)),
@@ -277,27 +277,19 @@ export function BookmarksView({
     }));
   }
 
-  // Keyed by lowercase so "Rust" and "rust" are one tag, as normalizeTags treats them.
-  const tagList = useMemo(() => {
-    const found = new Map<string, { name: string; count: number }>();
-    for (const bookmark of bookmarks) {
-      // A tag found only on archived bookmarks would filter to nothing.
-      if (awayCollections.has(resolveCollectionId(bookmark.collectionId))) continue;
-      for (const tag of bookmark.tags ?? []) {
-        const key = tag.toLowerCase();
-        const entry = found.get(key);
-        if (entry) entry.count += 1;
-        else found.set(key, { name: tag, count: 1 });
-      }
-    }
-    return [...found.entries()]
-      .map(([key, { name, count }]) => ({ key, name, count }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [bookmarks, awayCollections]);
+  const tagList = useMemo(
+    () =>
+      tagVocabulary(
+        bookmarks
+          // A tag found only on archived bookmarks would filter to nothing.
+          .filter((bookmark) => !awayCollections.has(resolveCollectionId(bookmark.collectionId)))
+          .map((bookmark) => bookmark.tags),
+      ),
+    [bookmarks, awayCollections],
+  );
 
-  /** The first spelling a tag was saved with wins, so "Rust" never sits beside "rust". */
   function canonicalTag(tag: string): string {
-    return tagList.find((known) => known.key === tag.trim().toLowerCase())?.name ?? tag.trim();
+    return canonicalTagIn(tagList, tag);
   }
 
   useEffect(() => {
@@ -1194,27 +1186,7 @@ export function BookmarksView({
             {!search.trim() && scope === ALL && tagList.length > 0 ? (
               <div className="mb-5">
                 <p className={`mb-2 ${eyebrow}`}>Tags</p>
-                <div className="flex flex-wrap gap-2">
-                  {tagList.map((tag) => {
-                    const active = tagFilter === tag.key;
-                    return (
-                      <button
-                        key={tag.key}
-                        type="button"
-                        onClick={() => setTagFilter(active ? null : tag.key)}
-                        aria-pressed={active}
-                        className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors ${focusRing} ${
-                          active
-                            ? "border-accent-dim bg-accent/15 text-text"
-                            : "border-line bg-panel/60 text-text hover:border-line-light hover:bg-panel"
-                        }`}
-                      >
-                        <span className="font-medium">{tag.name}</span>
-                        <span className="text-[10px] tabular-nums text-mute">{tag.count}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                <TagFilterBar tags={tagList} active={tagFilter} onChange={setTagFilter} />
               </div>
             ) : null}
 

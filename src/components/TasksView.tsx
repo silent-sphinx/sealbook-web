@@ -4,6 +4,7 @@ import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 import { SidebarDrawer, SidebarHeader, type Sidebar } from "./SidebarDrawer";
 import { SplitHandle, useSplitPane } from "./SplitPane";
 import { TaskDetailPane } from "./TaskDetailPane";
+import { TagFilterBar } from "./TagFilterBar";
 import { TaskForm } from "./TaskForm";
 import { SMART_VIEWS, TaskListSidebar } from "./TaskListSidebar";
 import { TaskAgendaList, agendaVisibleIds, useAgendaFolds } from "./TaskAgendaList";
@@ -65,6 +66,7 @@ import { useItemSelection } from "../lib/useItemSelection";
 import { TASKS_LEADING } from "../lib/splitPane";
 import { keyFor } from "../lib/calendarModel";
 import { utcToLocalInput } from "../lib/timezone";
+import { hasTag, tagVocabulary } from "../lib/tags";
 import { flattenTree } from "../lib/tree";
 import type { Task, TaskDraft, TaskList, TaskPatch } from "../lib/types";
 import {
@@ -137,6 +139,7 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [search, setSearch] = useState("");
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState<Task | null>(null);
@@ -252,16 +255,34 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     return result;
   }, [tasks]);
 
-  const showAgenda = scope === "upnext" && !searching;
+  // The tasks the view shows before a tag or a search narrows them.
+  const scopeTasks = useMemo(
+    () =>
+      isSmart
+        ? liveTasks.filter((task) => inScope(task, scope as TaskScope))
+        : tasks.filter((task) => resolveTaskListId(task.taskListId) === scope),
+    [tasks, liveTasks, scope, isSmart],
+  );
+  const tagList = useMemo(() => tagVocabulary(scopeTasks.map((task) => task.tags)), [scopeTasks]);
+  const knownTags = useMemo(() => tagVocabulary(searchableTasks.map((task) => task.tags)), [searchableTasks]);
+
+  // A tag no task in this view carries filters nothing out, so it reads as off.
+  const activeTag = tagList.some((tag) => tag.key === tagFilter) ? tagFilter : null;
+  const filtering = searching || activeTag !== null;
+
+  const showAgenda = scope === "upnext" && !filtering;
   const scopeTree = useMemo(() => {
-    if ((!isSmart && !searching) || showAgenda) return null;
-    const scoped = isSmart
-      ? (searching ? searchableTasks : liveTasks).filter((task) => inScope(task, scope as TaskScope))
-      : tasks.filter((task) => resolveTaskListId(task.taskListId) === scope);
+    if ((!isSmart && !filtering) || showAgenda) return null;
+    const scoped = searching
+      ? isSmart
+        ? searchableTasks.filter((task) => inScope(task, scope as TaskScope))
+        : scopeTasks
+      : scopeTasks;
     // A search never reaches an archived list, even one opened from the archive.
     const searchable = searching ? scoped.filter((task) => !awayLists.has(resolveTaskListId(task.taskListId))) : scoped;
-    return buildTaskTreeOf(searchable.filter((task) => taskMatches(task, deferredSearch)));
-  }, [tasks, liveTasks, searchableTasks, awayLists, scope, isSmart, searching, showAgenda, deferredSearch]);
+    const tagged = activeTag ? searchable.filter((task) => hasTag(task.tags, activeTag)) : searchable;
+    return buildTaskTreeOf(tagged.filter((task) => taskMatches(task, deferredSearch)));
+  }, [scopeTasks, searchableTasks, awayLists, scope, isSmart, searching, filtering, showAgenda, deferredSearch, activeTag]);
 
   const tree = useMemo(
     () => (isSmart ? [] : buildTaskTree(tasks, scope)),
@@ -815,6 +836,11 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
             className="sb-split grid min-h-0 flex-1"
           >
             <div className={`min-w-0 overflow-y-auto ${paneOpen ? "hidden lg:block" : ""}`}>
+              {!searching && tagList.length > 0 ? (
+                <div className="px-4 pt-4 lg:px-6">
+                  <TagFilterBar tags={tagList} active={activeTag} onChange={setTagFilter} />
+                </div>
+              ) : null}
               {showAgenda ? (
                 <TaskAgendaList
                   {...actions}
@@ -825,8 +851,8 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
                 />
               ) : scopeTree ? (
                 scopeTree.length === 0 ? (
-                  searching ? (
-                    <EmptyState title="No tasks match that search." />
+                  filtering ? (
+                    <EmptyState title={searching ? "No tasks match that search." : "No tasks have that tag."} />
                   ) : (
                     <EmptyState
                       title="No tasks here"
@@ -871,6 +897,7 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
                       editing={form.editingId !== null}
                       listOptions={listRows.map(({ item, depth }) => ({ id: item.id, name: item.name, depth }))}
                       timezone={timezone}
+                      knownTags={knownTags}
                       disabled={disabled}
                       onSubmit={(draft) => void saveForm(draft)}
                       onCancel={() => setForm(null)}

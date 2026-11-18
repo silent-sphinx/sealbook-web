@@ -169,6 +169,14 @@ function field(label: string): HTMLElement {
   return screen.getByLabelText(label);
 }
 
+function addTags(...tags: string[]): void {
+  const input = field("Tags");
+  for (const tag of tags) {
+    fireEvent.change(input, { target: { value: tag } });
+    fireEvent.keyDown(input, { key: "Enter" });
+  }
+}
+
 beforeEach(() => {
   tasks = [];
   taskLists = [DEFAULT_LIST];
@@ -296,6 +304,60 @@ describe("TasksView, the views", () => {
   });
 });
 
+describe("TasksView, tags", () => {
+  const tagged = () => [
+    aTask("water", { tags: ["Home"] }),
+    aTask("rent", { tags: ["home", "money"] }),
+    aTask("plain"),
+    aTask("old", { tags: ["home"], done: true, completedAt: new Date().toISOString() }),
+  ];
+  const rows = () => within(board()).queryAllByRole("checkbox").map((box) => box.getAttribute("aria-label"));
+
+  it("lists each tag once, counted across the view, and filters on click", () => {
+    mount({ tasks: tagged() });
+    pick("All tasks");
+    const home = screen.getByRole("button", { name: /^Home/, pressed: false });
+    expect(home.textContent).toContain("3");
+    fireEvent.click(screen.getByRole("button", { name: /^money/ }));
+    expect(rows()).toEqual(["Complete rent"]);
+    fireEvent.click(screen.getByRole("button", { name: /^money/ }));
+    expect(rows()).toHaveLength(4);
+  });
+
+  it("filters the Up next agenda too", () => {
+    mount({ tasks: [aTask("water", { tags: ["home"], dueDate: day(0) }), aTask("rent", { tags: ["money"], dueDate: day(0) })] });
+    fireEvent.click(screen.getByRole("button", { name: /^money/ }));
+    expect(rows()).toEqual(["Complete rent"]);
+  });
+
+  it("says so when no task has the tag in the view, and drops a tag that is gone", () => {
+    mount({ tasks: tagged() });
+    pick("All tasks");
+    fireEvent.click(screen.getByRole("button", { name: /^money/ }));
+    pick("Completed");
+    expect(screen.queryByRole("button", { name: /^money/ })).toBeNull();
+    expect(rows()).toEqual(["Complete old"]);
+  });
+
+  it("hides the tag bar while searching", () => {
+    mount({ tasks: tagged() });
+    pick("All tasks");
+    fireEvent.change(screen.getByLabelText("Search tasks"), { target: { value: "wat" } });
+    expect(screen.queryByRole("button", { name: /^money/ })).toBeNull();
+  });
+
+  it("offers earlier tags in the form and keeps their first spelling", async () => {
+    mount({ tasks: tagged() });
+    fireEvent.click(within(board()).getByRole("button", { name: /New/ }));
+    fireEvent.change(field("Title"), { target: { value: "Pay" } });
+    addTags("HOME", "new");
+    expect(screen.getByRole("button", { name: "Remove tag: Home" })).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]!.draft.tags).toEqual(["Home", "new"]);
+  });
+});
+
 describe("TasksView, ticking a task", () => {
   it("marks a plain task done", async () => {
     mount({ tasks: [aTask("water")] });
@@ -372,7 +434,7 @@ describe("TasksView, the form", () => {
     fireEvent.change(field("Title"), { target: { value: "  Ship it  " } });
     fireEvent.change(field("Due date"), { target: { value: day(2) } });
     fireEvent.change(field("Priority"), { target: { value: "3" } });
-    fireEvent.change(field("Tags"), { target: { value: "a, A, b" } });
+    addTags("a", "A", "b");
     fireEvent.change(field("Repeat"), { target: { value: "weekly" } });
     fireEvent.click(screen.getByLabelText("Mon"));
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
