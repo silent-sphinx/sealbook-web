@@ -114,15 +114,25 @@ function noteFrom(note: CoreNote): Note {
   };
 }
 
-/** `archived` left out keeps what `previousRaw` stores, so a rename never restores. */
+/**
+ * `archived` and `hideFromAll` left out keep what `previousRaw` stores, so a
+ * rename never restores or un-hides.
+ */
 export function serializeNotebook(
   name: string,
   color?: string,
   previousRaw?: string,
   archived?: boolean,
+  hideFromAll?: boolean,
 ): string {
-  const stored = previousRaw ? (coreNotebookParse("", previousRaw).archived ?? false) : false;
-  return coreNotebookWrite(name, color, archived ?? stored, previousRaw);
+  const stored = previousRaw ? coreNotebookParse("", previousRaw) : undefined;
+  return coreNotebookWrite(
+    name,
+    color,
+    archived ?? stored?.archived ?? false,
+    hideFromAll ?? stored?.hide_from_all ?? false,
+    previousRaw,
+  );
 }
 
 export function parseNotebook(id: string, raw: string): Notebook {
@@ -135,6 +145,7 @@ function notebookFrom(notebook: CoreNotebook): Notebook {
     name: notebook.name,
     color: notebook.color ?? undefined,
     archived: notebook.archived || undefined,
+    hideFromAll: notebook.hide_from_all || undefined,
     raw: notebook.raw,
     readable: notebook.readable,
   };

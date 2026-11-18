@@ -1,23 +1,39 @@
-type Archivable = { id: string; parentId?: string; archived?: boolean };
+type Nested = { id: string; parentId?: string };
 
 /**
- * Collections that are archived or sit under one that is: archiving a
- * collection puts away everything nested in it, so a view that leaves the
- * archive out leaves out all of these.
+ * Items that carry a flag or sit under one that does: flagging a collection
+ * flags everything nested in it.
  */
-export function archivedIds(collections: Archivable[]): Set<string> {
-  const byId = new Map(collections.map((collection) => [collection.id, collection]));
+function flaggedIds<T extends Nested>(items: T[], flagged: (item: T) => boolean | undefined): Set<string> {
+  const byId = new Map(items.map((item) => [item.id, item]));
   const out = new Set<string>();
-  for (const collection of collections) {
-    let current: Archivable | undefined = collection;
+  for (const item of items) {
+    let current: T | undefined = item;
     // The hop cap stops a parent cycle from looping.
-    for (let hops = 0; current && hops <= collections.length; hops += 1) {
-      if (current.archived) {
-        out.add(collection.id);
+    for (let hops = 0; current && hops <= items.length; hops += 1) {
+      if (flagged(current)) {
+        out.add(item.id);
         break;
       }
       current = current.parentId ? byId.get(current.parentId) : undefined;
     }
   }
   return out;
+}
+
+/**
+ * Collections that are archived or sit under one that is: archiving a
+ * collection puts away everything nested in it, so a view that leaves the
+ * archive out leaves out all of these.
+ */
+export function archivedIds(collections: (Nested & { archived?: boolean })[]): Set<string> {
+  return flaggedIds(collections, (collection) => collection.archived);
+}
+
+/**
+ * Collections hidden from the overviews or nested under one that is. Unlike an
+ * archived collection, a hidden one stays listed, openable and searchable.
+ */
+export function hiddenIds(collections: (Nested & { hideFromAll?: boolean })[]): Set<string> {
+  return flaggedIds(collections, (collection) => collection.hideFromAll);
 }

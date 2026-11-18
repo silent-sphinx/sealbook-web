@@ -13,7 +13,7 @@ import {
   vaultObject,
 } from "../lib/client";
 import type { Session } from "../lib/client";
-import { archivedIds } from "../lib/archive";
+import { archivedIds, hiddenIds } from "../lib/archive";
 import { createAutosaver } from "../lib/autosave";
 import type { LocalObject } from "../lib/wasm";
 import { friendlyError } from "../lib/errors";
@@ -186,6 +186,18 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   const liveNotes = useMemo(
     () => notes.filter((note) => !awayNotebooks.has(resolveNotebookId(note.notebookId))),
     [notes, awayNotebooks],
+  );
+
+  // A hidden notebook is left out of the overview's covers and recent notes,
+  // but stays in the sidebar and in search.
+  const hiddenNotebooks = useMemo(() => hiddenIds(notebooks), [notebooks]);
+  const overviewNotebooks = useMemo(
+    () => liveNotebooks.filter((notebook) => !hiddenNotebooks.has(notebook.id)),
+    [liveNotebooks, hiddenNotebooks],
+  );
+  const overviewNotes = useMemo(
+    () => liveNotes.filter((note) => !hiddenNotebooks.has(resolveNotebookId(note.notebookId))),
+    [liveNotes, hiddenNotebooks],
   );
 
   // A notebook that went away leaves the sidebar pointing at nothing.
@@ -648,6 +660,24 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     }
   }
 
+  async function toggleNotebookHidden(notebook: Notebook) {
+    setError(null);
+    try {
+      await putNotebook(
+        session,
+        notebook.name,
+        notebook.id,
+        notebook.raw,
+        notebook.color,
+        undefined,
+        notebook.hideFromAll !== true,
+      );
+      await onRefresh();
+    } catch (err) {
+      setError(friendlyError(err));
+    }
+  }
+
   async function recolorNotebook(notebook: Notebook, color: string) {
     setError(null);
     try {
@@ -803,6 +833,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
               onDelete={(notebook) => setDeletingNotebook(notebook)}
               onArchive={(notebook) => void setNotebookArchived(notebook, true)}
               onRestore={(notebook) => void setNotebookArchived(notebook, false)}
+              onToggleHidden={(notebook) => void toggleNotebookHidden(notebook)}
               renderContents={() => (
                 <>
                   {notebookContents}
@@ -974,8 +1005,8 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
               />
             ) : (
               <NotesOverview
-                notebooks={liveNotebooks}
-                notes={liveNotes}
+                notebooks={overviewNotebooks}
+                notes={overviewNotes}
                 onOpenNotebook={(id) => {
                   setSearch("");
                   setScope(id);

@@ -9,7 +9,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "./test/dom";
 import { aContact, enrolDevice, setConnectionDomain } from "./test/vault";
 import { DEFAULT_ACCOUNT_SETTINGS } from "./lib/accountSettings";
@@ -21,6 +21,7 @@ const PASSWORD = "correct horse battery";
 const WORK_BOOK = "book-work";
 
 let store: Contact[] = [];
+let workHidden = false;
 
 vi.mock("./lib/client", async () => {
   const actual = await vi.importActual<typeof import("./lib/client")>("./lib/client");
@@ -37,7 +38,7 @@ vi.mock("./lib/client", async () => {
     listVault: async () => ({
       addressBooks: [
         { id: DEFAULT_ADDRESS_BOOK_ID, name: "Contacts", raw: "{}" },
-        { id: WORK_BOOK, name: "Work", raw: "{}" },
+        { id: WORK_BOOK, name: "Work", raw: "{}", hideFromAll: workHidden || undefined },
       ],
       contacts: [...store],
       calendars: [],
@@ -48,6 +49,18 @@ vi.mock("./lib/client", async () => {
       unopened: 0,
     }),
     ensureDefaultAddressBook: async (_session: unknown, books: unknown) => books,
+    putAddressBook: async (
+      _session: unknown,
+      _name: string,
+      id: string,
+      _raw?: string,
+      _archived?: boolean,
+      _color?: string,
+      hideFromAll?: boolean,
+    ) => {
+      workHidden = hideFromAll === true;
+      return id;
+    },
   };
 });
 
@@ -102,6 +115,7 @@ async function unlock() {
 }
 
 beforeEach(() => {
+  workHidden = false;
   store = [
     linked("Ada Lovelace", "c1", DEFAULT_ADDRESS_BOOK_ID, { id: "c2", name: "Grace Hopper" }),
     linked("Grace Hopper", "c2", WORK_BOOK, { id: "c1", name: "Ada Lovelace" }),
@@ -126,11 +140,11 @@ describe("the contact network map", () => {
 
     // Grace's book is hidden, so her node goes; Ada's only link was to her, so
     // Ada has no edges left and leaves the map too.
-    expect(screen.queryByRole("button", { name: "Grace Hopper" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Grace Hopper" })).toBeNull());
     expect(screen.queryByRole("button", { name: "Ada Lovelace" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Show all address books" }));
-    expect(screen.getByRole("button", { name: "Grace Hopper" })).toBeDefined();
+    expect(await screen.findByRole("button", { name: "Grace Hopper" })).toBeDefined();
   });
 
   it("shows a node per colleague-linked contact, same as family or friends", async () => {

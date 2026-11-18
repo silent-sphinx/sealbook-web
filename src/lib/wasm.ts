@@ -1763,9 +1763,10 @@ export function coreNotebookWrite(
   name: string,
   color: string | undefined,
   archived: boolean,
+  hideFromAll: boolean,
   previousRaw?: string,
 ): string {
-  return core_notebook_write(name, color, archived, previousRaw);
+  return core_notebook_write(name, color, archived, hideFromAll, previousRaw);
 }
 
 /**

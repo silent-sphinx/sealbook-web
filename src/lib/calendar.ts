@@ -49,6 +49,7 @@ export function serializeCalendar(calendar: Omit<Calendar, "id">): string {
     color: calendar.color,
     favorite: calendar.favorite === true,
     archived: calendar.archived === true,
+    hide_from_all: calendar.hideFromAll === true,
     raw: calendar.raw,
   });
 }
@@ -64,6 +65,7 @@ function calendarFrom(calendar: CoreCalendar): Calendar {
     color: calendar.color,
     favorite: calendar.favorite,
     archived: calendar.archived,
+    hideFromAll: calendar.hide_from_all || undefined,
     readable: calendar.readable,
     raw: calendar.raw,
   };
@@ -177,6 +179,7 @@ export function calendarNameById(
       color: calendar.color,
       favorite: calendar.favorite === true,
       archived: calendar.archived === true,
+      hide_from_all: calendar.hideFromAll === true,
       readable: calendar.readable !== false,
       raw: calendar.raw ?? "",
     })),
@@ -206,30 +209,28 @@ export function archivedCalendars(calendars: Calendar[]): Calendar[] {
 /**
  * Whether a calendar is drawn on the grid.
  *
- * The two sets are each the exception to their group's default, which is what
- * lets one toggle serve both: a calendar in play shows unless it is in
- * `hidden`, and an archived one hides unless it is in `shownArchived`. So an
- * archived calendar can be switched on for a look without being restored.
+ * A calendar in play shows unless it is hidden, which is stored on the
+ * calendar and so follows the account to every device. An archived one hides
+ * unless it is in `shownArchived`, a choice kept on this device, so it can be
+ * switched on for a look without being restored.
  */
 export function isCalendarVisible(
   calendar: Calendar,
-  hidden: ReadonlySet<string>,
   shownArchived: ReadonlySet<string>,
 ): boolean {
   return calendar.archived === true
     ? shownArchived.has(calendar.id)
-    : !hidden.has(calendar.id);
+    : calendar.hideFromAll !== true;
 }
 
 /** The ids [isCalendarVisible] holds for, as the event filters want them. */
 export function visibleCalendarIds(
   calendars: Calendar[],
-  hidden: ReadonlySet<string>,
   shownArchived: ReadonlySet<string>,
 ): Set<string> {
   return new Set(
     calendars
-      .filter((calendar) => isCalendarVisible(calendar, hidden, shownArchived))
+      .filter((calendar) => isCalendarVisible(calendar, shownArchived))
       .map((calendar) => calendar.id),
   );
 }

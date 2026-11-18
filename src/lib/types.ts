@@ -306,6 +306,8 @@ export type AddressBook = {
   name: string;
   /** Put away: out of the list and the pickers, its contacts left as they are. */
   archived?: boolean;
+  /** Keeps this book's contacts out of the "All" list. Still listed and searchable. */
+  hideFromAll?: boolean;
   color?: string;
   raw: string;
 };
@@ -376,6 +378,8 @@ export type Calendar = {
    * archived.
    */
   archived?: boolean;
+  /** Keeps this calendar's events off the grid. Still listed and searchable. */
+  hideFromAll?: boolean;
   /** False for a payload from a schema major this build may read but not write. */
   readable?: boolean;
   /** As `NoteDraft.raw`: what a save merges onto, so unknown fields survive. */
@@ -475,6 +479,8 @@ export type Notebook = {
   color?: string;
   /** Put away: out of the notebook list, its notes left as they are. */
   archived?: boolean;
+  /** Keeps this notebook, and its notes, out of the notes overview. Still listed and searchable. */
+  hideFromAll?: boolean;
   raw: string;
   /** As `Note.readable`. */
   readable?: boolean;
@@ -605,6 +611,8 @@ export type TaskList = {
   color?: string;
   /** Put away: out of the list list, its tasks left as they are. */
   archived?: boolean;
+  /** Keeps this list, and any nested under it, out of the smart views. Still listed and searchable. */
+  hideFromAll?: boolean;
   raw: string;
   readable?: boolean;
 };

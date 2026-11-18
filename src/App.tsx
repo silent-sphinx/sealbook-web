@@ -95,6 +95,8 @@ import {
   isFeatureEnabled,
 } from "./lib/accountSettings";
 import { type OnboardingPlan } from "./lib/onboarding";
+import { HIDDEN_CALENDARS, loadCalendarIds, storeCalendarIds } from "./lib/calendarVisibility";
+import { idsToHide } from "./lib/hiddenMigration";
 import { LINKABLE_SECTIONS, profileOf, type LinkableSection } from "./lib/contactProfile";
 import {
   ARCHIVE_VIEW_NAME,
@@ -249,11 +251,10 @@ export default function App() {
   // not rewrite it.
   const labelledDevice = useRef<string | null>(null);
   /**
-   * The address books switched off in the sidebar, as `loadHiddenAddressBooks`
-   * holds them. Loaded per collection once a vault is open, since the key is
-   * the collection's, and `hiddenBooksCollection` records which one is loaded.
+   * The archived address books switched on for a look, kept on this device.
+   * Loaded per collection once a vault is open, since the key is the
+   * collection's, and `hiddenBooksCollection` records which one is loaded.
    */
-  const [hiddenBooks, setHiddenBooks] = useState<Set<string>>(new Set());
   const [shownArchivedBooks, setShownArchivedBooks] = useState<Set<string>>(new Set());
   const [hiddenBooksCollection, setHiddenBooksCollection] = useState<string | null>(null);
   /**
@@ -475,23 +476,72 @@ export default function App() {
   const contactsEnabled = isFeatureEnabled(accountSettings, "contacts");
   const detailedContacts = isDetailedContacts(accountSettings);
 
-  // The sidebar's switched-off books are stored per collection, so they can only
-  // be read once a vault is open, and are dropped again when one is signed out.
+  // The archived books switched on for a look are stored per collection, so they
+  // can only be read once a vault is open, and are dropped again when one is
+  // signed out.
   //
   // Adjusted during render rather than in an effect: the read is a synchronous
   // one from localStorage, and an effect would let the first render go out
-  // with every book still showing, flashing the hidden contacts for a frame.
+  // with every archived book still showing, flashing its contacts for a frame.
   const collectionId = session?.state.collection_id ?? null;
   if (hiddenBooksCollection !== collectionId) {
     setHiddenBooksCollection(collectionId);
-    setHiddenBooks(collectionId ? loadHiddenAddressBooks(collectionId) : new Set());
     setShownArchivedBooks(collectionId ? loadShownArchivedBooks(collectionId) : new Set());
   }
 
   const listHiddenBooks = useMemo(
-    () => effectiveHiddenBooks(addressBooks, hiddenBooks, shownArchivedBooks),
-    [addressBooks, hiddenBooks, shownArchivedBooks],
+    () => effectiveHiddenBooks(addressBooks, shownArchivedBooks),
+    [addressBooks, shownArchivedBooks],
   );
+
+  // Hiding an address book or a calendar used to be a set kept in this
+  // browser. It is now a flag stored on the container, so the first time a
+  // vault is open here the old set is folded into the flags and dropped. Only
+  // ever adds a flag, and the old set is kept until every write has landed.
+  const migratedHiddenBooks = useRef<string | null>(null);
+  const migratedHiddenCalendars = useRef<string | null>(null);
+  useEffect(() => {
+    if (!session || isOffline || addressBooks.length === 0) return;
+    const collectionId = session.state.collection_id;
+    if (migratedHiddenBooks.current === collectionId) return;
+    migratedHiddenBooks.current = collectionId;
+    const local = loadHiddenAddressBooks(collectionId);
+    if (local.size === 0) return;
+    const ids = new Set(idsToHide(addressBooks, local));
+    const targets = addressBooks.filter((book) => ids.has(book.id));
+    void (async () => {
+      try {
+        for (const book of targets) {
+          await putAddressBook(session, book.name, book.id, book.raw, false, book.color, true);
+        }
+        storeHiddenAddressBooks(collectionId, new Set());
+        if (targets.length > 0) await refreshAfterSave(session);
+      } catch (err) {
+        log.warn("the hidden address books could not be moved into the vault", { reason: describeError(err) });
+      }
+    })();
+  }, [session, isOffline, addressBooks]);
+  useEffect(() => {
+    if (!session || isOffline || calendars.length === 0) return;
+    const collectionId = session.state.collection_id;
+    if (migratedHiddenCalendars.current === collectionId) return;
+    migratedHiddenCalendars.current = collectionId;
+    const local = loadCalendarIds(collectionId, HIDDEN_CALENDARS);
+    if (local.size === 0) return;
+    const ids = new Set(idsToHide(calendars, local));
+    const targets = calendars.filter((calendar) => ids.has(calendar.id));
+    void (async () => {
+      try {
+        for (const calendar of targets) {
+          await putCalendar(session, { ...calendar, hideFromAll: true }, calendar.id);
+        }
+        storeCalendarIds(collectionId, HIDDEN_CALENDARS, new Set());
+        if (targets.length > 0) await refreshAfterSave(session);
+      } catch (err) {
+        log.warn("the hidden calendars could not be moved into the vault", { reason: describeError(err) });
+      }
+    })();
+  }, [session, isOffline, calendars]);
 
   const archivedContacts = useMemo(
     () => contacts.filter((contact) => contact.archived === true),
@@ -607,7 +657,7 @@ export default function App() {
    * titles the list and is what a new contact lands in.
    */
   const soleShownBook = shownBooks.length === 1 ? shownBooks[0] : null;
-  const contactsTitle = hiddenBooks.size === 0 && shownArchivedBooks.size === 0
+  const contactsTitle = listHiddenBooks.size === 0 && shownArchivedBooks.size === 0
     ? "All contacts"
     : soleShownBook
       ? soleShownBook.name
@@ -1009,12 +1059,6 @@ export default function App() {
     accountSettingsRaw.current = listed.accountSettingsRaw;
     setDeviceLabels(listed.deviceLabels);
     setUnopened(listed.unopened);
-    setHiddenBooks((current) => {
-      const pruned = pruneHiddenAddressBooks(books, current);
-      if (pruned.size === current.size) return current;
-      storeHiddenAddressBooks(next.state.collection_id, pruned);
-      return pruned;
-    });
     setShownArchivedBooks((current) => {
       const pruned = pruneHiddenAddressBooks(books, current);
       if (pruned.size === current.size) return current;
@@ -1148,7 +1192,6 @@ export default function App() {
     setAccountSettings(DEFAULT_ACCOUNT_SETTINGS);
     setDeviceLabels([]);
     labelledDevice.current = null;
-    setHiddenBooks(new Set());
     setViewingArchive(false);
     setAdding(false);
     setAddResponse(null);
@@ -1868,44 +1911,59 @@ export default function App() {
       setViewingArchive(false);
       return;
     }
-    const archived = addressBooks.some((book) => book.id === id && book.archived === true);
-    const update = archived ? setShownArchivedBooks : setHiddenBooks;
-    const store = archived ? storeShownArchivedBooks : storeHiddenAddressBooks;
-    update((current) => {
-      const next = new Set(current);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      if (session) store(session.state.collection_id, next);
-      return next;
-    });
+    const book = addressBooks.find((item) => item.id === id);
+    if (!book) return;
+    if (book.archived === true) {
+      setShownArchivedBooks((current) => {
+        const next = new Set(current);
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+        if (session) storeShownArchivedBooks(session.state.collection_id, next);
+        return next;
+      });
+      return;
+    }
+    void setBooksHidden([book], book.hideFromAll !== true);
   }
 
   function showAllBooks() {
     setViewingArchive(false);
-    setHiddenBooks(new Set());
-    if (session) storeHiddenAddressBooks(session.state.collection_id, new Set());
+    void setBooksHidden(addressBooks.filter((book) => book.archived !== true && book.hideFromAll === true), false);
   }
 
   /**
-   * Drops a book's recorded toggle, so a deleted book cannot be inherited by a
-   * later one and an archived or restored one starts at its group's default.
+   * A book in play is hidden by a flag stored on it, so the choice follows the
+   * account to every device and needs a write.
+   */
+  async function setBooksHidden(books: AddressBook[], hidden: boolean): Promise<void> {
+    if (!session || books.length === 0) return;
+    setError(null);
+    try {
+      for (const book of books) {
+        await putAddressBook(session, book.name, book.id, book.raw, book.archived === true, book.color, hidden);
+      }
+    } catch (err) {
+      setError(friendlyError(err));
+    }
+    await refreshAfterSave(session);
+  }
+
+  /**
+   * Drops a book's switched-on-for-a-look record, so a deleted book cannot be
+   * inherited by a later one and an archived or restored one starts at its
+   * group's default.
    */
   function forgetBookVisibility(id: string) {
-    for (const [update, store] of [
-      [setHiddenBooks, storeHiddenAddressBooks],
-      [setShownArchivedBooks, storeShownArchivedBooks],
-    ] as const) {
-      update((current) => {
-        if (!current.has(id)) return current;
-        const next = new Set(current);
-        next.delete(id);
-        if (session) store(session.state.collection_id, next);
-        return next;
-      });
-    }
+    setShownArchivedBooks((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      if (session) storeShownArchivedBooks(session.state.collection_id, next);
+      return next;
+    });
   }
 
   async function onCreateBook(name: string): Promise<string | undefined> {

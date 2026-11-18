@@ -33,6 +33,7 @@ type Props = {
   onDelete: (list: TaskList) => void;
   onArchive: (list: TaskList) => void;
   onRestore: (list: TaskList) => void;
+  onToggleHidden: (list: TaskList) => void;
 };
 
 export function TaskListSidebar({
@@ -50,6 +51,7 @@ export function TaskListSidebar({
   onDelete,
   onArchive,
   onRestore,
+  onToggleHidden,
 }: Props) {
   const [creating, setCreating] = useState(false);
   return (
@@ -120,6 +122,7 @@ export function TaskListSidebar({
           onDelete={onDelete}
           onArchive={onArchive}
           onRestore={onRestore}
+          onToggleHidden={onToggleHidden}
           canMove={(id, parentId) => canMoveTaskList(lists, id, parentId)}
           onMove={onMove}
           readOnly={readOnly}

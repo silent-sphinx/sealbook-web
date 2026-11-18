@@ -32,8 +32,16 @@ export function serializeAddressBook(
   previousRaw?: string,
   archived = false,
   color?: string,
+  hideFromAll?: boolean,
 ): string {
-  return coreAddressBookWrite({ name, archived, color, raw: previousRaw });
+  const stored = previousRaw ? coreAddressBookParse("", previousRaw) : undefined;
+  return coreAddressBookWrite({
+    name,
+    archived,
+    hide_from_all: hideFromAll ?? stored?.hide_from_all ?? false,
+    color,
+    raw: previousRaw,
+  });
 }
 
 export function parseAddressBook(id: string, raw: string): AddressBook {
@@ -42,6 +50,7 @@ export function parseAddressBook(id: string, raw: string): AddressBook {
     id: book.id,
     name: book.name,
     archived: book.archived || undefined,
+    hideFromAll: book.hide_from_all || undefined,
     color: book.color,
     raw: book.raw,
   };
@@ -56,18 +65,20 @@ export function archivedAddressBooks(books: AddressBook[]): AddressBook[] {
 }
 
 /**
- * The books whose contacts are out of the list: the ones switched off, and an
- * archived one unless it is in `shownArchived`. So an archived book can be
- * switched on for a look without being restored.
+ * The books whose contacts are out of the list: a book in play that is marked
+ * hidden, which is stored on the book and so follows the account to every
+ * device, and an archived one unless it is in `shownArchived`, a choice kept on
+ * this device. So an archived book can be switched on for a look without being
+ * restored.
  */
 export function effectiveHiddenBooks(
   books: AddressBook[],
-  hidden: ReadonlySet<string>,
   shownArchived: ReadonlySet<string>,
 ): Set<string> {
-  const out = new Set(hidden);
+  const out = new Set<string>();
   for (const book of books) {
-    if (book.archived === true && !shownArchived.has(book.id)) out.add(book.id);
+    const away = book.archived === true ? !shownArchived.has(book.id) : book.hideFromAll === true;
+    if (away) out.add(book.id);
   }
   return out;
 }

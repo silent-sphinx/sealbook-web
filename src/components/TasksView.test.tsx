@@ -31,6 +31,7 @@ let writes: { id: string | undefined; draft: TaskDraft }[] = [];
 let deletes: string[] = [];
 let listWrites: { name: string; parentId?: string; id?: string; color?: string }[] = [];
 let listDeletes: string[] = [];
+let hideWrites: (boolean | undefined)[] = [];
 let ensured = 0;
 let refreshes = 0;
 let applied = 0;
@@ -64,10 +65,13 @@ vi.mock("../lib/client", async () => {
       id?: string,
       _raw?: string,
       color?: string,
+      _archived?: boolean,
+      hideFromAll?: boolean,
     ) => {
       listWrites.push({ name, parentId, id, color });
+      hideWrites.push(hideFromAll);
       const made = id ?? `list-${name}`;
-      const saved = parseTaskList(made, serializeTaskList(name, parentId, undefined, color));
+      const saved = parseTaskList(made, serializeTaskList(name, parentId, undefined, color, undefined, hideFromAll));
       taskLists = taskLists.some((item) => item.id === made)
         ? taskLists.map((item) => (item.id === made ? saved : item))
         : [...taskLists, saved];
@@ -172,6 +176,7 @@ beforeEach(() => {
   deletes = [];
   listWrites = [];
   listDeletes = [];
+  hideWrites = [];
   ensured = 0;
   refreshes = 0;
   applied = 0;
@@ -972,5 +977,48 @@ describe("TasksView, bulk editing", () => {
     mount({ tasks: [aTask("a")], readOnly: true });
     pick("Default Task List");
     expect(screen.queryByRole("button", { name: "Select a" })).toBeNull();
+  });
+});
+
+describe("TasksView, hiding a list", () => {
+  const hiddenSeed = () => ({
+    taskLists: [
+      DEFAULT_LIST,
+      parseTaskList("secret", serializeTaskList("Secret", undefined, undefined, undefined, undefined, true)),
+      parseTaskList("inner", serializeTaskList("Inner", "secret")),
+    ],
+    tasks: [
+      aTask("visible"),
+      aTask("hidden", { taskListId: "secret" }),
+      aTask("nested", { taskListId: "inner" }),
+    ],
+  });
+
+  it("leaves a hidden list's tasks, and its sublists', out of the smart views", () => {
+    mount(hiddenSeed());
+    pick("All tasks");
+    expect(screen.getAllByRole("checkbox").map((box) => box.getAttribute("aria-label"))).toEqual([
+      "Complete visible",
+    ]);
+  });
+
+  it("still lists the hidden list, opens it with its tasks, and finds them by search", () => {
+    mount(hiddenSeed());
+    pick("Secret");
+    expect(screen.getByRole("checkbox", { name: "Complete hidden" })).not.toBeNull();
+    pick("All tasks");
+    fireEvent.change(screen.getByLabelText("Search tasks"), { target: { value: "hidden" } });
+    expect(screen.getByRole("checkbox", { name: "Complete hidden" })).not.toBeNull();
+  });
+
+  it("writes the flag from the list's menu, and clears it from a hidden one", async () => {
+    mount(hiddenSeed());
+    fireEvent.contextMenu(within(sidebar()).getByRole("button", { name: /^Default Task List/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hide from overview" }));
+    await waitFor(() => expect(hideWrites).toEqual([true]));
+
+    fireEvent.contextMenu(within(sidebar()).getByRole("button", { name: /^Secret/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Show in overview" }));
+    await waitFor(() => expect(hideWrites).toEqual([true, false]));
   });
 });

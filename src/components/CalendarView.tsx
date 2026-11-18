@@ -45,7 +45,6 @@ import {
 } from "../lib/calendarModel";
 import { resolveEvent, searchEvents, type SearchResult } from "../lib/calendarSearch";
 import {
-  HIDDEN_CALENDARS,
   SHOWN_ARCHIVED_CALENDARS,
   TASKS_OVERLAY,
   loadCalendarFlag,
@@ -225,7 +224,6 @@ export function CalendarView({
     setShowTasks(next);
     storeCalendarFlag(session.state.collection_id, TASKS_OVERLAY, next);
   }
-  const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(() => loadCalendarIds(session.state.collection_id, HIDDEN_CALENDARS));
   const [shownArchivedIds, setShownArchivedIds] = useState<Set<string>>(() => loadCalendarIds(session.state.collection_id, SHOWN_ARCHIVED_CALENDARS));
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [eventCalendarId, setEventCalendarId] = useState("");
@@ -292,8 +290,8 @@ export function CalendarView({
     return counts;
   }, [events]);
   const visibleIds = useMemo(
-    () => visibleCalendarIds(calendars, hiddenCalendarIds, shownArchivedIds),
-    [calendars, hiddenCalendarIds, shownArchivedIds],
+    () => visibleCalendarIds(calendars, shownArchivedIds),
+    [calendars, shownArchivedIds],
   );
   const searchable = useMemo(
     () => events.filter((event) => !event.calendarId
@@ -435,43 +433,48 @@ export function CalendarView({
       openEditTask(events.find((source) => event.id === source.id || event.id.startsWith(`${source.id}:`)) ?? event);
 
   /**
-   * Switches one calendar on or off on the grid. Which set the id moves in and
-   * out of depends on the calendar's own default, so an archived calendar can
-   * be switched on without being restored.
+   * Switches one calendar on or off on the grid. A calendar in play is hidden
+   * or shown by a flag stored on it, so the choice follows the account and
+   * needs a write. An archived one is switched on for a look on this device
+   * only, without being restored.
    */
   function toggleCalendar(calendarId: string) {
-    const archived = calendars.some((calendar) => calendar.id === calendarId && calendar.archived === true);
-    const group = archived ? SHOWN_ARCHIVED_CALENDARS : HIDDEN_CALENDARS;
-    const update = archived ? setShownArchivedIds : setHiddenCalendarIds;
-    update((current) => {
-      const next = new Set(current);
-      if (next.has(calendarId)) {
-        next.delete(calendarId);
-      } else {
-        next.add(calendarId);
-      }
-      storeCalendarIds(session.state.collection_id, group, next);
-      return next;
-    });
+    const calendar = calendars.find((item) => item.id === calendarId);
+    if (!calendar) return;
+    if (calendar.archived === true) {
+      setShownArchivedIds((current) => {
+        const next = new Set(current);
+        if (next.has(calendarId)) {
+          next.delete(calendarId);
+        } else {
+          next.add(calendarId);
+        }
+        storeCalendarIds(session.state.collection_id, SHOWN_ARCHIVED_CALENDARS, next);
+        return next;
+      });
+      return;
+    }
+    if (readOnlyMode) return;
+    void writeCalendar(calendar, { hideFromAll: calendar.hideFromAll !== true });
   }
 
-  /** Clears the switched-off calendars in play. The archive is left as it is. */
-  function showAllCalendars() {
-    setHiddenCalendarIds(new Set());
-    storeCalendarIds(session.state.collection_id, HIDDEN_CALENDARS, new Set());
+  /** Shows the calendars in play that are hidden. The archive is left as it is. */
+  async function showAllCalendars() {
+    for (const calendar of activeCals) {
+      if (calendar.hideFromAll === true && !(await writeCalendar(calendar, { hideFromAll: false }))) return;
+    }
   }
 
   /**
-   * Drops a calendar's recorded exception so it starts at the default of the
-   * group it is moving into: archiving one hides it, restoring one shows it.
+   * Drops a calendar's switched-on-for-a-look record, so one moving into or
+   * out of the archive starts at its group's default.
    */
-  function forgetCalendarToggle(calendarId: string, group: string) {
-    const update = group === SHOWN_ARCHIVED_CALENDARS ? setShownArchivedIds : setHiddenCalendarIds;
-    update((current) => {
+  function forgetShownArchived(calendarId: string) {
+    setShownArchivedIds((current) => {
       if (!current.has(calendarId)) return current;
       const next = new Set(current);
       next.delete(calendarId);
-      storeCalendarIds(session.state.collection_id, group, next);
+      storeCalendarIds(session.state.collection_id, SHOWN_ARCHIVED_CALENDARS, next);
       return next;
     });
   }
@@ -678,6 +681,7 @@ export function CalendarView({
           color: calendar?.color ?? nextCalendarColor(calendars),
           favorite: calendar?.favorite ?? false,
           archived: calendar?.archived ?? false,
+          hideFromAll: calendar?.hideFromAll,
           raw: calendar?.raw,
           ...changes,
         },
@@ -709,7 +713,7 @@ export function CalendarView({
       return;
     }
     if (await writeCalendar(calendar, { archived: archiving })) {
-      forgetCalendarToggle(calendar.id, archiving ? HIDDEN_CALENDARS : SHOWN_ARCHIVED_CALENDARS);
+      forgetShownArchived(calendar.id);
     }
   }
 
@@ -780,13 +784,13 @@ export function CalendarView({
           <CalendarSections
             calendars={activeCals}
             archived={archivedCals}
-            isVisible={(calendar) => isCalendarVisible(calendar, hiddenCalendarIds, shownArchivedIds)}
+            isVisible={(calendar) => isCalendarVisible(calendar, shownArchivedIds)}
             eventCounts={eventCounts}
             readOnly={readOnlyMode}
             canArchive={activeCals.length > 1}
             busy={busy || saving}
             onToggle={toggleCalendar}
-            onShowAll={showAllCalendars}
+            onShowAll={() => void showAllCalendars()}
             onCreate={(name) => writeCalendar(null, { name })}
             onRename={(calendar, name) => writeCalendar(calendar, { name })}
             onRecolor={(calendar, color) => writeCalendar(calendar, { color })}

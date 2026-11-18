@@ -536,7 +536,7 @@ export function BookmarksView({
   function collectionExtras(collection: BookmarkCollection): MenuItem[] {
     return [
       {
-        label: collection.hideFromAll ? "Show in All Bookmarks" : "Hide from All Bookmarks",
+        label: collection.hideFromAll ? "Show in overview" : "Hide from overview",
         onSelect: () => void toggleHideFromAll(collection),
       },
     ];
@@ -875,7 +875,7 @@ export function BookmarksView({
               onRestore={(collection) => void setCollectionArchived(collection, false)}
               canMove={(id, parentId) => canMoveCollection(collections, id, parentId)}
               onMove={moveCollection}
-              extraMenuItems={collectionExtras}
+              onToggleHidden={(collection) => void toggleHideFromAll(collection)}
               externalDrop={{ canDrop: canDropOnCollection, onDrop: dropOnCollection }}
               readOnly={readOnlyMode}
               busy={busy || saving}

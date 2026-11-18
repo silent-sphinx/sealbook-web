@@ -5,6 +5,7 @@ import {
   addressBookTone,
   bookNameById,
   bookToneById,
+  effectiveHiddenBooks,
   isAddressBookVisible,
   loadHiddenAddressBooks,
   parseAddressBook,
@@ -153,6 +154,16 @@ describe("address book visibility", () => {
       DEFAULT_ADDRESS_BOOK_ID,
       "b2",
     ]);
+  });
+
+  it("hides a book in play that is marked hidden, and an archived one unless it is shown", () => {
+    const marked = [
+      { ...books[1], hideFromAll: true },
+      { ...books[2], archived: true },
+    ];
+    expect([...effectiveHiddenBooks(marked, new Set())].sort()).toEqual(["b1", "b2"]);
+    expect([...effectiveHiddenBooks(marked, new Set(["b2"]))]).toEqual(["b1"]);
+    expect([...effectiveHiddenBooks([{ ...books[1], archived: true, hideFromAll: true }], new Set(["b1"]))]).toEqual([]);
   });
 
   it("forgets a toggle whose book is gone", () => {

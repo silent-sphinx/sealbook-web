@@ -115,24 +115,25 @@ describe("calendar visibility", () => {
   const none = new Set<string>();
 
   it("shows a calendar in play and hides an archived one by default", () => {
-    expect(isCalendarVisible(work, none, none)).toBe(true);
-    expect(isCalendarVisible(old, none, none)).toBe(false);
-    expect([...visibleCalendarIds([work, old], none, none)]).toEqual(["work"]);
+    expect(isCalendarVisible(work, none)).toBe(true);
+    expect(isCalendarVisible(old, none)).toBe(false);
+    expect([...visibleCalendarIds([work, old], none)]).toEqual(["work"]);
   });
 
-  it("hides a calendar in play that has been switched off", () => {
-    expect(isCalendarVisible(work, new Set(["work"]), none)).toBe(false);
+  it("hides a calendar in play that is marked hidden", () => {
+    expect(isCalendarVisible({ ...work, hideFromAll: true }, none)).toBe(false);
   });
 
   it("shows an archived calendar that has been switched on", () => {
-    expect(isCalendarVisible(old, none, new Set(["old"]))).toBe(true);
-    expect([...visibleCalendarIds([work, old], none, new Set(["old"]))]).toEqual(["work", "old"]);
+    expect(isCalendarVisible(old, new Set(["old"]))).toBe(true);
+    expect([...visibleCalendarIds([work, old], new Set(["old"]))]).toEqual(["work", "old"]);
   });
 
-  it("reads each set only for the group it is the exception for", () => {
+  it("reads the shown set only for an archived calendar, and the flag only for one in play", () => {
     // A stale id from before the calendar crossed between the groups must not
     // decide anything: the calendar starts at its new group's default.
-    expect(isCalendarVisible(old, new Set(["old"]), none)).toBe(false);
-    expect(isCalendarVisible(work, none, new Set(["work"]))).toBe(true);
+    expect(isCalendarVisible(work, new Set(["work"]))).toBe(true);
+    expect(isCalendarVisible({ ...old, hideFromAll: false }, none)).toBe(false);
+    expect(isCalendarVisible({ ...old, hideFromAll: true }, new Set(["old"]))).toBe(true);
   });
 });

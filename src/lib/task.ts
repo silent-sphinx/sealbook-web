@@ -154,14 +154,15 @@ export function serializeTaskList(
   previousRaw?: string,
   color?: string,
   archived?: boolean,
+  hideFromAll?: boolean,
 ): string {
+  const stored = previousRaw ? coreTaskListParse("", previousRaw) : undefined;
   return coreTaskListWrite({
     name,
     parent_id: parentId,
     color,
-    archived:
-      archived ??
-      (previousRaw ? coreTaskListParse("", previousRaw).archived : false),
+    archived: archived ?? stored?.archived ?? false,
+    hide_from_all: hideFromAll ?? stored?.hide_from_all ?? false,
     raw: previousRaw,
   });
 }
@@ -177,6 +178,7 @@ function listFrom(list: CoreTaskList): TaskList {
     parentId: list.parent_id,
     color: list.color,
     archived: list.archived || undefined,
+    hideFromAll: list.hide_from_all || undefined,
     raw: list.raw,
     readable: list.readable,
   };
@@ -189,6 +191,7 @@ export function listTo(list: TaskList): CoreTaskList {
     parent_id: list.parentId,
     color: list.color,
     archived: list.archived ?? false,
+    hide_from_all: list.hideFromAll ?? false,
     readable: list.readable ?? true,
     raw: list.raw,
   };

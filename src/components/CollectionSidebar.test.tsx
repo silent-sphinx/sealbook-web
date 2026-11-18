@@ -177,4 +177,52 @@ describe("CollectionSidebar", () => {
       expect(screen.queryByRole("menuitem", { name: "Archive list" })).toBeNull();
     });
   });
+
+  describe("hiding from the overview", () => {
+    it("offers the toggle on a row's menu, and names what it will do", () => {
+      const onToggleHidden = vi.fn<(collection: SidebarCollection) => void>();
+      mount({ selectedId: "other", onToggleHidden });
+      fireEvent.contextMenu(rowOf("Other"));
+      fireEvent.click(screen.getByRole("menuitem", { name: "Hide from overview" }));
+      expect(onToggleHidden).toHaveBeenCalledWith(COLLECTIONS[3]);
+    });
+
+    it("offers it on the protected collection too, which has no delete", () => {
+      mount({ selectedId: "other", onToggleHidden: vi.fn<(collection: SidebarCollection) => void>() });
+      fireEvent.contextMenu(rowOf("Root"));
+      expect(screen.getByRole("menuitem", { name: "Hide from overview" })).not.toBeNull();
+    });
+
+    it("offers a hidden collection to be shown again", () => {
+      mount({
+        selectedId: "other",
+        onToggleHidden: vi.fn<(collection: SidebarCollection) => void>(),
+        collections: COLLECTIONS.map((c) => (c.id === "other" ? { ...c, hideFromAll: true } : c)),
+      });
+      fireEvent.contextMenu(rowOf("Other"));
+      expect(screen.getByRole("menuitem", { name: "Show in overview" })).not.toBeNull();
+    });
+
+    it("offers nothing without the handler", () => {
+      mount({ selectedId: "other" });
+      fireEvent.contextMenu(rowOf("Other"));
+      expect(screen.queryByRole("menuitem", { name: /overview/ })).toBeNull();
+    });
+
+    it("dims a hidden collection and what is nested in it, and marks only the one that is hidden", () => {
+      mount({
+        selectedId: "leaf",
+        onToggleHidden: vi.fn<(collection: SidebarCollection) => void>(),
+        collections: COLLECTIONS.map((c) => (c.id === "mid" ? { ...c, hideFromAll: true } : c)),
+        renderContents: undefined,
+      });
+      const marks = (name: string) =>
+        screen.getByRole("button", { name }).querySelectorAll("[title='Hidden from the overview']");
+      expect(screen.getByRole("button", { name: "Mid" }).className).toContain("opacity-60");
+      expect(screen.getByRole("button", { name: "Leaf" }).className).toContain("opacity-60");
+      expect(screen.getByRole("button", { name: "Root" }).className).not.toContain("opacity-60");
+      expect(marks("Mid")).toHaveLength(1);
+      expect(marks("Leaf")).toHaveLength(0);
+    });
+  });
 });

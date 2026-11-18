@@ -27,6 +27,7 @@ let notes: Note[] = [];
 let notebooks: Notebook[] = [];
 let writes: { id: string | undefined; draft: NoteDraft }[] = [];
 let deletes: string[] = [];
+let notebookHideWrites: (boolean | undefined)[] = [];
 let notebookWrites: { name: string; id?: string; previousRaw?: string; color?: string }[] = [];
 let notebookDeletes: string[] = [];
 let ensured = 0;
@@ -103,7 +104,10 @@ vi.mock("../lib/client", async () => {
       id?: string,
       previousRaw?: string,
       color?: string,
+      _archived?: boolean,
+      hideFromAll?: boolean,
     ) => {
+      notebookHideWrites.push(hideFromAll);
       notebookWrites.push(color ? { name, id, previousRaw, color } : { name, id, previousRaw });
       if (id) notebooks = notebooks.map((book) => (book.id === id ? { ...book, name, color } : book));
       else notebooks = [...notebooks, { id: `notebook-${name}`, name, raw: "{}" }];
@@ -222,6 +226,7 @@ beforeEach(() => {
   writes = [];
   deletes = [];
   notebookWrites = [];
+  notebookHideWrites = [];
   notebookDeletes = [];
   undeletable = new Set();
   deleteBatches = 0;
@@ -329,7 +334,7 @@ describe("NotesView, the notebook sidebar", () => {
     mount({ notebooks: [DEFAULT_BOOK] });
     fireEvent.contextMenu(side().getByRole("button", { name: /^Default Notebook/ }));
     const labels = screen.getAllByRole("menuitem").map((item) => item.textContent);
-    expect(labels).toEqual(["Rename notebook", "Change colour"]);
+    expect(labels).toEqual(["Rename notebook", "Change colour", "Hide from overview"]);
   });
 
   it("deletes a notebook and the notes it held", async () => {
@@ -1087,5 +1092,39 @@ describe("NotesView, right-clicking a notebook cover", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Rename notebook" }));
     expect(screen.getByRole("dialog", { name: "Rename notebook" })).not.toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Delete notebook" })).toBeNull();
+  });
+});
+
+describe("NotesView, hiding a notebook", () => {
+  const side = () => within(document.querySelector("aside") as HTMLElement);
+  const secret: Notebook = { id: "secret", name: "Secret", hideFromAll: true, raw: "{}" };
+  const seed = () => ({
+    notebooks: [DEFAULT_BOOK, secret],
+    notes: [
+      aNote({ id: "open", title: "Open note" }),
+      aNote({ id: "hush", title: "Hush note", notebookId: "secret" }),
+    ],
+  });
+
+  it("leaves a hidden notebook's cover and notes out of the overview, but not out of the sidebar", () => {
+    mount(seed());
+    expect(screen.queryByRole("button", { name: /^Secret, / })).toBeNull();
+    const recent = screen.getByRole("heading", { name: "Recently modified" }).parentElement as HTMLElement;
+    expect(within(recent).queryByText("Hush note")).toBeNull();
+    expect(within(recent).getByText("Open note")).not.toBeNull();
+    expect(side().getByRole("button", { name: /^Secret/ })).not.toBeNull();
+  });
+
+  it("still finds a hidden notebook's notes by search", () => {
+    mount(seed());
+    fireEvent.change(screen.getByLabelText("Search notes"), { target: { value: "hush" } });
+    expect(screen.getByText("Hush note")).not.toBeNull();
+  });
+
+  it("writes the flag from the notebook's menu", async () => {
+    mount(seed());
+    fireEvent.contextMenu(side().getByRole("button", { name: /^Secret/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Show in overview" }));
+    await waitFor(() => expect(notebookHideWrites).toEqual([false]));
   });
 });

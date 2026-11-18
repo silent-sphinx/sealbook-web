@@ -50,7 +50,7 @@ function data(overrides: Partial<SearchData>): SearchData {
 }
 
 describe("what the palette searches", () => {
-  it("leaves out finished tasks, archived calendars and hidden collections", () => {
+  it("leaves out finished tasks and archived calendars, but not a hidden collection's bookmarks", () => {
     const vault = data({
       tasks: [
         { id: "open", done: false, raw: raw({ title: "Lunch open" }) } as Task,
@@ -74,7 +74,7 @@ describe("what the palette searches", () => {
       ],
     });
     const hits = buildVaultIndex(vault).search("lunch", 10);
-    expect(hits.map((hit) => hit.id)).toEqual(["kept", "open"]);
+    expect(hits.map((hit) => hit.id)).toEqual(["kept", "nested", "open"]);
   });
 
   it("leaves out whatever sits in an archived notebook, list or collection", () => {

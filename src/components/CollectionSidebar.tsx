@@ -10,7 +10,7 @@ import {
   sidebarRowState,
   sidebarSubgroup,
 } from "../lib/styles";
-import { archivedIds } from "../lib/archive";
+import { archivedIds, hiddenIds } from "../lib/archive";
 import { ancestorsOf, buildTree, type TreeNode } from "../lib/tree";
 import { CollectionIcon, type CollectionKind } from "./AppIcons";
 import { ColourPalette, type PaletteState } from "./ColourPalette";
@@ -18,7 +18,13 @@ import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 import { Icon } from "./Icon";
 import { PencilMark, PlusMark, TrashMark } from "./SidebarTree";
 
-export type SidebarCollection = { id: string; name: string; parentId?: string; archived?: boolean };
+export type SidebarCollection = {
+  id: string;
+  name: string;
+  parentId?: string;
+  archived?: boolean;
+  hideFromAll?: boolean;
+};
 
 type Props<C extends SidebarCollection> = {
   collections: C[];
@@ -48,6 +54,11 @@ type Props<C extends SidebarCollection> = {
    */
   onArchive?: (collection: C) => void;
   onRestore?: (collection: C) => void;
+  /**
+   * Hides a collection from the overview, or shows it again. A hidden one, and
+   * any nested under it, stays listed and openable, drawn dimmer.
+   */
+  onToggleHidden?: (collection: C) => void;
   onRecolor?: (collection: C, color: string) => Promise<unknown> | void;
   /** Both are needed for nesting; without them collections stay flat. */
   canMove?: (id: string, parentId: string | null) => boolean;
@@ -85,6 +96,7 @@ export function CollectionSidebar<C extends SidebarCollection>({
   onDelete,
   onArchive,
   onRestore,
+  onToggleHidden,
   onRecolor,
   canMove,
   onMove,
@@ -98,6 +110,7 @@ export function CollectionSidebar<C extends SidebarCollection>({
   const archiving = Boolean(onArchive && onRestore);
   const { live, archivedRoots } = useMemo(() => splitArchive(collections), [collections]);
   const tree = useMemo(() => buildTree(live, sort), [live, sort]);
+  const hidden = useMemo(() => hiddenIds(collections), [collections]);
   const archivedSorted = useMemo(() => sort(archivedRoots), [archivedRoots, sort]);
   const selectedArchived = archivedRoots.some(
     (root) => root.id === selectedId || ancestorsOf(collections, selectedId).includes(root.id),
@@ -197,6 +210,12 @@ export function CollectionSidebar<C extends SidebarCollection>({
       items.push({ label: "Change colour", onSelect: () => pickColour(collection) });
     }
     items.push(...(extraMenuItems?.(collection) ?? []));
+    if (onToggleHidden) {
+      items.push({
+        label: collection.hideFromAll ? "Show in overview" : "Hide from overview",
+        onSelect: () => onToggleHidden(collection),
+      });
+    }
     if (archiving && collection.id !== protectedId) {
       items.push({ label: `Archive ${kindLabel}`, onSelect: () => onArchive?.(collection) });
     }
@@ -243,6 +262,7 @@ export function CollectionSidebar<C extends SidebarCollection>({
   function row(collection: C) {
     const selected = selectedId === collection.id;
     const isArchived = collection.archived === true;
+    const isHidden = !isArchived && hidden.has(collection.id);
     const internalDroppable =
       !isArchived && nesting && dragging !== null && dragging !== collection.id && canMove!(dragging, collection.id);
     const externalDroppable =
@@ -300,12 +320,17 @@ export function CollectionSidebar<C extends SidebarCollection>({
           aria-current={selected ? "true" : undefined}
           className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${
             selected ? "text-text" : "text-mute"
-          }`}
+          } ${isHidden ? "opacity-60" : ""}`}
         >
           <span className={sidebarMark} style={{ color: tone(collection) }}>
             <CollectionIcon kind={icon} />
           </span>
           <span className="min-w-0 flex-1 truncate font-medium">{collection.name}</span>
+          {isHidden && collection.hideFromAll ? (
+            <span title="Hidden from the overview" aria-hidden="true" className="shrink-0">
+              <Icon name="eyeOff" className="h-3.5 w-3.5" />
+            </span>
+          ) : null}
         </button>
 
         <span className={`relative flex h-7 shrink-0 items-center justify-end ${readOnly ? "w-4" : "list-row-slot"}`}>

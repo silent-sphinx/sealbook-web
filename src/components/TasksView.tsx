@@ -17,7 +17,7 @@ import {
   putTaskList,
   type Session,
 } from "../lib/client";
-import { archivedIds } from "../lib/archive";
+import { archivedIds, hiddenIds } from "../lib/archive";
 import { friendlyError } from "../lib/errors";
 import {
   btnHeader,
@@ -220,9 +220,16 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
   // The smart views leave out an archived list's tasks; the list itself, opened
   // from the archive, still shows them.
   const awayLists = useMemo(() => archivedIds(taskLists), [taskLists]);
-  const liveTasks = useMemo(
+  // A hidden list is left out of the smart views too, but a search still
+  // reaches it.
+  const hiddenLists = useMemo(() => hiddenIds(taskLists), [taskLists]);
+  const searchableTasks = useMemo(
     () => tasks.filter((task) => !awayLists.has(resolveTaskListId(task.taskListId))),
     [tasks, awayLists],
+  );
+  const liveTasks = useMemo(
+    () => searchableTasks.filter((task) => !hiddenLists.has(resolveTaskListId(task.taskListId))),
+    [searchableTasks, hiddenLists],
   );
 
   const agenda = useMemo(() => taskAgenda(liveTasks, now, timezone), [liveTasks, now, timezone]);
@@ -249,12 +256,12 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
   const scopeTree = useMemo(() => {
     if ((!isSmart && !searching) || showAgenda) return null;
     const scoped = isSmart
-      ? liveTasks.filter((task) => inScope(task, scope as TaskScope))
+      ? (searching ? searchableTasks : liveTasks).filter((task) => inScope(task, scope as TaskScope))
       : tasks.filter((task) => resolveTaskListId(task.taskListId) === scope);
     // A search never reaches an archived list, even one opened from the archive.
     const searchable = searching ? scoped.filter((task) => !awayLists.has(resolveTaskListId(task.taskListId))) : scoped;
     return buildTaskTreeOf(searchable.filter((task) => taskMatches(task, deferredSearch)));
-  }, [tasks, liveTasks, awayLists, scope, isSmart, searching, showAgenda, deferredSearch]);
+  }, [tasks, liveTasks, searchableTasks, awayLists, scope, isSmart, searching, showAgenda, deferredSearch]);
 
   const tree = useMemo(
     () => (isSmart ? [] : buildTaskTree(tasks, scope)),
@@ -538,6 +545,23 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     if (archived && (list.id === scope || awayLists.has(scope))) changeScope("all");
   }
 
+  async function toggleListHidden(list: TaskList) {
+    await run(async () => ({
+      taskLists: [
+        await putTaskList(
+          session,
+          list.name,
+          list.parentId,
+          list.id,
+          list.raw,
+          list.color,
+          undefined,
+          list.hideFromAll !== true,
+        ),
+      ],
+    }));
+  }
+
   async function recolorList(list: TaskList, color: string) {
     await run(async () => ({
       taskLists: [await putTaskList(session, list.name, list.parentId, list.id, list.raw, color)],
@@ -675,6 +699,7 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
             onDelete={setDeletingList}
             onArchive={(list) => void setListArchived(list, true)}
             onRestore={(list) => void setListArchived(list, false)}
+            onToggleHidden={(list) => void toggleListHidden(list)}
           />
         </SidebarDrawer>
 

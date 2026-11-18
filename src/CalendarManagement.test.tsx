@@ -328,16 +328,17 @@ describe("switching a calendar off", () => {
     events = [anEvent("event-1", "Standup", WORK_ID), anEvent("event-3", "Dentist", DEFAULT_CALENDAR_ID)];
   });
 
-  it("hides its events without writing to the vault, and remembers it", async () => {
+  it("hides its events and stores the choice on the calendar, so every device has it", async () => {
     mount();
 
     fireEvent.click(screen.getByTitle("Hide Work"));
 
     await waitFor(() => expect(screen.queryByText("Standup")).toBeNull());
     expect(screen.getByText("Dentist")).toBeDefined();
-    // Visibility is this device's own, so nothing is sealed for it.
-    expect(writes).toEqual([]);
-    expect(localStorage.getItem(`sealbook.${HIDDEN_CALENDARS}.${COLLECTION}`)).toContain(WORK_ID);
+    expect(writes.map(({ kind, id, draft }) => ({ kind, id, hideFromAll: draft?.hideFromAll }))).toEqual([
+      { kind: "putCalendar", id: WORK_ID, hideFromAll: true },
+    ]);
+    expect(localStorage.getItem(`sealbook.${HIDDEN_CALENDARS}.${COLLECTION}`)).toBeNull();
   });
 
   it("keeps it switched off across a fresh page load", async () => {
@@ -363,7 +364,7 @@ describe("switching a calendar off", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show all calendars" }));
 
     expect(await screen.findByText("Standup")).toBeDefined();
-    expect(localStorage.getItem(`sealbook.${HIDDEN_CALENDARS}.${COLLECTION}`)).not.toContain(WORK_ID);
+    expect(writes.at(-1)).toMatchObject({ kind: "putCalendar", id: WORK_ID, draft: { hideFromAll: false } });
   });
 });
 

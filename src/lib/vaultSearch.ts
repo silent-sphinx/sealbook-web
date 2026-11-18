@@ -1,6 +1,6 @@
 import { resolveAddressBookId } from "./addressBook";
 import { archivedIds } from "./archive";
-import { buildCollectionTree, hiddenFromAllIds, resolveCollectionId } from "./bookmark";
+import { resolveCollectionId } from "./bookmark";
 import { resolveNotebookId } from "./note";
 import { resolveTaskListId } from "./task";
 import type {
@@ -54,8 +54,9 @@ export const KIND_FEATURE: Record<SearchKind, FeatureKey> = {
 /**
  * What the palette searches: what each tab lists by default. Archived
  * contacts and books, anything in an archived notebook, list or collection,
- * finished tasks, bookmarks kept out of "All Bookmarks"
- * and events in archived calendars are left out, as is any disabled feature.
+ * finished tasks and events in archived calendars are left out, as is any
+ * disabled feature. Hiding a container from the overviews does not leave its
+ * contents out.
  */
 export function searchInputs(data: SearchData) {
   const containers: CoreSearchContainer[] = [];
@@ -93,15 +94,12 @@ export function searchInputs(data: SearchData) {
     name("note", data.notebooks.filter((notebook) => !archived.has(notebook.id)));
   }
   if (data.enabled("bookmarks")) {
-    const hidden = new Set([
-      ...hiddenFromAllIds(buildCollectionTree(data.collections)),
-      ...archivedIds(data.collections),
-    ]);
+    const archived = archivedIds(data.collections);
     add(
       "bookmark",
-      data.bookmarks.filter((bookmark) => !hidden.has(resolveCollectionId(bookmark.collectionId))),
+      data.bookmarks.filter((bookmark) => !archived.has(resolveCollectionId(bookmark.collectionId))),
     );
-    name("bookmark", data.collections);
+    name("bookmark", data.collections.filter((collection) => !archived.has(collection.id)));
   }
   if (data.enabled("tasks")) {
     const archived = archivedIds(data.taskLists);
