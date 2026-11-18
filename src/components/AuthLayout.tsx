@@ -228,7 +228,7 @@ export function DomainSettings({
 
   return (
     <>
-      <div className="mt-4 flex justify-center">
+      <div className="mt-10 flex justify-center">
         <div className="flex max-w-full items-center gap-2 rounded-full border border-line bg-surface/40 py-1 pr-1 pl-3 text-xs text-mute backdrop-blur-sm">
           <span className="min-w-0 truncate">
             <span className="sr-only">Server </span>
@@ -323,11 +323,6 @@ export function AuthCard({
             error={domainError ?? null}
           />
         ) : null}
-
-        <p className="mt-10 flex items-center justify-center gap-1.5 text-center text-[11px] text-mute/80">
-          <Icon name="lock" className="h-3 w-3 shrink-0" />
-          End-to-end encrypted. Your password never leaves this device.
-        </p>
 
         {managesDomain && domainConfigured ? (
           <DomainSettings value={connectionDomain!} onSave={onConnectionDomainSave!} />
