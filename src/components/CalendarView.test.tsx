@@ -90,3 +90,26 @@ describe("editing an event", () => {
     expect(writes[0]!.recurrence).toEqual({ frequency: "daily", count: 5 });
   });
 });
+
+describe("the sidebar title", () => {
+  it("goes back to this month, with nothing filtered and out of the trash", () => {
+    render(<Harness />);
+    const heading = () => screen.getByRole("heading", { level: 1 }).textContent;
+    const search = () => screen.getByPlaceholderText("Search events") as HTMLInputElement;
+    const thisMonth = heading();
+
+    fireEvent.click(screen.getByRole("button", { name: "year" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next year" }));
+    expect(heading()).not.toBe(thisMonth);
+    fireEvent.change(search(), { target: { value: "zebra" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Trash/ }));
+    expect(screen.getByRole("region", { name: "Trash" })).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Calendar" }));
+
+    expect(screen.queryByRole("region", { name: "Trash" })).toBeNull();
+    expect(screen.getByRole("button", { name: "month" }).getAttribute("aria-pressed")).toBe("true");
+    expect(heading()).toBe(thisMonth);
+    expect(search().value).toBe("");
+  });
+});

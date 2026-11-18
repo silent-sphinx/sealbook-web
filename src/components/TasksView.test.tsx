@@ -991,6 +991,30 @@ describe("TasksView, the sidebar", () => {
     expect(side.queryByRole("button", { name: "Expand parent" })).toBeNull();
     expect(side.queryByRole("button", { name: "New task" })).toBeNull();
   });
+
+  it("goes back to Up next, with nothing filtered and out of the trash, from its title", () => {
+    mount({
+      tasks: [
+        aTask("water", { tags: ["home"], dueDate: day(0) }),
+        aTask("rent", { tags: ["money"], dueDate: day(0) }),
+      ],
+    });
+    const rows = () => within(board()).queryAllByRole("checkbox").map((box) => box.getAttribute("aria-label"));
+
+    pick("All tasks");
+    fireEvent.click(screen.getByRole("button", { name: /^money/ }));
+    expect(rows()).toEqual(["Complete rent"]);
+    fireEvent.change(screen.getByLabelText("Search tasks"), { target: { value: "zebra" } });
+    fireEvent.click(within(sidebar()).getByRole("button", { name: /^Trash/ }));
+    expect(screen.getByRole("region", { name: "Trash" })).not.toBeNull();
+
+    fireEvent.click(within(sidebar()).getByRole("button", { name: "Tasks" }));
+
+    expect(screen.queryByRole("region", { name: "Trash" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Up next", level: 1 })).not.toBeNull();
+    expect((screen.getByLabelText("Search tasks") as HTMLInputElement).value).toBe("");
+    expect(rows().sort()).toEqual(["Complete rent", "Complete water"]);
+  });
 });
 
 describe("TasksView, bulk editing", () => {

@@ -432,6 +432,15 @@ export function BookmarksView({
     return bookmarkItemsFor(bookmark);
   }
 
+  /** Where the sidebar title leads: every bookmark, with nothing filtered. */
+  function goHome() {
+    setScope(ALL);
+    setSearch("");
+    setTagFilter(null);
+    setViewingTrash(false);
+    sidebar.close();
+  }
+
   function closeForm() {
     setDraft(null);
     setEditingId(null);
@@ -775,6 +784,7 @@ export function BookmarksView({
         <SidebarDrawer title="Bookmarks" sidebar={sidebar}>
           <SidebarHeader
             title="Bookmarks"
+            onTitleClick={goHome}
             action={
               !readOnlyMode ? (
                 <button

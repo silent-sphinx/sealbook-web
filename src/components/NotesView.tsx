@@ -415,6 +415,8 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
   async function goHome() {
     setBrowsing(null);
     setSearch("");
+    setViewingTrash(false);
+    sidebar.close();
     await closeEditor();
   }
 

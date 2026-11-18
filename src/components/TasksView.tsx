@@ -388,6 +388,15 @@ export function TasksView({ session, trash = NO_TRASH, tasks, taskLists, busy, t
     setForm(null);
   }
 
+  /** Where the sidebar title leads: Up next, with nothing filtered. */
+  function goHome() {
+    changeScope("upnext");
+    setSearch("");
+    setTagFilter(null);
+    setViewingTrash(false);
+    sidebar.close();
+  }
+
   function openForm(initial: TaskDraft, editingId: string | null) {
     formCount.current += 1;
     setForm({ initial, editingId, key: formCount.current });
@@ -709,6 +718,7 @@ export function TasksView({ session, trash = NO_TRASH, tasks, taskLists, busy, t
         <SidebarDrawer title="Tasks" sidebar={sidebar}>
           <SidebarHeader
             title="Tasks"
+            onTitleClick={goHome}
             action={
               !readOnlyMode ? (
                 <button

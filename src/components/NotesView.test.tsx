@@ -451,6 +451,17 @@ describe("NotesView, finding a note", () => {
     expect(screen.getByRole("heading", { name: "Recently modified" })).not.toBeNull();
   });
 
+  it("leaves the trash for the notes home when the sidebar title is clicked", async () => {
+    mount({ notes: [aNote({ id: "a", title: "Standup" })] });
+
+    fireEvent.click(screen.getByRole("button", { name: /^Trash/ }));
+    expect(await screen.findByRole("region", { name: "Trash" })).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Notes" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Trash" })).toBeNull());
+    expect(screen.getByRole("heading", { name: "Recently modified" })).not.toBeNull();
+  });
+
   it("lists the selected notebook's notes as a tree", () => {
     mount({
       notes: [aNote({ id: "parent", title: "Parent" }), aNote({ id: "child", title: "Child", parentId: "parent" })],

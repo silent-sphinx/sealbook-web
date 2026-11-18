@@ -725,6 +725,28 @@ describe("BookmarksView, the sidebar", () => {
       ]),
     );
   });
+
+  it("goes back to All bookmarks, with nothing filtered and out of the trash, from its title", async () => {
+    mount({
+      collections: [DEFAULT_COLLECTION, parent],
+      bookmarks: [
+        aBookmark({ id: "b1", title: "Rust book" }),
+        aBookmark({ id: "b2", title: "Go blog", collectionId: parent.id }),
+      ],
+    });
+
+    selectCollection("Reading");
+    fireEvent.change(screen.getByLabelText("Search bookmarks"), { target: { value: "zig" } });
+    fireEvent.click(within(sidebar()).getByRole("button", { name: /^Trash/ }));
+    expect(screen.getByRole("region", { name: "Trash" })).not.toBeNull();
+
+    fireEvent.click(within(sidebar()).getByRole("button", { name: "Bookmarks" }));
+
+    expect(screen.queryByRole("region", { name: "Trash" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "All bookmarks", level: 1 })).not.toBeNull();
+    expect((screen.getByLabelText("Search bookmarks") as HTMLInputElement).value).toBe("");
+    await waitFor(() => expect(within(board()).getByText("Rust book")).not.toBeNull());
+  });
 });
 
 describe("BookmarksView, offline", () => {

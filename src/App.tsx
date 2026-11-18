@@ -1929,6 +1929,17 @@ export default function App() {
     void setBooksHidden([book], book.hideFromAll !== true);
   }
 
+  /** Where the sidebar title leads: the contact list, with nothing open or filtered. */
+  function goContactsHome() {
+    guardEditing(() => {
+      setViewingArchive(false);
+      setViewingTrash(false);
+      setViewingContact(null);
+      setSearch("");
+      setError(null);
+    });
+  }
+
   function showAllBooks() {
     setViewingArchive(false);
     setViewingTrash(false);
@@ -2626,6 +2637,7 @@ export default function App() {
           deletingContact={deletingContact}
           deletingAddressBook={deletingAddressBook}
           onSetCreatingBook={setCreatingBook}
+          onGoHome={goContactsHome}
           onOpenComposer={openComposer}
           onGuardEditing={guardEditing}
           onToggleBookVisibility={toggleBookVisibility}

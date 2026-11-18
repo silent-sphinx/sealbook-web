@@ -12,7 +12,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "./test/dom";
 import { aContact, enrolDevice, setConnectionDomain } from "./test/vault";
 import { DEFAULT_ACCOUNT_SETTINGS } from "./lib/accountSettings";
@@ -137,6 +137,23 @@ describe("archiving a contact", () => {
 
     expect(await screen.findByText("Grace Hopper")).toBeDefined();
     expect(screen.getByRole("heading", { name: "All contacts", level: 1 })).toBeDefined();
+  });
+
+  it("is left by clicking the sidebar title, which also clears the search and closes the contact", async () => {
+    store[0] = { ...store[0]!, archived: true };
+    await unlock();
+
+    openArchive();
+    await openContact("Ada Lovelace");
+    fireEvent.change(screen.getByLabelText("Search contacts"), { target: { value: "Ada" } });
+
+    const title = screen.getByRole("heading", { name: "Contacts", level: 2 });
+    fireEvent.click(within(title).getByRole("button"));
+
+    expect(await screen.findByRole("heading", { name: "All contacts", level: 1 })).toBeDefined();
+    expect((screen.getByLabelText("Search contacts") as HTMLInputElement).value).toBe("");
+    expect(screen.queryByRole("button", { name: "Close contact details" })).toBeNull();
+    expect(await screen.findByText("Grace Hopper")).toBeDefined();
   });
 
   it("restores it to the book it came from, clearing the flag", async () => {

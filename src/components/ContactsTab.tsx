@@ -75,6 +75,7 @@ interface ContactsTabProps {
   deletingContact: Contact | null;
   deletingAddressBook: AddressBook | null;
   onSetCreatingBook: (value: boolean) => void;
+  onGoHome: () => void;
   onOpenComposer: () => void;
   onGuardEditing: (action: () => void) => void;
   onToggleBookVisibility: (id: string) => void;
@@ -130,6 +131,7 @@ export function ContactsTab({
   deletingContact,
   deletingAddressBook,
   onSetCreatingBook,
+  onGoHome,
   onOpenComposer,
   onGuardEditing,
   onToggleBookVisibility,
@@ -236,6 +238,10 @@ export function ContactsTab({
         <SidebarDrawer title="Contacts and address books" sidebar={sidebar}>
           <SidebarHeader
             title="Contacts"
+            onTitleClick={() => {
+              sidebar.close();
+              onGoHome();
+            }}
             action={
               <button
                 type="button"

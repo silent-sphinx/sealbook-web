@@ -392,6 +392,16 @@ export function CalendarView({
     selectDay(shiftDays(selectedDate, direction * (mode === "week" ? 7 : 1)));
   }
 
+  /** Where the sidebar title leads: this month, from today, with nothing filtered. */
+  function goHome() {
+    setViewingTrash(false);
+    setSearch("");
+    setMode("month");
+    setMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+    selectDay(today);
+    sidebar.close();
+  }
+
   const searchResults = useMemo(
     () => searchEvents(searchable, calendars, search, today, timezone),
     // `today` is recreated each render but only its date matters, so the key
@@ -774,6 +784,7 @@ export function CalendarView({
         <SidebarDrawer title="Calendars" sidebar={sidebar}>
           <SidebarHeader
             title="Calendar"
+            onTitleClick={goHome}
             action={!readOnlyMode ? <button type="button" onClick={() => openNewTask()} className={sidebarHeaderAction} aria-label="Create event"><Icon name="plus" className="h-4 w-4" /></button> : null}
           />
           <CalendarSections
