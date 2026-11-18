@@ -26,14 +26,14 @@ import type { Bookmark, BookmarkCollection, BookmarkDraft } from "../lib/types";
 let bookmarks: Bookmark[] = [];
 let collections: BookmarkCollection[] = [];
 let writes: { id: string | undefined; draft: BookmarkDraft }[] = [];
-let deletes: string[] = [];
+/** Each id `trashItems` moved to the trash, in order. */
+let trashed: string[] = [];
 let collectionWrites: {
   name: string;
   parentId?: string;
   id?: string;
   color?: string;
 }[] = [];
-let collectionDeletes: string[] = [];
 let ensured = 0;
 let refreshes = 0;
 
@@ -65,14 +65,6 @@ vi.mock("../lib/client", async () => {
         );
       }
     },
-    deleteBookmarks: async (_session: unknown, ids: string[]) => {
-      deletes.push(...ids);
-      bookmarks = bookmarks.filter((item) => !ids.includes(item.id));
-    },
-    deleteBookmark: async (_session: unknown, id: string) => {
-      deletes.push(id);
-      bookmarks = bookmarks.filter((item) => item.id !== id);
-    },
     putBookmarkCollection: async (
       _session: unknown,
       name: string,
@@ -92,12 +84,39 @@ vi.mock("../lib/client", async () => {
       collections = [...collections, { id: made, name, parentId, raw: "{}" }];
       return made;
     },
-    deleteBookmarkCollection: async (_session: unknown, id: string) => {
-      collectionDeletes.push(id);
-      collections = collections.filter((item) => item.id !== id);
-    },
   };
 });
+
+/** A collection and every one nested under it, as the trash hides them. */
+function nestedUnder(id: string): Set<string> {
+  const ids = new Set([id]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const item of collections) {
+      if (item.parentId && ids.has(item.parentId) && !ids.has(item.id)) {
+        ids.add(item.id);
+        grew = true;
+      }
+    }
+  }
+  return ids;
+}
+
+vi.mock("../lib/trashApi", () => ({
+  trashItems: async (_session: unknown, entries: { kind: string; item: { id: string } }[]) => {
+    for (const { kind, item } of entries) {
+      trashed.push(item.id);
+      if (kind === "bookmark_collection") {
+        const gone = nestedUnder(item.id);
+        collections = collections.filter((each) => !gone.has(each.id));
+        bookmarks = bookmarks.filter((each) => !gone.has(each.collectionId ?? ""));
+      } else {
+        bookmarks = bookmarks.filter((each) => each.id !== item.id);
+      }
+    }
+  },
+}));
 
 const { BookmarksView } = await import("./BookmarksView");
 
@@ -210,9 +229,8 @@ beforeEach(() => {
   bookmarks = [];
   collections = [];
   writes = [];
-  deletes = [];
+  trashed = [];
   collectionWrites = [];
-  collectionDeletes = [];
   ensured = 0;
   refreshes = 0;
 });
@@ -490,18 +508,18 @@ describe("BookmarksView, the list", () => {
     expect(writes[0]!.draft.collectionId).toBe(work.id);
   });
 
-  it("deletes a bookmark behind a confirm", async () => {
+  it("moves a bookmark to the trash behind a confirm", async () => {
     mount({
       collections: [DEFAULT_COLLECTION],
       bookmarks: [aBookmark({ id: "b1", title: "Rust book" })],
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Rust book" }));
-    const dialog = screen.getByRole("dialog", { name: "Delete bookmark" });
-    expect(dialog.textContent).toContain("Delete “Rust book”?");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    const dialog = screen.getByRole("dialog", { name: "Move to trash" });
+    expect(dialog.textContent).toContain("Move “Rust book” to the trash?");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move to trash" }));
 
-    await waitFor(() => expect(deletes).toEqual(["b1"]));
+    await waitFor(() => expect(trashed).toEqual(["b1"]));
     await waitFor(() => expect(screen.queryByText("Rust book")).toBeNull());
   });
 
@@ -513,12 +531,12 @@ describe("BookmarksView, the list", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Rust book" }));
     fireEvent.click(
-      within(screen.getByRole("dialog", { name: "Delete bookmark" })).getByRole("button", {
+      within(screen.getByRole("dialog", { name: "Move to trash" })).getByRole("button", {
         name: "Cancel",
       }),
     );
 
-    expect(deletes).toEqual([]);
+    expect(trashed).toEqual([]);
     expect(screen.getByText("Rust book")).not.toBeNull();
   });
 });
@@ -611,7 +629,7 @@ describe("BookmarksView, nested collections", () => {
     expect(options).toEqual(["Default Collection", "Reading", "— Papers"]);
   });
 
-  it("moves a deleted collection's contents up a level instead of cascading", async () => {
+  it("moves a collection to the trash with its bookmarks, in one write", async () => {
     mount({
       collections: [DEFAULT_COLLECTION, parent, child],
       bookmarks: [aBookmark({ id: "b1", title: "A paper", collectionId: child.id })],
@@ -619,18 +637,16 @@ describe("BookmarksView, nested collections", () => {
 
     selectCollection("Reading");
     fireEvent.click(within(sidebar()).getByRole("button", { name: "Delete Papers" }));
-    const dialog = screen.getByRole("dialog", { name: "Delete collection" });
-    expect(dialog.textContent).toContain("are kept and move up one level");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    const dialog = screen.getByRole("dialog", { name: "Move to trash" });
+    expect(dialog.textContent).toContain("everything inside it can be restored");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move to trash" }));
 
-    await waitFor(() => expect(collectionDeletes).toEqual([child.id]));
-    expect(deletes).toEqual([]);
-    expect(writes).toHaveLength(1);
-    expect(writes[0]!.id).toBe("b1");
-    expect(writes[0]!.draft.collectionId).toBe(parent.id);
+    await waitFor(() => expect(trashed).toEqual([child.id]));
+    expect(writes).toEqual([]);
+    expect(bookmarks).toEqual([]);
   });
 
-  it("re-parents a deleted collection's own children", async () => {
+  it("takes a collection's nested collections into the trash rather than re-parenting them", async () => {
     const grandchild: BookmarkCollection = {
       id: "collection-grandchild",
       name: "Drafts",
@@ -642,32 +658,14 @@ describe("BookmarksView, nested collections", () => {
     selectCollection("Reading");
     fireEvent.click(within(sidebar()).getByRole("button", { name: "Delete Papers" }));
     fireEvent.click(
-      within(screen.getByRole("dialog", { name: "Delete collection" })).getByRole("button", {
-        name: "Delete",
+      within(screen.getByRole("dialog", { name: "Move to trash" })).getByRole("button", {
+        name: "Move to trash",
       }),
     );
 
-    await waitFor(() => expect(collectionDeletes).toEqual([child.id]));
-    expect(collectionWrites).toEqual([
-      { name: "Drafts", parentId: parent.id, id: grandchild.id, color: undefined },
-    ]);
-  });
-
-  it("sends a top-level collection's contents to the default one", async () => {
-    mount({
-      collections: [DEFAULT_COLLECTION, parent],
-      bookmarks: [aBookmark({ id: "b1", title: "Rust book", collectionId: parent.id })],
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Delete Reading" }));
-    fireEvent.click(
-      within(screen.getByRole("dialog", { name: "Delete collection" })).getByRole("button", {
-        name: "Delete",
-      }),
-    );
-
-    await waitFor(() => expect(collectionDeletes).toEqual([parent.id]));
-    expect(writes[0]!.draft.collectionId).toBe(DEFAULT_BOOKMARK_COLLECTION_ID);
+    await waitFor(() => expect(trashed).toEqual([child.id]));
+    expect(collectionWrites).toEqual([]);
+    expect(collections.map((item) => item.id)).toEqual([DEFAULT_COLLECTION.id, parent.id]);
   });
 
   it("falls back to showing everything once the selected collection is gone", async () => {
@@ -678,8 +676,8 @@ describe("BookmarksView, nested collections", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Reading" }));
     fireEvent.click(
-      within(screen.getByRole("dialog", { name: "Delete collection" })).getByRole("button", {
-        name: "Delete",
+      within(screen.getByRole("dialog", { name: "Move to trash" })).getByRole("button", {
+        name: "Move to trash",
       }),
     );
 
@@ -921,14 +919,14 @@ describe("bulk editing", () => {
     expect(writes.every((write) => write.draft.collectionId === "work")).toBe(true);
   });
 
-  it("deletes the selection after confirming", async () => {
+  it("moves the selection to the trash after confirming", async () => {
     mount({ bookmarks: three() });
     startSelecting();
     fireEvent.click(screen.getByLabelText("Select c"));
     runAction(/Delete 2 bookmarks/);
-    expect(deletes).toEqual([]);
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    await waitFor(() => expect(deletes.sort()).toEqual(["a", "c"]));
+    expect(trashed).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Move to trash" }));
+    await waitFor(() => expect([...trashed].sort()).toEqual(["a", "c"]));
   });
 
   it("extends a selection with shift-click", () => {
@@ -1032,7 +1030,7 @@ describe("collection cards on All bookmarks", () => {
     expect(within(board()).getByRole("button", { name: "Open Reading" })).toBeTruthy();
   });
 
-  it("deletes a collection from its right-click menu, but not the default", async () => {
+  it("moves a collection to the trash from its right-click menu, but not the default", async () => {
     mount({ collections: [DEFAULT_COLLECTION, reading] });
     fireEvent.contextMenu(card("Default Collection"), { clientX: 10, clientY: 10 });
     expect(screen.queryByRole("menuitem", { name: "Delete collection" })).toBeNull();
@@ -1041,11 +1039,11 @@ describe("collection cards on All bookmarks", () => {
     fireEvent.contextMenu(card("Reading"), { clientX: 10, clientY: 10 });
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete collection" }));
     fireEvent.click(
-      within(screen.getByRole("dialog", { name: "Delete collection" })).getByRole("button", {
-        name: "Delete",
+      within(screen.getByRole("dialog", { name: "Move to trash" })).getByRole("button", {
+        name: "Move to trash",
       }),
     );
-    await waitFor(() => expect(collectionDeletes).toEqual([reading.id]));
+    await waitFor(() => expect(trashed).toEqual([reading.id]));
   });
 
   it("moves a bookmark into a collection dropped on its card", async () => {

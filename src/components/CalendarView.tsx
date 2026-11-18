@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type SelectHTMLAttributes } from "react";
 import {
-  deleteCalendarEvent,
-  deleteCalendar,
   ensureDefaultCalendar,
   putCalendar,
   putCalendarEvent,
@@ -13,6 +11,9 @@ import { dueTaskMarks } from "../lib/taskCalendar";
 import { DEFAULT_CALENDAR_ID, UNTITLED_EVENT_TITLE, activeCalendars, archivedCalendars, isCalendarVisible, nextCalendarColor, retimeAlerts, visibleCalendarIds } from "../lib/calendar";
 import { friendlyError } from "../lib/errors";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { TrashPanel, TrashRow, trashRootsFor } from "./Trash";
+import { NO_TRASH, type TrashListing } from "../lib/trash";
+import { trashItems } from "../lib/trashApi";
 import { SidebarDrawer, SidebarHeader, SidebarSection, type Sidebar } from "./SidebarDrawer";
 import { Modal } from "./Modal";
 import { localInputToUtc, utcToLocalInput } from "../lib/timezone";
@@ -175,6 +176,7 @@ function EventSearch({
 
 export function CalendarView({
   session,
+  trash = NO_TRASH,
   calendars,
   events,
   contacts,
@@ -190,6 +192,8 @@ export function CalendarView({
   onFocusHandled,
 }: {
   session: Session;
+  /** What is in the trash; the Calendar tab lists its calendars and events. */
+  trash?: TrashListing;
   calendars: Calendar[];
   events: CalendarEvent[];
   contacts: Contact[];
@@ -245,7 +249,6 @@ export function CalendarView({
   // start day change, since the controls cannot show every rule.
   const [repeatTouched, setRepeatTouched] = useState(false);
   const [openedDay, setOpenedDay] = useState("");
-  const [deletingCalendar, setDeletingCalendar] = useState(false);
   const [confirmDeleteCalendar, setConfirmDeleteCalendar] = useState(false);
   const [confirmPurgeEvents, setConfirmPurgeEvents] = useState(false);
   const [purgingEvents, setPurgingEvents] = useState(false);
@@ -253,6 +256,8 @@ export function CalendarView({
   const [removingEvent, setRemovingEvent] = useState(false);
   const [deleteProgress, setDeleteProgress] = useState({ current: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
+  const [viewingTrash, setViewingTrash] = useState(false);
+  const trashCount = useMemo(() => trashRootsFor(trash, "calendar").length, [trash]);
   const [nowMinutes, setNowMinutes] = useState(() => today.getHours() * 60 + today.getMinutes());
   const readOnlyMode = readOnly === true;
 
@@ -658,7 +663,7 @@ export function CalendarView({
     setError(null);
     setRemovingEvent(true);
     try {
-      await deleteCalendarEvent(session, editingEvent.id);
+      await trashItems(session, [{ kind: "calendar_event", item: editingEvent }]);
       await onRefresh();
       closeTaskDialog();
     } catch (err) {
@@ -717,32 +722,21 @@ export function CalendarView({
     }
   }
 
+  /** Moves a calendar to the trash; its events go with it. */
   async function removeCalendar() {
     if (!editingCalendar) return;
     setConfirmDeleteCalendar(false);
     setError(null);
-    setDeletingCalendar(true);
-    const calendarEvents = events.filter((item) => item.calendarId === editingCalendar.id);
-    setDeleteProgress({ current: 0, total: calendarEvents.length + 1 });
     try {
-      const calendarId = editingCalendar.id;
-      for (let index = 0; index < calendarEvents.length; index += 1) {
-        const event = calendarEvents[index];
-        await deleteCalendarEvent(session, event.id);
-        setDeleteProgress({ current: index + 1, total: calendarEvents.length + 1 });
-      }
-      await deleteCalendar(session, calendarId);
-      setDeleteProgress({ current: calendarEvents.length + 1, total: calendarEvents.length + 1 });
+      await trashItems(session, [{ kind: "calendar", item: editingCalendar }]);
       setEditingCalendar(null);
       await onRefresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setDeletingCalendar(false);
-      setDeleteProgress({ current: 0, total: 0 });
     }
   }
 
+  /** Moves every event in a calendar to the trash, leaving the calendar. */
   async function purgeEvents() {
     if (!editingCalendar) return;
     setConfirmPurgeEvents(false);
@@ -751,10 +745,11 @@ export function CalendarView({
     const calendarEvents = events.filter((item) => item.calendarId === editingCalendar.id);
     setDeleteProgress({ current: 0, total: calendarEvents.length });
     try {
-      for (let index = 0; index < calendarEvents.length; index += 1) {
-        await deleteCalendarEvent(session, calendarEvents[index].id);
-        setDeleteProgress({ current: index + 1, total: calendarEvents.length });
-      }
+      await trashItems(
+        session,
+        calendarEvents.map((item) => ({ kind: "calendar_event" as const, item })),
+      );
+      setDeleteProgress({ current: calendarEvents.length, total: calendarEvents.length });
       setEditingCalendar(null);
       await onRefresh();
     } catch (err) {
@@ -808,8 +803,18 @@ export function CalendarView({
               </label>
             </SidebarSection>
           ) : null}
+          {readOnlyMode ? null : (
+            <TrashRow
+              count={trashCount}
+              active={viewingTrash}
+              onToggle={() => setViewingTrash(!viewingTrash)}
+            />
+          )}
         </SidebarDrawer>
 
+        {viewingTrash ? (
+          <TrashPanel session={session} trash={trash} tab="calendar" onChanged={onRefresh} />
+        ) : (
         <section className="@container order-1 flex min-w-0 flex-col overflow-hidden lg:order-none lg:min-h-0">
           <header className="flex flex-col gap-3 border-b border-line px-4 py-3 sm:px-5 lg:px-6 lg:py-3.5 @min-[60rem]:flex-row @min-[60rem]:items-center @min-[60rem]:justify-between @min-[60rem]:gap-4">
             <div className="flex min-w-0 items-center justify-between gap-3 @min-[60rem]:justify-start">
@@ -838,20 +843,21 @@ export function CalendarView({
           )}
           </div>
         </section>
+        )}
       </div>
 
       {composer ? <TaskDialog editing={editingEvent !== null} title={title} start={start} end={end} notes={notes} location={location} alerts={alerts} participants={participants} contacts={contacts} allDay={allDay} calendarId={eventCalendarId} calendars={composerCalendars} repeatChoice={repeatChoice} customFrequency={customFrequency} customInterval={customInterval} repeatEnd={repeatEnd} repeatCount={repeatCount} repeatUntil={repeatUntil} minRepeatUntil={start.slice(0, 10)} busy={busy} saving={saving} removing={removingEvent} error={error} onClose={() => { if (!saving && !removingEvent) closeTaskDialog(); }} onSave={() => void saveEvent()} onDelete={editingEvent ? () => void removeEvent() : undefined} onTitleChange={setTitle} onStartChange={updateStart} onEndChange={setEnd} onNotesChange={setNotes} onLocationChange={setLocation} onAlertsChange={setAlerts} onParticipantsChange={setParticipants} onAllDayChange={(value) => { if (value !== allDay) setAlerts((current) => retimeAlerts(current, value)); setAllDay(value); }} onCalendarChange={setEventCalendarId} onRepeatChange={touched(setRepeatChoice)} onCustomFrequencyChange={touched(setCustomFrequency)} onCustomIntervalChange={touched(setCustomInterval)} onRepeatEndChange={touched(setRepeatEnd)} onRepeatCountChange={touched(setRepeatCount)} onRepeatUntilChange={touched(setRepeatUntil)} /> : null}
       {confirmDeleteCalendar && editingCalendar ? (
         <ConfirmDialog
-          title="Delete calendar"
-          heading={`Delete “${editingCalendar.name}”?`}
+          title="Move to trash"
+          heading={`Move “${editingCalendar.name}” to the trash?`}
           body={(() => {
             const count = events.filter((item) => item.calendarId === editingCalendar.id).length;
             return count === 0
-              ? "This calendar will be permanently removed from your encrypted vault across all paired devices. This cannot be undone."
-              : `This permanently deletes the calendar and its ${count} event${count === 1 ? "" : "s"} from your encrypted vault across all paired devices. This cannot be undone.`;
+              ? "It can be restored from the trash for 30 days."
+              : `The calendar and its ${count} event${count === 1 ? "" : "s"} can be restored from the trash for 30 days.`;
           })()}
-          confirmLabel="Delete calendar"
+          confirmLabel="Move to trash"
           onConfirm={() => void removeCalendar()}
           onClose={() => { setConfirmDeleteCalendar(false); setEditingCalendar(null); }}
         />
@@ -860,14 +866,13 @@ export function CalendarView({
         <ConfirmDialog
           title="Purge Events"
           heading={`Purge Events from “${editingCalendar.name}”?`}
-          body={`This permanently deletes all ${events.filter((event) => event.calendarId === editingCalendar.id).length} event${events.filter((event) => event.calendarId === editingCalendar.id).length === 1 ? "" : "s"} in this calendar. The calendar itself will remain.`}
+          body={`All ${events.filter((event) => event.calendarId === editingCalendar.id).length} event${events.filter((event) => event.calendarId === editingCalendar.id).length === 1 ? "" : "s"} in this calendar move to the trash, where they can be restored for 30 days. The calendar itself will remain.`}
           confirmLabel="Purge Events"
           onConfirm={() => void purgeEvents()}
           onClose={() => { setConfirmPurgeEvents(false); setEditingCalendar(null); }}
         />
       ) : null}
-      {deletingCalendar ? <ImportProgressModal title="Deleting calendar" description="Removing events and calendar data. Keep this window open." current={deleteProgress.current} total={deleteProgress.total} /> : null}
-      {purgingEvents ? <ImportProgressModal title="Purging Events" description="Removing events from this calendar. Keep this window open." current={deleteProgress.current} total={deleteProgress.total} /> : null}
+      {purgingEvents ? <ImportProgressModal title="Purging Events" description="Moving this calendar's events to the trash. Keep this window open." current={deleteProgress.current} total={deleteProgress.total} /> : null}
     </main>
   );
 }

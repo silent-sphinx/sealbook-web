@@ -1,13 +1,10 @@
 import { Suspense, lazy, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  deleteNotes,
-  deleteNotebook,
   ensureDefaultNotebook,
   newNoteId,
   putNote,
   putNotes,
-  RefusedWrites,
   putNotebook,
   saveNote,
   vaultObject,
@@ -42,6 +39,9 @@ import {
 import type { Note, NoteDraft, Notebook } from "../lib/types";
 import type { OutboxState } from "../lib/outbox";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { TrashPanel, TrashRow, trashRootsFor } from "./Trash";
+import { NO_TRASH, type TrashListing } from "../lib/trash";
+import { trashItems } from "../lib/trashApi";
 import { CollectionSidebar, SidebarAddRow } from "./CollectionSidebar";
 import { RenameNoteDialog } from "./RenameNoteDialog";
 import { NoteTreeList } from "./NoteTreeList";
@@ -62,6 +62,8 @@ const NoteEditor = lazy(() =>
 
 type Props = {
   session: Session;
+  /** What is in the trash; the Notes tab lists its notes and notebooks. */
+  trash?: TrashListing;
   notes: Note[];
   notebooks: Notebook[];
   busy: boolean;
@@ -124,7 +126,7 @@ function exportMarkdown(draft: NoteDraft): string {
   return title ? `# ${title}\n\n${draft.body}` : draft.body;
 }
 
-export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved, offline = false, outbox, sidebar, homeSignal = 0, focusNoteId, onFocusHandled }: Props) {
+export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, onRefresh, onSaved, offline = false, outbox, sidebar, homeSignal = 0, focusNoteId, onFocusHandled }: Props) {
   const [scope, setScope] = useState<string>(DEFAULT_NOTEBOOK_ID);
   const [browsing, setBrowsing] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -137,6 +139,8 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   const [renaming, setRenaming] = useState<Note | null>(null);
   const [renamingNotebook, setRenamingNotebook] = useState<Notebook | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [viewingTrash, setViewingTrash] = useState(false);
+  const trashCount = useMemo(() => trashRootsFor(trash, "notes").length, [trash]);
   const menu = useContextMenu();
 
   // The editor buffer. Held here rather than read from `notes` so an in-progress
@@ -535,15 +539,23 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     }
   }
 
-  async function removeNotes(ids: string[]): Promise<boolean> {
+  /**
+   * Moves notes to the trash. Each takes the notes inside it along, so only
+   * the outermost of the picked notes is written.
+   */
+  async function removeNotes(picked: Note[]): Promise<boolean> {
     setError(null);
+    const ids = withSubtrees(picked);
+    const outermost = picked.filter(
+      (note) => !picked.some((other) => other.id !== note.id && noteSubtree(notes, other.id).includes(note.id)),
+    );
     try {
       for (const id of ids) {
         autosaver.drop(id);
       }
-      // Any write already in flight has to land before the tombstones do.
+      // Any write already in flight has to land before the trash stamp does.
       await autosaver.flush();
-      await deleteNotes(session, ids);
+      await trashItems(session, outermost.map((item) => ({ kind: "note" as const, item })));
       if (ids.includes(editingId.current ?? "")) {
         editingId.current = null;
         setSelectedId(null);
@@ -562,7 +574,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
   async function removeNote() {
     const target = confirmDelete;
     if (!target) return;
-    if (await removeNotes(noteSubtree(notes, target.id))) setConfirmDelete(null);
+    if (await removeNotes([target])) setConfirmDelete(null);
   }
 
   async function renameNote(note: Note, title: string) {
@@ -594,7 +606,7 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     const picked = bulkDeleting;
     if (!picked) return;
     setBulkDeleting(null);
-    await removeNotes(withSubtrees(picked));
+    await removeNotes(picked);
   }
 
   /** As `moveToNotebook`, for several notes: each note's subtree moves with it. */
@@ -692,39 +704,23 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
     if (!deletingNotebook) return;
     setError(null);
     try {
-      // Notes in it go too: a note pointing at a notebook that no longer exists
-      // would silently reappear in the default one.
       const contained = notes.filter(
         (candidate) => resolveNotebookId(candidate.notebookId) === deletingNotebook.id,
       );
-      let failed = 0;
       for (const note of contained) autosaver.drop(note.id);
-      try {
-        await deleteNotes(
-          session,
-          contained.map((note) => note.id),
-        );
-      } catch (err) {
-        if (!(err instanceof RefusedWrites)) throw err;
-        failed = err.refused.size;
-      }
-      // The notebook outlives a note that would not delete, so nothing is left
-      // pointing at a notebook that is no longer there.
-      if (failed > 0) {
-        setDeletingNotebook(null);
-        setError(
-          `${failed} of ${contained.length} notes could not be deleted, so the notebook was kept.`,
-        );
-        await onRefresh();
-        return;
-      }
-      await deleteNotebook(session, deletingNotebook.id);
+      await autosaver.flush();
+      // Its notes go to the trash with it, and come back with it.
+      await trashItems(session, [{ kind: "notebook", item: deletingNotebook }]);
       setDeletingNotebook(null);
-      editingId.current = null;
+      if (contained.some((note) => note.id === editingId.current)) {
+        editingId.current = null;
+        setSelectedId(null);
+        setDraft(null);
+        setSaveState("clean");
+      }
       savedThisSession.current = false;
-      setSelectedId(null);
-      setDraft(null);
-      setSaveState("clean");
+      if (scope === deletingNotebook.id) setScope(DEFAULT_NOTEBOOK_ID);
+      if (browsing === deletingNotebook.id) setBrowsing(null);
       await onRefresh();
     } catch (err) {
       setError(friendlyError(err));
@@ -842,9 +838,20 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
               )}
               busy={busy}
             />
+            <TrashRow
+              count={trashCount}
+              active={viewingTrash}
+              onToggle={() => {
+                if (!viewingTrash) void closeEditor();
+                setViewingTrash(!viewingTrash);
+              }}
+            />
           </SidebarSection>
         </SidebarDrawer>
 
+        {viewingTrash ? (
+          <TrashPanel session={session} trash={trash} tab="notes" onChanged={onRefresh} />
+        ) : (
         <section className="flex min-w-0 flex-col overflow-hidden">
           {draft ? (
             <>
@@ -1029,18 +1036,19 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
             )
           )}
         </section>
+        )}
       </div>
 
       {confirmDelete ? (
         <ConfirmDialog
-          title="Delete note"
-          heading={`Delete “${confirmDelete.title}”?`}
+          title="Move to trash"
+          heading={`Move “${confirmDelete.title}” to the trash?`}
           body={
             deleteCount > 1
-              ? `This permanently removes the note and the ${deleteCount - 1} note${deleteCount === 2 ? "" : "s"} inside it from your encrypted vault across all paired devices. This cannot be undone.`
-              : "This permanently removes the note from your encrypted vault across all paired devices. This cannot be undone."
+              ? `The note and the ${deleteCount - 1} note${deleteCount === 2 ? "" : "s"} inside it can be restored from the trash for 30 days.`
+              : "It can be restored from the trash for 30 days."
           }
-          confirmLabel="Delete note"
+          confirmLabel="Move to trash"
           onConfirm={() => void removeNote()}
           onClose={() => setConfirmDelete(null)}
         />
@@ -1070,15 +1078,15 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
 
       {bulkDeleting ? (
         <ConfirmDialog
-          title="Delete notes"
-          heading={`Delete ${bulkDeleting.length} note${bulkDeleting.length === 1 ? "" : "s"}?`}
+          title="Move to trash"
+          heading={`Move ${bulkDeleting.length} note${bulkDeleting.length === 1 ? "" : "s"} to the trash?`}
           body={(() => {
             const inside = withSubtrees(bulkDeleting).length - bulkDeleting.length;
-            return `This permanently removes the selected notes${
+            return `The selected notes${
               inside > 0 ? ` and the ${inside} note${inside === 1 ? "" : "s"} inside them` : ""
-            } from your encrypted vault across all paired devices. This cannot be undone.`;
+            } can be restored from the trash for 30 days.`;
           })()}
-          confirmLabel="Delete notes"
+          confirmLabel="Move to trash"
           onConfirm={() => void removeBulk()}
           onClose={() => setBulkDeleting(null)}
         />
@@ -1086,14 +1094,14 @@ export function NotesView({ session, notes, notebooks, busy, onRefresh, onSaved,
 
       {deletingNotebook ? (
         <ConfirmDialog
-          title="Delete notebook"
-          heading={`Delete “${deletingNotebook.name}”?`}
+          title="Move to trash"
+          heading={`Move “${deletingNotebook.name}” to the trash?`}
           body={
             notesInDeletingNotebook === 0
-              ? "This notebook will be permanently removed from your encrypted vault across all paired devices. This cannot be undone."
-              : `This permanently deletes the notebook and its ${notesInDeletingNotebook} note${notesInDeletingNotebook === 1 ? "" : "s"} from your encrypted vault across all paired devices. This cannot be undone.`
+              ? "It can be restored from the trash for 30 days."
+              : `The notebook and its ${notesInDeletingNotebook} note${notesInDeletingNotebook === 1 ? "" : "s"} can be restored from the trash for 30 days.`
           }
-          confirmLabel="Delete notebook"
+          confirmLabel="Move to trash"
           onConfirm={() => void removeNotebook()}
           onClose={() => setDeletingNotebook(null)}
         />

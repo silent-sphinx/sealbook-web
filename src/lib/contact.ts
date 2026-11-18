@@ -372,10 +372,12 @@ export function parseContact(
   ciphertext: string,
   paddedSize: number,
 ): Contact {
-  const draft = draftFrom(coreContactParse(id, raw));
+  const card = coreContactParse(id, raw);
+  const draft = draftFrom(card);
   return {
     ...draft,
     id,
+    trashedAt: card.trashed_at,
     email: draft.emails[0]?.value,
     raw,
     ciphertext,

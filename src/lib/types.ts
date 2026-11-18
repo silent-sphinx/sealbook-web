@@ -295,6 +295,8 @@ export type ContactDraft = {
 
 export type Contact = ContactDraft & {
   id: string;
+  /** When it went into the trash. Set and cleared only through `lib/trash`. */
+  trashedAt?: string;
   email?: string;
   raw: string;
   ciphertext: string;
@@ -303,6 +305,8 @@ export type Contact = ContactDraft & {
 
 export type AddressBook = {
   id: string;
+  /** When it went into the trash. Set and cleared only through `lib/trash`. */
+  trashedAt?: string;
   name: string;
   /** Put away: out of the list and the pickers, its contacts left as they are. */
   archived?: boolean;
@@ -314,6 +318,8 @@ export type AddressBook = {
 
 export type CalendarEvent = {
   id: string;
+  /** When it went into the trash. Set and cleared only through `lib/trash`. */
+  trashedAt?: string;
   title: string;
   start: string;
   end?: string;
@@ -368,6 +374,8 @@ export type RecurrenceRule = {
 
 export type Calendar = {
   id: string;
+  /** When it went into the trash. Set and cleared only through `lib/trash`. */
+  trashedAt?: string;
   name: string;
   color: string;
   favorite?: boolean;
@@ -470,10 +478,18 @@ export type NoteDraft = {
  * blank row, but a field this build understands may have changed meaning and
  * `serializeNote` will refuse to write over it.
  */
-export type Note = NoteDraft & { id: string; raw: string; readable?: boolean };
+export type Note = NoteDraft & {
+  id: string;
+  raw: string;
+  readable?: boolean;
+  /** When it went into the trash. Set and cleared only through `lib/trash`. */
+  trashedAt?: string;
+};
 
 export type Notebook = {
   id: string;
+  /** When it went into the trash. Set and cleared only through `lib/trash`. */
+  trashedAt?: string;
   name: string;
   /** Explicit colour; absent means one derived from the id. See `notebookTone`. */
   color?: string;
@@ -509,6 +525,8 @@ export type BookmarkDraft = {
 
 export type Bookmark = BookmarkDraft & {
   id: string;
+  /** When it went into the trash. Set and cleared only through `lib/trash`. */
+  trashedAt?: string;
   raw: string;
   /**
    * True when `title` is the address, listed in place of a title the payload
@@ -527,6 +545,8 @@ export type Bookmark = BookmarkDraft & {
  */
 export type BookmarkCollection = {
   id: string;
+  /** When it went into the trash. Set and cleared only through `lib/trash`. */
+  trashedAt?: string;
   name: string;
   parentId?: string;
   /**
@@ -585,6 +605,8 @@ export type TaskDraft = {
 
 export type Task = TaskDraft & {
   id: string;
+  /** When it went into the trash. Set and cleared only through `lib/trash`. */
+  trashedAt?: string;
   raw: string;
   /** The title is the listing's fallback and none is stored; see `taskDraft`. */
   derivedTitle?: boolean;
@@ -606,6 +628,8 @@ export type TaskPatch = {
 /** Task lists nest exactly as bookmark collections do. See `BookmarkCollection`. */
 export type TaskList = {
   id: string;
+  /** When it went into the trash. Set and cleared only through `lib/trash`. */
+  trashedAt?: string;
   name: string;
   parentId?: string;
   color?: string;

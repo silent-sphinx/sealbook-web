@@ -62,6 +62,7 @@ function bookmarkFrom(bookmark: CoreBookmark): Bookmark {
     collectionId: bookmark.collection_id,
     createdAt: bookmark.created_at,
     updatedAt: bookmark.updated_at,
+    trashedAt: bookmark.trashed_at,
     readable: bookmark.readable,
   };
 }
@@ -124,6 +125,7 @@ function collectionFrom(
     hideFromAll: collection.hide_from_all || undefined,
     archived: collection.archived || undefined,
     raw: collection.raw,
+    trashedAt: collection.trashed_at,
     readable: collection.readable,
   };
 }
@@ -136,6 +138,7 @@ export function collectionTo(collection: BookmarkCollection): CoreBookmarkCollec
     color: collection.color,
     hide_from_all: collection.hideFromAll ?? false,
     archived: collection.archived ?? false,
+    trashed_at: collection.trashedAt,
     readable: collection.readable ?? true,
     raw: collection.raw,
   };

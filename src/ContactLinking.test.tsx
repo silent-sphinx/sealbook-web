@@ -29,6 +29,20 @@ const PASSWORD = "correct horse battery";
 let store: Contact[] = [];
 const writes: { id?: string; draft: ContactDraft }[] = [];
 const deletions: string[] = [];
+const trashed: string[] = [];
+
+vi.mock("./lib/trashApi", async () => {
+  const actual = await vi.importActual<typeof import("./lib/trashApi")>("./lib/trashApi");
+  return {
+    ...actual,
+    trashItems: async (_session: unknown, entries: { item: { id: string } }[]) => {
+      for (const { item } of entries) trashed.push(item.id);
+      const gone = new Set(entries.map((entry) => entry.item.id));
+      store = store.filter((contact) => !gone.has(contact.id));
+    },
+    sweepTrashIfDue: async () => null,
+  };
+});
 
 vi.mock("./lib/client", async () => {
   const actual = await vi.importActual<typeof import("./lib/client")>("./lib/client");
@@ -281,52 +295,37 @@ describe("deleting a contact other cards link to", () => {
     ];
     writes.length = 0;
     deletions.length = 0;
+    trashed.length = 0;
   });
 
-  /** Opens the named contact's pane and confirms the delete. */
+  /** Opens the named contact's pane and confirms the move to the trash. */
   async function deleteViaPane(name: string) {
     fireEvent.click(screen.getByRole("button", { name: `View ${name}` }));
     await paneIdle();
     fireEvent.click(screen.getByRole("button", { name: "Delete contact" }));
-    const dialog = await screen.findByRole("dialog", { name: "Delete contact" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete contact" }));
+    const dialog = await screen.findByRole("dialog", { name: "Move to trash" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move to trash" }));
   }
 
-  it("clears the back-reference from every section of every linking card", async () => {
+  it("moves it to the trash and leaves the cards that link to it alone, for a restore", async () => {
     await unlock();
     await deleteViaPane("Grace Hopper");
 
-    await waitFor(() => expect(writes.length).toBe(2));
-    expect(deletions).toEqual(["c2"]);
-
-    // Both of Ada's sections, and the unlinked row she also holds is left.
-    const ada = writes.find((write) => write.id === "c1");
-    expect(names(ada!.draft, "friends")).toEqual(["Someone Else"]);
-    expect(names(ada!.draft, "colleagues")).toEqual([]);
-
-    // And a third card linked in a section the deleted one never listed.
-    const charles = writes.find((write) => write.id === "c3");
-    expect(names(charles!.draft, "family")).toEqual([]);
+    await waitFor(() => expect(trashed).toEqual(["c2"]));
+    expect(deletions).toEqual([]);
+    expect(writes).toEqual([]);
   });
 
-  it("leaves nothing on the linking card that looks linked", async () => {
+  it("shows a link to a contact in the trash as a plain name, not a way to it", async () => {
     await unlock();
     await deleteViaPane("Grace Hopper");
-    await waitFor(() => expect(deletions.length).toBe(1));
+    await waitFor(() => expect(trashed.length).toBe(1));
 
     fireEvent.click(await screen.findByRole("button", { name: "View Ada Lovelace" }));
     await paneIdle();
 
     expect(linkedIn("Friends")).toEqual([]);
-    expect(within(sectionOf("Friends")).queryAllByRole("button", { name: "Unlink" })).toEqual([]);
+    expect(within(sectionOf("Friends")).getByText("Grace Hopper")).toBeDefined();
     expect(screen.queryByRole("button", { name: "View Grace Hopper" })).toBeNull();
-  });
-
-  it("writes nothing extra when no card links to the deleted one", async () => {
-    await unlock();
-    await deleteViaPane("Charles Babbage");
-
-    await waitFor(() => expect(deletions).toEqual(["c3"]));
-    expect(writes).toEqual([]);
   });
 });

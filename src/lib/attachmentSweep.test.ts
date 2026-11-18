@@ -23,6 +23,7 @@ function listing(overrides: Partial<VaultListing> = {}): VaultListing {
   return {
     notes: [{ id: "n", attachments: [attachment("note-photo")] }],
     contacts: [{ id: "c", attachments: [attachment("contact-file")] }],
+    trash: { notes: [{ id: "t", attachments: [attachment("trashed-photo")] }], contacts: [] },
     unopened: 0,
     ...overrides,
   } as unknown as VaultListing;
@@ -35,7 +36,11 @@ beforeEach(() => localStorage.clear());
 
 describe("referencedAttachmentIds", () => {
   it("includes note and contact attachments", () => {
-    expect([...referencedAttachmentIds(listing())].sort()).toEqual(["contact-file", "note-photo"]);
+    expect([...referencedAttachmentIds(listing())].sort()).toEqual([
+      "contact-file",
+      "note-photo",
+      "trashed-photo",
+    ]);
   });
 });
 
@@ -45,7 +50,7 @@ describe("sweepIfDue", () => {
     expect(await sweepIfDue(online, listing(), sweep, NOW)).toBe(3);
     expect(sweep).toHaveBeenCalledWith(
       online,
-      new Set(["note-photo", "contact-file"]),
+      new Set(["note-photo", "contact-file", "trashed-photo"]),
       NOW,
     );
   });

@@ -34,6 +34,7 @@ function notebooksOf(notebooks: Notebook[]) {
     id: notebook.id,
     name: notebook.name,
     color: notebook.color,
+    trashed_at: notebook.trashedAt,
     readable: notebook.readable ?? true,
     raw: notebook.raw,
   }));

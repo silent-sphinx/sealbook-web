@@ -244,6 +244,18 @@ import init, {
   local_storage_key,
   unwrap_ck,
   wrap_ck_for_device,
+  core_trash_expired,
+  core_trash_hidden,
+  core_trash_purge_plan,
+  core_trash_restore_plan,
+  core_trash_restore_write,
+  core_trash_roots,
+  core_trash_write,
+} from "../pkg/sealbook_wasm.js";
+import type {
+  TrashNode,
+  TrashRehome,
+  TrashRoot,
 } from "../pkg/sealbook_wasm.js";
 import type {
   CoreDeviceEntry,
@@ -2604,4 +2616,45 @@ export function coreDeviceEntries(
 
 export function coreStaleDeviceLabels(roster: string[], labels: CoreDeviceLabelObject[]): string[] {
   return [...core_stale_device_labels(roster, labels)];
+}
+
+export type { TrashNode, TrashRehome, TrashRoot };
+
+/** The payload put in the trash, stamped `now`, every other key left alone. */
+export function coreTrashWrite(kind: CorePayloadKind, raw: string, now: string): string {
+  return core_trash_write(kind, raw, now);
+}
+
+/** The payload taken out of the trash, moved as the restore plan says. */
+export function coreTrashRestoreWrite(
+  kind: CorePayloadKind,
+  raw: string,
+  rehome: TrashRehome | null,
+): string {
+  return core_trash_restore_write(kind, raw, rehome ?? undefined);
+}
+
+/** Every id to leave out of a live view: trashed, or inside something trashed. */
+export function coreTrashHidden(nodes: TrashNode[]): Set<string> {
+  return new Set(core_trash_hidden(nodes));
+}
+
+/** What the trash lists, newest first. */
+export function coreTrashRoots(nodes: TrashNode[], nowMs: number): TrashRoot[] {
+  return core_trash_roots(nodes, Math.floor(nowMs / 1000));
+}
+
+/** How restoring `id` lands, or null when it comes back where it was. */
+export function coreTrashRestorePlan(nodes: TrashNode[], id: string): TrashRehome | null {
+  return core_trash_restore_plan(nodes, id) ?? null;
+}
+
+/** Every id to tombstone to delete `ids` for good, innermost first. */
+export function coreTrashPurgePlan(nodes: TrashNode[], ids: string[]): string[] {
+  return [...core_trash_purge_plan(nodes, ids)];
+}
+
+/** The roots past the retention period. */
+export function coreTrashExpired(nodes: TrashNode[], nowMs: number): string[] {
+  return [...core_trash_expired(nodes, Math.floor(nowMs / 1000))];
 }

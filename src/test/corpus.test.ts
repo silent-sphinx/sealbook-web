@@ -34,6 +34,13 @@ import {
   coreTaskListWrite,
   coreTaskParse,
   coreTaskWrite,
+  coreTrashExpired,
+  coreTrashHidden,
+  coreTrashPurgePlan,
+  coreTrashRestorePlan,
+  coreTrashRestoreWrite,
+  coreTrashRoots,
+  coreTrashWrite,
 } from "../lib/wasm";
 import { EMPTY_OUTBOX } from "../lib/localStore";
 import { readFixture } from "./fixtures";
@@ -89,6 +96,13 @@ const operations: Record<string, (args: any[]) => unknown> = {
   "offline.merge": ([contentType, base, local, remote, date]) =>
     withNulls(coreMergePayload(contentType, base, local, remote, date)),
   "offline.flush_plan": ([outbox, vault, date]) => coreFlushPlan(outbox, vault, date),
+  "trash.write": ([kind, raw, now]) => coreTrashWrite(kind, raw, now),
+  "trash.restore_write": ([kind, raw, rehome]) => coreTrashRestoreWrite(kind, raw, rehome),
+  "trash.hidden": ([nodes]) => [...coreTrashHidden(nodes)].sort(),
+  "trash.roots": ([nodes, nowSecs]) => coreTrashRoots(nodes, nowSecs * 1000),
+  "trash.restore_plan": ([nodes, id]) => coreTrashRestorePlan(nodes, id),
+  "trash.purge_plan": ([nodes, ids]) => coreTrashPurgePlan(nodes, ids),
+  "trash.expired": ([nodes, nowSecs]) => coreTrashExpired(nodes, nowSecs * 1000),
 };
 
 const corpus = JSON.parse(readFixture("corpus.json")) as Corpus;

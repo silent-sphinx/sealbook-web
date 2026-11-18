@@ -34,8 +34,6 @@ import {
 } from "./components/AppIcons";
 import {
   completeRecoveryRotation,
-  deleteAddressBook,
-  deleteContact,
   browserPlatform,
   ensureDefaultAddressBook,
   ensureDeviceLabel,
@@ -86,6 +84,8 @@ import {
   type OutboxState,
 } from "./lib/outbox";
 import { sweepIfDue } from "./lib/attachmentSweep";
+import { emptyTrash, NO_TRASH, type TrashListing } from "./lib/trash";
+import { sweepTrashIfDue, trashItems } from "./lib/trashApi";
 import { failedStatus } from "./lib/transport";
 import { OutboxPanel } from "./components/OutboxPanel";
 import {
@@ -241,6 +241,7 @@ export default function App() {
   const [eventFocusId, setEventFocusId] = useState<string | undefined>();
   const [searchOpen, setSearchOpen] = useState(false);
   const [taskLists, setTaskLists] = useState<TaskList[]>([]);
+  const [trash, setTrash] = useState<TrashListing>(emptyTrash);
   const [accountSettings, setAccountSettings] = useState<AccountSettings>(DEFAULT_ACCOUNT_SETTINGS);
   // Outlives a lock, unlike the settings, so the unlock screen keeps the tint.
   const [shownAccent, setShownAccent] = useState<string | null>(loadAccentHint);
@@ -263,6 +264,8 @@ export default function App() {
    * until it is restored, so the two cannot both be on.
    */
   const [viewingArchive, setViewingArchive] = useState(false);
+  /** Whether the contacts list is showing the trash, as `viewingArchive`. */
+  const [viewingTrash, setViewingTrash] = useState(false);
   // Set by the sidebar's "+", read by the address book list to open its input.
   const [creatingBook, setCreatingBook] = useState(false);
   const [formKey, setFormKey] = useState(0);
@@ -1014,6 +1017,13 @@ export default function App() {
       void sweepIfDue(next, listed).catch((err: unknown) => {
         log.warn("the attachment sweep failed", { reason: describeError(err) });
       });
+      void sweepTrashIfDue(next, listed)
+        .then((purged) => {
+          if (purged) showLocal(next);
+        })
+        .catch((err: unknown) => {
+          log.warn("the trash sweep failed", { reason: describeError(err) });
+        });
     }
   }
 
@@ -1055,6 +1065,8 @@ export default function App() {
     setBookmarkCollections(listed.bookmarkCollections);
     setTasks(listed.tasks);
     setTaskLists(listed.taskLists);
+    // A listing built by hand, as in a test, may carry no trash.
+    setTrash(listed.trash ?? NO_TRASH);
     applyAccountSettings(listed.accountSettings);
     accountSettingsRaw.current = listed.accountSettingsRaw;
     setDeviceLabels(listed.deviceLabels);
@@ -1193,6 +1205,8 @@ export default function App() {
     setDeviceLabels([]);
     labelledDevice.current = null;
     setViewingArchive(false);
+    setViewingTrash(false);
+    setTrash(emptyTrash());
     setAdding(false);
     setAddResponse(null);
     setAddPreview(null);
@@ -1780,30 +1794,12 @@ export default function App() {
   }
 
   /**
-   * Deletes contacts, then strips every link that pointed at them from the
-   * cards that remain, since the reverse link's target is now gone.
+   * Moves contacts to the trash. Links to them stay until they are deleted for
+   * good, so a restore brings them back whole.
    */
-  async function deleteContactsAndUnlink(session: Session, doomed: Contact[]): Promise<void> {
-    const doomedIds = new Set(doomed.map((contact) => contact.id));
-    for (const contact of doomed) {
-      await deleteContact(session, contact.id);
-    }
-    for (const other of contacts) {
-      if (doomedIds.has(other.id)) continue;
-      const profile = profileOf(other.profile);
-      const cleaned = { ...profile };
-      let changed = false;
-      for (const section of LINKABLE_SECTIONS) {
-        const filtered = profile[section].filter((p) => p.contactId === undefined || !doomedIds.has(p.contactId));
-        if (filtered.length === profile[section].length) continue;
-        cleaned[section] = filtered;
-        changed = true;
-      }
-      if (changed) {
-        await putContact(session, { ...other, profile: cleaned }, other.id);
-      }
-    }
-    if (viewingContact && doomedIds.has(viewingContact.id)) {
+  async function trashContacts(session: Session, doomed: Contact[]): Promise<void> {
+    await trashItems(session, doomed.map((item) => ({ kind: "contact" as const, item })));
+    if (viewingContact && doomed.some((contact) => contact.id === viewingContact.id)) {
       setViewingContact(null);
     }
   }
@@ -1815,7 +1811,7 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
-      await deleteContactsAndUnlink(session, [deletingContact]);
+      await trashContacts(session, [deletingContact]);
       setDeletingContact(null);
       await refreshAfterSave(session);
     } catch (err) {
@@ -1846,12 +1842,12 @@ export default function App() {
     setError(null);
     let failure: string | null = null;
     try {
-      await deleteContactsAndUnlink(session, deletingContacts);
+      await trashContacts(session, deletingContacts);
       setDeletingContacts(null);
     } catch (err) {
       failure = friendlyError(err);
     }
-    // Re-read either way: a failure part way leaves some contacts deleted.
+    // Re-read either way: a failure part way leaves some contacts in the trash.
     await refreshAfterSave(session);
     if (failure) {
       setError(failure);
@@ -1907,6 +1903,10 @@ export default function App() {
    * except the book that was clicked.
    */
   function toggleBookVisibility(id: string) {
+    if (viewingTrash) {
+      setViewingTrash(false);
+      return;
+    }
     if (viewingArchive) {
       setViewingArchive(false);
       return;
@@ -1931,6 +1931,7 @@ export default function App() {
 
   function showAllBooks() {
     setViewingArchive(false);
+    setViewingTrash(false);
     void setBooksHidden(addressBooks.filter((book) => book.archived !== true && book.hideFromAll === true), false);
   }
 
@@ -2049,14 +2050,13 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
-      for (const contact of containedContacts) {
-        if (destinationId) {
+      if (destinationId) {
+        for (const contact of containedContacts) {
           await putContact(session, { ...contact, addressBookId: destinationId }, contact.id);
-        } else {
-          await deleteContact(session, contact.id);
         }
       }
-      await deleteAddressBook(session, book.id);
+      // Contacts left in the book go to the trash with it.
+      await trashItems(session, [{ kind: "address_book", item: book }]);
       forgetBookVisibility(book.id);
       setDeletingAddressBook(null);
       await refreshAfterSave(session);
@@ -2088,6 +2088,7 @@ export default function App() {
           const contact = contacts.find((item) => item.id === hit.id);
           if (!contact) return;
           setViewingArchive(false);
+          setViewingTrash(false);
           setSearch("");
           setError(null);
           setViewingContact(contact);
@@ -2114,6 +2115,7 @@ export default function App() {
     setError(null);
     setFormKey((key) => key + 1);
     setViewingArchive(false);
+    setViewingTrash(false);
     setComposing(true);
   }
 
@@ -2536,12 +2538,13 @@ export default function App() {
         </div>
       ) : activeTab === "calendar" ? (
         <div>
-          <CalendarView session={session} calendars={calendars} events={calendarEvents} contacts={contacts} busy={busy} timezone={timezone} weekStart={weekStart} onRefresh={() => refresh(session)} sidebar={sidebar} dueTasks={isFeatureEnabled(accountSettings, "tasks") ? tasks : undefined} onOpenTask={(id) => guardEditing(() => { setTaskFocusId(id); setActiveTab("tasks"); })} focusEventId={eventFocusId} onFocusHandled={clearEventFocus} />
+          <CalendarView session={session} trash={trash} calendars={calendars} events={calendarEvents} contacts={contacts} busy={busy} timezone={timezone} weekStart={weekStart} onRefresh={() => refresh(session)} sidebar={sidebar} dueTasks={isFeatureEnabled(accountSettings, "tasks") ? tasks : undefined} onOpenTask={(id) => guardEditing(() => { setTaskFocusId(id); setActiveTab("tasks"); })} focusEventId={eventFocusId} onFocusHandled={clearEventFocus} />
         </div>
       ) : activeTab === "notes" ? (
         <div>
           <NotesView
             session={session}
+            trash={trash}
             notes={notes}
             notebooks={notebooks}
             busy={busy}
@@ -2559,6 +2562,7 @@ export default function App() {
         <div>
           <BookmarksView
             session={session}
+            trash={trash}
             bookmarks={bookmarks}
             collections={bookmarkCollections}
             busy={busy}
@@ -2573,6 +2577,7 @@ export default function App() {
         <div>
           <TasksView
             session={session}
+            trash={trash}
             tasks={tasks}
             taskLists={taskLists}
             busy={busy}
@@ -2606,6 +2611,16 @@ export default function App() {
           soleShownBook={soleShownBook}
           listTitle={listTitle}
           viewingArchive={viewingArchive}
+          trash={trash}
+          viewingTrash={viewingTrash}
+          onSetViewingTrash={(v) => {
+            setViewingTrash(v);
+            if (v) {
+              setViewingArchive(false);
+              setViewingContact(null);
+            }
+          }}
+          onTrashChanged={() => refreshAfterSave(session!)}
           detailedContacts={detailedContacts}
           composing={composing}
           deletingContact={deletingContact}
@@ -2623,7 +2638,10 @@ export default function App() {
           onSetSearch={setSearch}
           onSetViewingContact={(c) => setViewingContact(c)}
           onSetError={setError}
-          onSetViewingArchive={(v) => setViewingArchive(v)}
+          onSetViewingArchive={(v) => {
+            setViewingArchive(v);
+            if (v) setViewingTrash(false);
+          }}
           onSetEditingDetail={setEditingDetail}
           onPromptDelete={promptDelete}
           onPromptBulkDelete={promptBulkDelete}
@@ -2691,11 +2709,11 @@ export default function App() {
       {/* Delete confirmation modal */}
       {contactsEnabled && deletingContact ? (
         <ConfirmDialog
-          title="Delete contact"
-          heading={`Delete “${deletingContact.name}”?`}
-          body="This contact will be permanently deleted from your encrypted vault across all paired devices. This action cannot be undone."
-          confirmLabel="Delete contact"
-          busyLabel="Deleting…"
+          title="Move to trash"
+          heading={`Move “${deletingContact.name}” to the trash?`}
+          body="It can be restored from the trash for 30 days, then it is deleted for good on every device."
+          confirmLabel="Move to trash"
+          busyLabel="Moving…"
           busy={busy}
           error={error}
           onConfirm={onConfirmDelete}
@@ -2705,11 +2723,11 @@ export default function App() {
 
       {contactsEnabled && deletingContacts ? (
         <ConfirmDialog
-          title="Delete contacts"
-          heading={`Delete ${deletingContacts.length} contact${deletingContacts.length === 1 ? "" : "s"}?`}
-          body="These contacts will be permanently deleted from your encrypted vault across all paired devices. This action cannot be undone."
-          confirmLabel={`Delete ${deletingContacts.length} contact${deletingContacts.length === 1 ? "" : "s"}`}
-          busyLabel="Deleting…"
+          title="Move to trash"
+          heading={`Move ${deletingContacts.length} contact${deletingContacts.length === 1 ? "" : "s"} to the trash?`}
+          body="They can be restored from the trash for 30 days, then they are deleted for good on every device."
+          confirmLabel="Move to trash"
+          busyLabel="Moving…"
           busy={busy}
           error={error}
           onConfirm={onConfirmBulkDelete}

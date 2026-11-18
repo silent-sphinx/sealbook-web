@@ -22,6 +22,7 @@ import {
   type RowOutcome,
 } from "./wasm";
 import { emptyVault } from "./localStore";
+import { splitTrash, type TrashListing } from "./trash";
 import { localObjects, openOutbox, setVault } from "./outbox";
 import type { WalkCursor, WalkOutcome, WalkStep } from "../pkg/sealbook_wasm.js";
 import {
@@ -223,6 +224,8 @@ export type VaultListing = {
    * attachment sweep must not run while there are any.
    */
   unreadReferences: number;
+  /** What is in the trash: left out of every array above. */
+  trash: TrashListing;
 };
 
 /**
@@ -717,7 +720,7 @@ export function listingFrom(objects: LocalObject[], unopened: number): VaultList
     unopened,
     unread_references: unreadReferences,
   });
-  return {
+  const { live, trash } = splitTrash({
     addressBooks: sortAddressBooks(addressBooks),
     contacts: sortContacts(contacts),
     calendars: sortCalendars(calendars),
@@ -728,6 +731,10 @@ export function listingFrom(objects: LocalObject[], unopened: number): VaultList
     bookmarkCollections: sortCollections(bookmarkCollections),
     tasks: sortTasks(tasks),
     taskLists: sortTaskLists(taskLists),
+  });
+  return {
+    ...live,
+    trash,
     accountSettings,
     accountSettingsRaw,
     accountSettingsId,

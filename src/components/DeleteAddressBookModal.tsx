@@ -73,8 +73,8 @@ export function DeleteAddressBookModal({
               className="mt-1 accent-danger"
             />
             <span>
-              <span className="block text-sm font-medium text-danger">Delete contained contacts</span>
-              <span className="mt-1 block text-xs text-mute">This permanently deletes the contacts in this address book.</span>
+              <span className="block text-sm font-medium text-danger">Move contained contacts to the trash</span>
+              <span className="mt-1 block text-xs text-mute">They go with the address book, and come back with it if it is restored within 30 days.</span>
             </span>
           </label>
         </fieldset>
@@ -91,7 +91,7 @@ export function DeleteAddressBookModal({
             onClick={() => onConfirm(choice === "move" ? destinationId : null)}
             disabled={busy || (choice === "move" && !destinationId)}
           >
-            {busy ? "Deleting…" : "Delete address book"}
+            {busy ? "Moving…" : "Move to trash"}
           </button>
         </div>
       </div>

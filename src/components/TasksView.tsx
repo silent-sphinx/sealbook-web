@@ -1,5 +1,8 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { TrashPanel, TrashRow, trashRootsFor } from "./Trash";
+import { NO_TRASH, type TrashListing } from "../lib/trash";
+import { trashItems } from "../lib/trashApi";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 import { SidebarDrawer, SidebarHeader, type Sidebar } from "./SidebarDrawer";
 import { SplitHandle, useSplitPane } from "./SplitPane";
@@ -71,10 +74,8 @@ import { flattenTree } from "../lib/tree";
 import type { Task, TaskDraft, TaskList, TaskPatch } from "../lib/types";
 import {
   coreTaskListMovePlan,
-  coreTaskListRemovePlan,
   coreTaskMovePlan,
   coreTaskRelistPlan,
-  coreTaskRemovePlan,
 } from "../lib/wasm";
 import type { CoreTaskPlan } from "../lib/wasm";
 import { Icon } from "./Icon";
@@ -82,6 +83,8 @@ import { EmptyState } from "./EmptyState";
 
 type Props = {
   session: Session;
+  /** What is in the trash; the Tasks tab lists its tasks and lists. */
+  trash?: TrashListing;
   tasks: Task[];
   taskLists: TaskList[];
   busy: boolean;
@@ -133,7 +136,7 @@ type Notice = { message: string; previous: Task; reopened: Task[] };
 /** Idle time after the last write before the vault is re-read in the background. */
 const REFRESH_IDLE_MS = 10_000;
 
-export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh, onApply, readOnly, sidebar, focusTaskId, onFocusHandled }: Props) {
+export function TasksView({ session, trash = NO_TRASH, tasks, taskLists, busy, timezone, onRefresh, onApply, readOnly, sidebar, focusTaskId, onFocusHandled }: Props) {
   const readOnlyMode = readOnly === true;
   const [requestedScope, setScope] = useState<string>("upnext");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -146,6 +149,8 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
   const [deletingList, setDeletingList] = useState<TaskList | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [viewingTrash, setViewingTrash] = useState(false);
+  const trashCount = useMemo(() => trashRootsFor(trash, "tasks").length, [trash]);
   const [saving, setSaving] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const bulkMenu = useContextMenu();
@@ -463,8 +468,9 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     });
   }
 
+  /** Moves a task to the trash; its subtasks go with it. */
   async function removeTask(task: Task) {
-    const ok = await run(() => writeTaskPlan(session, coreTaskRemovePlan(tasks.map(taskTo), task.id)));
+    const ok = await run(() => trashItems(session, [{ kind: "task", item: task }]));
     if (ok) {
       setConfirmDelete(null);
       if (form?.editingId === task.id) setForm(null);
@@ -490,7 +496,23 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     await run(() => writeTaskPlan(session, plan));
   }
 
+  /** Moves the picked tasks to the trash, writing only the outermost: each takes its subtasks along. */
+  async function trashPicked(picked: Task[]) {
+    const ids = new Set(picked.map((task) => task.id));
+    const outermost = picked.filter(
+      (task) => !picked.some((other) => other.id !== task.id && taskSubtree(tasks, other.id).includes(task.id)),
+    );
+    selection.clear();
+    setNotice(null);
+    const ok = await run(() => trashItems(session, outermost.map((item) => ({ kind: "task" as const, item }))));
+    if (ok && selectedId && ids.has(selectedId)) setSelectedId(null);
+  }
+
   async function applyBulk(change: TaskBulkChange) {
+    if (change.kind === "delete") {
+      await trashPicked(selection.selectedItems);
+      return;
+    }
     const plan = planTaskBulk(change, selection.selectedItems, tasks, new Date(), timezone);
     selection.clear();
     setNotice(null);
@@ -600,13 +622,13 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
     await run(() => writeTaskPlan(session, plan));
   }
 
+  /** Moves a list to the trash, with the tasks and lists inside it. */
   async function removeList(list: TaskList) {
-    const plan = coreTaskListRemovePlan(taskLists.map(listTo), tasks.map(taskTo), list.id);
-    if (plan.refusal) {
-      setError(plan.refusal);
+    if (list.id === DEFAULT_TASK_LIST_ID) {
+      setError("The default list cannot be deleted.");
       return;
     }
-    const ok = await run(() => writeTaskPlan(session, plan));
+    const ok = await run(() => trashItems(session, [{ kind: "task_list", item: list }]));
     if (ok) {
       if (scope === list.id) changeScope(list.parentId ?? "all");
       setDeletingList(null);
@@ -722,8 +744,21 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
             onRestore={(list) => void setListArchived(list, false)}
             onToggleHidden={(list) => void toggleListHidden(list)}
           />
+          {readOnlyMode ? null : (
+            <TrashRow
+              count={trashCount}
+              active={viewingTrash}
+              onToggle={() => {
+                setForm(null);
+                setViewingTrash(!viewingTrash);
+              }}
+            />
+          )}
         </SidebarDrawer>
 
+        {viewingTrash ? (
+          <TrashPanel session={session} trash={trash} tab="tasks" onChanged={async () => { await onRefresh(); }} />
+        ) : (
         <section className="order-1 flex min-w-0 flex-col overflow-hidden lg:order-none lg:min-h-0">
           <header className={paneHeader}>
             <div className="flex min-w-0 items-center gap-2">
@@ -932,14 +967,15 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
             </div>
           </div>
         </section>
+        )}
       </div>
 
       {confirmDelete ? (
         <ConfirmDialog
-          title="Delete task"
-          heading={`Delete “${confirmDelete.title}”?`}
-          body={`It will be removed from every device signed in to this account. Its subtasks are kept and move up one level.`}
-          confirmLabel="Delete"
+          title="Move to trash"
+          heading={`Move “${confirmDelete.title}” to the trash?`}
+          body="It and its subtasks can be restored from the trash for 30 days."
+          confirmLabel="Move to trash"
           tone="danger"
           busy={saving}
           onClose={() => setConfirmDelete(null)}
@@ -949,10 +985,10 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
 
       {confirmBulkDelete ? (
         <ConfirmDialog
-          title="Delete tasks"
-          heading={`Delete ${plural(selection.selected.size, "task")}?`}
-          body="They will be removed from every device signed in to this account. Their subtasks are kept and move up one level."
-          confirmLabel="Delete"
+          title="Move to trash"
+          heading={`Move ${plural(selection.selected.size, "task")} to the trash?`}
+          body="They and their subtasks can be restored from the trash for 30 days."
+          confirmLabel="Move to trash"
           tone="danger"
           busy={saving}
           onClose={() => setConfirmBulkDelete(false)}
@@ -965,10 +1001,10 @@ export function TasksView({ session, tasks, taskLists, busy, timezone, onRefresh
 
       {deletingList ? (
         <ConfirmDialog
-          title="Delete list"
-          heading={`Delete “${deletingList.name}”?`}
-          body={`The list will be removed. The tasks and lists inside it are kept and move up one level.`}
-          confirmLabel="Delete"
+          title="Move to trash"
+          heading={`Move “${deletingList.name}” to the trash?`}
+          body="The list and the tasks and lists inside it can be restored from the trash for 30 days."
+          confirmLabel="Move to trash"
           tone="danger"
           busy={saving}
           onClose={() => setDeletingList(null)}

@@ -110,6 +110,7 @@ function noteFrom(note: CoreNote): Note {
       : undefined,
     createdAt: note.created_at,
     updatedAt: note.updated_at,
+    trashedAt: note.trashed_at,
     readable: note.readable,
   };
 }
@@ -147,6 +148,7 @@ function notebookFrom(notebook: CoreNotebook): Notebook {
     archived: notebook.archived || undefined,
     hideFromAll: notebook.hide_from_all || undefined,
     raw: notebook.raw,
+    trashedAt: notebook.trashed_at,
     readable: notebook.readable,
   };
 }
@@ -181,6 +183,7 @@ export function notebookNameById(
       id: notebook.id,
       name: notebook.name,
       color: notebook.color,
+      trashed_at: notebook.trashedAt,
       readable: notebook.readable ?? true,
       raw: notebook.raw,
     })),

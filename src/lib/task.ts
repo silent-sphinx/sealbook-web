@@ -95,6 +95,7 @@ function taskFrom(task: CoreTask): Task {
     recurrenceAnchor: task.recurrence_anchor,
     createdAt: task.created_at,
     updatedAt: task.updated_at,
+    trashedAt: task.trashed_at,
     readable: task.readable,
   };
 }
@@ -129,6 +130,7 @@ export function taskTo(task: Task): CoreTask {
     title: task.title,
     derived_title: task.derivedTitle === true,
     updated_at: task.updatedAt,
+    trashed_at: task.trashedAt,
     readable: task.readable ?? true,
     raw: task.raw ?? "",
   };
@@ -180,6 +182,7 @@ function listFrom(list: CoreTaskList): TaskList {
     archived: list.archived || undefined,
     hideFromAll: list.hide_from_all || undefined,
     raw: list.raw,
+    trashedAt: list.trashed_at,
     readable: list.readable,
   };
 }
@@ -192,6 +195,7 @@ export function listTo(list: TaskList): CoreTaskList {
     color: list.color,
     archived: list.archived ?? false,
     hide_from_all: list.hideFromAll ?? false,
+    trashed_at: list.trashedAt,
     readable: list.readable ?? true,
     raw: list.raw,
   };

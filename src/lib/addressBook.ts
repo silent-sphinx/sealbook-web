@@ -51,6 +51,7 @@ export function parseAddressBook(id: string, raw: string): AddressBook {
     name: book.name,
     archived: book.archived || undefined,
     hideFromAll: book.hide_from_all || undefined,
+    trashedAt: book.trashed_at,
     color: book.color,
     raw: book.raw,
   };

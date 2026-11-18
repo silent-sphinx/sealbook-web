@@ -27,7 +27,7 @@ import type { Calendar, CalendarEvent } from "./lib/types";
 import type { Session } from "./lib/client";
 
 type Write = {
-  kind: "putCalendar" | "putEvent" | "deleteCalendar" | "deleteEvent";
+  kind: "putCalendar" | "putEvent" | "deleteCalendar" | "deleteEvent" | "trash";
   id?: string;
   draft?: Record<string, unknown>;
 };
@@ -68,6 +68,20 @@ vi.mock("./lib/client", async () => {
     },
   };
 });
+
+vi.mock("./lib/trashApi", () => ({
+  trashItems: async (_session: unknown, entries: { kind: string; item: { id: string } }[]) => {
+    for (const { kind, item } of entries) {
+      writes.push({ kind: "trash", id: item.id });
+      if (kind === "calendar") {
+        calendars = calendars.filter((calendar) => calendar.id !== item.id);
+        events = events.filter((event) => event.calendarId !== item.id);
+      } else {
+        events = events.filter((event) => event.id !== item.id);
+      }
+    }
+  },
+}));
 
 import { CalendarView } from "./components/CalendarView";
 
@@ -261,30 +275,29 @@ describe("deleting a calendar", () => {
     ];
   });
 
-  it("takes its events with it, and them first", async () => {
+  it("moves it to the trash with its events, in one write", async () => {
     mount();
 
     chooseFromMenu("Work", "Delete calendar");
-    confirmIn("Delete calendar", "Delete calendar");
+    confirmIn("Move to trash", "Move to trash");
 
-    await waitFor(() => expect(writes.length).toBe(3));
-    expect(writes).toEqual([
-      { kind: "deleteEvent", id: "event-1" },
-      { kind: "deleteEvent", id: "event-2" },
-      { kind: "deleteCalendar", id: WORK_ID },
-    ]);
+    await waitFor(() => expect(writes.length).toBe(1));
+    expect(writes).toEqual([{ kind: "trash", id: WORK_ID }]);
     // The other calendar's event is untouched.
     expect(await screen.findByText("Dentist")).toBeDefined();
   });
 
-  it("leaves the calendar in place when only its events are purged", async () => {
+  it("leaves the calendar in place when only its events are purged to the trash", async () => {
     mount();
 
     chooseFromMenu("Work", "Purge events");
     confirmIn("Purge Events", "Purge Events");
 
     await waitFor(() => expect(writes.length).toBe(2));
-    expect(writes.every((write) => write.kind === "deleteEvent")).toBe(true);
+    expect(writes).toEqual([
+      { kind: "trash", id: "event-1" },
+      { kind: "trash", id: "event-2" },
+    ]);
     expect(calendars.some((calendar) => calendar.id === WORK_ID)).toBe(true);
   });
 

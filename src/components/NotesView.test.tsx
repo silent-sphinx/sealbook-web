@@ -5,7 +5,7 @@
  * `App` owns the vault lists and the refresh; this view owns the editor buffer,
  * the autosaver in front of it and the notebook sidebar. What is under test is
  * that boundary: which edits reach `putNote` and when, which ones are not worth
- * a write at all, and that a delete takes a note's subtree with it.
+ * a write at all, and that a delete moves a note to the trash with its subtree.
  *
  * `lib/client` is faked rather than driven through a session, as in the suites
  * that mount `App`: every write here would otherwise need an OPAQUE exchange
@@ -26,10 +26,10 @@ import type { Note, NoteAttachment, NoteDraft, Notebook } from "../lib/types";
 let notes: Note[] = [];
 let notebooks: Notebook[] = [];
 let writes: { id: string | undefined; draft: NoteDraft }[] = [];
-let deletes: string[] = [];
+/** Each id `trashItems` moved to the trash, in order. */
+let trashed: string[] = [];
 let notebookHideWrites: (boolean | undefined)[] = [];
 let notebookWrites: { name: string; id?: string; previousRaw?: string; color?: string }[] = [];
-let notebookDeletes: string[] = [];
 let ensured = 0;
 let created = 0;
 /** The vault rows the faked client reports, by id. */
@@ -38,11 +38,46 @@ let stored = new Map<string, { revision: number; payload: string }>();
 let bases: unknown[] = [];
 /** When set, what the next `saveNote` reports as stored, as after a merge. */
 let mergedPayload: string | null = null;
-/** Note ids `deleteNote` refuses, for the paths that have to survive one. */
-let undeletable = new Set<string>();
-/** How many batched calls the delete and the child rewrite each made. */
-let deleteBatches = 0;
+/** Ids whose trash write is refused, for the paths that have to survive one. */
+let untrashable = new Set<string>();
+/** How many batched calls the trash write and the child rewrite each made. */
+let trashBatches = 0;
 let moveBatches = 0;
+
+/** A note and every note under it, by `parentId`, as the trash hides them. */
+function subtreeOf(id: string): Set<string> {
+  const ids = new Set([id]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const note of notes) {
+      if (note.parentId && ids.has(note.parentId) && !ids.has(note.id)) {
+        ids.add(note.id);
+        grew = true;
+      }
+    }
+  }
+  return ids;
+}
+
+vi.mock("../lib/trashApi", () => ({
+  trashItems: async (_session: unknown, entries: { kind: string; item: { id: string } }[]) => {
+    trashBatches += 1;
+    if (entries.some((entry) => untrashable.has(entry.item.id))) {
+      throw new Error("That would not move to the trash.");
+    }
+    for (const { kind, item } of entries) {
+      trashed.push(item.id);
+      if (kind === "notebook") {
+        notebooks = notebooks.filter((book) => book.id !== item.id);
+        notes = notes.filter((note) => note.notebookId !== item.id);
+      } else {
+        const gone = subtreeOf(item.id);
+        notes = notes.filter((note) => !gone.has(note.id));
+      }
+    }
+  },
+}));
 
 vi.mock("../lib/client", async () => {
   const actual = await vi.importActual<typeof import("../lib/client")>("../lib/client");
@@ -83,14 +118,6 @@ vi.mock("../lib/client", async () => {
       stored.set(saved.id, settled);
       return { id: saved.id, written, settled };
     },
-    deleteNotes: async (_session: unknown, ids: string[]) => {
-      deleteBatches += 1;
-      const refused = new Map(ids.filter((id) => undeletable.has(id)).map((id) => [id, "that note would not delete"]));
-      const gone = ids.filter((id) => !refused.has(id));
-      deletes.push(...gone);
-      notes = notes.filter((note) => !gone.includes(note.id));
-      if (refused.size > 0) throw new actual.RefusedWrites(refused);
-    },
     putNotes: async (_session: unknown, batch: { id: string; draft: NoteDraft }[]) => {
       moveBatches += 1;
       for (const { id, draft } of batch) {
@@ -112,10 +139,6 @@ vi.mock("../lib/client", async () => {
       if (id) notebooks = notebooks.map((book) => (book.id === id ? { ...book, name, color } : book));
       else notebooks = [...notebooks, { id: `notebook-${name}`, name, raw: "{}" }];
       return id ?? `notebook-${name}`;
-    },
-    deleteNotebook: async (_session: unknown, id: string) => {
-      notebookDeletes.push(id);
-      notebooks = notebooks.filter((book) => book.id !== id);
     },
   };
 });
@@ -224,12 +247,11 @@ beforeEach(() => {
   notes = [];
   notebooks = [];
   writes = [];
-  deletes = [];
+  trashed = [];
   notebookWrites = [];
   notebookHideWrites = [];
-  notebookDeletes = [];
-  undeletable = new Set();
-  deleteBatches = 0;
+  untrashable = new Set();
+  trashBatches = 0;
   moveBatches = 0;
   ensured = 0;
   created = 0;
@@ -337,7 +359,7 @@ describe("NotesView, the notebook sidebar", () => {
     expect(labels).toEqual(["Rename notebook", "Change colour", "Hide from overview"]);
   });
 
-  it("deletes a notebook and the notes it held", async () => {
+  it("moves a notebook to the trash, its notes with it", async () => {
     const work: Notebook = { id: "notebook-work", name: "Work", raw: "{}" };
     mount({
       notebooks: [DEFAULT_BOOK, work],
@@ -345,39 +367,34 @@ describe("NotesView, the notebook sidebar", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Work" }));
-    const dialog = screen.getByRole("dialog", { name: "Delete notebook" });
+    const dialog = screen.getByRole("dialog", { name: "Move to trash" });
     expect(dialog.textContent).toContain("its 1 note");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete notebook" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move to trash" }));
 
-    await waitFor(() => expect(notebookDeletes).toEqual([work.id]));
-    expect(deletes).toEqual(["a"]);
-    expect(deleteBatches).toBe(1);
+    await waitFor(() => expect(trashed).toEqual([work.id]));
+    expect(trashBatches).toBe(1);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Delete Work" })).toBeNull());
+    expect(notes.map((note) => note.id)).toEqual(["b"]);
   });
 
-  it("keeps a notebook whose notes would not all delete", async () => {
+  it("keeps a notebook whose trash write was refused", async () => {
     const work: Notebook = { id: "notebook-work", name: "Work", raw: "{}" };
-    undeletable = new Set(["b"]);
+    untrashable = new Set([work.id]);
     mount({
       notebooks: [DEFAULT_BOOK, work],
-      notes: [
-        aNote({ id: "a", notebookId: work.id }),
-        aNote({ id: "b", notebookId: work.id }),
-      ],
+      notes: [aNote({ id: "a", notebookId: work.id })],
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Work" }));
     fireEvent.click(
-      within(screen.getByRole("dialog", { name: "Delete notebook" })).getByRole("button", {
-        name: "Delete notebook",
+      within(screen.getByRole("dialog", { name: "Move to trash" })).getByRole("button", {
+        name: "Move to trash",
       }),
     );
 
-    await waitFor(() =>
-      expect(screen.getByRole("alert").textContent).toBe(
-        "1 of 2 notes could not be deleted, so the notebook was kept.",
-      ),
-    );
-    expect(notebookDeletes).toEqual([]);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).not.toBe(""));
+    expect(trashed).toEqual([]);
+    expect(screen.getByRole("button", { name: "Delete Work" })).not.toBeNull();
   });
 });
 
@@ -848,7 +865,7 @@ describe("NotesView, moving notes about", () => {
 });
 
 describe("NotesView, deleting notes", () => {
-  it("deletes a note and everything under it", async () => {
+  it("moves a note to the trash with everything under it, in one write", async () => {
     mount({
       notes: [
         aNote({ id: "parent", title: "Shopping" }),
@@ -859,23 +876,23 @@ describe("NotesView, deleting notes", () => {
 
     await openNote("Shopping");
     fireEvent.click(within(editorHeader()).getByRole("button", { name: "Delete Shopping" }));
-    const dialog = screen.getByRole("dialog", { name: "Delete note" });
+    const dialog = screen.getByRole("dialog", { name: "Move to trash" });
     expect(dialog.textContent).toContain("the 1 note inside it");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete note" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move to trash" }));
 
-    await waitFor(() => expect(deletes.sort()).toEqual(["child", "parent"]));
-    expect(deletes).not.toContain("other");
-    expect(deleteBatches).toBe(1);
+    await waitFor(() => expect(trashed).toEqual(["parent"]));
+    expect(trashBatches).toBe(1);
+    expect(notes.map((note) => note.id)).toEqual(["other"]);
   });
 
-  it("closes the editor when the note it was on is deleted", async () => {
+  it("closes the editor when the note it was on is moved to the trash", async () => {
     mount({ notes: [aNote({ id: "a", title: "Shopping" })] });
 
     await openNote("Shopping");
     fireEvent.click(within(editorHeader()).getByRole("button", { name: "Delete Shopping" }));
     fireEvent.click(
-      within(screen.getByRole("dialog", { name: "Delete note" })).getByRole("button", {
-        name: "Delete note",
+      within(screen.getByRole("dialog", { name: "Move to trash" })).getByRole("button", {
+        name: "Move to trash",
       }),
     );
 
@@ -890,9 +907,9 @@ describe("NotesView, deleting notes", () => {
     await openNote("Shopping");
     fireEvent.click(within(editorHeader()).getByRole("button", { name: "Delete Shopping" }));
 
-    expect(screen.getByRole("dialog", { name: "Delete note" }).textContent).toContain(
-      "This permanently removes the note from your encrypted vault",
-    );
+    const dialog = screen.getByRole("dialog", { name: "Move to trash" });
+    expect(dialog.textContent).toContain("It can be restored from the trash for 30 days.");
+    expect(dialog.textContent).not.toContain("inside it");
   });
 });
 
@@ -986,19 +1003,20 @@ describe("NotesView, bulk editing", () => {
     await waitFor(() => expect(pane().queryByRole("toolbar", { name: "Bulk edit notes" })).toBeNull());
   });
 
-  it("asks before deleting, and takes what is inside each note with it", async () => {
+  it("asks before moving to the trash, writing only the picked notes", async () => {
     mount({ notes: [...three(), aNote({ id: "a1", title: "Inner", parentId: "a" })] });
     fireEvent.click(screen.getByRole("button", { name: /^Default Notebook, \d+ notes?$/ }));
     pick("Alpha");
     pick("Beta");
     fireEvent.click(within(bar()).getByRole("button", { name: "Delete" }));
-    expect(deletes).toEqual([]);
-    const dialog = screen.getByRole("dialog", { name: "Delete notes" });
-    expect(dialog.textContent).toContain("Delete 2 notes?");
+    expect(trashed).toEqual([]);
+    const dialog = screen.getByRole("dialog", { name: "Move to trash" });
+    expect(dialog.textContent).toContain("Move 2 notes to the trash?");
     expect(dialog.textContent).toContain("the 1 note inside them");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete notes" }));
-    await waitFor(() => expect(deletes.sort()).toEqual(["a", "a1", "b"]));
-    expect(deleteBatches).toBe(1);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move to trash" }));
+    await waitFor(() => expect([...trashed].sort()).toEqual(["a", "b"]));
+    expect(trashBatches).toBe(1);
+    expect(notes.map((note) => note.id)).not.toContain("a1");
   });
 });
 
@@ -1062,15 +1080,15 @@ describe("NotesView, right-clicking a note in the main pane", () => {
     await waitFor(() => expect(pane().getByText("Omega")).not.toBeNull());
   });
 
-  it("deletes a note from a notebook's table row, after confirming", async () => {
+  it("moves a note to the trash from a notebook's table row, after confirming", async () => {
     mount({ notes: [aNote({ id: "a", title: "Alpha" }), aNote({ id: "b", title: "Beta" })] });
     fireEvent.click(screen.getByRole("button", { name: /^Default Notebook, \d+ notes?$/ }));
     fireEvent.click(pane().getByRole("radio", { name: "Table" }));
     fireEvent.contextMenu(within(pane().getByRole("table")).getByRole("button", { name: "Alpha" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete note" }));
-    expect(deletes).toEqual([]);
-    fireEvent.click(within(screen.getByRole("dialog", { name: "Delete note" })).getByRole("button", { name: "Delete note" }));
-    await waitFor(() => expect(deletes).toEqual(["a"]));
+    expect(trashed).toEqual([]);
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Move to trash" })).getByRole("button", { name: "Move to trash" }));
+    await waitFor(() => expect(trashed).toEqual(["a"]));
     localStorage.clear();
   });
 

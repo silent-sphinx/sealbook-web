@@ -131,7 +131,7 @@ describe("the contact row context menu", () => {
     openRowMenu("Ada Lovelace");
     choose("Delete contact");
 
-    expect(await screen.findByText(/Delete .Ada Lovelace.\?/u)).toBeDefined();
+    expect(await screen.findByText(/Move .Ada Lovelace. to the trash\?/u)).toBeDefined();
     expect(screen.getByText("Ada Lovelace")).toBeDefined();
   });
 });

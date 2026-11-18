@@ -41,6 +41,8 @@ import type { ContactBulkChange } from "../lib/contactBulk";
 import { useItemSelection } from "../lib/useItemSelection";
 import type { AddressBook, Contact, ContactDraft } from "../lib/types";
 import { Icon } from "./Icon";
+import { TrashPanel, TrashRow, trashRootsFor } from "./Trash";
+import type { TrashListing } from "../lib/trash";
 import { EmptyState } from "./EmptyState";
 
 interface ContactsTabProps {
@@ -64,6 +66,10 @@ interface ContactsTabProps {
   soleShownBook: AddressBook | null;
   listTitle: string;
   viewingArchive: boolean;
+  trash: TrashListing;
+  viewingTrash: boolean;
+  onSetViewingTrash: (value: boolean) => void;
+  onTrashChanged: () => Promise<unknown>;
   detailedContacts: boolean;
   composing: boolean;
   deletingContact: Contact | null;
@@ -115,6 +121,10 @@ export function ContactsTab({
   soleShownBook,
   listTitle,
   viewingArchive,
+  trash,
+  viewingTrash,
+  onSetViewingTrash,
+  onTrashChanged,
   detailedContacts,
   composing,
   deletingContact,
@@ -155,6 +165,7 @@ export function ContactsTab({
   );
 
   const menu = useContextMenu();
+  const trashCount = useMemo(() => trashRootsFor(trash, "contacts").length, [trash]);
 
   const selection = useItemSelection(filtered);
   const { selected: checkedIds, selectedItems: checkedContacts, selecting, clear: endSelecting } = selection;
@@ -284,9 +295,25 @@ export function ContactsTab({
                 <span className={`shrink-0 ${sidebarCount}`}>{archivedContacts.length || ""}</span>
               </button>
             </div>
+            <TrashRow
+              count={trashCount}
+              active={viewingTrash}
+              onToggle={() => onGuardEditing(() => onSetViewingTrash(!viewingTrash))}
+            />
           </SidebarSection>
         </SidebarDrawer>
 
+        {viewingTrash ? (
+          <TrashPanel
+            session={session}
+            trash={trash}
+            tab="contacts"
+            liveContacts={contacts}
+            onChanged={async () => {
+              await onTrashChanged();
+            }}
+          />
+        ) : (
         <section className="order-1 flex min-w-0 flex-col overflow-hidden lg:order-none lg:min-h-0">
           <header className={paneHeader}>
             <div className="flex min-w-0 items-center gap-2 max-sm:sr-only">
@@ -518,6 +545,7 @@ export function ContactsTab({
             </div>
           </div>
         </section>
+        )}
       </div>
 
       <ContextMenu state={menu.menu} onClose={menu.close} />

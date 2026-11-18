@@ -31,6 +31,8 @@ let writes: { id: string | undefined; draft: TaskDraft }[] = [];
 let deletes: string[] = [];
 let listWrites: { name: string; parentId?: string; id?: string; color?: string }[] = [];
 let listDeletes: string[] = [];
+/** Each id `trashItems` moved to the trash, in order. */
+let trashed: string[] = [];
 let hideWrites: (boolean | undefined)[] = [];
 let ensured = 0;
 let refreshes = 0;
@@ -83,6 +85,38 @@ vi.mock("../lib/client", async () => {
     },
   };
 });
+
+/** Ids under `id` by `parentId`, itself included, as the trash hides them. */
+function under<T extends { id: string; parentId?: string }>(items: T[], id: string): Set<string> {
+  const ids = new Set([id]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const item of items) {
+      if (item.parentId && ids.has(item.parentId) && !ids.has(item.id)) {
+        ids.add(item.id);
+        grew = true;
+      }
+    }
+  }
+  return ids;
+}
+
+vi.mock("../lib/trashApi", () => ({
+  trashItems: async (_session: unknown, entries: { kind: string; item: { id: string } }[]) => {
+    for (const { kind, item } of entries) {
+      trashed.push(item.id);
+      if (kind === "task_list") {
+        const gone = under(taskLists, item.id);
+        taskLists = taskLists.filter((list) => !gone.has(list.id));
+        tasks = tasks.filter((task) => !gone.has(task.taskListId ?? ""));
+      } else {
+        const gone = under(tasks, item.id);
+        tasks = tasks.filter((task) => !gone.has(task.id));
+      }
+    }
+  },
+}));
 
 const { TasksView } = await import("./TasksView");
 
@@ -184,6 +218,7 @@ beforeEach(() => {
   deletes = [];
   listWrites = [];
   listDeletes = [];
+  trashed = [];
   hideWrites = [];
   ensured = 0;
   refreshes = 0;
@@ -501,7 +536,7 @@ describe("TasksView, the form", () => {
 });
 
 describe("TasksView, deleting", () => {
-  it("moves a deleted task's subtasks up a level", async () => {
+  it("moves a task to the trash with its subtasks", async () => {
     mount({
       tasks: [
         aTask("grand"),
@@ -512,13 +547,14 @@ describe("TasksView, deleting", () => {
     pick("Default Task List");
     expand("grand");
     fireEvent.click(within(board()).getByRole("button", { name: "Delete middle" }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }));
-    await waitFor(() => expect(deletes).toEqual(["middle"]));
-    expect(writes).toHaveLength(1);
-    expect(writes[0]).toMatchObject({ id: "leaf", draft: { parentId: "grand" } });
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Move to trash" }));
+    await waitFor(() => expect(trashed).toEqual(["middle"]));
+    expect(writes).toEqual([]);
+    expect(deletes).toEqual([]);
+    expect(tasks.map((task) => task.id)).toEqual(["grand"]);
   });
 
-  it("moves a deleted list's tasks and sublists up, rather than cascading", async () => {
+  it("moves a list to the trash with its tasks and sublists", async () => {
     mount({
       taskLists: [
         DEFAULT_LIST,
@@ -528,10 +564,13 @@ describe("TasksView, deleting", () => {
       tasks: [aTask("a", { taskListId: "work" })],
     });
     fireEvent.click(within(sidebar()).getByRole("button", { name: "Delete Work" }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }));
-    await waitFor(() => expect(listDeletes).toEqual(["work"]));
-    expect(listWrites).toEqual([{ name: "Deep", parentId: undefined, id: "deep" }]);
-    expect(writes[0]).toMatchObject({ id: "a", draft: { taskListId: DEFAULT_TASK_LIST_ID } });
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Move to trash" }));
+    await waitFor(() => expect(trashed).toEqual(["work"]));
+    expect(listWrites).toEqual([]);
+    expect(writes).toEqual([]);
+    expect(listDeletes).toEqual([]);
+    expect(taskLists.map((list) => list.id)).toEqual([DEFAULT_TASK_LIST_ID]);
+    expect(tasks).toEqual([]);
   });
 
   it("offers no delete for the default list", () => {
@@ -806,14 +845,14 @@ describe("TasksView, the detail pane", () => {
     expect(writes[0]!.draft.done).toBe(true);
   });
 
-  it("falls back to the parent when the selected task is deleted", async () => {
+  it("falls back to the parent when the selected task is moved to the trash", async () => {
     mount({ tasks: [aTask("parent"), aTask("child", { parentId: "parent" })] });
     pick("Default Task List");
     expand("parent");
     fireEvent.click(row("child"));
     fireEvent.click(within(pane("child")).getByRole("button", { name: "Delete this task" }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }));
-    await waitFor(() => expect(deletes).toEqual(["child"]));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Move to trash" }));
+    await waitFor(() => expect(trashed).toEqual(["child"]));
     expect(pane("parent")).not.toBeNull();
   });
 
@@ -1021,18 +1060,18 @@ describe("TasksView, bulk editing", () => {
     expect(writes.every((write) => write.draft.dueDate === "2030-05-01")).toBe(true);
   });
 
-  it("asks before deleting, then lifts subtasks that stay", async () => {
+  it("asks before moving to the trash, and takes subtasks along", async () => {
     mount({ tasks: [aTask("p"), aTask("c", { parentId: "p" }), aTask("other")] });
     pick("Default Task List");
     pickRow("p");
     pickRow("other");
     fireEvent.click(within(bar()).getByRole("button", { name: /Actions/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete 2 tasks" }));
-    expect(deletes).toEqual([]);
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }));
-    await waitFor(() => expect(deletes.sort()).toEqual(["other", "p"]));
-    expect(writes).toHaveLength(1);
-    expect(writes[0]).toMatchObject({ id: "c", draft: { parentId: undefined } });
+    expect(trashed).toEqual([]);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Move to trash" }));
+    await waitFor(() => expect([...trashed].sort()).toEqual(["other", "p"]));
+    expect(writes).toEqual([]);
+    expect(tasks).toEqual([]);
   });
 
   it("offers no selection when read only", () => {

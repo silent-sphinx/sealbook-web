@@ -66,6 +66,7 @@ function calendarFrom(calendar: CoreCalendar): Calendar {
     favorite: calendar.favorite,
     archived: calendar.archived,
     hideFromAll: calendar.hide_from_all || undefined,
+    trashedAt: calendar.trashed_at,
     readable: calendar.readable,
     raw: calendar.raw,
   };
@@ -128,6 +129,7 @@ function eventFrom(event: CoreCalendarEvent): CalendarEvent {
       ? event.alerts.map((alert) => ({ minutesBefore: alert.minutes_before, extra: alert.extra }))
       : undefined,
     unreadableAlerts: event.unreadable_alerts?.length ? event.unreadable_alerts : undefined,
+    trashedAt: event.trashed_at,
     readable: event.readable,
     raw: event.raw,
   };
@@ -180,6 +182,7 @@ export function calendarNameById(
       favorite: calendar.favorite === true,
       archived: calendar.archived === true,
       hide_from_all: calendar.hideFromAll === true,
+      trashed_at: calendar.trashedAt,
       readable: calendar.readable !== false,
       raw: calendar.raw ?? "",
     })),

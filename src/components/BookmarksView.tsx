@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { TrashPanel, TrashRow, trashRootsFor } from "./Trash";
+import { NO_TRASH, type TrashListing } from "../lib/trash";
+import { trashItems } from "../lib/trashApi";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 import { CollectionIcon } from "./AppIcons";
 import { CollectionSidebar } from "./CollectionSidebar";
@@ -32,9 +35,6 @@ import {
   sortCollections,
 } from "../lib/bookmark";
 import {
-  deleteBookmark,
-  deleteBookmarkCollection,
-  deleteBookmarks,
   ensureDefaultBookmarkCollection,
   putBookmark,
   putBookmarkCollection,
@@ -84,6 +84,8 @@ import { EmptyState } from "./EmptyState";
 
 type Props = {
   session: Session;
+  /** What is in the trash; the Bookmarks tab lists its bookmarks and collections. */
+  trash?: TrashListing;
   bookmarks: Bookmark[];
   collections: BookmarkCollection[];
   busy: boolean;
@@ -113,6 +115,7 @@ function plural(count: number, word: string): string {
 
 export function BookmarksView({
   session,
+  trash = NO_TRASH,
   bookmarks,
   collections,
   busy,
@@ -145,6 +148,8 @@ export function BookmarksView({
   const [deletingCollection, setDeletingCollection] =
     useState<BookmarkCollection | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [viewingTrash, setViewingTrash] = useState(false);
+  const trashCount = useMemo(() => trashRootsFor(trash, "bookmarks").length, [trash]);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [bulk, setBulk] = useState<BulkKind | null>(null);
@@ -399,7 +404,7 @@ export function BookmarksView({
     setError(null);
     try {
       if (bulk === "delete") {
-        await deleteBookmarks(session, selectedBookmarks.map((bookmark) => bookmark.id));
+        await trashItems(session, selectedBookmarks.map((item) => ({ kind: "bookmark" as const, item })));
       } else {
         await putBookmarks(session, writes);
       }
@@ -407,7 +412,7 @@ export function BookmarksView({
       setBulk(null);
       endSelecting();
       const changed = bulk === "delete" ? selectedBookmarks.length : writes.length;
-      const parts = [`${plural(changed, "bookmark")} ${bulk === "delete" ? "deleted" : "updated"}`];
+      const parts = [`${plural(changed, "bookmark")} ${bulk === "delete" ? "moved to the trash" : "updated"}`];
       if (skipped > 0) parts.push(`${skipped} skipped: saved by a newer version of Sealbook`);
       setNotice(`${parts.join(", ")}.`);
     } catch (err) {
@@ -468,7 +473,7 @@ export function BookmarksView({
     setSaving(true);
     setError(null);
     try {
-      await deleteBookmark(session, bookmark.id);
+      await trashItems(session, [{ kind: "bookmark", item: bookmark }]);
       await onRefresh();
       setConfirmDelete(null);
       if (editingId === bookmark.id) closeForm();
@@ -480,43 +485,16 @@ export function BookmarksView({
   }
 
   /**
-   * Deletes a collection and moves what it held up to its parent, rather than
-   * cascading.
-   *
-   * Taking a subtree of saved links out behind one confirm dialog is the wrong
-   * default when the vault has no undo: the collection goes, its contents stay.
+   * Moves a collection to the trash. The bookmarks and collections inside it
+   * go with it, and a restore brings them back together.
    */
   async function removeCollection(collection: BookmarkCollection) {
     setSaving(true);
     setError(null);
-    const parentId = collection.parentId;
     try {
-      for (const child of collections) {
-        if (child.parentId !== collection.id) continue;
-        await putBookmarkCollection(
-          session,
-          child.name,
-          parentId,
-          child.id,
-          child.raw,
-          child.color,
-        );
-      }
-      for (const bookmark of bookmarks) {
-        if (resolveCollectionId(bookmark.collectionId) !== collection.id)
-          continue;
-        await putBookmark(
-          session,
-          {
-            ...bookmarkDraft(bookmark),
-            collectionId: parentId ?? DEFAULT_BOOKMARK_COLLECTION_ID,
-          },
-          bookmark.id,
-        );
-      }
-      await deleteBookmarkCollection(session, collection.id);
+      await trashItems(session, [{ kind: "bookmark_collection", item: collection }]);
       await onRefresh();
-      if (scope === collection.id) setScope(parentId ?? ALL);
+      if (scope === collection.id) setScope(collection.parentId ?? ALL);
       setDeletingCollection(null);
     } catch (err) {
       setError(friendlyError(err));
@@ -872,9 +850,19 @@ export function BookmarksView({
               readOnly={readOnlyMode}
               busy={busy || saving}
             />
+            {readOnlyMode ? null : (
+              <TrashRow
+                count={trashCount}
+                active={viewingTrash}
+                onToggle={() => setViewingTrash(!viewingTrash)}
+              />
+            )}
           </SidebarSection>
         </SidebarDrawer>
 
+        {viewingTrash ? (
+          <TrashPanel session={session} trash={trash} tab="bookmarks" onChanged={async () => { await onRefresh(); }} />
+        ) : (
         <section className="flex min-h-0 flex-col overflow-hidden">
           <header className={paneHeader}>
             <div className="flex min-w-0 items-center gap-2">
@@ -1345,14 +1333,15 @@ export function BookmarksView({
             )}
           </div>
         </section>
+        )}
       </div>
 
       {confirmDelete ? (
         <ConfirmDialog
-          title="Delete bookmark"
-          heading={`Delete “${confirmDelete.title}”?`}
-          body="It will be removed from every device signed in to this account."
-          confirmLabel="Delete"
+          title="Move to trash"
+          heading={`Move “${confirmDelete.title}” to the trash?`}
+          body="It can be restored from the trash for 30 days."
+          confirmLabel="Move to trash"
           tone="danger"
           busy={saving}
           onClose={() => setConfirmDelete(null)}
@@ -1362,10 +1351,10 @@ export function BookmarksView({
 
       {bulk === "delete" ? (
         <ConfirmDialog
-          title="Delete bookmarks"
-          heading={`Delete ${plural(selectedBookmarks.length, "bookmark")}?`}
-          body="They will be removed from every device signed in to this account."
-          confirmLabel="Delete"
+          title="Move to trash"
+          heading={`Move ${plural(selectedBookmarks.length, "bookmark")} to the trash?`}
+          body="They can be restored from the trash for 30 days."
+          confirmLabel="Move to trash"
           tone="danger"
           busy={saving}
           error={bulkError}
@@ -1462,10 +1451,10 @@ export function BookmarksView({
 
       {deletingCollection ? (
         <ConfirmDialog
-          title="Delete collection"
-          heading={`Delete “${deletingCollection.name}”?`}
-          body={`The collection will be removed. The bookmarks and collections inside it are kept and move up one level.`}
-          confirmLabel="Delete"
+          title="Move to trash"
+          heading={`Move “${deletingCollection.name}” to the trash?`}
+          body="The collection and everything inside it can be restored from the trash for 30 days."
+          confirmLabel="Move to trash"
           tone="danger"
           busy={saving}
           onClose={() => setDeletingCollection(null)}

@@ -19,6 +19,20 @@ const PASSWORD = "correct horse battery";
 let store: Contact[] = [];
 const writes: { id?: string; draft: ContactDraft }[] = [];
 const deleted: string[] = [];
+const trashed: string[] = [];
+
+vi.mock("./lib/trashApi", async () => {
+  const actual = await vi.importActual<typeof import("./lib/trashApi")>("./lib/trashApi");
+  return {
+    ...actual,
+    trashItems: async (_session: unknown, entries: { item: { id: string } }[]) => {
+      for (const { item } of entries) trashed.push(item.id);
+      const gone = new Set(entries.map((entry) => entry.item.id));
+      store = store.filter((contact) => !gone.has(contact.id));
+    },
+    sweepTrashIfDue: async () => null,
+  };
+});
 
 vi.mock("./lib/client", async () => {
   const actual = await vi.importActual<typeof import("./lib/client")>("./lib/client");
@@ -123,7 +137,7 @@ describe("bulk selecting contacts", () => {
     await waitFor(() => expect(screen.queryByRole("toolbar")).toBeNull());
   });
 
-  it("asks before deleting the selection, then deletes each contact", async () => {
+  it("asks before moving the selection to the trash, then moves each contact", async () => {
     await unlock();
 
     pick("Ada Lovelace");
@@ -133,11 +147,12 @@ describe("bulk selecting contacts", () => {
     fireEvent.pointerDown(item);
     fireEvent.click(item);
 
-    expect(await screen.findByText("Delete 2 contacts?")).toBeDefined();
-    expect(deleted).toEqual([]);
-    fireEvent.click(screen.getByRole("button", { name: "Delete 2 contacts" }));
+    expect(await screen.findByText("Move 2 contacts to the trash?")).toBeDefined();
+    expect(trashed).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Move to trash" }));
 
-    await waitFor(() => expect(deleted.sort()).toEqual(["c1", "c2"]));
+    await waitFor(() => expect([...trashed].sort()).toEqual(["c1", "c2"]));
+    expect(deleted).toEqual([]);
   });
 
   it("starts a selection from a ctrl-click on the row", async () => {

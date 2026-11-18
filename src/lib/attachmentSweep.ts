@@ -7,10 +7,14 @@ export const SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 const sweepKey = (collectionId: string) => `sealbook.attachmentSweep.${collectionId}`;
 
-/** Every attachment id a note or contact in the listing still carries. */
+/**
+ * Every attachment id a note or contact in the listing still carries, in the
+ * trash too: a photo goes only once its item is deleted for good.
+ */
 export function referencedAttachmentIds(listing: VaultListing): Set<string> {
   const ids = new Set<string>();
-  for (const item of [...listing.notes, ...listing.contacts]) {
+  const { notes, contacts } = listing.trash;
+  for (const item of [...listing.notes, ...listing.contacts, ...notes, ...contacts]) {
     for (const entry of item.attachments ?? []) ids.add(entry.id);
   }
   return ids;
