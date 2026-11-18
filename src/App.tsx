@@ -523,6 +523,9 @@ export default function App() {
         log.warn("the hidden address books could not be moved into the vault", { reason: describeError(err) });
       }
     })();
+    // `refreshAfterSave` is redeclared every render and takes the session as an
+    // argument, so the one this closes over is never stale.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, isOffline, addressBooks]);
   useEffect(() => {
     if (!session || isOffline || calendars.length === 0) return;
@@ -544,6 +547,8 @@ export default function App() {
         log.warn("the hidden calendars could not be moved into the vault", { reason: describeError(err) });
       }
     })();
+    // See the address book migration above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, isOffline, calendars]);
 
   const archivedContacts = useMemo(

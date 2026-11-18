@@ -221,6 +221,9 @@ export function NotebookPages({ notebook, notes, notebooks, search, onSearch, re
         ) : (
           <ul className="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-4">
             {pages.map((note) => (
+              // The context menu is a pointer shortcut; from the keyboard it
+              // opens with the menu key on the focused button inside.
+              // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
               <li key={note.id} className="group relative" onContextMenu={(event) => noteMenu.onContextMenu(event, note)}>
                 <button
                   type="button"

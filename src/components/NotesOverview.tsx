@@ -165,6 +165,9 @@ export function NotesOverview({ notebooks, notes, search, onSearch, results, que
           ) : (
             <ul className="divide-y divide-line rounded-lg border border-line">
               {listed.map((note) => (
+                // The context menu is a pointer shortcut; from the keyboard it
+                // opens with the menu key on the focused button inside.
+                // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
                 <li
                   key={note.id}
                   onContextMenu={(event) => noteMenu.onContextMenu(event, note)}

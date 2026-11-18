@@ -117,8 +117,10 @@ describe("the local store without the password", () => {
     closeLocalStore();
     await saving.catch(() => undefined);
 
+    // Whether the save lands before the lock is a race, so no record is a pass.
     const record = await idbGet<{ salt?: string | null }>("outbox");
-    if (record) expect(typeof record.salt).toBe("string");
+    const unopenable = record != null && typeof record.salt !== "string";
+    expect(unopenable).toBe(false);
   });
 
   it("re-seals the copy for a changed password, which then opens and the old one does not", async () => {
