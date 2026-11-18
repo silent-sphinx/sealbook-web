@@ -1,10 +1,10 @@
 import { type FormEvent, type RefObject } from "react";
 import { AuthCard, Brand } from "./AuthLayout";
-import { LockIcon } from "./AppIcons";
+import { SignOutIcon } from "./AppIcons";
 import { Icon } from "./Icon";
 import { PasswordField } from "./PasswordField";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { authField, authLabel, authPrimary, authSecondary, focusRing, ghost } from "../lib/styles";
+import { authField, authLabel, authPrimary, authSecondary, focusRing } from "../lib/styles";
 import { passwordStrength } from "../lib/appState";
 import type { DeviceMetadata } from "../lib/storage";
 import { queuedCount } from "../lib/localStore";
@@ -85,9 +85,15 @@ export function AuthScreen({
             <p className="truncate text-sm font-medium text-text">{stored.username}</p>
             <p className="text-xs text-mute">Signed in on this device</p>
           </div>
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-bg/60 text-mute">
-            <LockIcon />
-          </span>
+          <button
+            type="button"
+            onClick={onConfirmSignOut}
+            aria-label="Sign out"
+            title="Sign out"
+            className={`flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-bg/60 text-mute transition-colors duration-150 hover:text-accent ${focusRing}`}
+          >
+            <SignOutIcon />
+          </button>
         </div>
         <form onSubmit={onUnlock} className="mt-6">
           <label htmlFor="unlock-password" className={authLabel}>
@@ -110,13 +116,6 @@ export function AuthScreen({
             {busy ? "Please wait…" : "Unlock"}
           </button>
         </form>
-        <button
-          type="button"
-          className={`${ghost} mt-4 block w-full py-2 text-center`}
-          onClick={onConfirmSignOut}
-        >
-          Sign out
-        </button>
         {signingOut ? (
           <ConfirmDialog
             title="Sign out"

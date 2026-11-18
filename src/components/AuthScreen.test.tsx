@@ -115,6 +115,15 @@ describe("AuthScreen, the unlock screen", () => {
     expect(onSignOut).not.toHaveBeenCalled();
   });
 
+  it("signs out from an icon button in the account card, named for screen readers", () => {
+    mount({ locked: true, stored: STORED });
+
+    const signOut = screen.getByRole("button", { name: "Sign out" });
+
+    expect(signOut.textContent).toBe("");
+    expect(signOut.parentElement?.textContent).toContain(STORED.username);
+  });
+
   it("closes the dialog before signing out, so the screen is not torn away first", () => {
     const calls: string[] = [];
     mount({
