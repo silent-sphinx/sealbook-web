@@ -78,8 +78,17 @@ async function unlock() {
   await screen.findByRole("button", { name: "Search" });
 }
 
-function shortcut() {
-  fireEvent.keyDown(window, { key: "k", metaKey: true });
+// App attaches the shortcut's listener in an effect, which can run a moment
+// after the header unlock() waits for is on screen, so one press can land
+// before there is anything to hear it. The handler only ever opens the
+// palette, so pressing again until it does is safe.
+async function shortcut() {
+  const deadline = Date.now() + 4000;
+  while (!screen.queryByLabelText("Search everything")) {
+    if (Date.now() > deadline) throw new Error("the search shortcut never opened the palette");
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
 }
 
 async function type(query: string) {
@@ -115,7 +124,7 @@ beforeEach(() => {
 describe("search palette", () => {
   it("opens on the shortcut and groups every kind in tab order, leaving finished tasks out", async () => {
     await unlock();
-    shortcut();
+    await shortcut();
     await type("basil");
     await groupsShow({
       Contacts: ["Basil Hallward"],
@@ -136,7 +145,7 @@ describe("search palette", () => {
 
   it("shows a body hit's snippet", async () => {
     await unlock();
-    shortcut();
+    await shortcut();
     await type("tomatoes");
     await groupsShow({ Notes: ["Shopping"] });
     expect(screen.getByRole("option").textContent).toContain("Tomatoes and basil.");
@@ -144,7 +153,7 @@ describe("search palette", () => {
 
   it("opens a note picked with the keyboard", async () => {
     await unlock();
-    shortcut();
+    await shortcut();
     await type("pesto");
     await groupsShow({ Notes: ["Basil pesto"] });
     fireEvent.keyDown(screen.getByLabelText("Search everything"), { key: "Enter" });
@@ -155,7 +164,7 @@ describe("search palette", () => {
 
   it("moves the cursor with the arrow keys", async () => {
     await unlock();
-    shortcut();
+    await shortcut();
     await type("basil");
     await groupsShow({
       Contacts: ["Basil Hallward"],
@@ -175,7 +184,7 @@ describe("search palette", () => {
 
   it("opens a bookmark in its collection, highlighted", async () => {
     await unlock();
-    shortcut();
+    await shortcut();
     await type("recipes");
     await groupsShow({ Bookmarks: ["Basil recipes"] });
     fireEvent.click(screen.getByRole("option"));
@@ -190,7 +199,7 @@ describe("search palette", () => {
 
   it("opens an event on its day, with its date in the row", async () => {
     await unlock();
-    shortcut();
+    await shortcut();
     await type("tasting");
     await groupsShow({ Calendar: ["Basil tasting"] });
     expect(screen.getByRole("option").textContent).toContain("2099");
@@ -201,7 +210,7 @@ describe("search palette", () => {
 
   it("opens a contact in the detail pane", async () => {
     await unlock();
-    shortcut();
+    await shortcut();
     await type("hallward");
     await groupsShow({ Contacts: ["Basil Hallward"] });
     fireEvent.click(screen.getByRole("option"));
