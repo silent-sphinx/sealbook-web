@@ -66,7 +66,7 @@ export function PartialDateInput({ label, value, onChange }: Props) {
       aria-label={label}
       className="flex h-10 min-w-0 items-center rounded-lg border border-line bg-bg transition-colors focus-within:border-accent-dim focus-within:ring-1 focus-within:ring-accent-ring"
     >
-      <span title={label} className="ml-1.5 min-w-0 truncate rounded-md bg-surface px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-mute/80">
+      <span title={label} className="ml-1.5 min-w-0 truncate rounded-md bg-surface px-2 py-1 text-2xs font-semibold uppercase tracking-wider text-mute/80">
         {label}
       </span>
       {freeform ? (

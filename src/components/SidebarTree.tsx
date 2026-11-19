@@ -3,9 +3,10 @@ import { useState, type ReactNode } from "react";
 import { focusRing, sidebarGutter } from "../lib/styles";
 import type { TreeItem, TreeNode } from "../lib/tree";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
+import { Icon, type IconName } from "./Icon";
 
 export type RowAction = MenuItem & {
-  icon: ReactNode;
+  icon: IconName;
   ariaLabel: string;
 };
 
@@ -73,18 +74,7 @@ export function SidebarTree<T extends TreeItem>({
           aria-expanded={open}
           className={`${sidebarGutter} text-mute transition-colors hover:text-text ${focusRing}`}
         >
-          <svg
-            viewBox="0 0 16 16"
-            className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M6 4l4 4-4 4" />
-          </svg>
+          <Icon name="chevron" className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} />
         </button>
       ) : (
         <span aria-hidden="true" className={sidebarGutter}>
@@ -122,7 +112,7 @@ export function SidebarTree<T extends TreeItem>({
             onContextMenu={(event) => menu.open(event, rowActions)}
             style={{ paddingLeft: `calc(0.5rem + ${node.depth * 0.75}rem)` }}
             className={`list-row tree-row group -mx-2 flex items-center rounded-lg pr-2 transition-colors ${
-              active ? "bg-surface" : "hover:bg-surface/40"
+              active ? "bg-accent-soft" : "hover:bg-hover"
             } ${over === item.id ? "ring-1 ring-accent-ring" : ""}`}
           >
             {lead}
@@ -131,8 +121,8 @@ export function SidebarTree<T extends TreeItem>({
               type="button"
               onClick={() => onSelect(item)}
               aria-current={active ? "true" : undefined}
-              className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-lg py-2 pl-2.5 text-left text-xs transition-colors ${
-                active ? "font-medium text-text" : "text-mute"
+              className={`flex min-w-0 flex-1 items-center gap-1.5 h-8 rounded-lg pl-2.5 text-left text-sm font-medium transition-colors ${
+                active ? "text-text" : "text-mute hover:text-text"
               } ${focusRing}`}
             >
               <span className="min-w-0 truncate">{title}</span>
@@ -153,7 +143,7 @@ export function SidebarTree<T extends TreeItem>({
                         action.danger ? "hover:text-danger" : "hover:text-text"
                       } ${focusRing}`}
                     >
-                      {action.icon}
+                      <Icon name={action.icon} className="h-3 w-3" />
                     </button>
                   ))}
                 </span>
@@ -183,7 +173,7 @@ export function SidebarTree<T extends TreeItem>({
             endDrag();
             if (id) onMove?.(id, null);
           }}
-          className={`mt-1 rounded-lg border border-dashed px-3 py-1.5 text-center text-[10px] transition-colors ${
+          className={`mt-1 rounded-lg border border-dashed px-3 py-1.5 text-center text-2xs transition-colors ${
             over === ROOT_DROP ? "border-accent-dim text-text" : "border-line text-mute"
           }`}
         >
@@ -191,29 +181,5 @@ export function SidebarTree<T extends TreeItem>({
         </div>
       ) : null}
     </div>
-  );
-}
-
-export function PlusMark() {
-  return (
-    <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-      <path d="M8 3.5v9M3.5 8h9" />
-    </svg>
-  );
-}
-
-export function TrashMark() {
-  return (
-    <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 4.5h10M6.5 4.5V3.2h3V4.5M4.5 4.5 5 13h6l.5-8.5" />
-    </svg>
-  );
-}
-
-export function PencilMark() {
-  return (
-    <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M11.5 2.5 13.5 4.5 5.5 12.5 3 13l.5-2.5 8-8Z" />
-    </svg>
   );
 }

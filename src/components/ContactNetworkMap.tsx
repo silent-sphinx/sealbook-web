@@ -10,7 +10,7 @@ import {
 import type { Contact } from "../lib/types";
 import { Avatar } from "./ContactCard";
 import { Icon } from "./Icon";
-import { focusRing } from "../lib/styles";
+import { focusRing, segment } from "../lib/styles";
 
 /** For a pane with no box to measure, such as one that is hidden. */
 const FALLBACK_SIZE = { width: 320, height: 320 };
@@ -513,12 +513,8 @@ export function ContactNetworkMap({
   const isDefaultView =
     view.x === DEFAULT_VIEW.x && view.y === DEFAULT_VIEW.y && view.scale === DEFAULT_VIEW.scale;
 
-  const toolbar = "absolute top-2 flex rounded-lg border border-line bg-panel/90 p-0.5 shadow-sm backdrop-blur-sm";
-  const segment = (active: boolean) =>
-    `h-7 rounded-md px-2.5 text-xs transition-colors ${focusRing} ${
-      active ? "bg-surface font-medium text-text shadow-sm" : "text-mute hover:text-text"
-    }`;
-  const zoomControl = `flex h-7 w-7 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text disabled:pointer-events-none disabled:text-mute/35 ${focusRing}`;
+  const toolbar = "absolute top-2 flex rounded-lg border border-line-light bg-elevated/90 p-0.5 shadow-raised backdrop-blur-sm";
+  const zoomControl = `flex size-7 items-center justify-center rounded-md text-mute transition-colors hover:bg-hover hover:text-text disabled:pointer-events-none disabled:text-faint ${focusRing}`;
 
   return (
     <div className="hidden min-h-56 flex-1 flex-col lg:flex">
@@ -579,7 +575,7 @@ export function ContactNetworkMap({
                   <text
                     y={nodeRadius(hoveredNode.degree) + 14}
                     textAnchor="middle"
-                    className="fill-text stroke-bg text-[10px] font-medium"
+                    className="fill-text stroke-bg text-2xs font-medium"
                     strokeWidth={3}
                     strokeLinejoin="round"
                     paintOrder="stroke"
@@ -601,7 +597,7 @@ export function ContactNetworkMap({
             type="button"
             aria-pressed={!showAllContacts}
             onClick={() => setShowAllContacts(false)}
-            className={segment(!showAllContacts)}
+            className={`${segment(!showAllContacts)} h-7`}
           >
             Clusters only
           </button>
@@ -609,7 +605,7 @@ export function ContactNetworkMap({
             type="button"
             aria-pressed={showAllContacts}
             onClick={() => setShowAllContacts(true)}
-            className={segment(showAllContacts)}
+            className={`${segment(showAllContacts)} h-7`}
           >
             Every contact
           </button>

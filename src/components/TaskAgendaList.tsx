@@ -103,7 +103,7 @@ export function TaskAgendaList({ agenda, folds, tasks, onAddDue, ...actions }: P
                 type="button"
                 onClick={() => folds.toggle(key)}
                 aria-expanded={!closed}
-                className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-sm text-left text-[11px] font-semibold uppercase tracking-[0.14em] ${
+                className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-md text-left text-2xs font-semibold uppercase tracking-[0.14em] ${
                   key === "overdue" ? "text-danger" : "text-mute"
                 } ${focusRing}`}
               >

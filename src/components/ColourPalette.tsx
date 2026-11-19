@@ -2,11 +2,11 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { COLLECTION_PALETTE } from "../lib/collectionPalette";
-import { focusRing } from "../lib/styles";
+import { placeAt } from "../lib/placement";
+import { focusRing, popoverSurface } from "../lib/styles";
 
 export type PaletteState = { x: number; y: number; current: string } | null;
 
-const MARGIN = 8;
 const COLUMNS = COLLECTION_PALETTE[0].length;
 
 export function ColourPalette({
@@ -28,12 +28,16 @@ export function ColourPalette({
       setPlaced(null);
       return;
     }
-    const box = ref.current.getBoundingClientRect();
-    const left =
-      state.x + box.width + MARGIN > window.innerWidth ? Math.max(MARGIN, state.x - box.width) : state.x;
-    const top =
-      state.y + box.height + MARGIN > window.innerHeight ? Math.max(MARGIN, state.y - box.height) : state.y;
-    setPlaced({ left, top });
+    // Layout size, not the bounding rect: the panel opens from `scale(0.95)`, so
+    // its rect is 5% smaller than the panel and a menu at an edge would overrun it.
+    const panel = ref.current;
+    setPlaced(
+      placeAt(
+        { x: state.x, y: state.y },
+        { width: panel.offsetWidth, height: panel.offsetHeight },
+        { width: window.innerWidth, height: window.innerHeight },
+      ),
+    );
     const swatches = ref.current.querySelectorAll<HTMLButtonElement>("button");
     const current = Array.from(swatches).find((swatch) => swatch.getAttribute("aria-pressed") === "true");
     (current ?? swatches[0])?.focus();
@@ -84,7 +88,7 @@ export function ColourPalette({
         top: placed?.top ?? state.y,
         visibility: placed ? "visible" : "hidden",
       }}
-      className="fixed z-50 rounded-xl border border-line bg-panel p-2.5 shadow-lg shadow-black/40"
+      className={`fixed z-(--z-popover) animate-pop p-2.5 ${popoverSurface}`}
     >
       <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${COLUMNS}, 1.25rem)` }}>
         {COLLECTION_PALETTE.flat().map((swatch) => {

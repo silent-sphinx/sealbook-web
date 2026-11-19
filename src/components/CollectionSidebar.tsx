@@ -9,14 +9,13 @@ import {
   sidebarRowAction,
   sidebarRowState,
   sidebarSubgroup,
+  sidebarRow,
 } from "../lib/styles";
 import { archivedIds, hiddenIds } from "../lib/archive";
 import { ancestorsOf, buildTree, type TreeNode } from "../lib/tree";
-import { CollectionIcon, type CollectionKind } from "./AppIcons";
 import { ColourPalette, type PaletteState } from "./ColourPalette";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
-import { Icon } from "./Icon";
-import { PencilMark, PlusMark, TrashMark } from "./SidebarTree";
+import { Icon, type IconName } from "./Icon";
 
 export type SidebarCollection = {
   id: string;
@@ -33,7 +32,7 @@ type Props<C extends SidebarCollection> = {
   /** The current scope, which may name something other than a collection. */
   selectedId: string;
   onSelect: (id: string) => void;
-  icon: CollectionKind;
+  icon: IconName;
   /** Lower case: "notebook", "list", "collection". */
   kindLabel: string;
   /** Lower case: "sublist", "subcollection". */
@@ -308,7 +307,7 @@ export function CollectionSidebar<C extends SidebarCollection>({
           menu.open(event, itemsFor(collection));
         }}
         className={`list-row group -mx-2 flex items-center rounded-lg pr-2 transition-colors ${
-          selected ? "bg-surface" : "hover:bg-surface/40"
+          selected ? "bg-accent-soft" : "hover:bg-hover"
         } ${dropTarget === collection.id ? "ring-1 ring-accent-ring" : ""}`}
       >
         <button
@@ -318,12 +317,12 @@ export function CollectionSidebar<C extends SidebarCollection>({
             if (!readOnly) startRename(collection);
           }}
           aria-current={selected ? "true" : undefined}
-          className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${
-            selected ? "text-text" : "text-mute"
+          className={`flex min-w-0 flex-1 items-center gap-2.5 h-8 rounded-lg px-2 text-left text-sm font-medium transition-colors ${focusRing} ${
+            selected ? "text-text" : "text-mute hover:text-text"
           } ${isHidden ? "opacity-60" : ""}`}
         >
           <span className={sidebarMark} style={{ color: tone(collection) }}>
-            <CollectionIcon kind={icon} />
+            <Icon name={icon} />
           </span>
           <span className="min-w-0 flex-1 truncate font-medium">{collection.name}</span>
           {isHidden && collection.hideFromAll ? (
@@ -347,7 +346,7 @@ export function CollectionSidebar<C extends SidebarCollection>({
                   aria-label={`Add ${subLabel} under ${collection.name}`}
                   className={`${sidebarRowAction} hover:text-text`}
                 >
-                  <PlusMark />
+                  <Icon name="plus" className="h-3 w-3" />
                 </button>
               ) : null}
               <button
@@ -357,7 +356,7 @@ export function CollectionSidebar<C extends SidebarCollection>({
                 aria-label={`Rename ${collection.name}`}
                 className={`${sidebarRowAction} hover:text-text`}
               >
-                <PencilMark />
+                <Icon name="pencil" className="h-3 w-3" />
               </button>
               {archiving && collection.id !== protectedId ? (
                 <button
@@ -378,7 +377,7 @@ export function CollectionSidebar<C extends SidebarCollection>({
                   aria-label={`Delete ${collection.name}`}
                   className={`${sidebarRowAction} hover:text-danger`}
                 >
-                  <TrashMark />
+                  <Icon name="trash" className="h-3 w-3" />
                 </button>
               )}
             </span>
@@ -416,7 +415,7 @@ export function CollectionSidebar<C extends SidebarCollection>({
         type="button"
         onClick={() => setArchivedOpen((current) => !current)}
         aria-expanded={archivedOpen || selectedArchived}
-        className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${sidebarRowState(false)} ${focusRing}`}
+        className={`${sidebarRow} ${sidebarRowState(false)} ${focusRing}`}
       >
         <span className={sidebarMark}>
           <Icon name="chevron" className={`h-3 w-3 transition-transform ${archivedOpen || selectedArchived ? "rotate-90" : ""}`} />
@@ -466,7 +465,7 @@ export function CollectionSidebar<C extends SidebarCollection>({
             setDropTarget(null);
             if (id) void onMove!(id, null);
           }}
-          className={`mt-1 rounded-lg border border-dashed px-3 py-1.5 text-center text-[10px] transition-colors ${
+          className={`mt-1 rounded-lg border border-dashed px-3 py-1.5 text-center text-2xs transition-colors ${
             dropTarget === ROOT_DROP ? "border-accent-dim text-text" : "border-line text-mute"
           }`}
         >
@@ -510,15 +509,13 @@ export function SidebarAddRow({ label, onClick, disabled }: { label: string; onC
       onClick={onClick}
       disabled={disabled}
       title={label}
-      className={`list-row -mx-2 flex w-[calc(100%+1rem)] items-center rounded-lg pr-2 text-left transition-colors hover:bg-surface/40 ${focusRing}`}
+      className={`list-row group -mx-2 flex w-[calc(100%+1rem)] items-center rounded-lg pr-2 text-left transition-colors hover:bg-hover ${focusRing}`}
       style={{ paddingLeft: "0.5rem" }}
     >
-      <span className="flex h-7 w-4 shrink-0 items-center justify-center text-note-new">
-        <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-          <path d="M8 3.5v9M3.5 8h9" />
-        </svg>
+      <span className="flex h-7 w-4 shrink-0 items-center justify-center text-mute transition-colors group-hover:text-accent">
+        <Icon name="plus" />
       </span>
-      <span className="py-2 pl-2.5 text-xs text-mute transition-colors group-hover:text-text">{label}</span>
+      <span className="py-2 pl-2.5 text-sm text-mute transition-colors group-hover:text-text">{label}</span>
     </button>
   );
 }

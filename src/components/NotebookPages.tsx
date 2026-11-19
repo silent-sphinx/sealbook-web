@@ -3,14 +3,17 @@ import { useMemo, useState } from "react";
 import { useItemSelection } from "../lib/useItemSelection";
 
 import { notePreview, resolveNotebookId, sortNotes } from "../lib/note";
-import { btnHeader, btnSecondary, focusRing, paneCount, paneHeader, paneTitle } from "../lib/styles";
+import { btnPrimarySm, btnSecondary, focusRing, paneCount, paneHeader, paneTitle } from "../lib/styles";
 import type { Note, Notebook } from "../lib/types";
 import { EmptyState } from "./EmptyState";
 import { NoteBulkBar, NotePick, useNoteMenu } from "./NoteBulkBar";
 import { NoteSearchField } from "./NoteSearchField";
 import { Icon } from "./Icon";
+import { SidebarToggle, type Sidebar } from "./SidebarDrawer";
+import { SegmentedControl } from "./PaneControls";
 
 type Props = {
+  sidebar: Sidebar;
   notebook: Notebook;
   notes: Note[];
   notebooks: Notebook[];
@@ -61,7 +64,7 @@ function day(iso: string | undefined): string {
   return new Date(parsed).toLocaleDateString(undefined, { dateStyle: "medium" });
 }
 
-export function NotebookPages({ notebook, notes, notebooks, search, onSearch, results, query, dialogOpen, onBack, onOpenNote, onNewNote, onMoveNotes, onDeleteNotes, onRenameNote, onDeleteNote }: Props) {
+export function NotebookPages({ sidebar, notebook, notes, notebooks, search, onSearch, results, query, dialogOpen, onBack, onOpenNote, onNewNote, onMoveNotes, onDeleteNotes, onRenameNote, onDeleteNote }: Props) {
   const pages = useMemo(() => {
     const hits = results ? new Set(results.map((note) => note.id)) : null;
     return sortNotes(
@@ -99,11 +102,12 @@ export function NotebookPages({ notebook, notes, notebooks, search, onSearch, re
       {noteMenu.element}
       <header className={paneHeader}>
         <div className="flex min-w-0 items-center gap-2">
+          <SidebarToggle sidebar={sidebar} />
           <button
             type="button"
             onClick={onBack}
             aria-label="All notebooks"
-            className={`flex shrink-0 items-center rounded text-base font-semibold tracking-tight text-mute transition-colors hover:text-text ${focusRing}`}
+            className={`flex shrink-0 items-center rounded-md text-base font-semibold tracking-tight text-mute transition-colors hover:text-text ${focusRing}`}
           >
             <Icon name="chevron" className="h-3.5 w-3.5 rotate-180 sm:hidden" />
             <span className="hidden sm:inline">All notebooks</span>
@@ -113,29 +117,19 @@ export function NotebookPages({ notebook, notes, notebooks, search, onSearch, re
           <span className={paneCount}>{pages.length}</span>
         </div>
         <div className="flex min-w-0 items-center gap-2.5">
-          <button type="button" onClick={onNewNote} className={btnHeader}>
+          <button type="button" onClick={onNewNote} className={btnPrimarySm}>
             <Icon name="plus" className="h-3.5 w-3.5" />
             New note
           </button>
-          <div role="radiogroup" aria-label="View" className="flex rounded-lg border border-line p-0.5">
-            {VIEWS.map(({ id, label }) => (
-              <button
-                key={id}
-                type="button"
-                role="radio"
-                aria-checked={view === id}
-                onClick={() => {
-                  setView(id);
-                  storeView(id);
-                }}
-                className={`h-7 rounded-md px-2.5 text-xs font-medium transition-colors ${
-                  view === id ? "bg-surface text-text" : "text-mute hover:text-text"
-                } ${focusRing}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            label="View"
+            options={VIEWS.map(({ id, label }) => ({ value: id, label }))}
+            value={view}
+            onChange={(id) => {
+              setView(id);
+              storeView(id);
+            }}
+          />
           <NoteSearchField value={search} onChange={onSearch} />
         </div>
       </header>
@@ -145,6 +139,7 @@ export function NotebookPages({ notebook, notes, notebooks, search, onSearch, re
           total={pages.length}
           notebooks={notebooks}
           onToggleAll={selection.toggleAll}
+          onClear={selection.clear}
           onMove={(notebookId) => {
             onMoveNotes(selection.selectedItems, notebookId);
             selection.clear();
@@ -167,7 +162,7 @@ export function NotebookPages({ notebook, notes, notebooks, search, onSearch, re
           />
         ) : view === "table" ? (
           <table className="w-full table-fixed border-collapse text-left text-sm">
-            <thead className="text-[11px] uppercase tracking-[0.14em] text-mute">
+            <thead className="text-2xs uppercase tracking-[0.14em] text-mute">
               <tr className="border-b border-line">
                 <th scope="col" className="w-10 py-2 font-semibold">
                   <span className="sr-only">Select</span>
@@ -202,7 +197,7 @@ export function NotebookPages({ notebook, notes, notebooks, search, onSearch, re
                     <button
                       type="button"
                       onClick={(event) => open(note, event)}
-                      className={`block w-full truncate rounded-sm text-left font-medium ${focusRing}`}
+                      className={`block w-full truncate rounded-md text-left font-medium ${focusRing}`}
                     >
                       {note.title || "Untitled note"}
                     </button>
@@ -236,7 +231,7 @@ export function NotebookPages({ notebook, notes, notebooks, search, onSearch, re
                   <span className="line-clamp-4 flex-1 text-xs leading-relaxed text-mute">
                     {notePreview(note.body, 200) || "Empty note"}
                   </span>
-                  <span className="text-[11px] text-mute">{day(note.updatedAt ?? note.createdAt)}</span>
+                  <span className="text-2xs text-mute">{day(note.updatedAt ?? note.createdAt)}</span>
                 </button>
                 <NotePick
                   title={note.title || "Untitled note"}

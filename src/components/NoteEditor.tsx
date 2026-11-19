@@ -779,7 +779,7 @@ function TableToolbar({ editor }: { editor: Editor }) {
                   const next = Number.parseInt(event.target.value, 10);
                   setRowHeight(editor, Number.isInteger(next) && next > 0 ? next : null, false);
                 }}
-                className={`h-6 w-14 rounded border border-line bg-bg px-1 text-xs text-text outline-none ${focusRing}`}
+                className={`h-6 w-14 rounded-md border border-line bg-bg px-1 text-xs text-text outline-none ${focusRing}`}
               />
             </label>
           </div>

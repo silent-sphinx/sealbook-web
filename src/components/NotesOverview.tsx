@@ -3,17 +3,20 @@ import { useMemo } from "react";
 import { useItemSelection } from "../lib/useItemSelection";
 
 import { DEFAULT_NOTEBOOK_ID, notebookTone, notePreview, resolveNotebookId, sortNotes } from "../lib/note";
-import { btnHeader, eyebrow, focusRing, paneCount, paneHeader, paneTitle } from "../lib/styles";
+import { btnPrimarySm, eyebrow, focusRing } from "../lib/styles";
 import type { Note, Notebook } from "../lib/types";
 import { EmptyState } from "./EmptyState";
 import { ContextMenu, useContextMenu } from "./ContextMenu";
 import { NoteBulkBar, NotePick, useNoteMenu } from "./NoteBulkBar";
 import { NoteSearchField } from "./NoteSearchField";
 import { Icon } from "./Icon";
+import { PaneHeader } from "./PaneControls";
+import type { Sidebar } from "./SidebarDrawer";
 
 const RECENT_LIMIT = 12;
 
 type Props = {
+  sidebar: Sidebar;
   notebooks: Notebook[];
   notes: Note[];
   search: string;
@@ -55,14 +58,14 @@ function NotebookCover({ notebook, count, onOpen, onContextMenu }: { notebook: N
       <span aria-hidden="true" className="absolute inset-y-0 left-3 w-px bg-black/30" />
       <span
         aria-hidden="true"
-        className="absolute inset-y-4 right-3 w-1.5 rounded-sm opacity-50"
+        className="absolute inset-y-4 right-3 w-1.5 rounded-md opacity-50"
         style={{ backgroundColor: tone }}
       />
       <span className="flex min-w-0 flex-1 flex-col justify-between p-3 pr-6">
-        <span className="rounded-sm border border-line bg-bg/60 px-2 py-2 text-sm font-medium leading-snug text-text [overflow-wrap:anywhere]">
+        <span className="rounded-md border border-line bg-bg/60 px-2 py-2 text-sm font-medium leading-snug text-text [overflow-wrap:anywhere]">
           {notebook.name}
         </span>
-        <span className="text-[11px] text-mute">
+        <span className="text-2xs text-mute">
           {count} {count === 1 ? "note" : "notes"}
         </span>
       </span>
@@ -70,7 +73,7 @@ function NotebookCover({ notebook, count, onOpen, onContextMenu }: { notebook: N
   );
 }
 
-export function NotesOverview({ notebooks, notes, search, onSearch, results, query, dialogOpen, onOpenNotebook, onOpenNote, onNewNote, onMoveNotes, onDeleteNotes, onRenameNote, onDeleteNote, onRenameNotebook, onDeleteNotebook }: Props) {
+export function NotesOverview({ sidebar, notebooks, notes, search, onSearch, results, query, dialogOpen, onOpenNotebook, onOpenNote, onNewNote, onMoveNotes, onDeleteNotes, onRenameNote, onDeleteNote, onRenameNotebook, onDeleteNotebook }: Props) {
   const notebookMenu = useContextMenu();
   const counts = useMemo(() => {
     const result = new Map<string, number>();
@@ -99,25 +102,20 @@ export function NotesOverview({ notebooks, notes, search, onSearch, results, que
     <div className="flex h-full flex-col">
       {noteMenu.element}
       <ContextMenu state={notebookMenu.menu} onClose={notebookMenu.close} />
-      <header className={paneHeader}>
-        <div className="flex min-w-0 items-center gap-2">
-          <h1 className={paneTitle}>All notes</h1>
-          <span className={paneCount}>{notes.length}</span>
-        </div>
-        <div className="flex min-w-0 items-center gap-2.5">
-          <button type="button" onClick={onNewNote} className={btnHeader}>
+      <PaneHeader title="All notes" count={notes.length} sidebar={sidebar}>
+          <button type="button" onClick={onNewNote} className={btnPrimarySm}>
             <Icon name="plus" className="h-3.5 w-3.5" />
             New note
           </button>
           <NoteSearchField value={search} onChange={onSearch} />
-        </div>
-      </header>
+</PaneHeader>
       {selection.selecting ? (
         <NoteBulkBar
           selected={selection.selected.size}
           total={listed.length}
           notebooks={notebooks}
           onToggleAll={selection.toggleAll}
+          onClear={selection.clear}
           onMove={(notebookId) => {
             onMoveNotes(selection.selectedItems, notebookId);
             selection.clear();
@@ -198,10 +196,10 @@ export function NotesOverview({ notebooks, notes, search, onSearch, results, que
                         {notePreview(note.body, 100) || "Empty note"}
                       </span>
                     </span>
-                    <span className="hidden shrink-0 text-[11px] text-mute sm:block">
+                    <span className="hidden shrink-0 text-2xs text-mute sm:block">
                       {names.get(resolveNotebookId(note.notebookId)) ?? ""}
                     </span>
-                    <span className="shrink-0 text-[11px] text-mute">{day(note.updatedAt ?? note.createdAt)}</span>
+                    <span className="shrink-0 text-2xs text-mute">{day(note.updatedAt ?? note.createdAt)}</span>
                   </button>
                 </li>
               ))}

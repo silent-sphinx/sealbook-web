@@ -155,11 +155,7 @@ describe("an offline vault", () => {
     fireEvent.change(await screen.findByLabelText("Full name"), {
       target: { value: "Katherine Johnson" },
     });
-    fireEvent.click(
-      screen
-        .getAllByRole("button", { name: "Add contact" })
-        .find((button) => button.getAttribute("type") === "submit")!,
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Add contact" }));
 
     expect(await screen.findByText("1 change waiting to sync.", { exact: false })).toBeDefined();
     expect(screen.getAllByText("Katherine Johnson").length).toBeGreaterThan(0);

@@ -3,6 +3,7 @@ import { Modal } from "./Modal";
 import { PAIR_CODE_WORDS, pairCodeWords } from "../lib/pairing";
 import { btnPrimary, btnSecondary } from "../lib/styles";
 import { ErrorMessage } from "./ErrorMessage";
+import { Icon } from "./Icon";
 import { QrScanner, canScan } from "./QrScanner";
 
 const WORD_COUNT = PAIR_CODE_WORDS;
@@ -181,10 +182,7 @@ export function AddDeviceModal({
                   onClick={handleClipboardPaste}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1 text-xs font-medium text-accent hover:border-line-light hover:text-accent-dim transition-colors cursor-pointer"
                 >
-                  <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M7 3.5A1.5 1.5 0 0 1 8.5 2h3.879a1.5 1.5 0 0 1 1.06.44l3.122 3.12A1.5 1.5 0 0 1 17 6.622V12.5a1.5 1.5 0 0 1-1.5 1.5h-1v-3.379a3 3 0 0 0-.879-2.121L10.5 5.379A3 3 0 0 0 8.378 6H4.5Z" />
-                    <path d="M4.5 6A1.5 1.5 0 0 0 3 7.5v9A1.5 1.5 0 0 0 4.5 18h7a1.5 1.5 0 0 0 1.5-1.5v-5.879a1.5 1.5 0 0 0-.44-1.06L9.44 6.439A1.5 1.5 0 0 0 8.378 6H4.5Z" />
-                  </svg>
+                  <Icon name="copy" className="h-3 w-3" />
                   Paste from clipboard
                 </button>
                 </span>
@@ -192,7 +190,7 @@ export function AddDeviceModal({
               <div role="group" aria-labelledby={codeLabelId} className="grid grid-cols-4 gap-2">
                 {words.map((word, i) => (
                   <div key={i} className="flex flex-col gap-1">
-                    <span className="text-[10px] font-medium text-mute/60 text-center select-none">{i + 1}</span>
+                    <span className="text-2xs font-medium text-mute/60 text-center select-none">{i + 1}</span>
                     <input
                       ref={(el) => { inputRefs.current[i] = el; }}
                       type="text"

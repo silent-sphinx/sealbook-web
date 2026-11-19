@@ -95,7 +95,7 @@ export function TaskDetailPane({
   return (
     <section
       aria-label={`${task.title} details`}
-      className="flex min-h-[28rem] min-w-0 flex-col overflow-hidden bg-bg animate-fade-in-up max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:h-dvh max-lg:min-h-0 max-lg:max-h-none max-lg:w-screen lg:h-full lg:min-h-0"
+      className="flex min-h-[28rem] min-w-0 flex-col overflow-hidden bg-bg animate-fade-in-up max-lg:fixed max-lg:inset-0 max-lg:z-(--z-overlay) max-lg:h-dvh max-lg:min-h-0 max-lg:max-h-none max-lg:w-screen lg:h-full lg:min-h-0"
     >
       <div className="shrink-0 border-b border-line px-5 py-4">
         <div className="flex min-h-8 items-center gap-3">
@@ -259,7 +259,7 @@ export function TaskDetailPane({
         ) : null}
 
         {created || updated ? (
-          <div className="px-5 py-3 text-[11px] text-mute/70">
+          <div className="px-5 py-3 text-2xs text-mute/70">
             {created ? <p>Added {created}</p> : null}
             {updated ? <p>Last changed {updated}</p> : null}
           </div>
@@ -272,7 +272,7 @@ export function TaskDetailPane({
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-baseline gap-3 border-b border-line/60 px-5 py-2.5 text-sm">
-      <dt className="w-20 shrink-0 truncate text-[11px] font-medium uppercase tracking-wider text-mute/70">
+      <dt className="w-20 shrink-0 truncate text-2xs font-medium uppercase tracking-wider text-mute/70">
         {label}
       </dt>
       <dd className="min-w-0 flex-1 font-medium text-text">{children}</dd>

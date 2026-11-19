@@ -21,6 +21,7 @@ import {
   fieldBase,
   focusRing,
   ghost,
+  popover,
 } from "../lib/styles";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import type {
@@ -36,18 +37,17 @@ import type {
   ContactTag,
 } from "../lib/types";
 import {
-  AddIcon,
   DateRange,
   EntryCard,
   EntryList,
   FieldPair,
   FormSection,
-  LinkIcon,
   PillInput,
   ProseField,
   TagsInput,
 } from "./FieldControls";
 import { PartialDateInput } from "./PartialDateInput";
+import { Icon } from "./Icon";
 import { Avatar } from "./ContactCard";
 import { ContactLinkPicker } from "./ContactLinkPicker";
 
@@ -282,7 +282,7 @@ export function ContactProfileFields({ profile, onChange, contacts, currentConta
                 disabled={sectionCount(section) >= MAX_PROFILE_ENTRIES}
                 className={`${ghost} inline-flex h-7 items-center gap-1 rounded-lg px-2 text-xs font-medium hover:bg-surface disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-mute`}
               >
-                <LinkIcon />
+                <Icon name="link" className="h-3.5 w-3.5 shrink-0" />
                 Link Contact
               </button>
             ) : undefined
@@ -347,11 +347,11 @@ export function ContactProfileFields({ profile, onChange, contacts, currentConta
           aria-expanded={picking}
           onClick={() => setPicking((open) => !open)}
         >
-          <AddIcon />
+          <Icon name="plus" />
           Add section
         </button>
         {picking ? (
-          <div className="absolute bottom-full left-0 z-20 mb-2 w-60 overflow-hidden rounded-lg border border-line bg-elevated p-1 shadow-xl">
+          <div className={`absolute bottom-full left-0 z-(--z-popover) mb-2 w-60 animate-pop overflow-hidden ${popover}`}>
             {available.map((section) => (
               <button
                 key={section}
@@ -724,8 +724,8 @@ function PersonRows({
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-text">
                   {linked?.name ?? row.name}
                 </span>
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-accent-dim/50 bg-accent/10 px-2 text-[11px] font-medium leading-[18px] text-accent">
-                  <LinkIcon />
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-accent-dim/50 bg-accent/10 px-2 text-2xs font-medium leading-[18px] text-accent">
+                  <Icon name="link" className="h-3.5 w-3.5 shrink-0" />
                   Linked
                 </span>
               </div>

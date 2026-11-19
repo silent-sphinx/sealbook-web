@@ -74,7 +74,7 @@ async function unlockToCalendar() {
   fireEvent.click(screen.getByRole("button", { name: "Unlock" }));
   await screen.findByText("Ada Lovelace");
   fireEvent.click(screen.getByRole("button", { name: "Calendar" }));
-  await screen.findByRole("button", { name: "Create event" });
+  await screen.findByRole("button", { name: "New event" });
 }
 
 function overlaySwitch(): HTMLInputElement | null {

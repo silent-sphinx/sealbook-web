@@ -14,25 +14,28 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { TrashPanel, TrashRow, trashRootsFor } from "./Trash";
 import { NO_TRASH, type TrashListing } from "../lib/trash";
 import { trashItems } from "../lib/trashApi";
-import { SidebarDrawer, SidebarHeader, SidebarSection, type Sidebar } from "./SidebarDrawer";
-import { Modal } from "./Modal";
+import { SidebarDrawer, SidebarHeader, SidebarSection, SidebarToggle, type Sidebar } from "./SidebarDrawer";
+import { Modal, ModalBody } from "./Modal";
 import { localInputToUtc, utcToLocalInput } from "../lib/timezone";
 import {
   btnDanger,
-  btnHeader,
+  btnPrimarySm,
   btnPrimary,
   btnSecondary,
   focusRing,
   paneTitle,
+  popoverSurface,
   searchClear,
   searchField,
   searchIcon,
-  sidebarHeaderAction,
   sidebarMark,
+  viewMain,
+  viewGrid,
 } from "../lib/styles";
 import { VisibilityBox } from "./ContainerList";
 import { CalendarSections } from "./CalendarSidebar";
-import { DayView as ExtractedDayView, MonthGrid as ExtractedMonthGrid, WeekView as ExtractedWeekView, YearView as ExtractedYearView } from "./CalendarViews";
+import { useMediaQuery } from "../lib/useMediaQuery";
+import { DayView as ExtractedDayView, MonthGrid as ExtractedMonthGrid, PhoneMonth, WeekView as ExtractedWeekView, YearView as ExtractedYearView } from "./CalendarViews";
 import {
   dateFromKey,
   formatWeekRange,
@@ -54,6 +57,9 @@ import {
   storeCalendarIds,
 } from "../lib/calendarVisibility";
 import { Icon } from "./Icon";
+import { Banner } from "./Banner";
+import { Switch } from "./FieldControls";
+import { SegmentedControl } from "./PaneControls";
 import { ErrorMessage } from "./ErrorMessage";
 
 type ViewMode = "day" | "week" | "month" | "year";
@@ -149,7 +155,7 @@ function EventSearch({
       </div>
       {expanded ? <button type="button" onClick={collapse} className={`shrink-0 rounded-lg px-1 text-xs font-medium text-mute hover:text-text @min-[36rem]:hidden ${focusRing}`}>Cancel</button> : null}
       {open && results.length > 0 ? (
-        <div role="listbox" className="origin-top animate-scale-in [animation-duration:120ms] absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-xl border border-line bg-bg shadow-lg sm:w-80 @max-[36rem]:left-0 @max-[36rem]:w-auto">
+        <div role="listbox" className={`origin-top animate-pop absolute right-0 top-full z-(--z-popover) mt-1 w-72 overflow-hidden sm:w-80 @max-[36rem]:left-0 @max-[36rem]:w-auto ${popoverSurface}`}>
           {results.map((result, i) => (
             <div
               key={`${result.event.id}-${result.date.toISOString()}`}
@@ -160,12 +166,12 @@ function EventSearch({
             >
               <span className="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: result.color }} />
               <span className="min-w-0 flex-1 truncate font-medium">{result.event.title || UNTITLED_EVENT_TITLE}</span>
-              <span className="shrink-0 text-[11px] text-mute">{result.dateLabel}</span>
+              <span className="shrink-0 text-2xs text-mute">{result.dateLabel}</span>
             </div>
           ))}
         </div>
       ) : open && query.trim() ? (
-        <div className="origin-top animate-scale-in [animation-duration:120ms] absolute right-0 top-full z-50 mt-1 w-72 rounded-xl border border-line bg-bg px-3 py-2.5 text-xs text-mute shadow-lg sm:w-80 @max-[36rem]:left-0 @max-[36rem]:w-auto">
+        <div className={`origin-top animate-pop absolute right-0 top-full z-(--z-popover) mt-1 w-72 px-3 py-2.5 text-xs text-mute sm:w-80 @max-[36rem]:left-0 @max-[36rem]:w-auto ${popoverSurface}`}>
           No events match &ldquo;{query.trim()}&rdquo;
         </div>
       ) : null}
@@ -211,6 +217,7 @@ export function CalendarView({
   focusEventId?: string;
   onFocusHandled?: () => void;
 }) {
+  const phone = useMediaQuery("(max-width: 639px)");
   const today = new Date();
   const todayKey = keyFor(today);
   const [month, setMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
@@ -774,18 +781,15 @@ export function CalendarView({
     // Full-bleed: the month grid uses the whole viewport width rather than
     // sitting in a card. The sidebar keeps a translucent panel fill so it still
     // separates from the grid without reintroducing an opaque chrome column.
-    <main className="flex flex-col pb-[env(safe-area-inset-bottom)] text-text lg:h-[calc(100dvh-var(--sb-header-h,74px))] lg:overflow-hidden lg:pb-0">
+    <main className={viewMain}>
       {error && !composer ? (
-        <p role="alert" className="shrink-0 border-b border-danger/30 bg-danger/10 px-4 py-2 text-xs text-danger lg:px-6">
-          {error}
-        </p>
+        <Banner tone="danger" role="alert">{error}</Banner>
       ) : null}
-      <div className="sb-shell grid min-h-0 flex-1 lg:h-full" style={sidebar.cols}>
+      <div className={viewGrid} style={sidebar.cols}>
         <SidebarDrawer title="Calendars" sidebar={sidebar}>
           <SidebarHeader
             title="Calendar"
             onTitleClick={goHome}
-            action={!readOnlyMode ? <button type="button" onClick={() => openNewTask()} className={sidebarHeaderAction} aria-label="Create event"><Icon name="plus" className="h-4 w-4" /></button> : null}
           />
           <CalendarSections
             calendars={activeCals}
@@ -824,11 +828,14 @@ export function CalendarView({
         </SidebarDrawer>
 
         {viewingTrash ? (
-          <TrashPanel session={session} trash={trash} tab="calendar" onChanged={onRefresh} />
+          <TrashPanel session={session} trash={trash} tab="calendar" sidebar={sidebar} onChanged={onRefresh} />
         ) : (
         <section className="@container order-1 flex min-w-0 flex-col overflow-hidden lg:order-none lg:min-h-0">
-          <header className="flex flex-col gap-3 border-b border-line px-4 py-3 sm:px-5 lg:px-6 lg:py-3.5 @min-[60rem]:flex-row @min-[60rem]:items-center @min-[60rem]:justify-between @min-[60rem]:gap-4">
+          <header className="flex flex-col gap-2 border-b border-line px-(--sb-gutter) py-2 @min-[60rem]:min-h-(--sb-bar-h) @min-[60rem]:flex-row @min-[60rem]:items-center @min-[60rem]:justify-between @min-[60rem]:gap-3">
             <div className="flex min-w-0 items-center justify-between gap-3 @min-[60rem]:justify-start">
+              <span className="contents *:@min-[60rem]:order-first">
+                <SidebarToggle sidebar={sidebar} />
+              </span>
               <h1 className={`min-w-0 ${paneTitle}`}><span className="@max-[36rem]:hidden">{heading}</span><span className="@min-[36rem]:hidden">{shortHeading}</span></h1>
               <div className="flex h-8 shrink-0 items-stretch divide-x divide-line overflow-hidden rounded-lg border border-line @min-[60rem]:order-first">
                 <button type="button" onClick={() => shiftView(-1)} className={`flex h-full w-8 items-center justify-center text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`} aria-label={`Previous ${mode}`}><Icon name="chevron" className="h-3.5 w-3.5 rotate-180" /></button>
@@ -837,13 +844,15 @@ export function CalendarView({
               </div>
             </div>
             <div className="relative flex items-center gap-2">
-              {!readOnlyMode ? <button type="button" onClick={() => openNewTask()} aria-label="New event" className={`${btnHeader} @max-[36rem]:w-8 @max-[36rem]:px-0`}><Icon name="plus" className="h-3.5 w-3.5" /><span className="@max-[36rem]:hidden">New event</span></button> : null}
+              {!readOnlyMode ? <button type="button" onClick={() => openNewTask()} aria-label="New event" className={`${btnPrimarySm} @max-[36rem]:w-8 @max-[36rem]:px-0`}><Icon name="plus" className="h-3.5 w-3.5" /><span className="@max-[36rem]:hidden">New event</span></button> : null}
               <ViewSwitcher mode={mode} onChange={setMode} />
               <EventSearch query={search} results={searchResults} onQueryChange={setSearch} onPick={revealEvent} />
             </div>
           </header>
           <div key={viewKey} className={`flex min-h-0 min-w-0 flex-1 flex-col ${shownView.motion}`}>
-          {mode === "month" ? (
+          {mode === "month" && phone ? (
+            <PhoneMonth month={month} days={days} weekStart={weekStart} selected={selected} todayKey={todayKey} events={visibleEvents} spans={spans} calendars={calendars} onSelect={selectDay} onEdit={editOccurrence} taskMarks={taskMarks} onOpenTask={onOpenTask} />
+          ) : mode === "month" ? (
             <ExtractedMonthGrid month={month} days={days} weekStart={weekStart} selected={selected} todayKey={todayKey} events={visibleEvents} spans={spans} calendars={calendars} onSelect={selectDay} onAdd={readOnlyMode ? () => undefined : (day) => openNewTask(day)} onEdit={editOccurrence} taskMarks={taskMarks} onOpenTask={onOpenTask} />
           ) : mode === "day" ? (
             <ExtractedDayView day={selectedDate} events={visibleEvents} spans={spans} calendars={calendars} timezone={timezone} todayKey={todayKey} nowMinutes={nowMinutes} onAdd={readOnlyMode ? () => undefined : openNewTask} onEdit={editOccurrence} taskMarks={taskMarks} onOpenTask={onOpenTask} />
@@ -861,6 +870,7 @@ export function CalendarView({
       {confirmDeleteCalendar && editingCalendar ? (
         <ConfirmDialog
           title="Move to trash"
+          tone="danger"
           heading={`Move “${editingCalendar.name}” to the trash?`}
           body={(() => {
             const count = events.filter((item) => item.calendarId === editingCalendar.id).length;
@@ -876,6 +886,7 @@ export function CalendarView({
       {confirmPurgeEvents && editingCalendar ? (
         <ConfirmDialog
           title="Purge Events"
+          tone="danger"
           heading={`Purge Events from “${editingCalendar.name}”?`}
           body={`All ${events.filter((event) => event.calendarId === editingCalendar.id).length} event${events.filter((event) => event.calendarId === editingCalendar.id).length === 1 ? "" : "s"} in this calendar move to the trash, where they can be restored for 30 days. The calendar itself will remain.`}
           confirmLabel="Purge Events"
@@ -1012,7 +1023,7 @@ function ParticipantPicker({
           />
         </div>
         {open && suggestions.length > 0 ? (
-          <div role="listbox" className="absolute left-0 top-full z-50 mt-1 w-full overflow-hidden rounded-xl border border-line bg-bg shadow-lg">
+          <div role="listbox" className={`absolute left-0 top-full z-(--z-popover) mt-1 w-full overflow-hidden animate-pop ${popoverSurface}`}>
             {suggestions.map((contact, i) => (
               <div
                 key={contact.id}
@@ -1054,14 +1065,12 @@ function RowSelect({ className = "", children, ...props }: SelectHTMLAttributes<
   );
 }
 
-function Switch({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
+/** A labelled row, so a click on the words flips the switch as well as one on the track. */
+function SwitchRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
   return (
     <label className="flex h-10 cursor-pointer items-center justify-between gap-3 text-sm text-text">
       {label}
-      <span className="relative inline-flex h-5 w-9 shrink-0">
-        <input type="checkbox" role="switch" aria-checked={checked} checked={checked} onChange={(e) => onChange(e.target.checked)} className="peer absolute inset-0 cursor-pointer appearance-none rounded-full bg-line transition-colors checked:bg-accent focus-visible:ring-2 focus-visible:ring-accent-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg" />
-        <span aria-hidden="true" className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-text shadow-sm transition-transform peer-checked:translate-x-4 peer-checked:bg-bg" />
-      </span>
+      <Switch label={label} checked={checked} onChange={onChange} />
     </label>
   );
 }
@@ -1078,7 +1087,7 @@ function TaskDialog({ editing, title, start, end, notes, location, alerts, parti
 
           <div className={rowGroup}>
             <FieldRow icon={<Icon name="clock" />}>
-              <Switch label="All day" checked={allDay} onChange={onAllDayChange} />
+              <SwitchRow label="All day" checked={allDay} onChange={onAllDayChange} />
             </FieldRow>
             <FieldRow>
               <label className="flex items-center justify-between gap-3">
@@ -1177,37 +1186,28 @@ function TaskDialog({ editing, title, start, end, notes, location, alerts, parti
 const VIEW_MODES: ViewMode[] = ["day", "week", "month", "year"];
 
 function ViewSwitcher({ mode, onChange }: { mode: ViewMode; onChange: (mode: ViewMode) => void }) {
-  const buttons = useRef<Partial<Record<ViewMode, HTMLButtonElement | null>>>({});
-  const [pill, setPill] = useState<{ left: number; width: number } | null>(null);
-
-  useEffect(() => {
-    const node = buttons.current[mode];
-    if (!node || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => setPill({ left: node.offsetLeft, width: node.offsetWidth }));
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [mode]);
-
   return (
-    <div className="relative flex h-8 shrink-0 rounded-lg border border-line bg-surface/40 p-0.5 @max-[36rem]:flex-1">
-      {pill ? <span aria-hidden="true" className="absolute inset-y-0.5 rounded-md bg-surface shadow-sm transition-[left,width] duration-150 ease-[cubic-bezier(0.2,0,0,1)]" style={{ left: pill.left, width: pill.width }} /> : null}
-      {VIEW_MODES.map((item) => (
-        <button
-          key={item}
-          ref={(node) => { buttons.current[item] = node; }}
-          type="button"
-          onClick={() => onChange(item)}
-          aria-pressed={mode === item}
-          className={`relative h-full rounded-md px-2.5 text-xs capitalize transition-colors @max-[36rem]:flex-1 ${mode === item ? `font-medium text-text ${pill ? "" : "bg-surface shadow-sm"}` : "text-mute hover:text-text"} ${focusRing}`}
-        >
-          {item}
-        </button>
-      ))}
-    </div>
+    <SegmentedControl
+      label="Calendar view"
+      options={VIEW_MODES.map((item) => ({ value: item, label: item }))}
+      value={mode}
+      onChange={onChange}
+      className="*:capitalize @max-[36rem]:flex-1 @max-[36rem]:*:flex-1"
+    />
   );
 }
 
 function ImportProgressModal({ title, description, current, total }: { title: string; description: string; current: number; total: number }) {
   const percent = total > 0 ? Math.round((current / total) * 100) : 0;
-  return <div className="fixed inset-0 z-[60] flex animate-fade-in items-center justify-center bg-black/70 p-4 backdrop-blur-md"><section role="dialog" aria-modal="true" className="glow-edge relative animate-scale-in w-full max-w-sm rounded-2xl border border-line bg-panel p-6 shadow-2xl shadow-black/50"><h3 className="text-base font-semibold text-text">{title}</h3><p className="mt-1 text-xs text-mute">{description}</p><div className="mt-5 h-2 overflow-hidden rounded-full bg-surface"><div className="h-full rounded-full bg-accent transition-all" style={{ width: `${percent}%` }} /></div><p className="mt-2 text-right text-[11px] tabular-nums text-mute">{total ? `${current} of ${total}` : "Preparing..."}</p></section></div>;
+  return (
+    <Modal title={title} size="sm" dismissible={false} onClose={() => {}}>
+      <ModalBody>
+        <p className="text-xs text-mute">{description}</p>
+        <div className="mt-4 h-2 overflow-hidden rounded-full bg-surface">
+          <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${percent}%` }} />
+        </div>
+        <p className="mt-2 text-right text-2xs tabular-nums text-mute">{total ? `${current} of ${total}` : "Preparing..."}</p>
+      </ModalBody>
+    </Modal>
+  );
 }

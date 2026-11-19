@@ -1,6 +1,7 @@
 import { useId, useState, type ReactNode, type Ref } from "react";
 
-import { fieldBase, focusRing, ghost, sectionBar, sidebarSectionAction } from "../lib/styles";
+import { eyebrow, fieldBase, focusRing, ghost, popover, sidebarSectionAction } from "../lib/styles";
+import { Icon } from "./Icon";
 import { CHIP_TONE, type ChipTone } from "./PaneControls";
 import { PartialDateInput } from "./PartialDateInput";
 
@@ -40,7 +41,7 @@ export function FormSection({
       className={`min-w-0 ${first ? "" : "mt-5 border-t border-line pt-4"} ${className ?? ""}`.trim()}
     >
       <div className="flex min-h-7 min-w-0 items-center justify-between gap-3">
-        <h3 className={`text-[11px] font-semibold uppercase tracking-[0.14em] text-mute ${sectionBar}`}>
+        <h3 className={eyebrow}>
           {title}
         </h3>
         <div className="flex shrink-0 items-center gap-1">
@@ -54,7 +55,7 @@ export function FormSection({
               title={addDisabled ? addDisabledReason : undefined}
               className={`${ghost} inline-flex h-7 items-center gap-1 rounded-lg px-2 text-xs font-medium hover:bg-surface disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-mute`}
             >
-              <AddIcon />
+              <Icon name="plus" />
               Add
             </button>
           ) : null}
@@ -66,7 +67,7 @@ export function FormSection({
               title="Remove section"
               className={`${sidebarSectionAction} hover:text-danger`}
             >
-              <TrashIcon />
+              <Icon name="trash" className="h-4 w-4" />
             </button>
           ) : null}
         </div>
@@ -93,7 +94,7 @@ export function RemoveButton({
       title={label}
       onClick={onClick}
     >
-      <CloseIcon className="h-4 w-4" />
+      <Icon name="close" className="h-4 w-4" />
     </button>
   );
 }
@@ -237,7 +238,7 @@ export function PillInput({
 }) {
   return (
     <div className="flex h-10 min-w-0 items-center rounded-lg border border-line bg-bg transition-colors focus-within:border-accent-dim focus-within:ring-1 focus-within:ring-accent-ring">
-      <span className="ml-1.5 shrink-0 rounded-md bg-surface px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-mute/80">
+      <span className="ml-1.5 shrink-0 rounded-md bg-surface px-2 py-1 text-2xs font-semibold uppercase tracking-wider text-mute/80">
         {label}
       </span>
       <input
@@ -324,7 +325,7 @@ export function TagsInput({
             onClick={() => onRemove(row.id)}
             className={`flex h-4 w-4 items-center justify-center rounded-full text-mute transition-colors hover:bg-danger/20 hover:text-danger ${focusRing}`}
           >
-            <CloseIcon className="h-2.5 w-2.5" />
+            <Icon name="close" className="h-2.5 w-2.5" />
           </button>
         </span>
       ))}
@@ -377,7 +378,7 @@ export function TagsInput({
           id={listId}
           role="listbox"
           aria-label={`${label} suggestions`}
-          className="absolute left-0 right-0 top-full z-20 mt-1 rounded-xl border border-line bg-panel p-1 shadow-lg"
+          className={`absolute left-0 right-0 top-full z-(--z-popover) mt-1 animate-pop ${popover}`}
         >
           {matches.map((name, index) => (
             <div
@@ -438,7 +439,7 @@ export function ProseField({
         className={`${fieldBase} h-auto min-h-[5.5rem] resize-y py-2.5 leading-relaxed`}
       />
       {value.length > max * 0.8 ? (
-        <div className="flex flex-wrap items-baseline justify-between gap-2 text-[11px]">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 text-2xs">
           {over && hint ? <span className="text-mute">{hint}</span> : <span />}
           <span className={over ? "text-danger" : "text-mute"}>
             {value.length.toLocaleString()} / {max.toLocaleString()}
@@ -449,39 +450,75 @@ export function ProseField({
   );
 }
 
-export function AddIcon() {
+
+/** An on/off setting that takes effect as it is flipped. */
+export function Switch({
+  checked,
+  label,
+  disabled,
+  onChange,
+}: {
+  checked: boolean;
+  label: string;
+  disabled?: boolean;
+  onChange: (next: boolean) => void;
+}) {
   return (
-    <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-      <path d="M10 4a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 10 4Z" />
-    </svg>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing} ${
+        checked ? "border-transparent bg-accent" : "border-line-light bg-surface"
+      }`}
+    >
+      <span
+        aria-hidden="true"
+        className={`inline-block size-3.5 rounded-full transition-transform duration-150 ${
+          checked ? "translate-x-[18px] bg-on-accent" : "translate-x-[2px] bg-mute"
+        }`}
+      />
+    </button>
   );
 }
 
-export function CloseIcon({ className = "h-4 w-4" }: { className?: string }) {
+/**
+ * The tick that selects one row of a list. Every list draws the same one, in
+ * the leading slot, so selecting reads the same wherever it happens. It stops the
+ * click reaching the row, which would otherwise open the item it just ticked.
+ */
+export function SelectTick({
+  checked,
+  label,
+  onToggle,
+  className = "",
+}: {
+  checked: boolean;
+  /** The row's own name, so it reads "Select Alma Ibrahim". */
+  label: string;
+  onToggle: (event: React.MouseEvent) => void;
+  className?: string;
+}) {
   return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-      <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-    </svg>
-  );
-}
-
-export function TrashIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 6h18" />
-      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-      <line x1="10" y1="11" x2="10" y2="17" />
-      <line x1="14" y1="11" x2="14" y2="17" />
-    </svg>
-  );
-}
-
-export function LinkIcon() {
-  return (
-    <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-    </svg>
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      aria-label={`Select ${label}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle(event);
+      }}
+      className={`flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-md border transition-colors ${
+        checked
+          ? "border-accent bg-accent text-on-accent"
+          : "border-line-light bg-bg text-transparent hover:border-accent"
+      } ${focusRing} ${className}`}
+    >
+      <Icon name="check" className="size-3" strokeWidth={2.25} />
+    </button>
   );
 }

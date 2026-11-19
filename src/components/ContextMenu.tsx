@@ -1,6 +1,16 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
-import { focusRing } from "../lib/styles";
+import { placeAt, type Point } from "../lib/placement";
+import { focusRing, menuItem, menuItemTone, popover } from "../lib/styles";
+import { Icon, type IconName } from "./Icon";
 
 /**
  * The row actions, as a menu the pointer opens on right-click.
@@ -18,9 +28,17 @@ export type MenuItem = {
   disabled?: boolean;
   /** Why the item is unavailable, for the title attribute. */
   disabledReason?: string;
+  icon?: IconName;
 };
 
-export type MenuState = { x: number; y: number; items: MenuItem[]; trigger?: string } | null;
+export type MenuState = {
+  x: number;
+  y: number;
+  items: MenuItem[];
+  trigger?: string;
+  /** Above the items, for a menu that says whose it is, such as the account menu. */
+  header?: ReactNode;
+} | null;
 
 export function useContextMenu() {
   const [menu, setMenu] = useState<MenuState>(null);
@@ -57,14 +75,21 @@ export function useContextMenu() {
       }
       setMenu({ x: event.clientX, y: event.clientY, items, trigger });
     },
+    /**
+     * For a control that is not a pointer event's target, such as a rail button
+     * opened from a handler that has already read its rectangle. The panel flips
+     * from `point` rather than clamping, so a menu on a button at the foot of the
+     * screen grows upward from it.
+     */
+    openAt(point: Point, items: MenuItem[], options: { trigger?: string; header?: ReactNode } = {}) {
+      if (items.length === 0) return;
+      setMenu({ x: point.x, y: point.y, items, ...options });
+    },
     close() {
       setMenu(null);
     },
   };
 }
-
-/** Keeps the menu on screen, flipping it rather than letting it run off. */
-const MARGIN = 8;
 
 export function ContextMenu({ state, onClose }: { state: MenuState; onClose: () => void }) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -77,16 +102,16 @@ export function ContextMenu({ state, onClose }: { state: MenuState; onClose: () 
       setPlaced(null);
       return;
     }
-    const box = ref.current.getBoundingClientRect();
-    const left =
-      state.x + box.width + MARGIN > window.innerWidth
-        ? Math.max(MARGIN, state.x - box.width)
-        : state.x;
-    const top =
-      state.y + box.height + MARGIN > window.innerHeight
-        ? Math.max(MARGIN, state.y - box.height)
-        : state.y;
-    setPlaced({ left, top });
+    // Layout size, not the bounding rect: the panel opens from `scale(0.95)`, so
+    // its rect is 5% smaller than the panel and a menu at an edge would overrun it.
+    const panel = ref.current;
+    setPlaced(
+      placeAt(
+        { x: state.x, y: state.y },
+        { width: panel.offsetWidth, height: panel.offsetHeight },
+        { width: window.innerWidth, height: window.innerHeight },
+      ),
+    );
     ref.current.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
   }, [state]);
 
@@ -148,9 +173,12 @@ export function ContextMenu({ state, onClose }: { state: MenuState; onClose: () 
         top: placed?.top ?? state.y,
         visibility: placed ? "visible" : "hidden",
       }}
-      className="fixed z-50 min-w-[11rem] origin-top-left animate-scale-in overflow-hidden rounded-xl border border-line bg-panel p-1 shadow-lg shadow-black/40 [animation-duration:120ms]"
+      className={`fixed z-(--z-popover) min-w-48 origin-top-left animate-pop overflow-hidden ${popover}`}
       onContextMenu={(event) => event.preventDefault()}
     >
+      {state.header ? (
+        <div className="mb-1 border-b border-line px-2.5 pb-2 pt-1.5">{state.header}</div>
+      ) : null}
       {ordered.map((item, at) => (
         <Fragment key={item.label}>
           {item.danger && at > 0 && !ordered[at - 1]?.danger ? (
@@ -165,12 +193,9 @@ export function ContextMenu({ state, onClose }: { state: MenuState; onClose: () 
               onClose();
               item.onSelect();
             }}
-            className={`flex w-full items-center rounded-lg px-2.5 py-2 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-              item.danger
-                ? "text-danger hover:bg-danger/10 focus-visible:bg-danger/10"
-                : "text-text hover:bg-surface focus-visible:bg-surface disabled:hover:bg-transparent"
-            } ${focusRing}`}
+            className={`${menuItem} ${menuItemTone(item.danger)} ${focusRing}`}
           >
+            {item.icon ? <Icon name={item.icon} className="size-3.5 shrink-0 opacity-80" /> : null}
             {item.label}
           </button>
         </Fragment>

@@ -28,7 +28,7 @@ export function TagFilterBar({
             }`}
           >
             <span className="font-medium">{tag.name}</span>
-            <span className="text-[10px] tabular-nums text-mute">{tag.count}</span>
+            <span className="text-2xs tabular-nums text-mute">{tag.count}</span>
           </button>
         );
       })}

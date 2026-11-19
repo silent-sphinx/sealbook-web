@@ -11,7 +11,7 @@ import {
   type TitleMatch,
 } from "../lib/calendarBulk";
 import { friendlyError } from "../lib/errors";
-import { btnDanger, btnPrimary, checkbox, eyebrow, field, fieldLabel, selectField, textAction } from "../lib/styles";
+import { btnDanger, btnPrimary, checkbox, eyebrow, field, fieldLabel, selectField, linkAction } from "../lib/styles";
 import type { Calendar, CalendarEvent } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { NoticeLine, SettingsGroup, actionRow, type Notice } from "./SettingsKit";
@@ -307,7 +307,7 @@ export function CalendarBulkEditSection({ session, calendars, calendarEvents, ti
           Match case
         </label>
         {filtering ? (
-          <button type="button" disabled={busy} onClick={clearSearch} className={textAction}>
+          <button type="button" disabled={busy} onClick={clearSearch} className={linkAction}>
             Clear search
           </button>
         ) : null}
@@ -335,7 +335,7 @@ export function CalendarBulkEditSection({ session, calendars, calendarEvents, ti
               </span>
             </label>
             {unreadable > 0 ? (
-              <span className="text-[11px] text-mute">
+              <span className="text-2xs text-mute">
                 {unreadable} from a newer app version left out
               </span>
             ) : null}
@@ -366,7 +366,7 @@ export function CalendarBulkEditSection({ session, calendars, calendarEvents, ti
                         <span className="block truncate font-medium text-text">{change.title}</span>
                       ) : null}
                     </span>
-                    <span className="hidden min-w-0 items-center gap-1.5 text-[11px] text-mute sm:flex">
+                    <span className="hidden min-w-0 items-center gap-1.5 text-2xs text-mute sm:flex">
                       {calendarDot(event.calendarId)}
                       <span className={`truncate ${moved ? "line-through" : ""}`}>{calendarLabel(event.calendarId)}</span>
                       {moved ? (
@@ -377,7 +377,7 @@ export function CalendarBulkEditSection({ session, calendars, calendarEvents, ti
                         </>
                       ) : null}
                     </span>
-                    <span className="shrink-0 font-mono text-[11px] tabular-nums text-mute">
+                    <span className="shrink-0 font-mono text-2xs tabular-nums text-mute">
                       {eventDay(event, timezone)}
                     </span>
                   </label>
@@ -385,7 +385,7 @@ export function CalendarBulkEditSection({ session, calendars, calendarEvents, ti
               );
             })}
             {editable.length > MAX_LISTED ? (
-              <li className="px-3 py-2 text-[11px] text-mute">
+              <li className="px-3 py-2 text-2xs text-mute">
                 and {editable.length - MAX_LISTED} more, included in the selection
               </li>
             ) : null}
@@ -509,6 +509,7 @@ export function CalendarBulkEditSection({ session, calendars, calendarEvents, ti
       {confirmDelete ? (
         <ConfirmDialog
           title="Delete events"
+          tone="danger"
           heading={`Delete ${plural(selected.length, "event")}?`}
           body="They are removed from every device. This cannot be undone from here, so export a backup first if you might want them back."
           confirmLabel={`Delete ${plural(selected.length, "event")}`}

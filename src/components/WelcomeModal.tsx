@@ -31,6 +31,7 @@ import {
 } from "../lib/onboarding";
 import type { ContactMode, FeatureKey } from "../lib/types";
 import { btnPrimary, btnSecondary, fieldBase, focusRing, ghost } from "../lib/styles";
+import { Switch } from "./FieldControls";
 
 type Props = {
   username: string;
@@ -237,28 +238,18 @@ export function WelcomeModal({ username, onComplete, onDismiss }: Props) {
                   >
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-text">{label}</p>
-                      <p className="mt-0.5 text-[11px] leading-relaxed text-mute">
+                      <p className="mt-0.5 text-2xs leading-relaxed text-mute">
                         {isLastEnabled
                           ? "Your only enabled feature, so it has to stay on."
                           : FEATURE_BLURBS[feature]}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={on}
-                      aria-label={`${label} enabled`}
+                    <Switch
+                      label={`${label} enabled`}
+                      checked={on}
                       disabled={isLastEnabled || busy}
-                      onClick={() => toggleFeature(feature, !on)}
-                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing} ${on
-                        ? "border-accent/40 bg-accent"
-                        : "border-line bg-surface"}`}
-                    >
-                      <span
-                        aria-hidden="true"
-                        className={`inline-block h-4 w-4 rounded-full bg-bg transition-transform duration-150 ${on ? "translate-x-[22px]" : "translate-x-1"}`}
-                      />
-                    </button>
+                      onChange={(next) => toggleFeature(feature, next)}
+                    />
                   </li>
                 );
               })}
@@ -297,12 +288,12 @@ export function WelcomeModal({ username, onComplete, onDismiss }: Props) {
                         {CONTACT_MODE_LABELS[option]}
                       </span>
                       {active ? (
-                        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent">
+                        <span className="text-2xs font-semibold uppercase tracking-[0.14em] text-accent">
                           Chosen
                         </span>
                       ) : null}
                     </span>
-                    <span className="mt-1 block text-[11px] leading-relaxed text-mute">
+                    <span className="mt-1 block text-2xs leading-relaxed text-mute">
                       {option === "basic"
                         ? "Names, channels, dates, socials, work, address and notes."
                         : "Everything in basic, plus ten relationship sections you add one at a time."}
@@ -328,7 +319,7 @@ export function WelcomeModal({ username, onComplete, onDismiss }: Props) {
                 <section key={feature}>
                   <h3 className="text-sm font-semibold text-text">{copy.label}</h3>
                   {copy.existing ? (
-                    <p className="mt-1 text-[11px] leading-relaxed text-mute">{copy.existing}</p>
+                    <p className="mt-1 text-2xs leading-relaxed text-mute">{copy.existing}</p>
                   ) : null}
                   <ul className="mt-3 space-y-2">
                     {names.map((name, at) => (
@@ -380,7 +371,7 @@ export function WelcomeModal({ username, onComplete, onDismiss }: Props) {
                   className="rounded-xl border border-line/80 bg-bg/50 px-4 py-3"
                 >
                   <h3 className="text-sm font-semibold text-text">{FEATURE_LABELS[feature]}</h3>
-                  <p className="mt-1 text-[11px] leading-relaxed text-mute">
+                  <p className="mt-1 text-2xs leading-relaxed text-mute">
                     Accepts {IMPORT_COPY[feature].formats}. {IMPORT_COPY[feature].sources}
                   </p>
                   <button
@@ -394,7 +385,7 @@ export function WelcomeModal({ username, onComplete, onDismiss }: Props) {
                 </section>
               ))}
             </div>
-            <p className="mt-4 text-[11px] leading-relaxed text-mute">
+            <p className="mt-4 text-2xs leading-relaxed text-mute">
               Importing lives in Settings, so you can also come back to it whenever the export
               from your old app is ready.
             </p>
@@ -416,12 +407,12 @@ export function WelcomeModal({ username, onComplete, onDismiss }: Props) {
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-sm font-semibold text-text">{client.name}</p>
                     <span
-                      className={`text-[10px] font-semibold uppercase tracking-[0.14em] ${client.href ? "text-accent" : "text-mute"}`}
+                      className={`text-2xs font-semibold uppercase tracking-[0.14em] ${client.href ? "text-accent" : "text-mute"}`}
                     >
                       {client.status}
                     </span>
                   </div>
-                  <p className="mt-1 text-[11px] leading-relaxed text-mute">{client.blurb}</p>
+                  <p className="mt-1 text-2xs leading-relaxed text-mute">{client.blurb}</p>
                   {client.href ? (
                     <a
                       href={client.href}
@@ -451,7 +442,7 @@ export function WelcomeModal({ username, onComplete, onDismiss }: Props) {
       <div className="shrink-0 border-t border-line bg-panel px-6 py-4">
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-[11px] text-mute tabular-nums">
+            <p className="text-2xs text-mute tabular-nums">
               Step {position + 1} of {steps.length}
             </p>
             {back ? (

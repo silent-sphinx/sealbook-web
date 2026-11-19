@@ -23,12 +23,33 @@
   --color-accent-ring: var(--sb-accent-ring);
 
   /*
-   * Notes only. Gold marks the note being edited, which in a three-column view
-   * has to outrank the rail's and the list's own selection; green marks the one
-   * creating action. The rest of the shell stays on `--color-accent`.
+   * Tones mixed from the shared tokens above rather than new hex values, so the
+   * palette the other clients pin stays as it is and every accent re-tints them
+   * through `--sb-accent`. Fill strength carries hierarchy: solid accent for the
+   * one primary action, `accent-soft` for "you are here", `hover` for hover.
    */
-  --color-note: #e0af68;
-  --color-note-new: #9ece6a;
+  --color-on-accent: var(--color-bg);
+  --color-faint: color-mix(in srgb, var(--color-mute) 72%, var(--color-bg));
+  --color-hover: color-mix(in srgb, var(--color-text) 5%, transparent);
+  --color-pressed: color-mix(in srgb, var(--color-text) 8%, transparent);
+  --color-accent-soft: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  --color-accent-faint: color-mix(in srgb, var(--color-accent) 7%, transparent);
+  --color-accent-line: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  --color-danger-soft: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  --color-warning-soft: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  --color-success-soft: color-mix(in srgb, var(--color-success) 12%, transparent);
+
+  /* 13px is the UI base. `.md-body` keeps its own rem scale. */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.9375rem;
+  --text-base--line-height: 1.375rem;
+  --text-lg: 1.0625rem;
+  --text-lg--line-height: 1.5rem;
+  --text-display: 1.75rem;
+  --text-display--line-height: 2.25rem;
 
   /* Contact network map edges only. */
   --color-link-family: #5a7fcf;
@@ -46,12 +67,27 @@
   --animate-view-prev: viewPrev 0.16s cubic-bezier(0.2, 0, 0, 1) backwards;
   --animate-view-fade: viewFade 0.12s ease-out backwards;
   --animate-search-pop: searchPop 0.15s cubic-bezier(0.2, 0, 0, 1) backwards;
+  --animate-pop: scaleIn 0.12s cubic-bezier(0.2, 0, 0, 1) both;
+  --animate-dialog: scaleIn 0.16s cubic-bezier(0.2, 0, 0, 1) both;
   /* Signed-out screens only; see `.auth-stage`. */
   --animate-auth-beam: authBeam 9s ease-in-out infinite alternate;
   --animate-dial-turn: dialTurn 90s linear infinite;
   --animate-dot-bounce: dotBounce 1.2s ease-in-out infinite;
   --animate-pulse-ring: pulseRing 2s ease-out infinite;
   --animate-orbit: orbit 1.6s linear infinite;
+}
+
+/*
+ * Static, unlike the block above: Tailwind only emits a theme variable once a
+ * utility uses it, and the note editor's floating panels in this file read
+ * these directly, so they have to exist whether or not a class asks for them.
+ */
+@theme static {
+  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.35);
+  --shadow-popover: 0 0 0 1px rgb(0 0 0 / 0.25), 0 10px 28px -6px rgb(0 0 0 / 0.55);
+  --shadow-dialog: 0 0 0 1px rgb(0 0 0 / 0.3), 0 28px 72px -16px rgb(0 0 0 / 0.7);
+  --shadow-toast: 0 14px 36px -10px rgb(0 0 0 / 0.6);
+  --shadow-lift: 0 6px 18px -6px var(--color-accent-ring);
 }
 
 /*
@@ -220,6 +256,56 @@ html {
   --fill-green: #2b4030;
   --fill-blue: #28384f;
   --fill-purple: #3c2f4d;
+
+  --sb-rail-w: 3.75rem;
+  --sb-tabbar-h: 3.5rem;
+  /* The sidebar's and the pane's header rows share one height, so their rules meet. */
+  --sb-bar-h: 3rem;
+  --sb-gutter: 1rem;
+
+  /* Stacking layers. Bare z-10/z-20 only order things inside one component. */
+  --z-rail: 30;
+  --z-overlay: 40;
+  --z-modal: 50;
+  /* Above modals: menus and palettes are opened from inside dialogs too. */
+  --z-popover: 60;
+  --z-toast: 70;
+  --z-lightbox: 80;
+  --z-modal-top: 90;
+}
+
+@media (min-width: 1024px) {
+  html {
+    --sb-gutter: 1.25rem;
+  }
+}
+
+/*
+ * Where every toast stacks (see `Toast`). The region itself ignores the pointer,
+ * so it never covers the work beside it; each toast turns that back on for
+ * itself. On a phone it sits above the tab bar, found through `:has` so the
+ * toast does not need to know whether one is drawn.
+ */
+.toast-region {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-toast);
+  display: flex;
+  width: min(26rem, 100vw);
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem 1rem max(1rem, env(safe-area-inset-bottom));
+  pointer-events: none;
+}
+
+.toast-region:empty {
+  display: none;
+}
+
+html:has(.mobile-tabbar) .toast-region {
+  bottom: calc(var(--sb-tabbar-h) + env(safe-area-inset-bottom));
+  padding-bottom: 0.75rem;
 }
 
 body {
@@ -227,6 +313,10 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 @layer base {
@@ -266,7 +356,7 @@ option {
 
 @media (min-width: 1024px) {
   .sb-shell {
-    grid-template-columns: var(--sb-sidebar-cols, 17.5rem minmax(0, 1fr));
+    grid-template-columns: var(--sb-sidebar-cols, 16rem minmax(0, 1fr));
   }
 }
 
@@ -617,10 +707,10 @@ body.sb-dragging * {
   overflow-x: auto;
   margin-bottom: 0.4rem;
   padding: 0.25rem;
-  border: 1px solid var(--color-line);
-  border-radius: 0.6rem;
-  background: var(--color-panel);
-  box-shadow: 0 6px 20px rgb(0 0 0 / 0.45);
+  border: 1px solid var(--color-line-light);
+  border-radius: 0.625rem;
+  background: var(--color-elevated);
+  box-shadow: var(--shadow-popover);
   scrollbar-width: none;
 }
 
@@ -644,7 +734,7 @@ body.sb-dragging * {
 
 .md-body .md-table-shell th[data-selected],
 .md-body .md-table-shell td[data-selected] {
-  box-shadow: inset 0 0 0 2px var(--color-note);
+  box-shadow: inset 0 0 0 2px var(--color-accent);
 }
 
 .md-body .md-table-shell th:focus-visible,
@@ -884,10 +974,6 @@ html {
   margin-top: 1.6rem;
 }
 
-.note-doc.md-body ul[data-type="taskList"] input[type="checkbox"] {
-  accent-color: var(--color-note-new);
-}
-
 /* Quieter than the window's scrollbar. */
 .note-scroll::-webkit-scrollbar {
   width: 10px;
@@ -1045,10 +1131,10 @@ html {
   align-items: center;
   gap: 0.125rem;
   padding: 0.1875rem;
-  border: 1px solid var(--color-line);
-  border-radius: 0.5rem;
+  border: 1px solid var(--color-line-light);
+  border-radius: 0.625rem;
   background: var(--color-elevated);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.28);
+  box-shadow: var(--shadow-popover);
 }
 
 .note-bubble-btn {
@@ -1090,7 +1176,7 @@ html {
 /* Positioned against the caret, so it is fixed rather than in the scroll flow. */
 .note-table-tools {
   position: fixed;
-  z-index: 45;
+  z-index: var(--z-popover);
   display: flex;
   align-items: center;
   gap: 0.125rem;
@@ -1098,10 +1184,10 @@ html {
   flex-wrap: wrap;
   max-width: calc(100vw - 1rem);
   padding: 0.1875rem;
-  border: 1px solid var(--color-line);
-  border-radius: 0.5rem;
+  border: 1px solid var(--color-line-light);
+  border-radius: 0.625rem;
   background: var(--color-elevated);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.28);
+  box-shadow: var(--shadow-popover);
 }
 
 .note-table-menu {
@@ -1122,10 +1208,10 @@ html {
   gap: 0.0625rem;
   min-width: 8.5rem;
   padding: 0.25rem;
-  border: 1px solid var(--color-line);
-  border-radius: 0.5rem;
+  border: 1px solid var(--color-line-light);
+  border-radius: 0.75rem;
   background: var(--color-elevated);
-  box-shadow: 0 12px 32px rgb(0 0 0 / 0.32);
+  box-shadow: var(--shadow-popover);
 }
 
 .note-table-fill {
@@ -1197,15 +1283,15 @@ html {
 
 .note-slash {
   position: fixed;
-  z-index: 50;
+  z-index: var(--z-popover);
   width: 15rem;
   max-height: 17rem;
   overflow-y: auto;
   padding: 0.25rem;
-  border: 1px solid var(--color-line);
-  border-radius: 0.625rem;
+  border: 1px solid var(--color-line-light);
+  border-radius: 0.75rem;
   background: var(--color-elevated);
-  box-shadow: 0 12px 32px rgb(0 0 0 / 0.32);
+  box-shadow: var(--shadow-popover);
 }
 
 .note-slash-row {
@@ -1336,4 +1422,43 @@ html {
 .note-bubble-btn:disabled:hover {
   background: none;
   color: var(--color-mute);
+}
+
+/*
+ * Tooltips for the rail, whose buttons carry an icon and nothing else. Drawn
+ * with CSS rather than `title`, so they appear on keyboard focus as well as
+ * hover and a button never shows two. The delay keeps them from flickering as
+ * the pointer crosses the rail, and there is no hover on touch to show them.
+ */
+.tip[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: calc(100% + 0.625rem);
+  top: 50%;
+  z-index: var(--z-popover);
+  translate: 0 -50%;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--color-line-light);
+  border-radius: 0.5rem;
+  background: var(--color-elevated);
+  box-shadow: var(--shadow-popover);
+  color: var(--color-text);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+
+.tip[data-tip]:hover::after,
+.tip[data-tip]:focus-visible::after {
+  opacity: 1;
+  transition-delay: 350ms;
+}
+
+@media (hover: none) {
+  .tip[data-tip]::after {
+    display: none;
+  }
 }

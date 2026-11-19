@@ -24,16 +24,13 @@ import {
 import { archivedIds, hiddenIds } from "../lib/archive";
 import { friendlyError } from "../lib/errors";
 import {
-  btnHeader,
-  checkbox,
+  btnPrimarySm,
   focusRing,
-  paneCount,
-  paneHeader,
-  paneTitle,
   searchClear,
   searchField,
   searchIcon,
-  sidebarHeaderAction,
+  viewMain,
+  viewGrid,
 } from "../lib/styles";
 import {
   buildTaskListTree,
@@ -79,6 +76,8 @@ import {
 } from "../lib/wasm";
 import type { CoreTaskPlan } from "../lib/wasm";
 import { Icon } from "./Icon";
+import { PaneHeader, BulkBar, BulkMove } from "./PaneControls";
+import { Banner } from "./Banner";
 import { EmptyState } from "./EmptyState";
 
 type Props = {
@@ -128,7 +127,7 @@ function plural(count: number, noun: string): string {
 }
 
 const bulkControl =
-  "box-border h-8 shrink-0 cursor-pointer rounded-lg border border-line bg-surface py-0 pl-3 pr-3 text-xs font-medium leading-none text-mute outline-none focus:border-accent-dim";
+  "box-border h-7 shrink-0 cursor-pointer rounded-lg border border-line bg-bg px-2.5 text-xs font-medium text-mute outline-none transition-[border-color,box-shadow] hover:border-line-light focus:border-accent-dim focus:ring-2 focus:ring-accent-ring";
 
 type FormState = { initial: TaskDraft; editingId: string | null; key: number };
 type Notice = { message: string; previous: Task; reopened: Task[] };
@@ -694,11 +693,9 @@ export function TasksView({ session, trash = NO_TRASH, tasks, taskLists, busy, t
   const paneOpen = form !== null || selected !== null;
 
   return (
-    <main className="flex h-[calc(100dvh-var(--sb-header-h,74px))] flex-col overflow-hidden pb-[env(safe-area-inset-bottom)] text-text lg:pb-0">
+    <main className={viewMain}>
       {error ? (
-        <p role="alert" className="shrink-0 border-b border-danger/30 bg-danger/10 px-4 py-2 text-xs text-danger lg:px-6">
-          {error}
-        </p>
+        <Banner tone="danger" role="alert">{error}</Banner>
       ) : null}
       <ContextMenu state={bulkMenu.menu} onClose={bulkMenu.close} />
       {notice ? (
@@ -714,28 +711,11 @@ export function TasksView({ session, trash = NO_TRASH, tasks, taskLists, busy, t
         </p>
       ) : null}
 
-      <div className="sb-shell grid min-h-0 flex-1" style={sidebar.cols}>
+      <div className={viewGrid} style={sidebar.cols}>
         <SidebarDrawer title="Tasks" sidebar={sidebar}>
           <SidebarHeader
             title="Tasks"
             onTitleClick={goHome}
-            action={
-              !readOnlyMode ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    startAdd();
-                    sidebar.close();
-                  }}
-                  disabled={disabled}
-                  aria-label="Create task"
-                  title="Create task"
-                  className={sidebarHeaderAction}
-                >
-                  <Icon name="plus" className="h-4 w-4" />
-                </button>
-              ) : null
-            }
           />
           <TaskListSidebar
             lists={taskLists}
@@ -767,23 +747,16 @@ export function TasksView({ session, trash = NO_TRASH, tasks, taskLists, busy, t
         </SidebarDrawer>
 
         {viewingTrash ? (
-          <TrashPanel session={session} trash={trash} tab="tasks" onChanged={async () => { await onRefresh(); }} />
+          <TrashPanel session={session} trash={trash} tab="tasks" sidebar={sidebar} onChanged={async () => { await onRefresh(); }} />
         ) : (
         <section className="order-1 flex min-w-0 flex-col overflow-hidden lg:order-none lg:min-h-0">
-          <header className={paneHeader}>
-            <div className="flex min-w-0 items-center gap-2">
-              <h1 className={paneTitle}>{title}</h1>
-              <span className={paneCount}>
-                {shown}
-              </span>
-            </div>
-            <div className="flex items-center gap-2.5">
+          <PaneHeader title={title} count={shown} sidebar={sidebar}>
               {!readOnlyMode ? (
                 <button
                   type="button"
                   onClick={() => startAdd()}
                   disabled={disabled}
-                  className={btnHeader}
+                  className={btnPrimarySm}
                 >
                   <Icon name="plus" />
                   <span className="hidden sm:inline">New task</span>
@@ -814,44 +787,26 @@ export function TasksView({ session, trash = NO_TRASH, tasks, taskLists, busy, t
                   </button>
                 ) : null}
               </div>
-            </div>
-          </header>
+</PaneHeader>
 
           {selection.selecting ? (
-            <div
-              role="toolbar"
-              aria-label="Bulk edit tasks"
-              className="flex shrink-0 flex-wrap items-center gap-3 border-b border-line bg-panel/60 px-4 py-2 lg:px-6"
+            <BulkBar
+              label="Bulk edit tasks"
+              noun="tasks"
+              selected={selection.selected.size}
+              total={selectable.length}
+              onToggleAll={selection.toggleAll}
+              onClear={selection.clear}
             >
-              <input
-                type="checkbox"
-                ref={(node) => {
-                  if (node) node.indeterminate = selection.selected.size > 0 && selection.selected.size < selectable.length;
-                }}
-                checked={selectable.length > 0 && selection.selected.size === selectable.length}
-                onChange={selection.toggleAll}
-                aria-label="Select all tasks"
-                className={checkbox}
-              />
-              <span className="min-w-0 flex-1 text-xs text-mute" aria-live="polite">
-                {selection.selected.size} selected
-              </span>
-              <select
-                aria-label="Move selected tasks to"
-                value=""
+              <BulkMove
+                label="Move selected tasks to"
+                options={listRows.map(({ item, depth }) => ({
+                  id: item.id,
+                  name: `${"\u00a0\u00a0".repeat(depth)}${item.name}`,
+                }))}
                 disabled={disabled}
-                onChange={(event) => {
-                  if (event.target.value) void applyBulk({ kind: "move", taskListId: event.target.value });
-                }}
-                className={bulkControl}
-              >
-                <option value="">Move to…</option>
-                {listRows.map(({ item, depth }) => (
-                  <option key={item.id} value={item.id}>
-                    {`${"\u00a0\u00a0".repeat(depth)}${item.name}`}
-                  </option>
-                ))}
-              </select>
+                onMove={(taskListId) => void applyBulk({ kind: "move", taskListId })}
+              />
               <input
                 type="date"
                 aria-label="Set due date for selected tasks"
@@ -867,12 +822,12 @@ export function TasksView({ session, trash = NO_TRASH, tasks, taskLists, busy, t
                 onClick={(event) => bulkMenu.open(event, bulkItems())}
                 disabled={disabled}
                 aria-haspopup="menu"
-                className={`${btnHeader} box-border`}
+                className={btnPrimarySm}
               >
                 <span>Actions</span>
                 <Icon name="chevron" className="h-3 w-3 rotate-90" />
               </button>
-            </div>
+            </BulkBar>
           ) : null}
 
           <div
@@ -934,7 +889,7 @@ export function TasksView({ session, trash = NO_TRASH, tasks, taskLists, busy, t
 
             <div className={`min-w-0 flex-col overflow-hidden lg:flex ${paneOpen ? "flex" : "hidden"}`}>
               {form ? (
-                <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:h-dvh max-lg:w-screen">
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg max-lg:fixed max-lg:inset-0 max-lg:z-(--z-overlay) max-lg:h-dvh max-lg:w-screen">
                   <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-5">
                     <TaskForm
                       key={form.key}

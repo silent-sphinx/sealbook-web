@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { DeviceEntry, DeviceLabel, DeviceSummary, Session } from "../lib/client";
 import {
   changePassword,
@@ -33,13 +33,18 @@ import { clearDevice } from "../lib/storage";
 import { friendlyError } from "../lib/errors";
 import {
   btnDanger,
+  btnDangerGhostSm,
   btnPrimary,
+  btnPrimarySm,
   btnSecondary,
   field,
   fieldLabel,
   focusRing,
   selectField,
   sidebarRowState,
+  viewMain,
+  viewGrid,
+  sidebarRow,
 } from "../lib/styles";
 import type {
   AccentKey,
@@ -61,11 +66,12 @@ import { allTimezones, utcOffsetLabel } from "../lib/timezone";
 import type { WeekStart } from "../lib/calendarModel";
 import { AUTO_LOCK_OPTIONS, autoLockLabel, MIN_PASSWORD_LENGTH, passwordProblem, type AutoLockMinutes } from "../lib/appState";
 import { PAGE_GROUPS, pageForSection, type SettingsPage, type SettingsSection } from "../lib/settingsModel";
-import { CheckIcon, CopyIcon } from "./AppIcons";
+import { Icon } from "./Icon";
+import { PaneHeader } from "./PaneControls";
 import { clearClipboard } from "../lib/clipboard";
 import { printRecoveryWords } from "../lib/printPhrase";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { Modal } from "./Modal";
+import { Modal, ModalBody, ModalFooter } from "./Modal";
 import { PasswordField } from "./PasswordField";
 import { SidebarDrawer, SidebarHeader, SidebarSection, type Sidebar } from "./SidebarDrawer";
 import { AccountExportSection } from "./AccountExportSection";
@@ -130,6 +136,11 @@ type Props = {
   onDeviceLabelSaved?: (label: DeviceLabel) => void;
   /** Rejects when the write fails, so the toggle can report it and stay put. */
   onSaveAccountSettings: (settings: AccountSettings) => Promise<void>;
+  /**
+   * Shows an accent across the app without saving it, and `null` takes it back.
+   * Optional so the pages that never offer a choice need not pass one.
+   */
+  onPreviewAccent?: (accent: AccentKey | null) => void;
   /** Read once on mount; the view unmounts whenever the Settings tab is left. */
   initialSection?: SettingsSection;
   sidebar: Sidebar;
@@ -176,6 +187,7 @@ export function SettingsView({
   deviceLabels = NO_LABELS,
   onDeviceLabelSaved,
   onSaveAccountSettings,
+  onPreviewAccent,
   initialSection,
   sidebar,
 }: Props) {
@@ -221,6 +233,11 @@ export function SettingsView({
   const [featureMsg, setFeatureMsg] = useState<Notice>(null);
 
   const [accentBusy, setAccentBusy] = useState<AccentKey | null>(null);
+  // A preview left running would outlive the page that started it, so leaving
+  // the page, however it happens, hands the saved accent back.
+  const previewAccent = useRef(onPreviewAccent);
+  previewAccent.current = onPreviewAccent;
+  useEffect(() => () => previewAccent.current?.(null), []);
   const [accentMsg, setAccentMsg] = useState<Notice>(null);
 
   const [contactModeBusy, setContactModeBusy] = useState(false);
@@ -567,22 +584,22 @@ export function SettingsView({
   const recoveryPhraseCard = newWords ? (
     <div className="animate-fade-in overflow-hidden rounded-xl border border-accent/30 bg-panel/40">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">
+        <span className="text-2xs font-semibold uppercase tracking-[0.14em] text-accent">
           New recovery phrase
         </span>
-        <span className="text-[11px] text-mute">Save it now. The previous phrase no longer works.</span>
+        <span className="text-2xs text-mute">Save it now. The previous phrase no longer works.</span>
       </div>
       <ol className="grid grid-cols-2 gap-x-4 gap-y-1.5 px-4 py-4 text-xs sm:grid-cols-3">
         {newWords.map((word, index) => (
           <li key={`${index}-${word}`} className="flex items-center gap-2 font-mono">
-            <span className="w-5 select-none text-right text-[10px] tabular-nums text-mute/70">{index + 1}</span>
+            <span className="w-5 select-none text-right text-2xs tabular-nums text-mute/70">{index + 1}</span>
             <span className="font-medium text-text">{word}</span>
           </li>
         ))}
       </ol>
       <div className="flex flex-wrap gap-2 border-t border-line px-4 py-3">
         <button type="button" className={btnSecondary} onClick={copyWords}>
-          {copiedPhrase ? <CheckIcon /> : <CopyIcon />}
+          <Icon name={copiedPhrase ? "check" : "copy"} />
           {copiedPhrase ? "Copied" : "Copy all"}
         </button>
         <button type="button" className={btnSecondary} onClick={downloadWords}>
@@ -592,7 +609,7 @@ export function SettingsView({
           Print
         </button>
       </div>
-      <p className="border-t border-line px-4 py-2.5 text-[11px] leading-relaxed text-mute">
+      <p className="border-t border-line px-4 py-2.5 text-2xs leading-relaxed text-mute">
         Copying leaves the words in any clipboard history, and the download is a plain text file
         in your Downloads folder, which may be synced. Printing keeps them off the device.
       </p>
@@ -727,8 +744,8 @@ export function SettingsView({
                   <div key={row} className="flex items-center gap-3 px-4 py-3" aria-hidden="true">
                     <span className="h-8 w-8 shrink-0 animate-pulse rounded-lg bg-surface" />
                     <span className="min-w-0 flex-1 space-y-2">
-                      <span className="block h-3 w-1/3 animate-pulse rounded bg-surface" />
-                      <span className="block h-2.5 w-1/2 animate-pulse rounded bg-surface/70" />
+                      <span className="block h-3 w-1/3 animate-pulse rounded-md bg-surface" />
+                      <span className="block h-2.5 w-1/2 animate-pulse rounded-md bg-surface/70" />
                     </span>
                   </div>
                 ))}
@@ -969,33 +986,65 @@ export function SettingsView({
       content = (
         <SettingsGroup
           title="Accent colour"
-          description="The accent tints buttons, links, selected rows and focus rings. Calendar colours are set per calendar and are left alone, as is the gold a note being edited is marked with."
+          description="The accent tints buttons, links, selected rows and focus rings. Calendar colours are set per calendar and are left alone. Point at a colour to try it before you choose."
         >
-          <SettingsList role="radiogroup" label="Accent colour">
+          <div role="radiogroup" aria-label="Accent colour" className="grid grid-cols-3 gap-2 sm:grid-cols-6">
             {ACCENTS.map((accent) => {
               const active = normalizeAccent(accountSettings.accent) === accent;
               const { base, dim } = ACCENT_COLORS[accent];
               return (
-                <SettingsOption
+                <button
                   key={accent}
-                  checked={active}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
                   disabled={accentBusy !== null}
-                  onSelect={() => void handleAccent(accent)}
-                  // The one place the colour cannot come from the accent tokens:
-                  // a swatch shows the accent it offers, not the one in use.
-                  lead={
-                    <span
-                      aria-hidden="true"
-                      style={{ backgroundColor: base, borderColor: dim }}
-                      className="h-5 w-5 shrink-0 rounded-full border"
-                    />
-                  }
-                  label={ACCENT_LABELS[accent]}
-                  description={accentBusy === accent ? "Saving…" : active ? "Currently in use" : base}
-                />
+                  onClick={() => void handleAccent(accent)}
+                  onPointerEnter={() => onPreviewAccent?.(accent)}
+                  onPointerLeave={() => onPreviewAccent?.(null)}
+                  onFocus={() => onPreviewAccent?.(accent)}
+                  onBlur={() => onPreviewAccent?.(null)}
+                  className={`flex cursor-pointer flex-col items-center gap-2 rounded-xl border px-2 py-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${focusRing} ${
+                    active
+                      ? "border-accent-line bg-accent-soft text-text"
+                      : "border-line bg-panel/40 text-mute hover:border-line-light hover:text-text"
+                  }`}
+                >
+                  {/* The one place the colour cannot come from the accent tokens:
+                      a swatch shows the accent it offers, not the one in use. */}
+                  <span
+                    aria-hidden="true"
+                    style={{ backgroundImage: `linear-gradient(135deg, ${base}, ${dim})` }}
+                    className="flex size-8 items-center justify-center rounded-full"
+                  >
+                    {active ? <Icon name="check" className="size-4 text-bg" strokeWidth={2.25} /> : null}
+                  </span>
+                  {ACCENT_LABELS[accent]}
+                  {accentBusy === accent ? <span className="sr-only">Saving…</span> : null}
+                </button>
               );
             })}
-          </SettingsList>
+          </div>
+          {/* Stand-ins, not controls: the same classes the real ones wear, so a
+              preview shows what the accent does to each kind of thing, and so
+              that a danger action can be seen to stay apart from it. */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none mt-4 flex flex-wrap items-center gap-x-4 gap-y-3 rounded-xl border border-line bg-panel/40 p-3"
+          >
+            <span className={btnPrimarySm}>Primary action</span>
+            <span className="flex h-7 items-center rounded-lg bg-accent-soft px-2.5 text-xs font-medium text-text">
+              Selected row
+            </span>
+            <span className="flex h-5 w-9 items-center justify-end rounded-full bg-accent px-0.5">
+              <span className="size-3.5 rounded-full bg-on-accent" />
+            </span>
+            <span className="text-xs font-medium text-accent underline underline-offset-2">A link</span>
+            <span className={btnDangerGhostSm}>
+              <Icon name="trash" className="size-3.5" />
+              Move to trash
+            </span>
+          </div>
           <NoticeLine notice={accentMsg} />
         </SettingsGroup>
       );
@@ -1152,8 +1201,8 @@ export function SettingsView({
   }
 
   return (
-    <main className="flex h-[calc(100dvh-var(--sb-header-h,74px))] flex-col overflow-hidden pb-[env(safe-area-inset-bottom)] text-text lg:pb-0">
-      <div className="sb-shell grid min-h-0 flex-1" style={sidebar.cols}>
+    <main className={viewMain}>
+      <div className={viewGrid} style={sidebar.cols}>
         <SidebarDrawer title="Settings" sidebar={sidebar}>
           <SidebarHeader title="Settings" />
           <nav aria-label="Settings sections">
@@ -1168,7 +1217,7 @@ export function SettingsView({
                           type="button"
                           onClick={() => open(meta.id)}
                           aria-current={active ? "page" : undefined}
-                          className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${
+                          className={`${sidebarRow} ${
                             meta.danger
                               ? active
                                 ? "bg-surface text-danger"
@@ -1189,26 +1238,7 @@ export function SettingsView({
         </SidebarDrawer>
 
         <section className="flex min-w-0 flex-col overflow-hidden lg:min-h-0">
-          <header className="flex items-center gap-2 border-b border-line px-4 py-3 sm:px-5 sm:py-3.5 lg:px-6">
-            {sidebar.isDesktop ? null : (
-              <button
-                type="button"
-                onClick={sidebar.toggle}
-                aria-label="Show settings sections"
-                title="Settings sections"
-                className={`-ml-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
-              >
-                <SettingsMark name="menu" />
-              </button>
-            )}
-            <div className="flex h-8 min-w-0 items-center">
-              <h1
-                className={`truncate text-base font-semibold tracking-tight ${page.danger ? "text-danger" : ""}`}
-              >
-                {page.label}
-              </h1>
-            </div>
-          </header>
+          <PaneHeader title={page.label} titleClassName={page.danger ? "text-danger" : ""} sidebar={sidebar} />
 
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div key={page.id} className="max-w-2xl animate-fade-in px-4 py-6 sm:px-5 lg:px-8 lg:py-8">
@@ -1226,8 +1256,8 @@ export function SettingsView({
       </div>
 
       {showPhraseConfirm ? (
-        <Modal title="Generate a new recovery phrase?" onClose={() => !phraseBusy && setShowPhraseConfirm(false)}>
-          <div className="space-y-4 p-6">
+        <Modal title="Generate a new recovery phrase?" size="sm" onClose={() => !phraseBusy && setShowPhraseConfirm(false)}>
+          <ModalBody className="space-y-4">
             <p className="text-sm leading-relaxed text-text">
               This mints a new vault key, re-encrypts everything under it, and wraps it for your new
               recovery words. Replacing the words alone would not be enough: anyone who has ever seen
@@ -1248,7 +1278,8 @@ export function SettingsView({
                 Re-encrypting {phraseProgress.done} of {phraseProgress.total}…
               </p>
             ) : null}
-            <div className={`${actionRow} pt-2`}>
+          </ModalBody>
+          <ModalFooter>
               <button
                 type="button"
                 className={btnSecondary}
@@ -1268,14 +1299,13 @@ export function SettingsView({
               >
                 {phraseBusy ? "Rotating…" : "Generate new phrase"}
               </button>
-            </div>
-          </div>
+          </ModalFooter>
         </Modal>
       ) : null}
 
       {showDeleteModal ? (
-        <Modal title="Delete account" onClose={() => !deleteBusy && setShowDeleteModal(false)}>
-          <div className="space-y-4 p-6">
+        <Modal title="Delete account" size="sm" onClose={() => !deleteBusy && setShowDeleteModal(false)}>
+          <ModalBody className="space-y-4">
             <p className="text-sm leading-relaxed text-text">
               This is <strong className="text-danger">irreversible</strong>. Your encrypted contacts,
               calendar, notes, bookmarks, tasks, key wraps, sessions and device enrolments are purged
@@ -1301,7 +1331,8 @@ export function SettingsView({
               autoComplete="current-password"
             />
             {deleteError ? <ErrorMessage size="xs">{deleteError}</ErrorMessage> : null}
-            <div className={`${actionRow} pt-2`}>
+          </ModalBody>
+          <ModalFooter>
               <button
                 type="button"
                 disabled={deleteBusy}
@@ -1318,14 +1349,14 @@ export function SettingsView({
               >
                 {deleteBusy ? "Deleting…" : "Delete account permanently"}
               </button>
-            </div>
-          </div>
+          </ModalFooter>
         </Modal>
       ) : null}
 
       {signOutConfirm ? (
         <ConfirmDialog
           title="Sign out"
+          tone="default"
           heading="Sign out of this device?"
           body={
             <span className="block space-y-3">
@@ -1373,7 +1404,7 @@ export function SettingsView({
               <span className="block">
                 <span className="block font-medium text-text">{revokeTarget.name}</span>
                 <span className="block text-xs text-mute">{revokeTarget.detail}</span>
-                <span className="block truncate font-mono text-[11px] text-mute">
+                <span className="block truncate font-mono text-2xs text-mute">
                   {revokeTarget.device_id}
                 </span>
               </span>

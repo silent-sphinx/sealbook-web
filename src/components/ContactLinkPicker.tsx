@@ -2,6 +2,7 @@ import type { LinkableSection } from "../lib/contactProfile";
 import type { Contact, ContactProfile } from "../lib/types";
 import { Avatar } from "./ContactCard";
 import { focusRing } from "../lib/styles";
+import { Icon } from "./Icon";
 
 /**
  * Full-screen contact picker for linking contacts.
@@ -43,7 +44,7 @@ export function ContactLinkPicker({
       (lower === "" || c.name.toLowerCase().includes(lower)),
   );
 
-  const posClass = positionFixed ? "fixed inset-0 z-50" : "absolute inset-0 z-50";
+  const posClass = positionFixed ? "fixed inset-0 z-(--z-modal)" : "absolute inset-0 z-(--z-modal)";
 
   return (
     <div
@@ -59,9 +60,7 @@ export function ContactLinkPicker({
           aria-label="Cancel"
           onClick={onClose}
         >
-          <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-            <path d="M6.28 5.22a.75.75 0 1 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06l3.72-3.72 3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-          </svg>
+          <Icon name="close" className="h-4 w-4" />
         </button>
         <input
           type="text"

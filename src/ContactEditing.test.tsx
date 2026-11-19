@@ -263,13 +263,7 @@ describe("creating a contact", () => {
     fireEvent.change(await screen.findByLabelText("Full name"), {
       target: { value: "Katherine Johnson" },
     });
-    // The sidebar's own "Add contact" shares the label, so this picks the
-    // composer's submit.
-    fireEvent.click(
-      screen
-        .getAllByRole("button", { name: "Add contact" })
-        .find((button) => button.getAttribute("type") === "submit")!,
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Add contact" }));
 
     await waitFor(() => expect(writes.length).toBe(1));
     expect(writes[0]!.id).toBeUndefined();

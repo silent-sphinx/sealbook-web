@@ -1,6 +1,5 @@
 import { type FormEvent, type RefObject } from "react";
 import { AuthCard, Brand } from "./AuthLayout";
-import { SignOutIcon } from "./AppIcons";
 import { Icon } from "./Icon";
 import { PasswordField } from "./PasswordField";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -92,7 +91,7 @@ export function AuthScreen({
             title="Sign out"
             className={`flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-bg/60 text-mute transition-colors duration-150 hover:text-accent ${focusRing}`}
           >
-            <SignOutIcon />
+            <Icon name="signOut" />
           </button>
         </div>
         <form onSubmit={onUnlock} className="mt-6">
@@ -119,6 +118,7 @@ export function AuthScreen({
         {signingOut ? (
           <ConfirmDialog
             title="Sign out"
+            tone="default"
             heading="Sign out of this device?"
             body={
               queuedCount() > 0
@@ -155,7 +155,7 @@ export function AuthScreen({
       <div
         role="tablist"
         aria-label="Account setup method"
-        className="relative mt-8 mb-7 grid grid-cols-2 rounded-xl border border-line-light/60 bg-surface/50 p-1 text-[13px]"
+        className="relative mt-8 mb-7 grid grid-cols-2 rounded-xl border border-line-light/60 bg-surface/50 p-1 text-sm"
       >
         {/* One pill that slides between the halves, as the main navigation's does. */}
         <span
@@ -225,7 +225,7 @@ export function AuthScreen({
                       />
                     ))}
                   </div>
-                  <p className="mt-1.5 text-[11px] text-mute" aria-live="polite">
+                  <p className="mt-1.5 text-2xs text-mute" aria-live="polite">
                     Password strength: {strength.label}
                   </p>
                 </div>
@@ -246,7 +246,7 @@ export function AuthScreen({
               className={authField}
               required
             />
-            <p aria-live="polite" className="mt-1.5 min-h-4 text-[11px]">
+            <p aria-live="polite" className="mt-1.5 min-h-4 text-2xs">
               {confirmPassword ? (
                 confirmPassword === password ? (
                   <span className="inline-flex items-center gap-1 text-success">

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Modal } from "./Modal";
+import { Modal, ModalBody, ModalFooter } from "./Modal";
 import { btnDanger, btnSecondary, selectField } from "../lib/styles";
 import type { AddressBook } from "../lib/types";
 import { ErrorMessage } from "./ErrorMessage";
@@ -28,7 +28,7 @@ export function DeleteAddressBookModal({
 
   return (
     <Modal title={`Delete ${book.name}`} onClose={busy ? () => {} : onClose}>
-      <div className="space-y-5 p-6">
+      <ModalBody className="space-y-5">
         <p className="text-sm text-mute">
           {contactCount === 0
             ? "This address book has no contacts. Choose how to continue."
@@ -80,8 +80,8 @@ export function DeleteAddressBookModal({
         </fieldset>
 
         {error ? <ErrorMessage>{error}</ErrorMessage> : null}
-
-        <div className="flex justify-end gap-3">
+      </ModalBody>
+      <ModalFooter>
           <button type="button" className={btnSecondary} onClick={onClose} disabled={busy}>
             Cancel
           </button>
@@ -93,8 +93,7 @@ export function DeleteAddressBookModal({
           >
             {busy ? "Moving…" : "Move to trash"}
           </button>
-        </div>
-      </div>
+      </ModalFooter>
     </Modal>
   );
 }

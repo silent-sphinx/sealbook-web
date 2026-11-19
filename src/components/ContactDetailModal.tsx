@@ -13,12 +13,13 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { ContactForm } from "./ContactForm";
 import { ContactAttachmentsSection } from "./ContactAttachmentsSection";
 import { ContactProfileView, profileViewHasContent } from "./ContactProfileView";
-import { CloseIcon, TrashIcon } from "./FieldControls";
+import { Icon } from "./Icon";
 import { EntryRow, FieldRow, HeaderButton, HeaderDivider, PaneSection, ProseBlock } from "./PaneControls";
 import {
-  btnHeader,
-  btnHeaderSecondary,
+  btnPrimarySm,
+  btnSecondarySm,
   focusRing,
+  popover,
   tonePill,
 } from "../lib/styles";
 import { ContactLinkPicker } from "./ContactLinkPicker";
@@ -237,7 +238,7 @@ export function ContactDetailModal({
         {contact.emails.map((e) => (
           <FieldRow
             key={e.id}
-            icon={<MailIcon />}
+            icon={<Icon name="mail" className="h-4 w-4" />}
             label={channelKindLabel(e.kind, e.label)}
             value={e.value}
             href={mailtoHref(e.value)}
@@ -246,7 +247,7 @@ export function ContactDetailModal({
         {contact.phones.map((p) => (
           <FieldRow
             key={p.id}
-            icon={<PhoneIcon />}
+            icon={<Icon name="phone" className="h-4 w-4" />}
             label={channelKindLabel(p.kind, p.label)}
             value={p.value}
             href={telHref(p.value)}
@@ -257,7 +258,7 @@ export function ContactDetailModal({
           return (
             <FieldRow
               key={s.id}
-              icon={<ProfileIcon />}
+              icon={<Icon name="at" className="h-4 w-4" />}
               label={s.platform}
               value={s.handle}
               href={url ?? undefined}
@@ -293,7 +294,7 @@ export function ContactDetailModal({
         {dates.map((d) => (
           <FieldRow
             key={d.id}
-            icon={<CalendarIcon />}
+            icon={<Icon name="calendar" className="h-4 w-4" />}
             label={dateKindLabel(d.kind, d.label)}
             value={formatDate(d.date)}
           />
@@ -309,7 +310,7 @@ export function ContactDetailModal({
             key={w.id}
             leading={
               <span className="flex h-5 w-4 items-center justify-center text-mute/60">
-                <BriefcaseIcon />
+                <Icon name="briefcase" className="h-4 w-4" />
               </span>
             }
             title={w.organization || w.title}
@@ -345,7 +346,7 @@ export function ContactDetailModal({
   return (
     <aside
       aria-label={`${contact.name} details`}
-      className="flex min-h-[28rem] min-w-0 flex-col overflow-hidden bg-bg animate-fade-in-up max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:h-dvh max-lg:min-h-0 max-lg:max-h-none max-lg:w-screen lg:h-full lg:min-h-0"
+      className="flex min-h-[28rem] min-w-0 flex-col overflow-hidden bg-bg animate-fade-in-up max-lg:fixed max-lg:inset-0 max-lg:z-(--z-overlay) max-lg:h-dvh max-lg:min-h-0 max-lg:max-h-none max-lg:w-screen lg:h-full lg:min-h-0"
     >
       <div
         className={`relative z-30 shrink-0 overflow-visible border-b px-5 py-4 ${editing ? "border-accent-dim/50 bg-accent/5" : "border-line"}`}
@@ -361,11 +362,11 @@ export function ContactDetailModal({
                 title="Change profile picture"
                 onClick={() => setAvatarMenuOpen((open) => !open)}
               >
-                <CameraIcon />
+                <Icon name="camera" />
               </button>
             ) : null}
             {avatarMenuOpen ? (
-              <div className="absolute left-0 top-full z-50 mt-2 w-40 overflow-hidden rounded-lg border border-line bg-elevated p-1 shadow-xl">
+              <div className={`absolute left-0 top-full z-(--z-popover) mt-2 w-40 animate-pop overflow-hidden ${popover}`}>
                 <button
                   type="button"
                   className={`w-full rounded-md px-3 py-2 text-left text-xs text-text transition-colors hover:bg-surface ${focusRing}`}
@@ -430,7 +431,7 @@ export function ContactDetailModal({
               <>
                 <button
                   type="button"
-                  className={btnHeaderSecondary}
+                  className={btnSecondarySm}
                   onClick={() => onEditingChange(false)}
                   disabled={busy}
                 >
@@ -439,7 +440,7 @@ export function ContactDetailModal({
                 <button
                   type="submit"
                   form="contact-detail-form"
-                  className={`ml-1 ${btnHeader}`}
+                  className={`ml-1 ${btnPrimarySm}`}
                   disabled={busy}
                 >
                   {busy ? "Saving" : "Save"}
@@ -448,7 +449,7 @@ export function ContactDetailModal({
             ) : (
               <>
                 <HeaderButton label="Edit contact" onClick={() => onEditingChange(true)}>
-                  <EditIcon />
+                  <Icon name="pencil" className="h-4 w-4" />
                 </HeaderButton>
                 {!readOnly && onArchive ? (
                   <HeaderButton
@@ -456,12 +457,12 @@ export function ContactDetailModal({
                     onClick={onArchive}
                     disabled={busy}
                   >
-                    {archived ? <UnarchiveIcon /> : <ArchiveIcon />}
+                    <Icon name={archived ? "unarchive" : "archive"} className="h-4 w-4" />
                   </HeaderButton>
                 ) : null}
                 {!readOnly && onDelete ? (
                   <HeaderButton label="Delete contact" onClick={onDelete} disabled={busy} danger>
-                    <TrashIcon />
+                    <Icon name="trash" className="h-4 w-4" />
                   </HeaderButton>
                 ) : null}
               </>
@@ -470,7 +471,7 @@ export function ContactDetailModal({
               <>
                 <HeaderDivider />
                 <HeaderButton label="Close contact details" onClick={onClose} disabled={busy}>
-                  <CloseIcon />
+                  <Icon name="close" className="h-4 w-4" />
                 </HeaderButton>
               </>
             )}
@@ -533,7 +534,7 @@ export function ContactDetailModal({
           />
 
           {contact.createdAt || contact.updatedAt ? (
-            <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 px-5 py-3 text-[11px] text-mute/70">
+            <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 px-5 py-3 text-2xs text-mute/70">
               {contact.createdAt ? (
                 <span>
                   Created: <span className="text-text/70">{formatTimestamp(contact.createdAt)}</span>
@@ -552,6 +553,7 @@ export function ContactDetailModal({
       {confirmRemovePhoto ? (
         <ConfirmDialog
           title="Remove photo"
+          tone="danger"
           heading="Remove this profile photo?"
           body="The photo is deleted from your encrypted vault on every paired device. You can upload a new one at any time."
           confirmLabel="Remove photo"
@@ -583,97 +585,3 @@ export function ContactDetailModal({
   );
 }
 
-const icon = "h-4 w-4";
-
-function CameraIcon() {
-  return (
-    <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-      <path
-        fillRule="evenodd"
-        d="M1 8a2 2 0 0 1 2-2h.93a2 2 0 0 0 1.664-.89l.812-1.22A2 2 0 0 1 8.07 3h3.86a2 2 0 0 1 1.664.89l.812 1.22A2 2 0 0 0 16.07 6H17a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8Zm13.5 3a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM10 14a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"
-        clipRule="evenodd"
-      />
-    </svg>
-  );
-}
-
-function EditIcon() {
-  return (
-    <svg className={icon} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-      <path d="m5.433 13.917 1.262-3.155A4 4 0 0 1 7.58 9.42l6.92-6.918a2.121 2.121 0 0 1 3 3l-6.92 6.918c-.383.383-.84.685-1.343.886l-3.154 1.262a.5.5 0 0 1-.65-.65Z" />
-      <path d="M3.5 5.75c0-.69.56-1.25 1.25-1.25H10A.75.75 0 0 0 10 3H4.75A2.75 2.75 0 0 0 2 5.75v9.5A2.75 2.75 0 0 0 4.75 18h9.5A2.75 2.75 0 0 0 17 15.25V10a.75.75 0 0 0-1.5 0v5.25c0 .69-.56 1.25-1.25 1.25h-9.5c-.69 0-1.25-.56-1.25-1.25v-9.5Z" />
-    </svg>
-  );
-}
-
-function ArchiveIcon() {
-  return (
-    <svg className={icon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 4h18v4H3z" />
-      <path d="M5 8h14v11a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
-      <path d="M10 12h4" />
-    </svg>
-  );
-}
-
-function UnarchiveIcon() {
-  return (
-    <svg className={icon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 4h18v4H3z" />
-      <path d="M5 8h14v11a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
-      <path d="M12 17v-5m0 0-2 2m2-2 2 2" />
-    </svg>
-  );
-}
-
-function MailIcon() {
-  return (
-    <svg className={icon} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-      <path d="M3 4a2 2 0 0 0-2 2v1.161l8.441 4.221a1.25 1.25 0 0 0 1.118 0L19 7.162V6a2 2 0 0 0-2-2H3Z" />
-      <path d="m19 8.839-7.77 3.885a2.75 2.75 0 0 1-2.46 0L1 8.839V14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.839Z" />
-    </svg>
-  );
-}
-
-function PhoneIcon() {
-  return (
-    <svg className={icon} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-      <path
-        fillRule="evenodd"
-        d="M2 3.5A1.5 1.5 0 0 1 3.5 2h1.148a1.5 1.5 0 0 1 1.465 1.175l.716 3.223a1.5 1.5 0 0 1-1.052 1.767l-.933.267c-.41.117-.643.555-.48.95a11.542 11.542 0 0 0 6.254 6.254c.395.163.833-.07.95-.48l.267-.933a1.5 1.5 0 0 1 1.767-1.052l3.223.716A1.5 1.5 0 0 1 18 15.352V16.5a1.5 1.5 0 0 1-1.5 1.5H15c-1.149 0-2.263-.15-3.326-.43A13.022 13.022 0 0 1 2.43 8.326 13.019 13.019 0 0 1 2 5V3.5Z"
-        clipRule="evenodd"
-      />
-    </svg>
-  );
-}
-
-function ProfileIcon() {
-  return (
-    <svg className={icon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="4" />
-      <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
-    </svg>
-  );
-}
-
-function CalendarIcon() {
-  return (
-    <svg className={icon} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-      <path
-        fillRule="evenodd"
-        d="M5.75 2a.75.75 0 0 1 .75.75V4h7V2.75a.75.75 0 0 1 1.5 0V4h.25A2.75 2.75 0 0 1 18 6.75v8.5A2.75 2.75 0 0 1 15.25 18H4.75A2.75 2.75 0 0 1 2 15.25v-8.5A2.75 2.75 0 0 1 4.75 4H5V2.75A.75.75 0 0 1 5.75 2Zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75Z"
-        clipRule="evenodd"
-      />
-    </svg>
-  );
-}
-
-function BriefcaseIcon() {
-  return (
-    <svg className={icon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="2" y="7" width="20" height="14" rx="2" />
-      <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
-      <path d="M2 13h20" />
-    </svg>
-  );
-}

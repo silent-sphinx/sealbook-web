@@ -11,8 +11,8 @@ import {
 } from "../lib/contactProfile";
 import type { Contact, ContactPerson, ContactProfile } from "../lib/types";
 import { Avatar } from "./ContactCard";
-import { LinkIcon } from "./FieldControls";
 import { ChipList, EntryRow, PaneSection, ProseBlock, RowAction } from "./PaneControls";
+import { Icon } from "./Icon";
 import { focusRing } from "../lib/styles";
 
 export type LinkProfileProps = {
@@ -142,7 +142,7 @@ function PersonList({
               onUnlink ? (
                 <button
                   type="button"
-                  className={`rounded-md px-2 py-1 text-[11px] font-medium text-mute transition-colors hover:bg-danger/10 hover:text-danger ${focusRing}`}
+                  className={`rounded-md px-2 py-1 text-2xs font-medium text-mute transition-colors hover:bg-danger/10 hover:text-danger ${focusRing}`}
                   title="Remove link"
                   onClick={onUnlink}
                 >
@@ -155,7 +155,7 @@ function PersonList({
       })}
       {!linkProps?.readOnly && linkProps?.onLinkInSection ? (
         <RowAction
-          icon={<LinkIcon />}
+          icon={<Icon name="link" className="h-3.5 w-3.5 shrink-0" />}
           label="Link a contact"
           onClick={() => linkProps.onLinkInSection!(section)}
         />
@@ -245,7 +245,7 @@ function Timeline({ profile }: { profile: ContactProfile }) {
           <div className="flex items-baseline justify-between gap-3">
             <p className="min-w-0 text-sm font-medium text-text">{item.title}</p>
             {item.date ? (
-              <p className="shrink-0 text-[11px] uppercase tracking-wider text-mute/80">
+              <p className="shrink-0 text-2xs uppercase tracking-wider text-mute/80">
                 {formatPartialDate(item.date)}
               </p>
             ) : null}

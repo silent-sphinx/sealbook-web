@@ -84,7 +84,7 @@ export function Brand({
       <VaultMark />
       {eyebrowText ? <p className={`${eyebrow} mt-6 text-accent/90`}>{eyebrowText}</p> : null}
       <h1
-        className={`${eyebrowText ? "mt-2" : "mt-6"} text-[28px] leading-tight font-bold tracking-tight text-text`}
+        className={`${eyebrowText ? "mt-2" : "mt-6"} text-display leading-tight font-bold tracking-tight text-text`}
       >
         {title}
       </h1>

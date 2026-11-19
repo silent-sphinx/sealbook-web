@@ -8,7 +8,7 @@ import {
   taskListTone,
 } from "../lib/task";
 import type { TaskScope } from "../lib/task";
-import { focusRing, sidebarCount, sidebarRowState, sidebarSectionAction } from "../lib/styles";
+import { focusRing, sidebarCount, sidebarRowState, sidebarSectionAction, sidebarRow } from "../lib/styles";
 import type { TaskList } from "../lib/types";
 import { Icon } from "./Icon";
 
@@ -64,7 +64,7 @@ export function TaskListSidebar({
                 type="button"
                 onClick={() => onScope(view.id)}
                 aria-current={scope === view.id ? "true" : undefined}
-                className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${sidebarRowState(
+                className={`${sidebarRow} ${sidebarRowState(
                   scope === view.id,
                 )} ${focusRing}`}
               >
@@ -72,7 +72,7 @@ export function TaskListSidebar({
                 {view.id === "upnext" && overdueCount > 0 ? (
                   <span
                     title={`${overdueCount} overdue`}
-                    className="rounded-full bg-danger/15 px-1.5 text-[10px] font-semibold tabular-nums text-danger"
+                    className="rounded-full bg-danger/15 px-1.5 text-2xs font-semibold tabular-nums text-danger"
                   >
                     {overdueCount}
                   </span>

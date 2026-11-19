@@ -257,7 +257,7 @@ describe("the calendar sections", () => {
     mount();
 
     const names = (label: string) =>
-      within(screen.getByText(label).closest("div.mt-6") as HTMLElement)
+      within(screen.getByText(label).closest("[data-sidebar-section]") as HTMLElement)
         .getAllByTitle(/^(Hide|Show) /)
         .map((button) => button.getAttribute("title")!.replace(/^(Hide|Show) /, ""));
     expect(names("Favourites")).toEqual(["Art", "Yoga"]);
@@ -383,7 +383,7 @@ describe("switching a calendar off", () => {
 
 describe("a repeat that ends on a date", () => {
   function openComposer() {
-    fireEvent.click(screen.getByRole("button", { name: "Create event" }));
+    fireEvent.click(screen.getByRole("button", { name: "New event" }));
   }
 
   async function fillRepeatingEvent() {

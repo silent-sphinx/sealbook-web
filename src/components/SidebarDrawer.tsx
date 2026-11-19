@@ -1,5 +1,7 @@
 import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -9,7 +11,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useMediaQuery } from "../lib/useMediaQuery";
-import { eyebrow as eyebrowClass, focusRing } from "../lib/styles";
+import { eyebrow as eyebrowClass, focusRing, iconBtn, scrim } from "../lib/styles";
 import { Icon } from "./Icon";
 
 /** Matches the `lg:` breakpoint the contacts and calendar grids switch on. */
@@ -19,7 +21,7 @@ const DESKTOP = "(min-width: 1024px)";
  * One width for every view's sidebar, matching the drawer below `DESKTOP` so
  * the column does not change size as the breakpoint is crossed.
  */
-const SIDEBAR_WIDTH = "17.5rem";
+const SIDEBAR_WIDTH = "16rem";
 
 /** One key, not one per view: the collapse is a property of the shell. */
 const COLLAPSE_KEY = "sealbook.sidebar-collapsed";
@@ -105,12 +107,18 @@ type Props = {
 };
 
 /**
- * The contacts, calendar and notes sidebars: a static column on a wide screen,
- * a slide-over drawer on a narrow one. Previously the column simply reflowed
- * below the list on a phone, which buried the address books under a screenful
- * of content. Swapping on a media query rather than rendering both copies and
- * toggling `lg:hidden` keeps one instance of the list, so a half-typed rename
- * and the list's own focus are not duplicated.
+ * Lets `SidebarHeader` draw the control that dismisses the sidebar it is in,
+ * which is "hide" for the column and "close" for the drawer, without each of the
+ * six views threading the sidebar state down to it.
+ */
+const SidebarContext = createContext<Sidebar | null>(null);
+
+/**
+ * The contacts, calendar, notes, bookmarks, tasks and settings sidebars: a
+ * static column on a wide screen, a slide-over drawer on a narrow one. Swapping
+ * on a media query rather than rendering both copies and toggling `lg:hidden`
+ * keeps one instance of the list, so a half-typed rename and the list's own
+ * focus are not duplicated.
  */
 export function SidebarDrawer({ title, sidebar, children }: Props) {
   const { isDesktop, collapsed, open } = sidebar;
@@ -149,29 +157,23 @@ export function SidebarDrawer({ title, sidebar, children }: Props) {
     // behind nothing. React keeps the subtree's state either way, so a
     // half-typed rename survives a collapse.
     return (
-      <>
-        <aside
-          hidden={collapsed}
-          className="border-r border-line bg-panel/25 px-6 py-7 lg:overflow-y-auto"
-        >
-          {/* Its own row rather than a corner of the title row, which the
-              contacts and calendar sidebars already end with a `+` button. */}
-          <div className="-mr-1.5 -mt-2.5 mb-1 flex justify-end">
-            <ToggleButton sidebar={sidebar} />
-          </div>
-          {children}
-        </aside>
-        {collapsed ? <EdgeHandle sidebar={sidebar} /> : null}
-      </>
+      <aside
+        hidden={collapsed}
+        className="min-h-0 overflow-y-auto border-r border-line bg-panel/30 px-3 pb-4"
+      >
+        <SidebarContext.Provider value={sidebar}>{children}</SidebarContext.Provider>
+      </aside>
     );
   }
 
-  if (!open) return <EdgeHandle sidebar={sidebar} />;
+  // Closed, there is nothing to draw: each pane header carries the control that
+  // opens it, so a sidebar is never more than a tap from where the user is.
+  if (!open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex">
+    <div className="fixed inset-0 z-(--z-overlay) flex">
       <div
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-fade-in"
+        className={`absolute inset-0 ${scrim} animate-fade-in`}
         onClick={sidebar.close}
         aria-hidden="true"
       />
@@ -182,19 +184,9 @@ export function SidebarDrawer({ title, sidebar, children }: Props) {
         aria-label={title}
         tabIndex={-1}
         style={{ "--sb-drawer-w": SIDEBAR_WIDTH } as CSSProperties}
-        className="relative flex w-full flex-col overflow-y-auto bg-panel sm:w-(--sb-drawer-w) sm:max-w-[85vw] sm:border-r sm:border-line px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5 shadow-2xl shadow-black/50 outline-none animate-slide-in-left"
+        className="relative flex w-full flex-col overflow-y-auto bg-panel px-3 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-dialog outline-none animate-slide-in-left sm:w-(--sb-drawer-w) sm:max-w-[85vw] sm:border-r sm:border-line"
       >
-        <div className="-mr-1.5 mb-2 flex justify-end">
-          <button
-            type="button"
-            onClick={sidebar.close}
-            aria-label="Close sidebar"
-            className={`flex h-8 w-8 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
-          >
-            <Icon name="close" className="h-4 w-4" />
-          </button>
-        </div>
-        {children}
+        <SidebarContext.Provider value={sidebar}>{children}</SidebarContext.Provider>
       </aside>
     </div>,
     document.body,
@@ -209,16 +201,22 @@ type SidebarHeaderProps = {
   action?: ReactNode;
 };
 
-/** The title every sidebar opens with, shared so they stay the same size everywhere. */
+/**
+ * The row every sidebar opens with. It is as tall as a pane's header, so the two
+ * rules meet in one line across the view, and it holds the control that hides
+ * the sidebar rather than leaving that to a row of its own.
+ */
 export function SidebarHeader({ title, onTitleClick, action }: SidebarHeaderProps) {
-  const heading = (
-    <div>
-      <h2 className="text-lg font-semibold">
+  const sidebar = useContext(SidebarContext);
+  const dismiss = sidebar?.isDesktop ? "Hide sidebar" : "Close sidebar";
+  return (
+    <div className="sticky top-0 z-10 -mx-3 mb-1 flex h-(--sb-bar-h) shrink-0 items-center gap-1 border-b border-line bg-bg/70 pl-4 pr-2 backdrop-blur-md">
+      <h2 className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight">
         {onTitleClick ? (
           <button
             type="button"
             onClick={onTitleClick}
-            className={`rounded transition-colors hover:text-accent ${focusRing}`}
+            className={`rounded-md transition-colors hover:text-accent ${focusRing}`}
           >
             {title}
           </button>
@@ -226,13 +224,19 @@ export function SidebarHeader({ title, onTitleClick, action }: SidebarHeaderProp
           title
         )}
       </h2>
-    </div>
-  );
-  if (!action) return heading;
-  return (
-    <div className="flex items-center justify-between">
-      {heading}
       {action}
+      {sidebar ? (
+        <button
+          type="button"
+          onClick={sidebar.isDesktop ? sidebar.toggle : sidebar.close}
+          aria-label={dismiss}
+          aria-expanded={sidebar.isDesktop ? true : undefined}
+          title={dismiss}
+          className={iconBtn}
+        >
+          <Icon name={sidebar.isDesktop ? "sidebar" : "close"} className="size-4" />
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -246,12 +250,12 @@ type SidebarSectionProps = {
 
 /**
  * A labelled sidebar section: the uppercase label row with an optional add
- * button, set off from whatever precedes it (the header, a search box, a
- * mini month) by the same divider in every view.
+ * button. Sections are set apart by space rather than rules, so a sidebar reads
+ * as a list of groups and not a stack of boxes.
  */
 export function SidebarSection({ label, action, children }: SidebarSectionProps) {
   return (
-    <div className="mt-6 border-t border-line pt-4">
+    <div data-sidebar-section={label} className="mt-5 first:mt-3">
       {/* Held at the action's height so a section without one lines up too. */}
       <div className="flex min-h-7 items-center justify-between">
         <p className={eyebrowClass}>{label}</p>
@@ -262,40 +266,14 @@ export function SidebarSection({ label, action, children }: SidebarSectionProps)
   );
 }
 
-function Chevron({ back }: { back: boolean }) {
-  return (
-    <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d={back ? "M9.75 3.5 5.25 8l4.5 4.5" : "M6.25 3.5 10.75 8l-4.5 4.5"} />
-    </svg>
-  );
-}
-
-/** Collapses the column, from inside the column itself. */
-function ToggleButton({ sidebar }: { sidebar: Sidebar }) {
-  return (
-    <button
-      type="button"
-      onClick={sidebar.toggle}
-      aria-label="Hide sidebar"
-      aria-expanded={true}
-      title="Hide sidebar"
-      className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
-    >
-      <Chevron back />
-    </button>
-  );
-}
-
 /**
- * What brings the sidebar back: a handle on the content's leading edge, drawn
- * whenever the sidebar is not showing. It is the one affordance for both
- * breakpoints, restoring the column on a wide screen and opening the drawer on
- * a narrow one, and it is always drawn rather than revealed on hover, since a
- * sidebar you cannot find is a sidebar you have lost. It is pinned to the
- * middle of the viewport below the header, not of the view, so it sits at the
- * same height in every tab whatever the view's own height or banners.
+ * Brings the sidebar back from a pane header: restores a collapsed column on a
+ * wide screen and opens the drawer on a narrow one. It draws nothing while the
+ * column is showing, so a header carries it unconditionally and the control
+ * appears exactly when there is a sidebar to go back to.
  */
-function EdgeHandle({ sidebar }: { sidebar: Sidebar }) {
+export function SidebarToggle({ sidebar }: { sidebar: Sidebar }) {
+  if (sidebar.isDesktop && !sidebar.collapsed) return null;
   return (
     <button
       type="button"
@@ -303,9 +281,9 @@ function EdgeHandle({ sidebar }: { sidebar: Sidebar }) {
       aria-label="Show sidebar"
       aria-expanded={false}
       title="Show sidebar"
-      className={`fixed left-0 top-[calc(50dvh+var(--sb-header-h,74px)/2)] z-30 flex h-16 w-5 -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 border-line bg-panel text-mute shadow-lg shadow-black/30 transition-colors hover:bg-surface hover:text-text ${focusRing}`}
+      className={iconBtn}
     >
-      <Chevron back={false} />
+      <Icon name="sidebar" className="size-4" />
     </button>
   );
 }

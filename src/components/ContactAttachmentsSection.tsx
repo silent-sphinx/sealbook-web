@@ -9,6 +9,7 @@ import {
 import { optimizeAttachmentThumbnail, safeImageSrc } from "../lib/image";
 import { friendlyError } from "../lib/errors";
 import { focusRing } from "../lib/styles";
+import { Icon } from "./Icon";
 import { PaneSection } from "./PaneControls";
 import type { NoteAttachment } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -247,7 +248,7 @@ export function ContactAttachmentsSection({
             title="Add files"
             className={`flex h-6 w-6 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text disabled:opacity-50 ${focusRing}`}
           >
-            <PlusIcon />
+            <Icon name="plus" className="h-4 w-4" />
           </button>
         ) : null
       }
@@ -298,7 +299,7 @@ export function ContactAttachmentsSection({
         // backdrop click needs no keyboard handler of its own.
         // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
         <div
-          className="fixed inset-0 z-[100] flex flex-col bg-black/95"
+          className="fixed inset-0 z-(--z-lightbox) flex flex-col bg-black/95"
           role="dialog"
           aria-modal="true"
           aria-label="Attachment viewer"
@@ -318,7 +319,7 @@ export function ContactAttachmentsSection({
                 title="Download"
                 className={`flex h-8 w-8 items-center justify-center rounded-lg text-white/70 transition-colors hover:bg-white/10 hover:text-white ${focusRing}`}
               >
-                <DownloadIcon />
+                <Icon name="download" className="h-4 w-4" />
               </button>
               {!readOnly ? (
                 <button
@@ -330,7 +331,7 @@ export function ContactAttachmentsSection({
                   title="Delete attachment"
                   className={`flex h-8 w-8 items-center justify-center rounded-lg text-danger/80 transition-colors hover:bg-white/10 hover:text-danger disabled:opacity-50 ${focusRing}`}
                 >
-                  <TrashIcon />
+                  <Icon name="trash" className="h-4 w-4" />
                 </button>
               ) : null}
               <button
@@ -340,7 +341,7 @@ export function ContactAttachmentsSection({
                 title="Close"
                 className={`flex h-8 w-8 items-center justify-center rounded-lg text-white/70 transition-colors hover:bg-white/10 hover:text-white ${focusRing}`}
               >
-                <CloseIcon />
+                <Icon name="close" className="h-4 w-4" />
               </button>
             </div>
           </div>
@@ -354,7 +355,7 @@ export function ContactAttachmentsSection({
                 aria-label="Previous"
                 className={`absolute left-2 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white/80 transition-colors hover:bg-black/60 hover:text-white ${focusRing}`}
               >
-                <ChevronLeftIcon />
+                <Icon name="back" className="h-5 w-5" strokeWidth={1.25} />
               </button>
             ) : null}
 
@@ -365,11 +366,11 @@ export function ContactAttachmentsSection({
                 <img
                   src={lightbox.objectUrl}
                   alt={currentAttachment?.filename ?? ""}
-                  className="max-h-full max-w-full rounded object-contain"
+                  className="max-h-full max-w-full rounded-md object-contain"
                 />
               ) : lightbox.objectUrl ? (
                 <div className="flex flex-col items-center gap-4 text-center text-white/70">
-                  <FileIcon className="h-16 w-16 opacity-50" />
+                  <Icon name="file" className="h-16 w-16 opacity-50" strokeWidth={0.7} />
                   <p className="text-sm">{currentAttachment?.filename}</p>
                   <p className="text-xs opacity-60">{currentAttachment?.mimeType}</p>
                 </div>
@@ -385,7 +386,7 @@ export function ContactAttachmentsSection({
                 aria-label="Next"
                 className={`absolute right-2 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white/80 transition-colors hover:bg-black/60 hover:text-white ${focusRing}`}
               >
-                <ChevronRightIcon />
+                <Icon name="chevron" className="h-5 w-5" strokeWidth={1.25} />
               </button>
             ) : null}
           </div>
@@ -410,6 +411,7 @@ export function ContactAttachmentsSection({
       {confirmingDelete ? (
         <ConfirmDialog
           title="Delete attachment"
+          tone="danger"
           heading={`Delete "${confirmingDelete.filename}"?`}
           body="The file is removed from this contact and deleted from your encrypted vault on every paired device. This cannot be undone."
           confirmLabel="Delete"
@@ -445,12 +447,12 @@ function Thumbnail({ attachment, onClick }: { attachment: NoteAttachment; onClic
         />
       ) : isImage ? (
         <div className="flex h-full w-full items-center justify-center bg-surface">
-          <ImagePlaceholderIcon className="h-6 w-6 text-mute/50" />
+          <Icon name="image" className="h-6 w-6 text-mute/50" strokeWidth={1.1} />
         </div>
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-2">
-          <FileIcon className="h-6 w-6 text-mute/60" />
-          <span className="line-clamp-2 text-center text-[9px] leading-tight text-mute/70">
+          <Icon name="file" className="h-6 w-6 text-mute/60" strokeWidth={1.1} />
+          <span className="line-clamp-2 text-center text-2xs leading-tight text-mute/70">
             {attachment.filename}
           </span>
         </div>
@@ -467,69 +469,3 @@ function UploadingTile() {
   );
 }
 
-function PlusIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-      <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
-    </svg>
-  );
-}
-
-function DownloadIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-      <path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z" />
-      <path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z" />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 6h18" />
-      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-    </svg>
-  );
-}
-
-function CloseIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-      <path d="M6.28 5.22a.75.75 0 1 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06l3.72-3.72 3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-    </svg>
-  );
-}
-
-function ChevronLeftIcon() {
-  return (
-    <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-      <path fillRule="evenodd" d="M11.78 5.22a.75.75 0 0 1 0 1.06L8.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" />
-    </svg>
-  );
-}
-
-function ChevronRightIcon() {
-  return (
-    <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-      <path fillRule="evenodd" d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L11.94 10 8.22 6.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
-    </svg>
-  );
-}
-
-function FileIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className ?? "h-5 w-5"} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-      <path d="M3 3.5A1.5 1.5 0 0 1 4.5 2h6.879a1.5 1.5 0 0 1 1.06.44l4.122 4.12A1.5 1.5 0 0 1 17 7.622V16.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 16.5v-13Z" />
-    </svg>
-  );
-}
-
-function ImagePlaceholderIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className ?? "h-5 w-5"} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-      <path fillRule="evenodd" d="M1 5.25A2.25 2.25 0 0 1 3.25 3h13.5A2.25 2.25 0 0 1 19 5.25v9.5A2.25 2.25 0 0 1 16.75 17H3.25A2.25 2.25 0 0 1 1 14.75v-9.5Zm1.5 5.81v3.69c0 .414.336.75.75.75h13.5a.75.75 0 0 0 .75-.75v-2.69l-2.22-2.219a.75.75 0 0 0-1.06 0l-1.91 1.909.47.47a.75.75 0 1 1-1.06 1.06L6.53 8.091a.75.75 0 0 0-1.06 0l-2.97 2.97ZM12 7a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z" clipRule="evenodd" />
-    </svg>
-  );
-}

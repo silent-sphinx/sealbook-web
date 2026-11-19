@@ -6,7 +6,6 @@ import { ContactCard, ContactListSkeleton } from "./ContactCard";
 import { ContactDetailModal } from "./ContactDetailModal";
 import { ContactNetworkMap } from "./ContactNetworkMap";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
-import { ArchiveIcon } from "./AppIcons";
 import {
   ARCHIVE_VIEW_NAME,
   activeAddressBooks,
@@ -17,23 +16,21 @@ import {
   resolveAddressBookId,
 } from "../lib/addressBook";
 import {
-  btnHeader,
-  checkbox,
+  btnPrimarySm,
   btnPrimary,
   focusRing,
   ghost,
-  paneCount,
-  paneHeader,
-  paneTitle,
   searchClear,
   searchField,
   searchIcon,
   sidebarCount,
-  sidebarHeaderAction,
   sidebarMark,
   sidebarRowState,
   sidebarSectionAction,
   sidebarSubgroup,
+  viewMain,
+  viewGrid,
+  sidebarRow,
 } from "../lib/styles";
 import type { Session } from "../lib/client";
 import type { LinkableSection } from "../lib/contactProfile";
@@ -41,6 +38,8 @@ import type { ContactBulkChange } from "../lib/contactBulk";
 import { useItemSelection } from "../lib/useItemSelection";
 import type { AddressBook, Contact, ContactDraft } from "../lib/types";
 import { Icon } from "./Icon";
+import { PaneHeader, BulkBar, BulkMove } from "./PaneControls";
+import { Banner } from "./Banner";
 import { TrashPanel, TrashRow, trashRootsFor } from "./Trash";
 import type { TrashListing } from "../lib/trash";
 import { EmptyState } from "./EmptyState";
@@ -233,8 +232,8 @@ export function ContactsTab({
   }
 
   return (
-    <main className="flex flex-col pb-[env(safe-area-inset-bottom)] text-text lg:h-[calc(100dvh-var(--sb-header-h,74px))] lg:overflow-hidden lg:pb-0">
-      <div className="sb-shell grid min-h-0 flex-1 lg:h-full" style={sidebar.cols}>
+    <main className={viewMain}>
+      <div className={viewGrid} style={sidebar.cols}>
         <SidebarDrawer title="Contacts and address books" sidebar={sidebar}>
           <SidebarHeader
             title="Contacts"
@@ -242,16 +241,6 @@ export function ContactsTab({
               sidebar.close();
               onGoHome();
             }}
-            action={
-              <button
-                type="button"
-                onClick={onOpenComposer}
-                aria-label="Add contact"
-                className={sidebarHeaderAction}
-              >
-                <Icon name="plus" className="h-4 w-4" />
-              </button>
-            }
           />
 
           <SidebarSection
@@ -294,9 +283,9 @@ export function ContactsTab({
                 onClick={() => onGuardEditing(() => onSetViewingArchive(!viewingArchive))}
                 aria-current={viewingArchive ? "true" : undefined}
                 title={viewingArchive ? "Back to the address books" : "Show archived contacts"}
-                className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${sidebarRowState(viewingArchive)}`}
+                className={`${sidebarRow} ${focusRing} ${sidebarRowState(viewingArchive)}`}
               >
-                <span className={sidebarMark}><ArchiveIcon /></span>
+                <span className={sidebarMark}><Icon name="archive" /></span>
                 <span className="min-w-0 flex-1 truncate font-medium">{ARCHIVE_VIEW_NAME}</span>
                 <span className={`shrink-0 ${sidebarCount}`}>{archivedContacts.length || ""}</span>
               </button>
@@ -314,6 +303,7 @@ export function ContactsTab({
             session={session}
             trash={trash}
             tab="contacts"
+            sidebar={sidebar}
             liveContacts={contacts}
             onChanged={async () => {
               await onTrashChanged();
@@ -321,23 +311,17 @@ export function ContactsTab({
           />
         ) : (
         <section className="order-1 flex min-w-0 flex-col overflow-hidden lg:order-none lg:min-h-0">
-          <header className={paneHeader}>
-            <div className="flex min-w-0 items-center gap-2 max-sm:sr-only">
-              <h1 className={paneTitle}>
-                {listTitle}
-              </h1>
-              <span
-                className={paneCount}
-                title={`${filtered.length} contact${filtered.length === 1 ? "" : "s"} shown`}
-              >
-                {filtered.length}
-              </span>
-            </div>
-            <div className="flex items-center gap-2.5">
+          <PaneHeader
+            title={listTitle}
+            count={filtered.length}
+            countLabel={`${filtered.length} contact${filtered.length === 1 ? "" : "s"} shown`}
+            compactTitle
+            sidebar={sidebar}
+          >
               <button
                 type="button"
                 onClick={onOpenComposer}
-                className={btnHeader}
+                className={btnPrimarySm}
               >
                 <Icon name="plus" />
                 New contact
@@ -364,60 +348,38 @@ export function ContactsTab({
                   </button>
                 ) : null}
               </div>
-            </div>
-          </header>
+</PaneHeader>
 
           {selecting ? (
-            <div
-              role="toolbar"
-              aria-label="Bulk edit contacts"
-              className="flex shrink-0 items-center gap-3 border-b border-line bg-panel/60 px-4 py-2 lg:px-6"
+            <BulkBar
+              label="Bulk edit contacts"
+              noun="contacts"
+              selected={checkedIds.size}
+              total={filtered.length}
+              onToggleAll={selection.toggleAll}
+              onClear={endSelecting}
             >
-              <input
-                type="checkbox"
-                ref={(node) => {
-                  if (node) node.indeterminate = checkedIds.size > 0 && checkedIds.size < filtered.length;
-                }}
-                checked={filtered.length > 0 && checkedIds.size === filtered.length}
-                onChange={selection.toggleAll}
-                aria-label="Select all contacts"
-                className={checkbox}
-              />
-              <span className="min-w-0 flex-1 text-xs text-mute" aria-live="polite">
-                {checkedIds.size} selected
-              </span>
               {!viewingArchive && movableBooks.length > 0 ? (
-                <select
-                  aria-label="Move selected contacts to"
-                  value=""
+                <BulkMove
+                  label="Move selected contacts to"
+                  options={movableBooks}
                   disabled={busy}
-                  onChange={(event) => {
-                    const addressBookId = event.target.value;
-                    if (addressBookId) {
-                      onGuardEditing(() => void runBulk({ kind: "move", addressBookId }));
-                    }
-                  }}
-                  className="box-border h-8 shrink-0 cursor-pointer rounded-lg border border-line bg-surface py-0 pl-3 pr-8 text-xs font-medium leading-none text-mute outline-none focus:border-accent-dim"
-                >
-                  <option value="">Move to…</option>
-                  {movableBooks.map((book) => (
-                    <option key={book.id} value={book.id}>
-                      {book.name}
-                    </option>
-                  ))}
-                </select>
+                  onMove={(addressBookId) =>
+                    onGuardEditing(() => void runBulk({ kind: "move", addressBookId }))
+                  }
+                />
               ) : null}
               <button
                 type="button"
                 onClick={(event) => menu.open(event, bulkItems())}
                 disabled={busy}
                 aria-haspopup="menu"
-                className={`${btnHeader} box-border`}
+                className={btnPrimarySm}
               >
                 <span>Actions</span>
                 <Icon name="chevron" className="h-3 w-3 rotate-90" />
               </button>
-            </div>
+            </BulkBar>
           ) : null}
 
           <div
@@ -427,7 +389,7 @@ export function ContactsTab({
           >
             <div className={`min-w-0 overflow-y-auto ${viewingContact ? "hidden lg:block" : ""}`}>
               {error && !composing && !deletingContact && !deletingContacts && !deletingAddressBook ? (
-                <p className="border-b border-line/60 px-4 py-3 text-sm text-danger sm:px-5 lg:px-6" role="alert">{error}</p>
+                <Banner tone="danger" role="alert">{error}</Banner>
               ) : null}
 
               {loadingVault && contacts.length === 0 ? (

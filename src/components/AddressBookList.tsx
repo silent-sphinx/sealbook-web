@@ -2,7 +2,8 @@ import { useState } from "react";
 import { addressBookTone, ALL_ADDRESS_BOOKS, DEFAULT_ADDRESS_BOOK_ID } from "../lib/addressBook";
 import { ContainerList, VisibilityBox } from "./ContainerList";
 import { ContextMenu, useContextMenu } from "./ContextMenu";
-import { focusRing, sidebarCount, sidebarMark, sidebarRowState, sidebarSubgroup } from "../lib/styles";
+import { Icon } from "./Icon";
+import { focusRing, sidebarCount, sidebarMark, sidebarRowState, sidebarSubgroup, sidebarRow } from "../lib/styles";
 import type { AddressBook } from "../lib/types";
 
 type Props = {
@@ -52,24 +53,6 @@ type ArchivedProps = {
   readOnly?: boolean;
 };
 
-function ChevronIcon({ open }: { open: boolean }) {
-  return (
-    <svg className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="m6 3.5 4.5 4.5L6 12.5" />
-    </svg>
-  );
-}
-
-function RestoreIcon() {
-  return (
-    <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2 3.5h12v3H2z" />
-      <path d="M3.5 6.5v6h9v-6" />
-      <path d="M8 11.5V8m-1.5 1.5L8 8l1.5 1.5" />
-    </svg>
-  );
-}
-
 /** Archived books, collapsed under the live ones as the calendar list has them. */
 export function ArchivedAddressBooks({ books, isVisible, onToggleVisible, onRestore, onDelete, readOnly = false }: ArchivedProps) {
   const [open, setOpen] = useState(false);
@@ -82,9 +65,9 @@ export function ArchivedAddressBooks({ books, isVisible, onToggleVisible, onRest
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${sidebarRowState(false)} ${focusRing}`}
+        className={`${sidebarRow} ${sidebarRowState(false)} ${focusRing}`}
       >
-        <span className={sidebarMark}><ChevronIcon open={open} /></span>
+        <span className={sidebarMark}><Icon name="chevron" className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} /></span>
         <span className="min-w-0 flex-1 truncate font-medium">Archived address books</span>
         <span className={`shrink-0 ${sidebarCount}`}>{books.length}</span>
       </button>
@@ -119,7 +102,7 @@ export function ArchivedAddressBooks({ books, isVisible, onToggleVisible, onRest
                     aria-label={`Restore ${book.name} address book`}
                     className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-accent transition-colors hover:bg-elevated ${focusRing}`}
                   >
-                    <RestoreIcon />
+                    <Icon name="unarchive" />
                   </button>
                 )}
               </div>

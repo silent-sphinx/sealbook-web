@@ -2,6 +2,7 @@ import type { FeatureKey } from "./types";
 
 export type SettingsSection =
   | "account"
+  | "devices"
   | "features"
   | "appearance"
   | "lock"

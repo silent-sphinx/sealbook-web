@@ -10,6 +10,7 @@ import {
   sidebarRowState,
   sidebarSectionAction,
   sidebarSubgroup,
+  sidebarRow,
 } from "../lib/styles";
 import { ColourPalette, type PaletteState } from "./ColourPalette";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
@@ -23,7 +24,7 @@ function CalendarSwatch({ color, hidden }: { color: string; hidden: boolean }) {
   return (
     <span
       aria-hidden="true"
-      className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border-2 transition-colors duration-150"
+      className="flex h-4 w-4 shrink-0 items-center justify-center rounded-md border-2 transition-colors duration-150"
       style={{ borderColor: color, backgroundColor: hidden ? "transparent" : color }}
     >
       {hidden ? null : (
@@ -257,7 +258,7 @@ export function CalendarSections({
   // Trims the next section's top margin so the band has equal space either side.
   const archivedGroup = archivedSorted.length === 0 ? null : (
     <div className={`${sidebarSubgroup} -mb-3.5`}>
-      <button type="button" onClick={() => setArchivedOpen((open) => !open)} aria-expanded={archivedOpen} className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${sidebarRowState(false)} ${focusRing}`}>
+      <button type="button" onClick={() => setArchivedOpen((open) => !open)} aria-expanded={archivedOpen} className={`${sidebarRow} ${sidebarRowState(false)} ${focusRing}`}>
         <span className={sidebarMark}><Icon name="chevron" className={`h-3 w-3 transition-transform ${archivedOpen ? "rotate-90" : ""}`} /></span>
         <span className="min-w-0 flex-1 truncate font-medium">Archived calendars</span>
         <span className={`shrink-0 ${sidebarCount}`}>{archivedSorted.length}</span>
@@ -303,7 +304,7 @@ export function CalendarSections({
         {empty}
         {others.length > 0 ? <ul className="mt-2.5 space-y-0.5">{others.map(row)}</ul> : null}
         {creating && !readOnly ? <div className="mt-0.5">{nameInput("New calendar name", null)}</div> : null}
-        {anyHidden ? <button type="button" onClick={onShowAll} className={`-ml-2 mt-2.5 rounded-md px-2 py-1 text-[11px] text-mute transition-colors hover:text-accent ${focusRing}`}>Show all calendars</button> : null}
+        {anyHidden ? <button type="button" onClick={onShowAll} className={`-ml-2 mt-2.5 rounded-md px-2 py-1 text-2xs text-mute transition-colors hover:text-accent ${focusRing}`}>Show all calendars</button> : null}
         {archivedGroup}
       </SidebarSection>
     </>

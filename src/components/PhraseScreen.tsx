@@ -76,7 +76,7 @@ export function PhraseScreen({
           Print
         </button>
       </div>
-      <p className="mt-2 text-[11px] leading-relaxed text-mute">
+      <p className="mt-2 text-2xs leading-relaxed text-mute">
         The download is a plain text file in your Downloads folder, which may be synced or
         indexed. Delete it once the words are somewhere safe.
       </p>

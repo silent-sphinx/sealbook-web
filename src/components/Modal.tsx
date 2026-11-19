@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { iconButton } from "../lib/styles";
+import { iconBtn, scrim } from "../lib/styles";
 import { Icon } from "./Icon";
 
 type Props = {
@@ -9,7 +9,18 @@ type Props = {
   onClose: () => void;
   /** Above a full-screen overlay of its own, such as the attachment lightbox. */
   elevated?: boolean;
+  /** `md` is what every dialog was before sizes existed, so nothing reflows. */
+  size?: "sm" | "md" | "lg";
+  /**
+   * False for a dialog that reports work in progress and has nothing to cancel:
+   * no Close button, and neither Escape nor a click on the backdrop dismisses it.
+   */
+  dismissible?: boolean;
+  /** `top` sits the panel near the top edge, for a palette whose list grows. */
+  align?: "center" | "top";
 };
+
+const SIZE = { sm: "max-w-md", md: "max-w-xl", lg: "max-w-2xl" } as const;
 
 // Open dialogs, outermost first. Only the topmost reacts to Escape and traps
 // Tab, so dismissing a confirm stacked on a form does not also close the form.
@@ -24,7 +35,15 @@ const FOCUSABLE = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(",");
 
-export function Modal({ title, children, onClose, elevated = false }: Props) {
+export function Modal({
+  title,
+  children,
+  onClose,
+  elevated = false,
+  size = "md",
+  dismissible = true,
+  align = "center",
+}: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const tokenRef = useRef({});
   // Callers pass an inline arrow, so onClose is a new function every render.
@@ -32,6 +51,8 @@ export function Modal({ title, children, onClose, elevated = false }: Props) {
   // onClose instead would re-run the focus logic on every keystroke.
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const dismissibleRef = useRef(dismissible);
+  dismissibleRef.current = dismissible;
   // Stacked dialogs would otherwise both render id="modal-title".
   const titleId = useId();
 
@@ -59,7 +80,7 @@ export function Modal({ title, children, onClose, elevated = false }: Props) {
       if (!isTopmost()) return;
       if (event.key === "Escape") {
         event.stopPropagation();
-        onCloseRef.current();
+        if (dismissibleRef.current) onCloseRef.current();
         return;
       }
       if (event.key !== "Tab" || !panelRef.current) return;
@@ -102,12 +123,14 @@ export function Modal({ title, children, onClose, elevated = false }: Props) {
     // design: Escape is the keyboard path, handled in the effect above.
     // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
     <div
-      className={`fixed inset-0 ${elevated ? "z-[110]" : "z-50"} flex items-center justify-center bg-black/70 backdrop-blur-md p-4 sm:p-6 animate-fade-in`}
+      className={`fixed inset-0 ${elevated ? "z-(--z-modal-top)" : "z-(--z-modal)"} flex justify-center ${
+        align === "top" ? "items-start pt-[8vh]" : "items-center"
+      } ${scrim} p-4 sm:p-6 animate-fade-in`}
       onClick={(event) => {
         // Only a click that landed on the backdrop itself. Testing the target
         // rather than stopping propagation on the panel leaves clicks inside
         // the dialog visible to anything else listening on the document.
-        if (event.target === event.currentTarget) onClose();
+        if (dismissible && event.target === event.currentTarget) onClose();
       }}
     >
       <div
@@ -116,27 +139,43 @@ export function Modal({ title, children, onClose, elevated = false }: Props) {
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="glow-edge relative flex max-h-[min(92dvh,42rem)] w-full min-w-0 max-w-xl flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl shadow-black/50 outline-none animate-scale-in"
+        className={`glow-edge relative flex max-h-[min(92dvh,42rem)] w-full min-w-0 ${SIZE[size]} flex-col overflow-hidden rounded-xl border border-line bg-panel shadow-dialog outline-none animate-dialog`}
       >
-        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-line px-6 py-4.5">
+        <div className="flex h-12 shrink-0 items-center justify-between gap-4 border-b border-line pl-5 pr-3">
           <h2
             id={titleId}
-            className="min-w-0 truncate text-lg font-semibold tracking-tight text-text"
+            className="min-w-0 truncate text-base font-semibold tracking-tight text-text"
           >
             {title}
           </h2>
-          <button
-            type="button"
-            className={`${iconButton} -mr-1`}
-            aria-label="Close"
-            onClick={onClose}
-          >
-            <Icon name="close" className="h-4 w-4" />
-          </button>
+          {dismissible ? (
+            <button type="button" className={iconBtn} aria-label="Close" onClick={onClose}>
+              <Icon name="close" className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
         {children}
       </div>
     </div>,
     document.body,
+  );
+}
+
+/**
+ * The scrolling body and the footer are slots, not props, so a form can wrap
+ * both and its submit button stays inside it.
+ */
+export function ModalBody({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <div className={`min-h-0 flex-1 overflow-y-auto p-5 ${className}`}>{children}</div>;
+}
+
+/** Cancel first, the action last, right-aligned. */
+export function ModalFooter({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return (
+    <div
+      className={`flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3 ${className}`}
+    >
+      {children}
+    </div>
   );
 }

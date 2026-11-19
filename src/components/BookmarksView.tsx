@@ -4,7 +4,6 @@ import { TrashPanel, TrashRow, trashRootsFor } from "./Trash";
 import { NO_TRASH, type TrashListing } from "../lib/trash";
 import { trashItems } from "../lib/trashApi";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
-import { CollectionIcon } from "./AppIcons";
 import { CollectionSidebar } from "./CollectionSidebar";
 import { SidebarDrawer, SidebarHeader, SidebarSection, type Sidebar } from "./SidebarDrawer";
 import {
@@ -46,40 +45,43 @@ import { archivedIds } from "../lib/archive";
 import { friendlyError } from "../lib/errors";
 import { useItemSelection } from "../lib/useItemSelection";
 import {
-  btnHeader,
+  btnPrimarySm,
   btnPrimary,
-  btnHeaderSecondary,
+  btnSecondarySm,
   btnSecondary,
-  checkbox,
   eyebrow,
   field,
   fieldBase,
   fieldLabel,
   focusRing,
-  paneCount,
-  paneHeader,
-  paneTitle,
-  primary,
+  iconBtn,
+  iconBtnDanger,
+  listRow,
+  listRowState,
+  rowReveal,
   searchClear,
   searchField,
   searchIcon,
-  secondary,
   selectField,
+  selectFieldSm,
   sidebarCount,
-  sidebarHeaderAction,
   sidebarMark,
   sidebarNameInput,
   sidebarRowState,
   sidebarSectionAction,
+  viewMain,
+  viewGrid,
+  sidebarRow,
 } from "../lib/styles";
 import { canonicalTag as canonicalTagIn, hasTag, tagVocabulary } from "../lib/tags";
 import { flattenTree } from "../lib/tree";
 import type { Bookmark, BookmarkCollection, BookmarkDraft } from "../lib/types";
 import { Icon } from "./Icon";
+import { PaneHeader, BulkBar } from "./PaneControls";
 import { TagsInput } from "./FieldControls";
 import { TagFilterBar } from "./TagFilterBar";
 import { ErrorMessage } from "./ErrorMessage";
-import { Modal } from "./Modal";
+import { Modal, ModalBody, ModalFooter } from "./Modal";
 import { EmptyState } from "./EmptyState";
 
 type Props = {
@@ -758,7 +760,7 @@ export function BookmarksView({
   const disabled = busy || saving || readOnlyMode;
 
   return (
-    <main className="flex h-[calc(100dvh-var(--sb-header-h,74px))] flex-col overflow-hidden pb-[env(safe-area-inset-bottom)] text-text lg:pb-0">
+    <main className={viewMain}>
       <ContextMenu state={menu.menu} onClose={menu.close} />
       {notice ? (
         <p
@@ -780,28 +782,11 @@ export function BookmarksView({
         </p>
       ) : null}
 
-      <div className="sb-shell grid min-h-0 flex-1" style={sidebar.cols}>
+      <div className={viewGrid} style={sidebar.cols}>
         <SidebarDrawer title="Bookmarks" sidebar={sidebar}>
           <SidebarHeader
             title="Bookmarks"
             onTitleClick={goHome}
-            action={
-              !readOnlyMode ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    startAdd();
-                    sidebar.close();
-                  }}
-                  disabled={disabled}
-                  aria-label="Create bookmark"
-                  title="Create bookmark"
-                  className={sidebarHeaderAction}
-                >
-                  <Icon name="plus" className="h-4 w-4" />
-                </button>
-              ) : null
-            }
           />
 
           <SidebarSection
@@ -824,12 +809,12 @@ export function BookmarksView({
               type="button"
               onClick={() => setScope(ALL)}
               aria-current={scope === ALL ? "true" : undefined}
-              className={`-mx-2 mt-2.5 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${sidebarRowState(
+              className={`mt-2.5 ${sidebarRow} ${sidebarRowState(
                 scope === ALL,
               )} ${focusRing}`}
             >
               <span className={sidebarMark}>
-                <CollectionIcon kind="bookmark" />
+                <Icon name="bookmark" />
               </span>
               <span className="min-w-0 flex-1 truncate font-medium">All bookmarks</span>
               <span className={sidebarCount}>{bookmarks.length || ""}</span>
@@ -871,31 +856,25 @@ export function BookmarksView({
         </SidebarDrawer>
 
         {viewingTrash ? (
-          <TrashPanel session={session} trash={trash} tab="bookmarks" onChanged={async () => { await onRefresh(); }} />
+          <TrashPanel session={session} trash={trash} tab="bookmarks" sidebar={sidebar} onChanged={async () => { await onRefresh(); }} />
         ) : (
         <section className="flex min-h-0 flex-col overflow-hidden">
-          <header className={paneHeader}>
-            <div className="flex min-w-0 items-center gap-2">
-              <h1 className={paneTitle}>
-                {scope === ALL
-                  ? "All bookmarks"
-                  : (collections.find((item) => item.id === scope)?.name ??
-                    "Bookmarks")}
-              </h1>
-              <span
-                className={paneCount}
-                title={`${visible.length} bookmark${visible.length === 1 ? "" : "s"}`}
-              >
-                {visible.length}
-              </span>
-            </div>
-            <div className="flex items-center gap-2.5">
+          <PaneHeader
+            title={
+              scope === ALL
+                ? "All bookmarks"
+                : (collections.find((item) => item.id === scope)?.name ?? "Bookmarks")
+            }
+            count={visible.length}
+            countLabel={`${visible.length} bookmark${visible.length === 1 ? "" : "s"}`}
+            sidebar={sidebar}
+          >
               {!readOnlyMode && !selecting ? (
                 <button
                   type="button"
                   onClick={() => startAdd()}
                   disabled={disabled}
-                  className={btnHeader}
+                  className={btnPrimarySm}
                 >
                   <Icon name="plus" className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">New bookmark</span>
@@ -909,7 +888,7 @@ export function BookmarksView({
                 aria-haspopup="menu"
                 aria-label={`Sort: ${bookmarkSortLabel(sort)}`}
                 title={`Sort: ${bookmarkSortLabel(sort)}`}
-                className={btnHeaderSecondary}
+                className={btnSecondarySm}
               >
                 <Icon name="text" className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Sort</span>
@@ -961,41 +940,34 @@ export function BookmarksView({
                   </button>
                 ) : null}
               </div>
-            </div>
-          </header>
+</PaneHeader>
 
           {selecting ? (
-            <div className="flex shrink-0 items-center gap-3 border-b border-line bg-panel/60 px-4 py-2 lg:px-6">
-              <input
-                type="checkbox"
-                ref={(node) => {
-                  if (node) node.indeterminate = selected.size > 0 && selected.size < visible.length;
-                }}
-                checked={visible.length > 0 && selected.size === visible.length}
-                onChange={toggleAll}
-                aria-label="Select all bookmarks"
-                className={checkbox}
-              />
-              <span className="min-w-0 flex-1 text-xs text-mute" aria-live="polite">
-                {selected.size} selected
-              </span>
+            <BulkBar
+              label="Bulk edit bookmarks"
+              noun="bookmarks"
+              selected={selected.size}
+              total={visible.length}
+              onToggleAll={toggleAll}
+              onClear={endSelecting}
+            >
               <button
                 type="button"
                 onClick={(event) => menu.open(event, bulkItems())}
                 disabled={disabled}
                 aria-haspopup="menu"
-                className={btnHeader}
+                className={btnPrimarySm}
               >
                 <span>Actions</span>
                 <Icon name="chevron" className="h-3 w-3 rotate-90" />
               </button>
-            </div>
+            </BulkBar>
           ) : null}
 
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 lg:px-6">
             {draft ? (
               <form
-                className="mb-4 rounded-2xl border border-line bg-panel/80 p-4"
+                className="mb-4 rounded-xl border border-line bg-panel/80 p-4"
                 autoComplete="off"
                 onSubmit={(event) => {
                   event.preventDefault();
@@ -1170,7 +1142,7 @@ export function BookmarksView({
                           <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">
                             {collection.name}
                           </span>
-                          <span className="shrink-0 text-[10px] tabular-nums text-mute">
+                          <span className="shrink-0 text-2xs tabular-nums text-mute">
                             {countByCollection.get(collection.id) || ""}
                           </span>
                         </button>
@@ -1201,7 +1173,7 @@ export function BookmarksView({
                 <EmptyState title="No bookmarks here yet" />
               )
             ) : (
-              <ul className="divide-y divide-line/60 border-y border-line/60">
+              <ul>
                 {visible.map((bookmark) => {
                   const tone = collectionTone(collections, resolveCollectionId(bookmark.collectionId));
                   return (
@@ -1220,7 +1192,7 @@ export function BookmarksView({
                         setDrag({ kind: "bookmark", ids });
                       }}
                       onDragEnd={endDrag}
-                      className={`list-row flex items-center gap-2 px-3 py-2.5 transition-colors sm:gap-3 ${highlightId === bookmark.id ? "bg-surface/70" : "hover:bg-surface/40"}`}
+                      className={`group py-2 ${listRow} ${listRowState({ current: highlightId === bookmark.id, checked: selected.has(bookmark.id) })}`}
                       onContextMenu={(event) =>
                         menu.open(event, bookmarkMenuFor(bookmark))
                       }
@@ -1287,54 +1259,56 @@ export function BookmarksView({
                             : ""}
                         </p>
                       </div>
-                      <a
-                        href={bookmarkHref(bookmark.url)}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        aria-label={`Open ${bookmark.title}`}
-                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
-                      >
-                        <Icon name="link" />
-                      </a>
-                      {!readOnlyMode && !selecting ? (
-                        <>
-                          <select
-                            value={resolveCollectionId(bookmark.collectionId)}
-                            onChange={(event) =>
-                              void moveBookmark(bookmark, event.target.value)
-                            }
-                            aria-label={`Collection for ${bookmark.title}`}
-                            // `pr-8` rather than the shared token's `pr-6`: the
-                            // native arrow is drawn wider in Firefox, and at this
-                            // size the name runs under it.
-                            className={`h-8 max-w-[6.5rem] shrink-0 cursor-pointer rounded-lg border border-line bg-bg pl-2 pr-8 text-xs text-mute sm:max-w-[9rem] ${focusRing}`}
-                          >
-                            {rows.map(({ item, depth }) => (
-                              <option key={item.id} value={item.id}>
-                                {`${"— ".repeat(depth)}${item.name}`}
-                              </option>
-                            ))}
-                          </select>
-                          <div className="flex shrink-0 items-center gap-0.5">
-                            <button
-                              type="button"
-                              onClick={() => startEdit(bookmark)}
-                              aria-label={`Edit ${bookmark.title}`}
-                              className={`flex h-8 w-8 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
-                            >
-                              <Icon name="pencil" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDelete(bookmark)}
-                              aria-label={`Delete ${bookmark.title}`}
-                              className={`flex h-8 w-8 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-danger ${focusRing}`}
-                            >
-                              <Icon name="trash" />
-                            </button>
-                          </div>
-                        </>
-                      ) : null}
+                      {/* Open stays with the other controls, so a row at rest is a title
+                          and a host. On a phone, where nothing hovers, they all show, and
+                          the collection moves to the edit form, which has the room. */}
+                      <div className={`flex shrink-0 items-center gap-1 ${rowReveal}`}>
+                        <a
+                          href={bookmarkHref(bookmark.url)}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          aria-label={`Open ${bookmark.title}`}
+                          className={iconBtn}
+                        >
+                          <Icon name="link" className="size-4" />
+                        </a>
+                        {!readOnlyMode && !selecting ? (
+                          <>
+                              <div className="hidden w-36 sm:block">
+                                <select
+                                  value={resolveCollectionId(bookmark.collectionId)}
+                                  onChange={(event) =>
+                                    void moveBookmark(bookmark, event.target.value)
+                                  }
+                                  aria-label={`Collection for ${bookmark.title}`}
+                                  className={selectFieldSm}
+                                >
+                                  {rows.map(({ item, depth }) => (
+                                    <option key={item.id} value={item.id}>
+                                      {`${"— ".repeat(depth)}${item.name}`}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => startEdit(bookmark)}
+                                aria-label={`Edit ${bookmark.title}`}
+                                className={iconBtn}
+                              >
+                                <Icon name="pencil" className="size-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDelete(bookmark)}
+                                aria-label={`Delete ${bookmark.title}`}
+                                className={iconBtnDanger}
+                              >
+                                <Icon name="trash" className="size-4" />
+                              </button>
+                          </>
+                        ) : null}
+                      </div>
                     </div>
                   </li>
                   );
@@ -1378,15 +1352,17 @@ export function BookmarksView({
           title={
             bulk === "addTag" ? "Add tag" : bulk === "removeTag" ? "Remove tag" : "Move to collection"
           }
+          size="sm"
           onClose={() => setBulk(null)}
         >
           <form
-            className="p-6"
+            className="flex min-h-0 flex-1 flex-col"
             onSubmit={(event) => {
               event.preventDefault();
               void applyBulk();
             }}
           >
+            <ModalBody>
             <p className="text-sm text-mute">
               Applies to {plural(selectedBookmarks.length, "bookmark")}.
             </p>
@@ -1447,14 +1423,15 @@ export function BookmarksView({
                 {bulkError}
               </ErrorMessage>
             ) : null}
-            <div className="mt-6 flex gap-3">
-              <button type="button" onClick={() => setBulk(null)} className={`${secondary} flex-1`}>
+            </ModalBody>
+            <ModalFooter>
+              <button type="button" onClick={() => setBulk(null)} className={btnSecondary}>
                 Cancel
               </button>
-              <button type="submit" disabled={saving} className={`${primary} flex-1`}>
+              <button type="submit" disabled={saving} className={btnPrimary}>
                 Apply
               </button>
-            </div>
+            </ModalFooter>
           </form>
         </Modal>
       ) : null}

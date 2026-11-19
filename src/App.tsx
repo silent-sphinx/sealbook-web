@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSidebar } from "./components/SidebarDrawer";
 import { useSplitPane } from "./components/SplitPane";
 import { AddDeviceModal } from "./components/AddDeviceModal";
@@ -7,13 +7,15 @@ import { ContactForm } from "./components/ContactForm";
 import { CalendarView } from "./components/CalendarView";
 import { DeleteAddressBookModal } from "./components/DeleteAddressBookModal";
 import { Modal } from "./components/Modal";
+import { Toast } from "./components/Toast";
+import { Banner } from "./components/Banner";
+import { AppRail, MobileTabBar } from "./components/AppNav";
 import { NotesView } from "./components/NotesView";
 import { BookmarksView } from "./components/BookmarksView";
 import { TasksView } from "./components/TasksView";
 import { SettingsView, type SettingsSection } from "./components/SettingsView";
 import { PasswordField } from "./components/PasswordField";
 import { WelcomeModal } from "./components/WelcomeModal";
-import { Logo } from "./components/AuthLayout";
 import { PhraseScreen } from "./components/PhraseScreen";
 import { PairScreen } from "./components/PairScreen";
 import { RecoverScreen } from "./components/RecoverScreen";
@@ -21,17 +23,6 @@ import { AuthScreen, type Mode } from "./components/AuthScreen";
 import { ContactsTab } from "./components/ContactsTab";
 import { DecryptingScreen } from "./components/DecryptingScreen";
 import { SearchPalette } from "./components/SearchPalette";
-import {
-  ContactsIcon,
-  CalendarIcon,
-  NotesIcon,
-  BookmarksIcon,
-  TasksIcon,
-  SettingsIcon,
-  DevicePlusIcon,
-  RefreshIcon,
-  LockIcon,
-} from "./components/AppIcons";
 import {
   completeRecoveryRotation,
   browserPlatform,
@@ -160,11 +151,7 @@ import {
   type MainTab,
 } from "./lib/appState";
 import type { WeekStart } from "./lib/calendarModel";
-import {
-  btnSecondary,
-  focusRing,
-  shell,
-} from "./lib/styles";
+import { btnGhostSm, btnSecondarySm, btnWarningSm, focusRing } from "./lib/styles";
 import { mergeTaskLists, mergeTasks } from "./lib/task";
 import { DEFAULT_CALENDAR_COLOR } from "./lib/types";
 import type {
@@ -185,7 +172,7 @@ import type {
   TaskList,
   TaskPatch,
 } from "./lib/types";
-import { Icon } from "./components/Icon";
+import type { IconName } from "./components/Icon";
 
 type Screen = "auth" | "phrase" | "pair" | "recover";
 
@@ -197,14 +184,18 @@ let startupLogged = false;
 const searchShortcut =
   typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "\u2318K" : "Ctrl K";
 
-const TABS: { id: MainTab; label: string; icon: React.ReactNode }[] = [
-  { id: "contacts", label: "Contacts", icon: <ContactsIcon /> },
-  { id: "calendar", label: "Calendar", icon: <CalendarIcon /> },
-  { id: "notes", label: "Notes", icon: <NotesIcon /> },
-  { id: "bookmarks", label: "Bookmarks", icon: <BookmarksIcon /> },
-  { id: "tasks", label: "Tasks", icon: <TasksIcon /> },
-  { id: "settings", label: "Settings", icon: <SettingsIcon /> },
+const TABS: { id: MainTab; label: string; icon: IconName }[] = [
+  { id: "contacts", label: "Contacts", icon: "user" },
+  { id: "calendar", label: "Calendar", icon: "calendar" },
+  { id: "notes", label: "Notes", icon: "page" },
+  { id: "bookmarks", label: "Bookmarks", icon: "bookmark" },
+  { id: "tasks", label: "Tasks", icon: "tasks" },
+  { id: "settings", label: "Settings", icon: "settings" },
 ];
+
+/** A password field small enough to sit in a banner, in the banner's own tone. */
+const bannerField =
+  "h-7 min-w-0 flex-1 rounded-lg border border-warning/30 bg-bg/80 px-2.5 text-xs text-text outline-none placeholder:text-faint focus:border-warning/60 focus:ring-2 focus:ring-warning/30";
 
 /** How long a queued change may wait before the banner admits it. */
 const SYNC_BANNER_DELAY_MS = 3000;
@@ -245,6 +236,8 @@ export default function App() {
   const [accountSettings, setAccountSettings] = useState<AccountSettings>(DEFAULT_ACCOUNT_SETTINGS);
   // Outlives a lock, unlike the settings, so the unlock screen keeps the tint.
   const [shownAccent, setShownAccent] = useState<string | null>(loadAccentHint);
+  // An accent being tried in Settings, not yet chosen. Never stored.
+  const [previewAccent, setPreviewAccent] = useState<string | null>(null);
   /** The settings payload last read, so a save merges onto it. */
   const accountSettingsRaw = useRef<string | undefined>(undefined);
   const [deviceLabels, setDeviceLabels] = useState<DeviceLabel[]>([]);
@@ -328,8 +321,6 @@ export default function App() {
   const [reconnectPassword, setReconnectPassword] = useState("");
   const [reconnectError, setReconnectError] = useState<string | null>(null);
   const unlockPasswordRef = useRef<HTMLInputElement>(null);
-  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const [tabPillRect, setTabPillRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   // One sidebar state for the whole shell, so contacts, calendar and notes
   // share the collapse rather than each reappearing on switching tabs. Below
   // `lg` the sidebar is a slide-over rather than a column.
@@ -351,25 +342,6 @@ export default function App() {
     }
     // Startup state only, so it is not repeated on every later change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Every view fills the viewport below the header, so it needs the header's
-  // real height. That height is not a constant: the nav wraps to its own row on
-  // narrow screens and the offline banner adds another row. A ref callback
-  // rather than an effect, because the header mounts only once the vault has
-  // loaded, which is after `session` is set.
-  const headerRef = useCallback((node: HTMLDivElement | null) => {
-    if (!node) return;
-    const publish = () => {
-      document.documentElement.style.setProperty(
-        "--sb-header-h",
-        `${node.getBoundingClientRect().height}px`,
-      );
-    };
-    publish();
-    const observer = new ResizeObserver(publish);
-    observer.observe(node);
-    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
@@ -456,25 +428,6 @@ export default function App() {
   const activeTab = visibleTabs.some((tab) => tab.id === activeTabState)
     ? activeTabState
     : visibleTabs[0].id;
-
-  // Tracks the active tab button so the pill behind it can slide to match,
-  // rather than snapping. Also runs on resize: the label that widens a
-  // button only shows above `sm`, and the nav itself wraps on narrow screens.
-  useLayoutEffect(() => {
-    const track = () => {
-      const button = tabRefs.current[activeTab];
-      if (!button) return;
-      setTabPillRect({
-        left: button.offsetLeft,
-        top: button.offsetTop,
-        width: button.offsetWidth,
-        height: button.offsetHeight,
-      });
-    };
-    track();
-    window.addEventListener("resize", track);
-    return () => window.removeEventListener("resize", track);
-  }, [activeTab, visibleTabs]);
 
   const contactsEnabled = isFeatureEnabled(accountSettings, "contacts");
   const detailedContacts = isDetailedContacts(accountSettings);
@@ -680,10 +633,10 @@ export default function App() {
   // Every token is rewritten on each change, so the override needs no teardown.
   useEffect(() => {
     const root = document.documentElement;
-    for (const [token, value] of Object.entries(accentVariables(shownAccent))) {
+    for (const [token, value] of Object.entries(accentVariables(previewAccent ?? shownAccent))) {
       root.style.setProperty(token, value);
     }
-  }, [shownAccent]);
+  }, [shownAccent, previewAccent]);
 
   // Poll the pairing this device is joining. Each step is acted on as it comes:
   // the reply to the approving device's answer, then the pin once approved.
@@ -2251,19 +2204,52 @@ export default function App() {
   }
 
   // ---------- MAIN SHELL ----------
+  const navProps = {
+    tabs: visibleTabs,
+    active: activeTab,
+    onSelect: (id: string) =>
+      guardEditing(() => {
+        if (id === "notes" && activeTab === "notes") setNotesHome((n) => n + 1);
+        setActiveTab(id as MainTab);
+      }),
+    onSearch: () => setSearchOpen(true),
+    searchShortcut,
+    onAddDevice: isOffline
+      ? undefined
+      : () => {
+          setAdding(true);
+          setAddResponse(null);
+          setAddPreview(null);
+          setError(null);
+        },
+    onRefresh: isOffline
+      ? undefined
+      : () =>
+          guardEditing(() => {
+            void onRefreshVault();
+          }),
+    refreshing: loadingVault,
+    onLock: lockEverywhere,
+    onAccount: (section: SettingsSection) =>
+      guardEditing(() => {
+        setSettingsSection(section);
+        setActiveTab("settings");
+      }),
+    username: session.state.username,
+    deviceName,
+    sync: { offline: isOffline, pending: outboxState.pending, failed: outboxState.failed.length },
+  };
+
   return (
-    <div className="relative isolate min-h-screen">
+    <div className="relative isolate flex h-dvh overflow-hidden">
       <div className="app-ambient" aria-hidden="true" />
-      {/* Sticky header with accent top line */}
-      <div ref={headerRef} className="sticky top-0 z-40">
+      {sidebar.isDesktop ? <AppRail {...navProps} /> : null}
+      <div className="flex min-w-0 flex-1 flex-col">
         {isOffline || (outboxState.pending > 0 && syncLagging) ? (
-          <div
-            className={`border-b px-5 py-2 text-center text-xs font-medium ${
-              isOffline
-                ? "border-danger/25 bg-danger/10 text-danger"
-                : "border-line bg-surface/60 text-mute"
-            }`}
+          <Banner
+            tone={isOffline ? "danger" : "neutral"}
             role="status"
+            icon={isOffline ? "offline" : null}
           >
             {isOffline ? "You're offline. Changes are kept on this device. " : null}
             {outboxState.pending > 0 && (isOffline || syncLagging)
@@ -2271,35 +2257,35 @@ export default function App() {
               : isOffline
                 ? "They will sync when you reconnect."
                 : null}
-          </div>
+          </Banner>
         ) : null}
         {outboxState.failed.length > 0 ? (
-          <div className="border-b border-warning/25 bg-warning/10 px-5 py-2 text-center text-xs font-medium text-warning" role="alert">
+          <Banner tone="warning" role="alert">
             {outboxState.failed.length} change{outboxState.failed.length === 1 ? "" : "s"} couldn't
             sync.{" "}
             <button
               type="button"
-              className={`rounded underline underline-offset-2 cursor-pointer ${focusRing}`}
+              className={`rounded-md underline underline-offset-2 cursor-pointer ${focusRing}`}
               onClick={() => setReviewingOutbox(true)}
             >
               Review
             </button>
-          </div>
+          </Banner>
         ) : null}
         {unopened > 0 ? (
-          <div className="border-b border-warning/25 bg-warning/10 px-5 py-2 text-center text-xs font-medium text-warning" role="alert">
+          <Banner tone="warning" role="alert">
             {unopened} item{unopened === 1 ? "" : "s"} in this vault could not be opened by this
             device, so {unopened === 1 ? "it is" : "they are"} not shown. Nothing has been changed.
-          </div>
+          </Banner>
         ) : null}
         {session.rosterLacksKeyCommitment && !session.recoveryPending ? (
-          <div className="border-b border-warning/25 bg-warning/10 px-5 py-2 text-center text-xs font-medium text-warning" role="alert">
+          <Banner tone="warning" role="alert">
             {coreLegacyRosterMessage()}
-          </div>
+          </Banner>
         ) : null}
         {reconnectPrompt && (session.offline || outboxState.signIn) ? (
-          <div className="border-b border-warning/25 bg-warning/10 px-5 py-2.5 text-center text-xs font-medium text-warning" role="alert">
-            <form onSubmit={(event) => void onReconnect(event)} className="mx-auto flex max-w-md flex-wrap items-center justify-center gap-2">
+          <Banner tone="warning" role="alert">
+            <form onSubmit={(event) => void onReconnect(event)} className="flex flex-wrap items-center gap-2">
               <span>Enter your password to sign in again and sync.</span>
               <label htmlFor="reconnect-password" className="sr-only">
                 Password
@@ -2310,19 +2296,15 @@ export default function App() {
                 onChange={(e) => setReconnectPassword(e.target.value)}
                 autoComplete="current-password"
                 placeholder="Your password"
-                className="min-w-0 flex-1 rounded-lg border border-warning/30 bg-bg/80 px-3 py-1.5 text-xs text-text outline-none focus:border-warning/60 focus:ring-1 focus:ring-warning/40"
+                className={bannerField}
                 required
               />
-              <button
-                type="submit"
-                disabled={busy || !reconnectPassword}
-                className={`rounded-lg bg-warning px-3 py-1.5 text-xs font-semibold text-bg transition-all hover:brightness-110 disabled:opacity-50 cursor-pointer ${focusRing}`}
-              >
+              <button type="submit" disabled={busy || !reconnectPassword} className={btnWarningSm}>
                 {busy ? "Signing in…" : "Sign in"}
               </button>
               <button
                 type="button"
-                className={`rounded-lg px-2 py-1.5 text-xs text-warning/80 hover:text-warning disabled:opacity-50 cursor-pointer ${focusRing}`}
+                className={btnGhostSm}
                 onClick={() => {
                   setReconnectPrompt(false);
                   setReconnectPassword("");
@@ -2334,12 +2316,12 @@ export default function App() {
               </button>
             </form>
             {reconnectError ? <p className="mt-1.5">{reconnectError}</p> : null}
-          </div>
+          </Banner>
         ) : null}
         {session.recoveryPending ? (
-          <div className="border-b border-warning/25 bg-warning/10 px-5 py-2.5 text-center text-xs font-medium text-warning" role="alert">
+          <Banner tone="warning" role="alert">
             {finishingRecovery ? (
-              <form onSubmit={onFinishRecovery} className="mx-auto flex max-w-md flex-wrap items-center justify-center gap-2">
+              <form onSubmit={onFinishRecovery} className="flex flex-wrap items-center gap-2">
                 <label htmlFor="finish-recovery-password" className="sr-only">
                   Password
                 </label>
@@ -2349,19 +2331,15 @@ export default function App() {
                   onChange={(e) => setRecoveryPassword(e.target.value)}
                   autoComplete="current-password"
                   placeholder="Your password"
-                  className="min-w-0 flex-1 rounded-lg border border-warning/30 bg-bg/80 px-3 py-1.5 text-xs text-text outline-none focus:border-warning/60 focus:ring-1 focus:ring-warning/40"
+                  className={bannerField}
                   required
                 />
-                <button
-                  type="submit"
-                  disabled={busy || !recoveryPassword}
-                  className={`rounded-lg bg-warning px-3 py-1.5 text-xs font-semibold text-bg transition-all hover:brightness-110 disabled:opacity-50 cursor-pointer ${focusRing}`}
-                >
+                <button type="submit" disabled={busy || !recoveryPassword} className={btnWarningSm}>
                   {busy ? "Rotating…" : "Finish recovery"}
                 </button>
                 <button
                   type="button"
-                  className={`rounded-lg px-2 py-1.5 text-xs text-warning/80 hover:text-warning disabled:opacity-50 cursor-pointer ${focusRing}`}
+                  className={btnGhostSm}
                   onClick={() => {
                     setFinishingRecovery(false);
                     setRecoveryPassword("");
@@ -2372,12 +2350,12 @@ export default function App() {
                 </button>
               </form>
             ) : (
-              <span className="inline-flex flex-wrap items-center justify-center gap-2">
+              <span className="inline-flex flex-wrap items-center gap-2">
                 This vault was recovered but its key has not been replaced yet, so the recovery
                 words you used still open it. Saving is disabled until that is finished.
                 <button
                   type="button"
-                  className={`rounded-lg bg-warning px-3 py-1 text-xs font-semibold text-bg transition-all hover:brightness-110 cursor-pointer ${focusRing}`}
+                  className={btnWarningSm}
                   onClick={() => {
                     setError(null);
                     setFinishingRecovery(true);
@@ -2387,290 +2365,167 @@ export default function App() {
                 </button>
               </span>
             )}
-          </div>
+          </Banner>
         ) : null}
-        <div className={isOffline ? "h-[2px] bg-danger" : "h-[2px] bg-gradient-to-r from-accent/60 via-accent to-accent/60"} />
-        <header className="border-b border-line bg-bg/80 backdrop-blur-lg">
-          <div className={`${shell} flex flex-wrap items-center justify-between gap-x-3 gap-y-2.5 px-4 py-3 sm:px-5 sm:py-4`}>
-            <div className="flex min-w-0 flex-1 basis-0 items-center gap-2.5 xl:flex-none xl:basis-auto">
-              <Logo className="h-8 w-8 flex-none" />
-              <div className="min-w-0">
-                <p className="font-semibold tracking-tight">Sealbook</p>
-                <p className="truncate text-xs text-mute">
-                  {session.state.username}
-                  {deviceName ? <span title="This device's name"> · {deviceName}</span> : null}
-                </p>
-              </div>
-            </div>
 
-            {/* Navigation Tabs */}
-            <nav
-              className="relative order-3 flex w-full items-center justify-center rounded-xl border border-line bg-surface/80 p-1 xl:order-none xl:w-auto"
-              aria-label="Main Navigation"
-            >
-              {/* Slides to the active tab's button instead of each button
-                  owning its own background, so the highlight moves rather
-                  than jumping. Hidden until a size is measured so it never
-                  flashes at the top-left corner on first paint. */}
-              <span
-                aria-hidden="true"
-                className="absolute rounded-lg bg-accent shadow-[0_4px_14px_-4px_var(--color-accent-ring)] transition-[left,top,width,height] duration-200 ease-out"
-                style={
-                  tabPillRect
-                    ? { left: tabPillRect.left, top: tabPillRect.top, width: tabPillRect.width, height: tabPillRect.height }
-                    : { display: "none" }
-                }
-              />
-              {visibleTabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  ref={(el) => {
-                    tabRefs.current[tab.id] = el;
-                  }}
-                  type="button"
-                  aria-current={activeTab === tab.id ? "page" : undefined}
-                  aria-label={tab.label}
-                  title={tab.label}
-                  className={`relative z-10 inline-flex min-w-0 flex-none items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors duration-150 cursor-pointer sm:px-3 ${focusRing} ${activeTab === tab.id
-                      ? "text-bg"
-                      : "text-mute hover:text-text hover:bg-surface/50"
-                    }`}
-                  onClick={() =>
-                    guardEditing(() => {
-                      if (tab.id === "notes" && activeTab === "notes") setNotesHome((n) => n + 1);
-                      setActiveTab(tab.id);
-                    })
-                  }
-                >
-                  {tab.icon}
-                  {/* Five tabs of icon-and-label do not fit a phone, so below
-                      `sm` only the current one is named. The rest keep their
-                      icon, with the label on the button for a screen reader. */}
-                  <span className={activeTab === tab.id ? "truncate" : "hidden sm:inline"}>
-                    {tab.label}
-                  </span>
-                </button>
-              ))}
-            </nav>
-
-            <div className="flex flex-none items-center gap-2">
-              <button
-                type="button"
-                aria-label="Search"
-                title={`Search (${searchShortcut})`}
-                className={`inline-flex items-center rounded-lg border border-line bg-surface/70 px-2.5 py-1.5 text-xs font-medium text-text transition-all duration-150 hover:bg-surface hover:border-line-light cursor-pointer ${focusRing}`}
-                onClick={() => setSearchOpen(true)}
-              >
-                <Icon name="search" className="h-4 w-4" />
-              </button>
-              {!isOffline ? <button
-                type="button"
-                aria-label="Add device"
-                title="Add device"
-                className={`inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface/70 px-2.5 py-1.5 text-xs font-medium text-text transition-all duration-150 hover:bg-surface hover:border-line-light cursor-pointer sm:px-3 ${focusRing}`}
-                onClick={() => {
-                  setAdding(true);
-                  setAddResponse(null);
-                  setAddPreview(null);
-                  setError(null);
+        <div className="flex min-h-0 flex-1 flex-col">
+          {activeTab === "settings" ? (
+                      <SettingsView
+                key={settingsSection ?? "default"}
+                session={session}
+                contacts={contacts}
+                addressBooks={addressBooks}
+                calendars={calendars}
+                calendarEvents={calendarEvents}
+                notes={notes}
+                notebooks={notebooks}
+                bookmarks={bookmarks}
+                bookmarkCollections={bookmarkCollections}
+                tasks={tasks}
+                taskLists={taskLists}
+                onSessionUpdate={(updated) => setSession(updated)}
+                onPersistSession={persistSession}
+                onAccountDeleted={() => {
+                  signOut();
                 }}
-              >
-                <DevicePlusIcon />
-                <span className="hidden sm:inline">Add device</span>
-              </button> : null}
-              {!isOffline ? <button
-                type="button"
-                aria-label="Refresh vault"
-                title="Refresh vault"
-                disabled={loadingVault}
-                className={`inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface/70 px-2.5 py-1.5 text-xs font-medium text-text transition-all duration-150 hover:bg-surface hover:border-line-light cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 sm:px-3 ${focusRing}`}
-                onClick={() =>
-                  guardEditing(() => {
-                    void onRefreshVault();
-                  })
+                onSignOut={() => {
+                  void signOut();
+                }}
+                onRefresh={() => refresh(session)}
+                onCreateBook={onCreateBook}
+                onCreateNotebook={onCreateNotebook}
+                onCreateBookmarkCollection={(name) => onCreateBookmarkCollection(name)}
+                offline={isOffline}
+                pendingChanges={outboxState.pending + outboxState.failed.length}
+                timezone={timezone}
+                onTimezoneChange={setTimezone}
+                weekStart={weekStart}
+                onWeekStartChange={setWeekStart}
+                autoLockMinutes={autoLockMinutes}
+                onAutoLockMinutesChange={setAutoLockMinutes}
+                accountSettings={accountSettings}
+                deviceLabels={deviceLabels}
+                onDeviceLabelSaved={upsertDeviceLabel}
+                onSaveAccountSettings={onSaveAccountSettings}
+                onPreviewAccent={setPreviewAccent}
+                initialSection={settingsSection ?? undefined}
+                sidebar={sidebar}
+              />
+          ) : activeTab === "calendar" ? (
+                      <CalendarView session={session} trash={trash} calendars={calendars} events={calendarEvents} contacts={contacts} busy={busy} timezone={timezone} weekStart={weekStart} onRefresh={() => refresh(session)} sidebar={sidebar} dueTasks={isFeatureEnabled(accountSettings, "tasks") ? tasks : undefined} onOpenTask={(id) => guardEditing(() => { setTaskFocusId(id); setActiveTab("tasks"); })} focusEventId={eventFocusId} onFocusHandled={clearEventFocus} />
+          ) : activeTab === "notes" ? (
+                      <NotesView
+                session={session}
+                trash={trash}
+                notes={notes}
+                notebooks={notebooks}
+                busy={busy}
+                onRefresh={() => refresh(session)}
+                onSaved={applySavedNote}
+                offline={isOffline}
+                outbox={outboxState}
+                sidebar={sidebar}
+                homeSignal={notesHome}
+                focusNoteId={noteFocusId}
+                onFocusHandled={clearNoteFocus}
+              />
+          ) : activeTab === "bookmarks" ? (
+                      <BookmarksView
+                session={session}
+                trash={trash}
+                bookmarks={bookmarks}
+                collections={bookmarkCollections}
+                busy={busy}
+                onRefresh={() => refresh(session)}
+                onCreateCollection={onCreateBookmarkCollection}
+                sidebar={sidebar}
+                focusBookmarkId={bookmarkFocusId}
+                onFocusHandled={clearBookmarkFocus}
+              />
+          ) : activeTab === "tasks" ? (
+                      <TasksView
+                session={session}
+                trash={trash}
+                tasks={tasks}
+                taskLists={taskLists}
+                busy={busy}
+                timezone={timezone}
+                onRefresh={() => refresh(session)}
+                onApply={applyTaskPatch}
+                sidebar={sidebar}
+                focusTaskId={taskFocusId}
+                onFocusHandled={clearTaskFocus}
+              />
+          ) : activeTab === "contacts" ? (
+            <ContactsTab
+              session={session!}
+              isOffline={isOffline}
+              sidebar={sidebar}
+              contactsSplit={contactsSplit}
+              contacts={contacts}
+              filtered={filtered}
+              addressBooks={addressBooks}
+              hiddenBooks={listHiddenBooks}
+              shownArchivedBooks={shownArchivedBooks}
+              archivedContacts={archivedContacts}
+              viewingContact={viewingContact}
+              editingDetail={editingDetail}
+              creatingBook={creatingBook}
+              loadingVault={loadingVault}
+              error={error}
+              busy={busy}
+              search={search}
+              soleShownBook={soleShownBook}
+              listTitle={listTitle}
+              viewingArchive={viewingArchive}
+              trash={trash}
+              viewingTrash={viewingTrash}
+              onSetViewingTrash={(v) => {
+                setViewingTrash(v);
+                if (v) {
+                  setViewingArchive(false);
+                  setViewingContact(null);
                 }
-              >
-                <span className={loadingVault ? "animate-spin" : undefined}>
-                  <RefreshIcon />
-                </span>
-                <span className="hidden sm:inline">Refresh</span>
-              </button> : null}
-              <button
-                type="button"
-                aria-label="Lock"
-                title="Lock"
-                className={`inline-flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-semibold text-bg shadow-[0_4px_14px_-4px_var(--color-accent-ring)] transition-all duration-150 hover:brightness-110 active:scale-[0.98] cursor-pointer sm:px-3 ${focusRing}`}
-                onClick={lockEverywhere}
-              >
-                <LockIcon />
-                <span className="hidden sm:inline">Lock</span>
-              </button>
-            </div>
-          </div>
-        </header>
+              }}
+              onTrashChanged={() => refreshAfterSave(session!)}
+              detailedContacts={detailedContacts}
+              composing={composing}
+              deletingContact={deletingContact}
+              deletingAddressBook={deletingAddressBook}
+              onSetCreatingBook={setCreatingBook}
+              onGoHome={goContactsHome}
+              onOpenComposer={openComposer}
+              onGuardEditing={guardEditing}
+              onToggleBookVisibility={toggleBookVisibility}
+              onShowAllBooks={showAllBooks}
+              onCreateBook={onCreateBook}
+              onRenameBook={onRenameBook}
+              onRecolorBook={onRecolorBook}
+              onToggleBookArchived={onToggleBookArchived}
+              onDeleteBook={onDeleteBook}
+              onSetSearch={setSearch}
+              onSetViewingContact={(c) => setViewingContact(c)}
+              onSetError={setError}
+              onSetViewingArchive={(v) => {
+                setViewingArchive(v);
+                if (v) setViewingTrash(false);
+              }}
+              onSetEditingDetail={setEditingDetail}
+              onPromptDelete={promptDelete}
+              onPromptBulkDelete={promptBulkDelete}
+              deletingContacts={deletingContacts}
+              onToggleArchive={onToggleArchive}
+              onBulkEdit={onBulkEdit}
+              onSaveViewedContact={onSaveViewedContact}
+              onLinkInSection={onLinkInSection}
+              onUnlinkFromSection={onUnlinkFromSection}
+              onNavigateToContact={(c) => { guardEditing(() => { setError(null); setViewingContact(c); }); }}
+            />
+          ) : null}
+        </div>
+        {sidebar.isDesktop ? null : <MobileTabBar {...navProps} />}
       </div>
 
-      {activeTab === "settings" ? (
-        <div>
-          <SettingsView
-            session={session}
-            contacts={contacts}
-            addressBooks={addressBooks}
-            calendars={calendars}
-            calendarEvents={calendarEvents}
-            notes={notes}
-            notebooks={notebooks}
-            bookmarks={bookmarks}
-            bookmarkCollections={bookmarkCollections}
-            tasks={tasks}
-            taskLists={taskLists}
-            onSessionUpdate={(updated) => setSession(updated)}
-            onPersistSession={persistSession}
-            onAccountDeleted={() => {
-              signOut();
-            }}
-            onSignOut={() => {
-              void signOut();
-            }}
-            onRefresh={() => refresh(session)}
-            onCreateBook={onCreateBook}
-            onCreateNotebook={onCreateNotebook}
-            onCreateBookmarkCollection={(name) => onCreateBookmarkCollection(name)}
-            offline={isOffline}
-            pendingChanges={outboxState.pending + outboxState.failed.length}
-            timezone={timezone}
-            onTimezoneChange={setTimezone}
-            weekStart={weekStart}
-            onWeekStartChange={setWeekStart}
-            autoLockMinutes={autoLockMinutes}
-            onAutoLockMinutesChange={setAutoLockMinutes}
-            accountSettings={accountSettings}
-            deviceLabels={deviceLabels}
-            onDeviceLabelSaved={upsertDeviceLabel}
-            onSaveAccountSettings={onSaveAccountSettings}
-            initialSection={settingsSection ?? undefined}
-            sidebar={sidebar}
-          />
-        </div>
-      ) : activeTab === "calendar" ? (
-        <div>
-          <CalendarView session={session} trash={trash} calendars={calendars} events={calendarEvents} contacts={contacts} busy={busy} timezone={timezone} weekStart={weekStart} onRefresh={() => refresh(session)} sidebar={sidebar} dueTasks={isFeatureEnabled(accountSettings, "tasks") ? tasks : undefined} onOpenTask={(id) => guardEditing(() => { setTaskFocusId(id); setActiveTab("tasks"); })} focusEventId={eventFocusId} onFocusHandled={clearEventFocus} />
-        </div>
-      ) : activeTab === "notes" ? (
-        <div>
-          <NotesView
-            session={session}
-            trash={trash}
-            notes={notes}
-            notebooks={notebooks}
-            busy={busy}
-            onRefresh={() => refresh(session)}
-            onSaved={applySavedNote}
-            offline={isOffline}
-            outbox={outboxState}
-            sidebar={sidebar}
-            homeSignal={notesHome}
-            focusNoteId={noteFocusId}
-            onFocusHandled={clearNoteFocus}
-          />
-        </div>
-      ) : activeTab === "bookmarks" ? (
-        <div>
-          <BookmarksView
-            session={session}
-            trash={trash}
-            bookmarks={bookmarks}
-            collections={bookmarkCollections}
-            busy={busy}
-            onRefresh={() => refresh(session)}
-            onCreateCollection={onCreateBookmarkCollection}
-            sidebar={sidebar}
-            focusBookmarkId={bookmarkFocusId}
-            onFocusHandled={clearBookmarkFocus}
-          />
-        </div>
-      ) : activeTab === "tasks" ? (
-        <div>
-          <TasksView
-            session={session}
-            trash={trash}
-            tasks={tasks}
-            taskLists={taskLists}
-            busy={busy}
-            timezone={timezone}
-            onRefresh={() => refresh(session)}
-            onApply={applyTaskPatch}
-            sidebar={sidebar}
-            focusTaskId={taskFocusId}
-            onFocusHandled={clearTaskFocus}
-          />
-        </div>
-      ) : activeTab === "contacts" ? (
-        <ContactsTab
-          session={session!}
-          isOffline={isOffline}
-          sidebar={sidebar}
-          contactsSplit={contactsSplit}
-          contacts={contacts}
-          filtered={filtered}
-          addressBooks={addressBooks}
-          hiddenBooks={listHiddenBooks}
-          shownArchivedBooks={shownArchivedBooks}
-          archivedContacts={archivedContacts}
-          viewingContact={viewingContact}
-          editingDetail={editingDetail}
-          creatingBook={creatingBook}
-          loadingVault={loadingVault}
-          error={error}
-          busy={busy}
-          search={search}
-          soleShownBook={soleShownBook}
-          listTitle={listTitle}
-          viewingArchive={viewingArchive}
-          trash={trash}
-          viewingTrash={viewingTrash}
-          onSetViewingTrash={(v) => {
-            setViewingTrash(v);
-            if (v) {
-              setViewingArchive(false);
-              setViewingContact(null);
-            }
-          }}
-          onTrashChanged={() => refreshAfterSave(session!)}
-          detailedContacts={detailedContacts}
-          composing={composing}
-          deletingContact={deletingContact}
-          deletingAddressBook={deletingAddressBook}
-          onSetCreatingBook={setCreatingBook}
-          onGoHome={goContactsHome}
-          onOpenComposer={openComposer}
-          onGuardEditing={guardEditing}
-          onToggleBookVisibility={toggleBookVisibility}
-          onShowAllBooks={showAllBooks}
-          onCreateBook={onCreateBook}
-          onRenameBook={onRenameBook}
-          onRecolorBook={onRecolorBook}
-          onToggleBookArchived={onToggleBookArchived}
-          onDeleteBook={onDeleteBook}
-          onSetSearch={setSearch}
-          onSetViewingContact={(c) => setViewingContact(c)}
-          onSetError={setError}
-          onSetViewingArchive={(v) => {
-            setViewingArchive(v);
-            if (v) setViewingTrash(false);
-          }}
-          onSetEditingDetail={setEditingDetail}
-          onPromptDelete={promptDelete}
-          onPromptBulkDelete={promptBulkDelete}
-          deletingContacts={deletingContacts}
-          onToggleArchive={onToggleArchive}
-          onBulkEdit={onBulkEdit}
-          onSaveViewedContact={onSaveViewedContact}
-          onLinkInSection={onLinkInSection}
-          onUnlinkFromSection={onUnlinkFromSection}
-          onNavigateToContact={(c) => { guardEditing(() => { setError(null); setViewingContact(c); }); }}
-        />
-      ) : null}
 
       {searchOpen ? (
         <SearchPalette
@@ -2709,6 +2564,7 @@ export default function App() {
       {pendingNav ? (
         <ConfirmDialog
           title="Unsaved changes"
+          tone="default"
           heading="Discard your changes to this contact?"
           body="The contact is still open for editing. Anything you have typed since you started is lost, and the saved contact is left as it was."
           confirmLabel="Discard changes"
@@ -2727,6 +2583,7 @@ export default function App() {
       {contactsEnabled && deletingContact ? (
         <ConfirmDialog
           title="Move to trash"
+          tone="danger"
           heading={`Move “${deletingContact.name}” to the trash?`}
           body="It can be restored from the trash for 30 days, then it is deleted for good on every device."
           confirmLabel="Move to trash"
@@ -2741,6 +2598,7 @@ export default function App() {
       {contactsEnabled && deletingContacts ? (
         <ConfirmDialog
           title="Move to trash"
+          tone="danger"
           heading={`Move ${deletingContacts.length} contact${deletingContacts.length === 1 ? "" : "s"} to the trash?`}
           body="They can be restored from the trash for 30 days, then they are deleted for good on every device."
           confirmLabel="Move to trash"
@@ -2808,54 +2666,39 @@ export default function App() {
 
       {/* Idle lock warning. Any pointer/key activity also resets the timer. */}
       {idleCountdown !== null ? (
-        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[70] flex justify-center px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          <div className="pointer-events-auto flex w-full max-w-md items-center gap-4 rounded-xl border border-line-light bg-elevated px-4 py-3 shadow-2xl shadow-black/50 animate-slide-up">
-            {/* Announced once on mount. The visible seconds sit outside this
-                live region so assistive tech is not re-interrupted every tick. */}
-            <p role="alert" className="sr-only">
-              Your vault locks in {idleWarningSeconds(autoLockMinutes)} seconds
-              due to inactivity. Choose "Stay signed in" to keep working.
-            </p>
-            <div className="min-w-0 flex-1" aria-hidden="true">
-              <p className="text-sm font-semibold text-text">Locking soon</p>
-              <p className="mt-0.5 text-xs text-mute">
-                Your vault locks in{" "}
-                <span className="tabular-nums text-text">{idleCountdown}s</span> due to
-                inactivity.
-              </p>
-            </div>
-            <button
-              type="button"
-              className={btnSecondary}
-              onClick={() => setIdleCountdown(null)}
-            >
+        <Toast
+          live={false}
+          actions={
+            <button type="button" className={btnSecondarySm} onClick={() => setIdleCountdown(null)}>
               Stay signed in
             </button>
+          }
+        >
+          {/* Announced once on mount. The visible seconds sit outside this
+              live region so assistive tech is not re-interrupted every tick. */}
+          <p role="alert" className="sr-only">
+            Your vault locks in {idleWarningSeconds(autoLockMinutes)} seconds
+            due to inactivity. Choose "Stay signed in" to keep working.
+          </p>
+          <div aria-hidden="true">
+            <p className="text-sm font-semibold text-text">Locking soon</p>
+            <p className="mt-0.5 text-mute">
+              Your vault locks in{" "}
+              <span className="tabular-nums text-text">{idleCountdown}s</span> due to
+              inactivity.
+            </p>
           </div>
-        </div>
+        </Toast>
       ) : null}
 
-      {notices.length > 0 ? (
-        <div className="pointer-events-none fixed bottom-0 right-0 z-[65] flex w-full max-w-sm flex-col gap-2 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          {notices.map((notice) => (
-            <div
-              key={notice.id}
-              role="status"
-              className="pointer-events-auto flex items-start gap-3 rounded-xl border border-line-light bg-elevated px-4 py-3 text-xs leading-relaxed text-text shadow-2xl shadow-black/50 animate-slide-up"
-            >
-              <p className="min-w-0 flex-1">{notice.text}</p>
-              <button
-                type="button"
-                aria-label="Dismiss"
-                className={`hit-area relative -mr-1.5 -mt-0.5 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
-                onClick={() => setNotices((current) => current.filter((item) => item.id !== notice.id))}
-              >
-                <Icon name="close" className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : null}
+      {notices.map((notice) => (
+        <Toast
+          key={notice.id}
+          onDismiss={() => setNotices((current) => current.filter((item) => item.id !== notice.id))}
+        >
+          {notice.text}
+        </Toast>
+      ))}
 
       {reviewingOutbox && outboxState.failed.length > 0 ? (
         <OutboxPanel

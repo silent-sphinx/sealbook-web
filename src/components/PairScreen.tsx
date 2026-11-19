@@ -1,8 +1,8 @@
 import { type FormEvent } from "react";
 import { AuthCard, Brand, Step } from "./AuthLayout";
-import { CopyIcon, CheckIcon } from "./AppIcons";
+import { Icon } from "./Icon";
 import { PasswordField } from "./PasswordField";
-import { authField, authLabel, authPrimary, chipButton, ghost } from "../lib/styles";
+import { authField, authLabel, authPrimary, btnSecondarySm, ghost } from "../lib/styles";
 import { pairCodeWords } from "../lib/pairing";
 import { ErrorMessage } from "./ErrorMessage";
 import { QrCode } from "./QrCode";
@@ -89,9 +89,9 @@ export function PairScreen({
               onCopied(true);
               setTimeout(() => onCopied(false), 2000);
             }}
-            className={`mt-2.5 ${chipButton}`}
+            className={`mt-2.5 ${btnSecondarySm}`}
           >
-            {copied ? <CheckIcon /> : <CopyIcon />}
+            <Icon name={copied ? "check" : "copy"} />
             {copied ? "Copied" : "Copy code"}
           </button>
         </Step>
@@ -109,13 +109,7 @@ export function PairScreen({
       {pairApproved ? (
         <form onSubmit={onSubmit} className="mt-6 animate-fade-in-up">
           <div className="flex items-center gap-2.5 rounded-xl border border-success/30 bg-success/10 p-3.5 text-xs text-success">
-            <svg className="h-4 w-4 shrink-0 text-success" viewBox="0 0 20 20" fill="currentColor">
-              <path
-                fillRule="evenodd"
-                d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z"
-                clipRule="evenodd"
-              />
-            </svg>
+            <Icon name="check" className="size-4 shrink-0 text-success" />
             <span>Pairing approved! Enter your password to finish unlocking your vault.</span>
           </div>
           <div className="mt-4">

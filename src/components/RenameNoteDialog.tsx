@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { btnPrimary, btnSecondary, field, fieldLabel } from "../lib/styles";
-import { Modal } from "./Modal";
+import { Modal, ModalBody, ModalFooter } from "./Modal";
 
 type Props = {
   title: string;
@@ -13,14 +13,15 @@ type Props = {
 export function RenameNoteDialog({ title, kind = "note", onSave, onClose }: Props) {
   const [value, setValue] = useState(title);
   return (
-    <Modal title={`Rename ${kind}`} onClose={onClose}>
+    <Modal title={`Rename ${kind}`} size="sm" onClose={onClose}>
       <form
-        className="p-6"
+        className="flex min-h-0 flex-1 flex-col"
         onSubmit={(event) => {
           event.preventDefault();
           onSave(value.trim());
         }}
       >
+        <ModalBody>
         <label className={fieldLabel}>
           {kind === "note" ? "Note name" : "Notebook name"}
           <input
@@ -32,14 +33,15 @@ export function RenameNoteDialog({ title, kind = "note", onSave, onClose }: Prop
             className={field}
           />
         </label>
-        <div className="mt-6 flex gap-3">
-          <button type="button" onClick={onClose} className={`${btnSecondary} flex-1`}>
+        </ModalBody>
+        <ModalFooter>
+          <button type="button" onClick={onClose} className={btnSecondary}>
             Cancel
           </button>
-          <button type="submit" className={`${btnPrimary} flex-1`}>
+          <button type="submit" className={btnPrimary}>
             Rename
           </button>
-        </div>
+        </ModalFooter>
       </form>
     </Modal>
   );

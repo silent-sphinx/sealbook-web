@@ -123,7 +123,7 @@ export function TaskForm({ initial, editing, listOptions, timezone, knownTags, d
 
   return (
     <form
-      className="mb-4 rounded-2xl border border-line bg-panel/80 p-4"
+      className="mb-4 rounded-xl border border-line bg-panel/80 p-4"
       autoComplete="off"
       onSubmit={(event) => {
         event.preventDefault();

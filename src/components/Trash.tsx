@@ -2,15 +2,13 @@ import { useMemo, useState } from "react";
 import type { Session } from "../lib/client";
 import { friendlyError } from "../lib/errors";
 import {
-  btnHeaderSecondary,
+  btnSecondarySm,
   focusRing,
-  paneCount,
-  paneHeader,
-  paneTitle,
   sidebarCount,
   sidebarMark,
   sidebarRowState,
   sidebarSubgroup,
+  sidebarRow,
 } from "../lib/styles";
 import {
   findTrashItem,
@@ -27,6 +25,8 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { EmptyState } from "./EmptyState";
 import { ErrorMessage } from "./ErrorMessage";
 import { Icon } from "./Icon";
+import { PaneHeader } from "./PaneControls";
+import type { Sidebar } from "./SidebarDrawer";
 
 const KIND_LABEL: Record<TrashKind, string> = {
   contact: "Contact",
@@ -64,7 +64,7 @@ export function TrashRow({
         onClick={onToggle}
         aria-current={active ? "true" : undefined}
         title={active ? "Leave the trash" : "Show deleted items"}
-        className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${sidebarRowState(active)}`}
+        className={`${sidebarRow} ${focusRing} ${sidebarRowState(active)}`}
       >
         <span className={sidebarMark}>
           <Icon name="trash" className="h-4 w-4" />
@@ -99,11 +99,14 @@ export function TrashPanel({
   trash,
   tab,
   liveContacts = [],
+  sidebar,
   onChanged,
 }: {
   session: Session;
   trash: TrashListing;
   tab: TrashTab;
+  /** Lets the header bring the sidebar back, as every other pane's does. */
+  sidebar?: Sidebar;
   /** Contacts a purged contact is unlinked from. Only the contacts tab passes them. */
   liveContacts?: Contact[];
   onChanged: () => Promise<void> | void;
@@ -136,20 +139,16 @@ export function TrashPanel({
 
   return (
     <section className="order-1 flex min-w-0 flex-col overflow-hidden lg:order-none lg:min-h-0" aria-label="Trash">
-      <header className={paneHeader}>
-        <div className="flex min-w-0 items-center gap-2">
-          <h1 className={paneTitle}>Trash</h1>
-          <span className={paneCount}>{roots.length}</span>
-        </div>
+      <PaneHeader title="Trash" count={roots.length} sidebar={sidebar}>
         <button
           type="button"
-          className={btnHeaderSecondary}
+          className={btnSecondarySm}
           disabled={busy || roots.length === 0}
           onClick={() => setPending({ kind: "all" })}
         >
           Empty trash
         </button>
-      </header>
+      </PaneHeader>
       {error && !pending ? <ErrorMessage className="mx-4 mt-3 sm:mx-6">{error}</ErrorMessage> : null}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {roots.length === 0 ? (
@@ -178,7 +177,7 @@ export function TrashPanel({
                   <div className="flex shrink-0 gap-2">
                     <button
                       type="button"
-                      className={btnHeaderSecondary}
+                      className={btnSecondarySm}
                       disabled={busy || !entry}
                       onClick={() => void run(() => restoreItem(session, trash, root.id))}
                     >
@@ -186,7 +185,7 @@ export function TrashPanel({
                     </button>
                     <button
                       type="button"
-                      className={`${btnHeaderSecondary} hover:border-danger/40 hover:text-danger`}
+                      className={`${btnSecondarySm} hover:border-danger/40 hover:text-danger`}
                       disabled={busy}
                       onClick={() => setPending({ kind: "one", root, title })}
                     >
@@ -202,6 +201,7 @@ export function TrashPanel({
       {pending ? (
         <ConfirmDialog
           title={pending.kind === "all" ? "Empty trash" : "Delete forever"}
+          tone="danger"
           heading={pending.kind === "all" ? "Empty the trash?" : `Delete "${pending.title}" forever?`}
           body={
             pending.kind === "all"

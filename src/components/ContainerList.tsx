@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { focusRing, sidebarMark, sidebarNameInput, sidebarRowAction, sidebarRowState } from "../lib/styles";
-import { CollectionIcon } from "./AppIcons";
+import { focusRing, sidebarMark, sidebarNameInput, sidebarRowAction, sidebarRowState, sidebarRow } from "../lib/styles";
 import { ColourPalette, type PaletteState } from "./ColourPalette";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
+import { Icon } from "./Icon";
 
 /** Anything with a name that groups other objects: an address book, a notebook. */
 export type Container = { id: string; name: string };
@@ -66,7 +66,7 @@ export function VisibilityBox({ shown, tone }: { shown: boolean; tone?: string }
   return (
     <span
       aria-hidden="true"
-      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border-2 transition-colors duration-150 ${shown ? "border-accent bg-accent" : "border-line-light"}`}
+      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-md border-2 transition-colors duration-150 ${shown ? "border-accent bg-accent" : "border-line-light"}`}
       style={tone ? (shown ? { borderColor: tone, backgroundColor: tone } : { borderColor: tone }) : undefined}
     >
       {shown ? (
@@ -75,32 +75,6 @@ export function VisibilityBox({ shown, tone }: { shown: boolean; tone?: string }
         </svg>
       ) : null}
     </span>
-  );
-}
-
-function PencilIcon() {
-  return (
-    <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="m10.75 2.75 2.5 2.5M3 13l1.5-3.75 6.25-6.25a1.77 1.77 0 0 1 2.5 2.5L7 11.75 3 13Z" />
-    </svg>
-  );
-}
-
-function ArchiveBoxIcon() {
-  return (
-    <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2 3.5h12v3H2z" />
-      <path d="M3.5 6.5v6h9v-6" />
-      <path d="M6.5 9h3" />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2.75 4.25h10.5M6.25 4.25V3a.75.75 0 0 1 .75-.75h2a.75.75 0 0 1 .75.75v1.25M4.25 4.25 4.75 13a.75.75 0 0 0 .75.7h5a.75.75 0 0 0 .75-.7l.5-8.75" />
-    </svg>
   );
 }
 
@@ -245,9 +219,9 @@ export function ContainerList<T extends Container>({
           type="button"
           onClick={() => onSelect(allId)}
           aria-current={selectedId === allId ? "true" : undefined}
-          className={`-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${sidebarRowState(selectedId === allId)}`}
+          className={`${sidebarRow} ${focusRing} ${sidebarRowState(selectedId === allId)}`}
         >
-          <span className={sidebarMark}><CollectionIcon kind="book" /></span>
+          <span className={sidebarMark}><Icon name="book" /></span>
           <span className="min-w-0 flex-1 truncate font-medium">{allLabel}</span>
         </button>
       ) : null}
@@ -280,7 +254,7 @@ export function ContainerList<T extends Container>({
         return (
           <div key={book.id}>
           <div
-            className={`${rowBase} ${selected && !toggling ? "bg-surface" : "hover:bg-surface/40"}`}
+            className={`${rowBase} ${selected && !toggling ? "bg-accent-soft" : "hover:bg-hover"}`}
             onContextMenu={(event) => {
               const box = event.currentTarget.getBoundingClientRect();
               menuAt.current =
@@ -296,10 +270,10 @@ export function ContainerList<T extends Container>({
               aria-pressed={toggling ? shown : undefined}
               aria-current={!toggling && selected ? "true" : undefined}
               title={toggling ? `${shown ? "Hide" : "Show"} ${book.name}` : undefined}
-              className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${focusRing} ${(toggling ? shown : selected) ? "text-text" : "text-mute"}`}
+              className={`flex min-w-0 flex-1 items-center gap-2.5 h-8 rounded-lg px-2 text-left text-sm font-medium transition-colors ${focusRing} ${(toggling ? shown : selected) ? "text-text" : "text-mute hover:text-text"}`}
             >
               <span className={sidebarMark}>
-                {toggling ? <VisibilityBox shown={shown} tone={tone?.(book)} /> : renderIcon ? renderIcon(book) : <CollectionIcon kind="book" />}
+                {toggling ? <VisibilityBox shown={shown} tone={tone?.(book)} /> : renderIcon ? renderIcon(book) : <Icon name="book" />}
               </span>
               <span className="min-w-0 flex-1 truncate font-medium">{book.name}</span>
             </button>
@@ -307,7 +281,7 @@ export function ContainerList<T extends Container>({
             {readOnly && !renderMeta ? null : (
               <span className={`relative flex h-7 shrink-0 items-center justify-end ${readOnly ? "w-4" : "list-row-slot"}`}>
                 {renderMeta ? (
-                  <span className="list-row-rest absolute inset-0 flex items-center justify-end pr-1 text-[10px] tabular-nums text-mute/70">
+                  <span className="list-row-rest absolute inset-0 flex items-center justify-end pr-1 text-2xs tabular-nums text-mute/70">
                     {renderMeta(book)}
                   </span>
                 ) : null}
@@ -320,7 +294,7 @@ export function ContainerList<T extends Container>({
                     aria-label={`Rename ${book.name}`}
                     className={`${sidebarRowAction} hover:text-text`}
                   >
-                    <PencilIcon />
+                    <Icon name="pencil" />
                   </button>
                   {book.id === protectedId || !onArchive ? null : (
                     <button
@@ -330,7 +304,7 @@ export function ContainerList<T extends Container>({
                       aria-label={`Archive ${book.name}`}
                       className={`${sidebarRowAction} hover:text-text`}
                     >
-                      <ArchiveBoxIcon />
+                      <Icon name="archive" />
                     </button>
                   )}
                   {book.id === protectedId ? null : (
@@ -341,7 +315,7 @@ export function ContainerList<T extends Container>({
                       aria-label={`Delete ${book.name}`}
                       className={`${sidebarRowAction} hover:text-danger`}
                     >
-                      <TrashIcon />
+                      <Icon name="trash" />
                     </button>
                   )}
                 </span>
@@ -374,7 +348,7 @@ export function ContainerList<T extends Container>({
         <button
           type="button"
           onClick={onShowAll}
-          className={`-ml-2 mt-2.5 rounded-md px-2 py-1 text-[11px] text-mute transition-colors hover:text-accent ${focusRing}`}
+          className={`-ml-2 mt-2.5 rounded-md px-2 py-1 text-2xs text-mute transition-colors hover:text-accent ${focusRing}`}
         >
           Show all {kindLabel}s
         </button>

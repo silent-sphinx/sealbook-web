@@ -1,5 +1,4 @@
 import { useDeferredValue, useId, useMemo, useState, type ReactNode } from "react";
-import { BookmarksIcon, CalendarIcon, ContactsIcon, NotesIcon, TasksIcon } from "./AppIcons";
 import { EmptyState } from "./EmptyState";
 import { Icon } from "./Icon";
 import { Modal } from "./Modal";
@@ -19,11 +18,11 @@ const KIND_LABEL: Record<SearchKind, string> = {
 };
 
 const KIND_ICON: Record<SearchKind, ReactNode> = {
-  contact: <ContactsIcon />,
-  event: <CalendarIcon />,
-  note: <NotesIcon />,
-  bookmark: <BookmarksIcon />,
-  task: <TasksIcon />,
+  contact: <Icon name="user" />,
+  event: <Icon name="calendar" />,
+  note: <Icon name="page" />,
+  bookmark: <Icon name="bookmark" />,
+  task: <Icon name="tasks" />,
 };
 
 type Props = {
@@ -152,7 +151,7 @@ export function SearchPalette({ index, eventLabel, onPick, onClose }: Props) {
                         ) : null}
                       </span>
                       {detail || hit.context ? (
-                        <span className="shrink-0 pt-0.5 text-right text-[11px] text-mute">
+                        <span className="shrink-0 pt-0.5 text-right text-2xs text-mute">
                           {detail ?? hit.context}
                         </span>
                       ) : null}

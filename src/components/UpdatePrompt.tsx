@@ -1,6 +1,7 @@
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { btnPrimary, btnSecondary } from "../lib/styles";
 import { describeError, log } from "../lib/log";
+import { Toast } from "./Toast";
 
 /**
  * How often a tab that is already open asks whether a new build has landed.
@@ -37,26 +38,24 @@ export function UpdatePrompt() {
   if (!needRefresh) return null;
 
   return (
-    <div
-      role="status"
-      className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] left-1/2 z-50 w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2 animate-slide-up glow-edge rounded-2xl border border-line bg-panel px-4 py-3.5 shadow-2xl shadow-black/50"
+    <Toast
+      title="A new version of Sealbook is ready."
+      actions={
+        <>
+          <button type="button" className={btnSecondary} onClick={() => setNeedRefresh(false)}>
+            Later
+          </button>
+          <button
+            type="button"
+            className={btnPrimary}
+            onClick={() => void updateServiceWorker(true)}
+          >
+            Reload
+          </button>
+        </>
+      }
     >
-      <p className="text-sm font-medium text-text">A new version of Sealbook is ready.</p>
-      <p className="mt-1 text-xs text-mute">
-        Reload when it suits you. This tab keeps working on the version it started with.
-      </p>
-      <div className="mt-3 flex justify-end gap-2">
-        <button type="button" className={btnSecondary} onClick={() => setNeedRefresh(false)}>
-          Later
-        </button>
-        <button
-          type="button"
-          className={btnPrimary}
-          onClick={() => void updateServiceWorker(true)}
-        >
-          Reload
-        </button>
-      </div>
-    </div>
+      Reload when it suits you. This tab keeps working on the version it started with.
+    </Toast>
   );
 }

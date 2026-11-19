@@ -15,7 +15,7 @@ import {
 } from "../lib/contact";
 import { DEFAULT_ADDRESS_BOOK_ID } from "../lib/addressBook";
 import { emptyProfile, profileOf } from "../lib/contactProfile";
-import { field, fieldBase, primary, secondary, selectField } from "../lib/styles";
+import { btnPrimary, btnSecondary, field, fieldBase, selectField } from "../lib/styles";
 import type {
   AddressBook,
   Contact,
@@ -352,16 +352,16 @@ export function ContactForm({
       {!hideFooter ? (
         <div className="shrink-0 border-t border-line bg-panel">
           {error ? <ErrorMessage className="mx-5 mt-3">{error}</ErrorMessage> : null}
-          <div className="flex gap-3 px-5 py-4">
+          <div className="flex items-center justify-end gap-2 px-5 py-3">
             <button
               type="button"
-              className={`${secondary} flex-1 cursor-pointer`}
+              className={btnSecondary}
               onClick={onCancel}
               disabled={busy}
             >
               Cancel
             </button>
-            <button type="submit" disabled={busy} className={`${primary} flex-1 cursor-pointer`}>
+            <button type="submit" disabled={busy} className={btnPrimary}>
               {busy ? "Please wait…" : (submitLabel ?? (initialDraft ? "Save" : "Add"))}
             </button>
           </div>

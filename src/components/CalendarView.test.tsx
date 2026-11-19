@@ -98,7 +98,7 @@ describe("the sidebar title", () => {
     const search = () => screen.getByPlaceholderText("Search events") as HTMLInputElement;
     const thisMonth = heading();
 
-    fireEvent.click(screen.getByRole("button", { name: "year" }));
+    fireEvent.click(screen.getByRole("radio", { name: "year" }));
     fireEvent.click(screen.getByRole("button", { name: "Next year" }));
     expect(heading()).not.toBe(thisMonth);
     fireEvent.change(search(), { target: { value: "zebra" } });
@@ -108,7 +108,7 @@ describe("the sidebar title", () => {
     fireEvent.click(screen.getByRole("button", { name: "Calendar" }));
 
     expect(screen.queryByRole("region", { name: "Trash" })).toBeNull();
-    expect(screen.getByRole("button", { name: "month" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("radio", { name: "month" }).getAttribute("aria-checked")).toBe("true");
     expect(heading()).toBe(thisMonth);
     expect(search().value).toBe("");
   });

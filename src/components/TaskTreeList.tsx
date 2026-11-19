@@ -3,8 +3,9 @@ import type { CSSProperties, DragEventHandler } from "react";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 import { dueLabel, isOverdue, priorityLabel } from "../lib/task";
 import type { ChildCount, TaskTreeNode } from "../lib/taskTree";
-import { focusRing, tonePill } from "../lib/styles";
+import { focusRing, iconBtn, iconBtnDanger, listRowState, tonePill } from "../lib/styles";
 import type { Task } from "../lib/types";
+import { SelectTick } from "./FieldControls";
 import { Icon } from "./Icon";
 
 const DRAG_TYPE = "application/x-sealbook-task";
@@ -130,14 +131,8 @@ export function TaskRow(props: RowProps) {
       {...dragProps}
       data-task-id={task.id}
       onContextMenu={(event) => menu.open(event, itemsFor(task, actions))}
-      style={{ paddingLeft: `calc(0.5rem + ${depth * 1.5}rem)` }}
-      className={`list-row relative flex items-start gap-2 border-b border-l-2 border-line/60 py-2.5 pr-3 transition-colors duration-150 ${
-        picked
-          ? "border-l-transparent bg-accent/10"
-          : current
-            ? "border-l-accent bg-surface/70"
-            : "border-l-transparent hover:bg-surface/40"
-      } ${className}`}
+      style={{ paddingLeft: `calc(var(--sb-gutter) + ${depth * 1.25}rem)` }}
+      className={`list-row relative flex items-start gap-2 border-b border-l-2 border-b-line/60 py-2 pr-(--sb-gutter) transition-colors duration-150 ${listRowState({ current, checked: picked })} ${className}`}
     >
       {dropLine ? (
         <span
@@ -150,18 +145,12 @@ export function TaskRow(props: RowProps) {
       ) : null}
       {lead ?? <span aria-hidden="true" className="h-5 w-5 shrink-0" />}
       {picking ? (
-        <button
-          type="button"
-          role="checkbox"
-          aria-checked={picked}
-          aria-label={`Select ${task.title}`}
-          onClick={(event) => selection.onToggle(task, event.shiftKey)}
-          className={`hit-area relative mr-2 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-accent ${
-            picked ? "bg-accent text-bg" : "text-transparent"
-          } ${focusRing}`}
-        >
-          <Icon name="check" className="h-2.5 w-2.5" />
-        </button>
+        <SelectTick
+          checked={picked}
+          label={task.title}
+          onToggle={(event) => selection.onToggle(task, event.shiftKey)}
+          className="hit-area relative mr-2"
+        />
       ) : (
         <label className="hit-area relative flex h-5 shrink-0 cursor-pointer items-center">
           <input
@@ -182,12 +171,12 @@ export function TaskRow(props: RowProps) {
           else if (event.ctrlKey || event.metaKey) selection.onBegin(task);
           else onSelect(task);
         }}
-        className={`ml-1 flex min-w-0 flex-1 items-start gap-3 rounded-sm text-left ${focusRing}`}
+        className={`ml-1 flex min-w-0 flex-1 items-start gap-3 rounded-md text-left ${focusRing}`}
       >
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span
             className={`min-w-0 truncate text-sm font-medium leading-5 ${
-              task.done ? "text-mute line-through" : current ? "text-accent" : "text-text"
+              task.done ? "text-mute line-through" : "text-text"
             }`}
           >
             {task.title}
@@ -205,7 +194,7 @@ export function TaskRow(props: RowProps) {
         </span>
         {list ? (
           <span
-            className="max-w-[10rem] shrink-0 truncate rounded-full border px-2 text-[11px] font-medium leading-[18px]"
+            className="max-w-[10rem] shrink-0 truncate rounded-md border px-1.5 text-2xs font-medium leading-[18px]"
             style={tonePill(list.tone)}
           >
             {list.name}
@@ -220,7 +209,7 @@ export function TaskRow(props: RowProps) {
               onClick={() => selection.onBegin(task)}
               title="Select"
               aria-label={`Select ${task.title}`}
-              className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
+              className={iconBtn}
             >
               <Icon name="check" />
             </button>
@@ -230,7 +219,7 @@ export function TaskRow(props: RowProps) {
             onClick={() => onAddChild(task.id)}
             title="Add subtask"
             aria-label={`Add subtask to ${task.title}`}
-            className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`}
+            className={iconBtn}
           >
             <Icon name="plus" />
           </button>
@@ -239,7 +228,7 @@ export function TaskRow(props: RowProps) {
             onClick={() => onDelete(task)}
             title="Delete task"
             aria-label={`Delete ${task.title}`}
-            className={`flex h-7 w-7 items-center justify-center rounded-lg text-mute transition-colors hover:bg-surface hover:text-danger ${focusRing}`}
+            className={iconBtnDanger}
           >
             <Icon name="trash" />
           </button>
@@ -277,7 +266,7 @@ function nested({ nodes, expanded, onToggle, renderRow, parentId = null }: NestP
         onClick={() => onToggle(task.id)}
         aria-label={open ? `Collapse ${task.title}` : `Expand ${task.title}`}
         aria-expanded={open}
-        className={`hit-area relative flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-mute transition-colors hover:text-text ${focusRing}`}
+        className={`hit-area relative flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-mute transition-colors hover:text-text ${focusRing}`}
       >
         <Icon name="chevron" className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} />
       </button>

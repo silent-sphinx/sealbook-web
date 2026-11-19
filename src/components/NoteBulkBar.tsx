@@ -1,4 +1,5 @@
-import { btnHeader, checkbox } from "../lib/styles";
+import { btnDangerGhostSm } from "../lib/styles";
+import { BulkBar, BulkMove } from "./PaneControls";
 import type { ItemSelection } from "../lib/useItemSelection";
 import type { Note, Notebook } from "../lib/types";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
@@ -52,51 +53,28 @@ type Props = {
   total: number;
   notebooks: Notebook[];
   onToggleAll: () => void;
+  onClear: () => void;
   onMove: (notebookId: string) => void;
   onDelete: () => void;
 };
 
 /** The strip under a notes pane's header while notes are selected. */
-export function NoteBulkBar({ selected, total, notebooks, onToggleAll, onMove, onDelete }: Props) {
+export function NoteBulkBar({ selected, total, notebooks, onToggleAll, onClear, onMove, onDelete }: Props) {
   return (
-    <div
-      role="toolbar"
-      aria-label="Bulk edit notes"
-      className="flex shrink-0 flex-wrap items-center gap-3 border-b border-line bg-panel/60 px-4 py-2 lg:px-6"
+    <BulkBar
+      label="Bulk edit notes"
+      noun="notes"
+      selected={selected}
+      total={total}
+      onToggleAll={onToggleAll}
+      onClear={onClear}
     >
-      <input
-        type="checkbox"
-        ref={(node) => {
-          if (node) node.indeterminate = selected > 0 && selected < total;
-        }}
-        checked={total > 0 && selected === total}
-        onChange={onToggleAll}
-        aria-label="Select all notes"
-        className={checkbox}
-      />
-      <span className="min-w-0 flex-1 text-xs text-mute" aria-live="polite">
-        {selected} selected
-      </span>
-      <select
-        aria-label="Move selected notes to"
-        value=""
-        onChange={(event) => {
-          if (event.target.value) onMove(event.target.value);
-        }}
-        className="box-border h-8 shrink-0 cursor-pointer rounded-lg border border-line bg-surface py-0 pl-3 pr-8 text-xs font-medium leading-none text-mute outline-none focus:border-accent-dim"
-      >
-        <option value="">Move to…</option>
-        {notebooks.map((notebook) => (
-          <option key={notebook.id} value={notebook.id}>
-            {notebook.name}
-          </option>
-        ))}
-      </select>
-      <button type="button" onClick={onDelete} className={`${btnHeader} box-border hover:text-danger`}>
-        <Icon name="trash" className="h-3.5 w-3.5" />
+      <BulkMove label="Move selected notes to" options={notebooks} onMove={onMove} />
+      <button type="button" onClick={onDelete} className={btnDangerGhostSm}>
+        <Icon name="trash" className="size-3.5" />
         Delete
       </button>
-    </div>
+    </BulkBar>
   );
 }
 

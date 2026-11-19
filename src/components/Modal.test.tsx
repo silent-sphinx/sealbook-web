@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import "../test/dom";
-import { Modal } from "./Modal";
+import { Modal, ModalBody, ModalFooter } from "./Modal";
 
 const noop = () => {};
 
@@ -190,5 +190,70 @@ describe("Modal", () => {
     expect(document.activeElement).toBe(screen.getByRole("dialog"));
     fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
     expect(document.activeElement).toBe(screen.getByLabelText("only"));
+  });
+});
+
+describe("a dialog that is not dismissible", () => {
+  it("has no Close button", () => {
+    render(
+      <Modal title="Importing" dismissible={false} onClose={noop}>
+        working
+      </Modal>,
+    );
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+  });
+
+  it("ignores Escape and a click on the backdrop", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal title="Importing" dismissible={false} onClose={onClose}>
+        working
+      </Modal>,
+    );
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    const backdrop = screen.getByRole("dialog").parentElement as HTMLElement;
+    fireEvent.click(backdrop);
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).not.toBeNull();
+  });
+});
+
+describe("ModalBody and ModalFooter", () => {
+  it("keep a submit button inside the form that wraps them", () => {
+    const onSubmit = vi.fn((event: React.FormEvent) => event.preventDefault());
+    render(
+      <Modal title="Rename" onClose={noop}>
+        <form onSubmit={onSubmit}>
+          <ModalBody>
+            <input aria-label="Name" />
+          </ModalBody>
+          <ModalFooter>
+            <button type="submit">Save</button>
+          </ModalFooter>
+        </form>
+      </Modal>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("still lets the header Close button come first in the tab order", () => {
+    render(
+      <Modal title="Rename" onClose={noop}>
+        <ModalBody>
+          <input aria-label="Name" />
+        </ModalBody>
+        <ModalFooter>
+          <button type="button">Save</button>
+        </ModalFooter>
+      </Modal>,
+    );
+
+    const focusable = screen.getByRole("dialog").querySelectorAll("button, input");
+    expect((focusable[0] as HTMLElement).getAttribute("aria-label")).toBe("Close");
   });
 });

@@ -1,9 +1,8 @@
 import { type FormEvent } from "react";
 import { AuthCard, Brand } from "./AuthLayout";
-import { CopyIcon, UploadIcon } from "./AppIcons";
 import { PasswordField } from "./PasswordField";
 import { Icon } from "./Icon";
-import { authField, authLabel, authPrimary, chipButton, ghost } from "../lib/styles";
+import { authField, authLabel, authPrimary, btnSecondarySm, ghost } from "../lib/styles";
 import { extractRecoveryWords } from "../lib/phrase";
 import { findInvalidBip39Words } from "../lib/bip39Words";
 import { ErrorMessage } from "./ErrorMessage";
@@ -182,13 +181,13 @@ export function RecoverScreen({
                 <button
                   type="button"
                   onClick={handlePastePhrase}
-                  className={chipButton}
+                  className={btnSecondarySm}
                 >
-                  <CopyIcon />
+                  <Icon name="copy" />
                   <span>Paste</span>
                 </button>
-                <label className={`${chipButton} focus-within:ring-2 focus-within:ring-accent-ring focus-within:ring-offset-2 focus-within:ring-offset-bg`}>
-                  <UploadIcon />
+                <label className={`${btnSecondarySm} focus-within:ring-2 focus-within:ring-accent-ring focus-within:ring-offset-2 focus-within:ring-offset-bg`}>
+                  <Icon name="upload" />
                   <span>Upload file</span>
                   <input
                     type="file"

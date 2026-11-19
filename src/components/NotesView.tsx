@@ -33,8 +33,9 @@ import {
 import { ancestorsOf, buildNoteTree, canReparent, noteSubtree } from "../lib/noteTree";
 import {
   focusRing,
-  sidebarHeaderAction,
   sidebarSectionAction,
+  viewMain,
+  viewGrid,
 } from "../lib/styles";
 import type { Note, NoteDraft, Notebook } from "../lib/types";
 import type { OutboxState } from "../lib/outbox";
@@ -48,8 +49,9 @@ import { NoteTreeList } from "./NoteTreeList";
 import { NotebookPages } from "./NotebookPages";
 import { NotesOverview } from "./NotesOverview";
 import { ContextMenu, useContextMenu } from "./ContextMenu";
-import { SidebarDrawer, SidebarHeader, SidebarSection, type Sidebar } from "./SidebarDrawer";
+import { SidebarDrawer, SidebarHeader, SidebarSection, SidebarToggle, type Sidebar } from "./SidebarDrawer";
 import { Icon } from "./Icon";
+import { Banner } from "./Banner";
 
 /**
  * The editor carries the whole ProseMirror stack and the highlighting grammars,
@@ -769,30 +771,17 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
   const editorAction = `flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`;
 
   return (
-    <main className="flex h-[calc(100dvh-var(--sb-header-h,74px))] flex-col overflow-hidden text-text">
+    <main className={viewMain}>
       <ContextMenu state={menu.menu} onClose={menu.close} />
       {error ? (
-        <p role="alert" className="shrink-0 border-b border-danger/30 bg-danger/10 px-4 py-2 text-xs text-danger lg:px-6">
-          {error}
-        </p>
+        <Banner tone="danger" role="alert">{error}</Banner>
       ) : null}
 
-      <div className="sb-shell grid min-h-0 flex-1" style={sidebar.cols}>
+      <div className={viewGrid} style={sidebar.cols}>
         <SidebarDrawer title="Notes" sidebar={sidebar}>
           <SidebarHeader
             title="Notes"
             onTitleClick={() => void goHome()}
-            action={
-              <button
-                type="button"
-                onClick={() => newNote()}
-                aria-label="Create note"
-                title="Create note"
-                className={sidebarHeaderAction}
-              >
-                <Icon name="plus" className="h-4 w-4" />
-              </button>
-            }
           />
 
           <SidebarSection
@@ -852,12 +841,17 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
         </SidebarDrawer>
 
         {viewingTrash ? (
-          <TrashPanel session={session} trash={trash} tab="notes" onChanged={onRefresh} />
+          <TrashPanel session={session} trash={trash} tab="notes" sidebar={sidebar} onChanged={onRefresh} />
         ) : (
         <section className="flex min-w-0 flex-col overflow-hidden">
           {draft ? (
             <>
-              <header className="flex h-11 shrink-0 items-center gap-1.5 border-b border-line px-2.5">
+              <header className="flex h-(--sb-bar-h) shrink-0 items-center gap-1.5 border-b border-line px-(--sb-gutter)">
+                {/* On a phone the back button is the way out; the sidebar is a
+                    step further back, behind the notes list. */}
+                <span className="hidden lg:contents">
+                  <SidebarToggle sidebar={sidebar} />
+                </span>
                 <button
                   type="button"
                   onClick={() => void closeEditor()}
@@ -872,7 +866,7 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
                       <button
                         type="button"
                         onClick={() => openNote(crumb)}
-                        className={`max-w-[8rem] truncate rounded hover:text-text ${focusRing}`}
+                        className={`max-w-[8rem] truncate rounded-md hover:text-text ${focusRing}`}
                       >
                         {crumb.title}
                       </button>
@@ -888,7 +882,7 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
                   onChange={(event) => void moveToNotebook(event.target.value)}
                   aria-label="Notebook"
                   disabled={notebooks.length === 0}
-                  className={`h-7 max-w-[9rem] shrink-0 cursor-pointer rounded-md border-0 bg-transparent py-0 pl-2 pr-6 text-[11px] text-mute transition-colors hover:bg-surface hover:text-text disabled:opacity-40 ${focusRing}`}
+                  className={`h-7 max-w-[9rem] shrink-0 cursor-pointer rounded-md border-0 bg-transparent py-0 pl-2 pr-6 text-2xs text-mute transition-colors hover:bg-surface hover:text-text disabled:opacity-40 ${focusRing}`}
                 >
                   {notebooks.map((notebook) => (
                     <option key={notebook.id} value={notebook.id}>
@@ -929,7 +923,7 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
                       {[92, 84, 96, 61].map((width) => (
                         <span
                           key={width}
-                          className="block h-3 animate-pulse rounded bg-surface"
+                          className="block h-3 animate-pulse rounded-md bg-surface"
                           style={{ width: `${width}%` }}
                         />
                       ))}
@@ -952,13 +946,13 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
                       onChange={(event) => edit({ title: event.target.value })}
                       placeholder="Untitled note"
                       aria-label="Note title"
-                      className={`w-full border-0 bg-transparent p-0 text-[1.75rem] font-semibold leading-tight tracking-tight text-text outline-none placeholder:text-mute/50 ${focusRing} focus-visible:ring-offset-4`}
+                      className={`w-full border-0 bg-transparent p-0 text-display font-semibold leading-tight tracking-tight text-text outline-none placeholder:text-mute/50 ${focusRing} focus-visible:ring-offset-4`}
                     />
                   }
                 />
               </Suspense>
 
-              <footer className="flex shrink-0 items-center gap-3 border-t border-line px-4 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] text-[11px] text-mute">
+              <footer className="flex shrink-0 items-center gap-3 border-t border-line px-4 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] text-2xs text-mute">
                 <span className="tabular-nums" title={longStamp(draft.updatedAt ?? draft.createdAt)}>
                   {stamp(draft.updatedAt ?? draft.createdAt, true) ?? "Not saved yet"}
                 </span>
@@ -975,8 +969,8 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
                       saveLabel.startsWith("Not saved")
                         ? "bg-danger"
                         : saveState === "clean"
-                          ? "bg-note-new"
-                          : "bg-note"
+                          ? "bg-line-light"
+                          : "bg-accent"
                     }`}
                   />
                   {saveLabel}
@@ -984,7 +978,7 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
                 <button
                   type="button"
                   onClick={() => void closeEditor()}
-                  className={`hidden h-6 shrink-0 rounded-md px-2 text-[11px] text-mute transition-colors hover:bg-surface hover:text-text lg:block ${focusRing}`}
+                  className={`hidden h-6 shrink-0 rounded-md px-2 text-2xs text-mute transition-colors hover:bg-surface hover:text-text lg:block ${focusRing}`}
                 >
                   Close
                 </button>
@@ -993,6 +987,7 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
           ) : (
             browsingNotebook ? (
               <NotebookPages
+                sidebar={sidebar}
                 notebook={browsingNotebook}
                 notes={notes}
                 notebooks={liveNotebooks}
@@ -1014,6 +1009,7 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
               />
             ) : (
               <NotesOverview
+                sidebar={sidebar}
                 notebooks={overviewNotebooks}
                 notes={overviewNotes}
                 onOpenNotebook={(id) => {
@@ -1044,6 +1040,7 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
       {confirmDelete ? (
         <ConfirmDialog
           title="Move to trash"
+          tone="danger"
           heading={`Move “${confirmDelete.title}” to the trash?`}
           body={
             deleteCount > 1
@@ -1081,6 +1078,7 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
       {bulkDeleting ? (
         <ConfirmDialog
           title="Move to trash"
+          tone="danger"
           heading={`Move ${bulkDeleting.length} note${bulkDeleting.length === 1 ? "" : "s"} to the trash?`}
           body={(() => {
             const inside = withSubtrees(bulkDeleting).length - bulkDeleting.length;
@@ -1097,6 +1095,7 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
       {deletingNotebook ? (
         <ConfirmDialog
           title="Move to trash"
+          tone="danger"
           heading={`Move “${deletingNotebook.name}” to the trash?`}
           body={
             notesInDeletingNotebook === 0

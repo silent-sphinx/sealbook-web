@@ -1,6 +1,6 @@
 import type { BookmarkCollection } from "../lib/types";
 import { ALL_FOLDERS, NO_FOLDERS } from "../lib/bookmarkExport";
-import { fieldBase, selectField, textAction } from "../lib/styles";
+import { fieldBase, selectField, linkAction } from "../lib/styles";
 import {
   coreBookmarkImportWithFolder as withFolder,
   type CoreBookmarkImportOptions,
@@ -67,7 +67,7 @@ export function BookmarkFolderEditor({ folders, options, onOptions, collections,
           {activePreset === undefined ? (
             <span className="flex items-center gap-2 px-1 text-xs text-mute">
               Custom
-              <button type="button" className={textAction} onClick={() => onOptions({ depth: options.depth, rules: [] })}>
+              <button type="button" className={linkAction} onClick={() => onOptions({ depth: options.depth, rules: [] })}>
                 Reset
               </button>
             </span>
@@ -91,7 +91,7 @@ export function BookmarkFolderEditor({ folders, options, onOptions, collections,
                 <span className="block truncate font-medium text-text" title={folder.path.join(" / ")}>
                   {name}
                 </span>
-                <span className="text-[11px] text-mute">
+                <span className="text-2xs text-mute">
                   {folder.total} bookmark{folder.total === 1 ? "" : "s"}
                 </span>
               </span>

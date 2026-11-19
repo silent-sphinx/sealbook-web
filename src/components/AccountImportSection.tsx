@@ -117,7 +117,7 @@ export function AccountImportSection({ session, onRefresh }: Props) {
             />
             <span>
               Replace items this vault already holds
-              <span className="mt-0.5 block text-[11px] text-mute">
+              <span className="mt-0.5 block text-2xs text-mute">
                 Off by default: an item already here is the current one, and the
                 file's copy may be older. Tick this to restore the file's version
                 over it.
