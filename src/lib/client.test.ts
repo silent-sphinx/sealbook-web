@@ -102,7 +102,6 @@ beforeAll(async () => {
 });
 
 const SERVER = "http://localhost:9999";
-const PASSWORD = "correct horse battery";
 
 type Account = {
   enrollment: Enrollment;
@@ -149,7 +148,7 @@ function genesisRoster(collectionId: string, enrollment: Enrollment): Roster {
 /** A registered account, as it stands after `registerAccount` and a login. */
 function account(): Account {
   const collectionId = newUuid();
-  const enrollment = createEnrollment(PASSWORD, collectionId);
+  const enrollment = createEnrollment(collectionId);
   const roster = genesisRoster(collectionId, enrollment);
   const pin = rosterVerify(
     collectionId,
@@ -167,7 +166,6 @@ function account(): Account {
     collection_id: collectionId,
     device_id: enrollment.device_id,
     session_token: "token",
-    kdf_salt: b64ToByteArray(enrollment.kdf_salt),
     hpke_sk: b64ToByteArray(enrollment.hpke_sk),
     mldsa_seed: b64ToByteArray(enrollment.mldsa_seed),
     ed25519_sk: b64ToByteArray(enrollment.ed25519_sk),
@@ -432,7 +430,7 @@ describe("pairing approval", () => {
         pair.status = "cancelled";
         return {};
       },
-      [`/v1/pair/${join.nameplate}`]: () => view(),
+      [`/v2/pair/${join.nameplate}`]: () => view(),
     });
     const joinerView = (extra: Record<string, string> = {}) =>
       JSON.stringify({
@@ -499,6 +497,8 @@ describe("pairing approval", () => {
     // joining device opens the very same pin from the approval.
     expect(approver.session.state.roster_seq).toBe(2);
     expect(join.finish(body.sealed_pin)).toEqual({
+      // The approver vouches for the manifest sequence it holds as well.
+      manifest_seq: approver.session.manifestSeq,
       roster_seq: 2,
       transcript: approver.session.state.roster_transcript,
     });
@@ -1647,12 +1647,12 @@ describe("a single-object write against a large vault", () => {
     expect(put.manifest.object_count).toBe(amended.length);
   });
 
-  it("takes the collection's next revision on a vault with no manifest yet", async () => {
+  it("refuses a write against a vault the server has no manifest for", async () => {
     const owner = account();
     const entries = held(600);
-    // A collection only a pre-manifest client has written. The bucket answer
-    // carries no revision for the entries it did not serve, so the next
-    // revision has to come from the whole set.
+    // A missing manifest is always a refusal. A device just paired, recovered or
+    // reinstalled has seen none, so accepting the absence would let a server
+    // serve any subset of the vault.
     owner.session.manifestSeq = 0;
     const { sent } = server({
       ...manifestRoutes(() => ({ manifest: null, entries })),
@@ -1660,15 +1660,14 @@ describe("a single-object write against a large vault", () => {
       "/objects": () => ({ revision: entries.length + 1 }),
     });
 
-    await putContact(owner.session, {
-      ...emptyDraft(),
-      name: "Ada",
-      addressBookId: DEFAULT_ADDRESS_BOOK_ID,
-    });
-
-    const put = sent["/objects"] as SealedObject & { manifest: ManifestBody };
-    expect(put.revision).toBe(entries.length + 1);
-    expect(put.manifest.object_count).toBe(entries.length + 1);
+    await expect(
+      putContact(owner.session, {
+        ...emptyDraft(),
+        name: "Ada",
+        addressBookId: DEFAULT_ADDRESS_BOOK_ID,
+      }),
+    ).rejects.toThrow(ManifestError);
+    expect(sent["/objects"]).toBeUndefined();
   });
 
   it("refuses a bucket whose entries do not hash to its served digest", async () => {
@@ -1892,7 +1891,8 @@ describe("refreshCollectionKey", () => {
     expect(await refreshCollectionKey(owner.session)).toBe(2);
     expect(owner.session.collectionKey).toBe(rotatedKey);
     expect(owner.session.state.roster_seq).toBe(2);
-    expect(owner.session.rosterLacksKeyCommitment).toBe(false);
+    // A rotation seals the migrated marker, so the account is on the current protocol.
+    expect(owner.session.rosterMigrated).toBe(true);
   });
 });
 
@@ -1914,7 +1914,6 @@ describe("a roster that predates key commitments", () => {
         collection_id: legacy.collection_id,
         device_id: legacy.device_id,
         session_token: "token",
-        kdf_salt: [],
         hpke_sk: [],
         mldsa_seed: [],
         ed25519_sk: [],
@@ -1932,12 +1931,20 @@ describe("a roster that predates key commitments", () => {
 
     await syncRoster(session);
 
-    expect(session.rosterLacksKeyCommitment).toBe(true);
+    expect(session.rosterMigrated).toBe(false);
   });
 });
 
 describe("rotateAuthenticated", () => {
-  async function rotate(options: { tombstoneFloor: number; revoke?: DevicePublic | null }) {
+  const confirmed = async (): Promise<void> => undefined;
+  // What the last `rotate` sent, which stays readable when the rotation threw.
+  let lastSent: Record<string, unknown> = {};
+
+  async function rotate(options: {
+    tombstoneFloor: number;
+    revoke?: DevicePublic | null;
+    confirm?: (phrase: string) => Promise<void>;
+  }) {
     const owner = account();
     // The object id is bound into the AEAD's associated data, so it has to be
     // the same id the rotation re-encrypts under.
@@ -2023,10 +2030,12 @@ describe("rotateAuthenticated", () => {
       "/roster": () => ({ rosters: [owner.roster] }),
       "/rotate": () => ({ key_epoch: 2, latest_revision: 5 }),
     });
-    const result = await rotateAuthenticated(owner.session, null, PASSWORD);
+    lastSent = sent;
+    const result = await rotateAuthenticated(owner.session, [], options.confirm ?? confirmed);
     return {
       owner,
       result,
+      sent,
       liveId,
       keptId: keptTombstone.id,
       oldId: oldTombstone.id,
@@ -2040,6 +2049,43 @@ describe("rotateAuthenticated", () => {
       },
     };
   }
+
+  /**
+   * The rotation replaces every phrase, so the new one has to be held by the user
+   * before the server commits to it. Shown after, it is lost if the tab closes.
+   */
+  it("asks for the phrase to be confirmed before anything is posted", async () => {
+    let postedWhenAsked: unknown = "not asked";
+    let asked = "";
+    const { result, sent } = await rotate({
+      tombstoneFloor: 3,
+      confirm: async (phrase) => {
+        asked = phrase;
+        postedWhenAsked = lastSent["/rotate"];
+      },
+    });
+    expect(postedWhenAsked).toBeUndefined();
+    expect(asked).toBe(result.phrase);
+    expect(sent["/rotate"]).toBeDefined();
+  });
+
+  it("posts nothing when the phrase is not confirmed", async () => {
+    await expect(
+      rotate({
+        tombstoneFloor: 3,
+        confirm: async () => {
+          throw new Error("abandoned");
+        },
+      }),
+    ).rejects.toThrow("abandoned");
+    expect(lastSent["/rotate"]).toBeUndefined();
+  });
+
+  it("counts the objects it moved to the current payload schema", async () => {
+    const { result } = await rotate({ tombstoneFloor: 3 });
+    // The fixture card declares no version, which is a 1.0 payload.
+    expect(result.upgraded).toBe(1);
+  });
 
   it("rotates a vault that takes more than one page to read", async () => {
     const owner = account();
@@ -2107,7 +2153,7 @@ describe("rotateAuthenticated", () => {
       "/rotate": () => ({ key_epoch: 2, latest_revision: 8 }),
     });
 
-    await rotateAuthenticated(owner.session, null, PASSWORD);
+    await rotateAuthenticated(owner.session, [], confirmed);
 
     const body = sent["/rotate"] as {
       objects: { id: string; revision: number }[];
@@ -2167,10 +2213,10 @@ describe("rotateAuthenticated", () => {
     expect(result.phrase.split(/\s+/u)).toHaveLength(24);
   });
 
-  it("re-wraps the key for every device on the roster, plus the password and phrase", async () => {
+  it("re-wraps the key for every device on the roster, plus the phrase", async () => {
     const { body, owner } = await rotate({ tombstoneFloor: 3 });
     const kinds = body.key_wraps.map((wrap) => wrap.recipient_kind).sort();
-    expect(kinds).toEqual(["device", "phrase", "recovery"]);
+    expect(kinds).toEqual(["device", "phrase"]);
     expect(
       body.key_wraps.find((wrap) => wrap.recipient_kind === "device")?.recipient_id,
     ).toBe(owner.enrollment.device_id);
@@ -2335,7 +2381,7 @@ describe("every request", () => {
 
   it("is bounded by an abort signal, so a server that answers nothing cannot hang the caller", async () => {
     const owner = account();
-    const { fetchMock } = server({ "/v1/pair/abandon-ability-able": () => ({}) });
+    const { fetchMock } = server({ "/v2/pair/abandon-ability-able": () => ({}) });
 
     // The answer is beside the point here; what was sent is the subject.
     await expect(pairRespond(owner.session, CODE)).rejects.toThrow();
@@ -2395,8 +2441,8 @@ function attachmentServer() {
         headers: { "content-type": "application/json" },
       });
 
-    // POST /v1/attachments/challenge  (nonce a create, commit or delete is signed over)
-    if (method === "POST" && url.pathname === "/v1/attachments/challenge") {
+    // POST /v2/attachments/challenge  (nonce a create, commit or delete is signed over)
+    if (method === "POST" && url.pathname === "/v2/attachments/challenge") {
       return json({
         challenge_id: "44444444-4444-4444-8444-444444444444",
         challenge: b64encode(new Uint8Array(32).fill(5)),

@@ -1,11 +1,9 @@
 import { b64encode, b64ToByteArray, bytesFromJson } from "./bytes";
 import {
   coreAcceptManifestSeq,
-  coreManifestAbsenceOk,
   coreManifestAccept,
   coreManifestApply,
   coreManifestBucketsAccept,
-  coreManifestBucketsFromWhole,
   coreManifestBucketsRequest,
   coreManifestRequest,
   coreManifestSigner,
@@ -78,18 +76,15 @@ export type Session = {
    */
   roster?: Roster;
   /**
-   * True when a recovery enrolled this device and the collection key has still
-   * not been rotated, so the phrase used then, and any other copy of it, can
-   * still open this vault. The server refuses writes until that rotation
-   * happens; `completeRecoveryRotation` is what finishes it.
+   * The one rotation this account owes before it can be written to. `recovery`
+   * is a recovery that enrolled this device without changing the key, so the
+   * phrase used then, and any other copy of it, still opens the vault. `upgrade`
+   * is an account that has not moved to the current protocol. The server
+   * refuses writes until the rotation happens; the migration screen finishes it.
    */
-  recoveryPending?: boolean;
-  /**
-   * True when the roster this device last pinned predates key commitments, so
-   * the collection key was checked by the roster's MAC alone. Generating a new
-   * recovery phrase rotates onto a roster that commits to the key.
-   */
-  rosterLacksKeyCommitment?: boolean;
+  rotationOwed?: "recovery" | "upgrade";
+  /** Whether the roster this session last verified is the migrated marker. */
+  rosterMigrated?: boolean;
   offline?: boolean;
 };
 
@@ -201,29 +196,18 @@ export async function manifestState(session: Session): Promise<{
   const devices = await devicesFor(session, signerOf(body));
   try {
     const outcome = coreManifestAccept(context, body, devices);
-    if ("Signed" in outcome) {
-      const { plan, entries } = outcome.Signed;
-      log.debug("vault manifest verified", {
-        seq: plan.manifest_seq,
-        objects: entries.length,
-        key_epoch: plan.key_epoch,
-      });
-      rememberManifestSeq(session, plan.manifest_seq);
-      return {
-        seq: plan.manifest_seq,
-        keyEpoch: plan.key_epoch,
-        latestRevision: plan.latest_revision,
-        entries,
-      };
-    }
-    // A collection no manifest-signing client has written yet. The epoch to
-    // sign the next write under is the session's: there is no signed one to
-    // read, and core will not guess.
+    const { plan, entries } = outcome.Signed;
+    log.debug("vault manifest verified", {
+      seq: plan.manifest_seq,
+      objects: entries.length,
+      key_epoch: plan.key_epoch,
+    });
+    rememberManifestSeq(session, plan.manifest_seq);
     return {
-      seq: 0,
-      keyEpoch: session.keyEpoch,
-      latestRevision: outcome.Unmanifested.latest_revision,
-      entries: outcome.Unmanifested.entries,
+      seq: plan.manifest_seq,
+      keyEpoch: plan.key_epoch,
+      latestRevision: plan.latest_revision,
+      entries,
     };
   } catch (err) {
     log.error("vault manifest refused", { reason: describeError(err) });
@@ -272,16 +256,14 @@ export async function verifyManifest(
   rememberManifestSeq(session, plan.manifest_seq);
 }
 
-/** The rule for a server that served objects with no manifest at all. */
-export function requireManifestAbsenceOk(session: Session): void {
-  try {
-    coreManifestAbsenceOk(manifestContext(session));
-  } catch (err) {
-    log.error("the vault was served with no manifest after this device had seen one", {
-      seen_seq: session.manifestSeq,
-    });
-    throw manifestFailure(err);
-  }
+/**
+ * A missing manifest is always a refusal: a device just paired, recovered or
+ * reinstalled has seen none, so accepting the absence would let a server serve
+ * any subset of the vault.
+ */
+export function refuseMissingManifest(session: Session): never {
+  log.error("the vault was served with no signed manifest", { seen_seq: session.manifestSeq });
+  throw new ManifestError("The server served no signed manifest for this collection.");
 }
 
 /**
@@ -309,20 +291,6 @@ export async function manifestBucketState(
   } catch (err) {
     log.error("vault manifest buckets refused", { reason: describeError(err) });
     throw manifestFailure(err);
-  }
-  if (outcome === "Unmanifested") {
-    // A bucket answer carries no revision for the entries it did not serve, so
-    // the revision this write takes cannot be chosen from it. It costs an extra
-    // request, on a path nothing takes once anything has written a manifest.
-    const whole = await manifestState(session);
-    return coreManifestBucketsFromWhole(
-      {
-        manifest_seq: whole.seq,
-        key_epoch: whole.keyEpoch,
-        latest_revision: whole.latestRevision,
-      },
-      whole.entries,
-    );
   }
   const { held } = outcome.Signed;
   log.debug("vault manifest verified", {
@@ -447,7 +415,7 @@ export function sealPayload(
 export async function refreshCollectionKey(session: Session): Promise<number> {
   const { state, token } = session;
   const resp = await getJson<{ key_epoch: number; key_wraps: KeyWrap[] }>(
-    `${apiRoot(state.server)}/v1/collections/${state.collection_id}/keys`,
+    `${apiRoot(state.server)}/v2/collections/${state.collection_id}/keys`,
     token,
   );
   const deviceWrap = resp.key_wraps.find(
@@ -459,11 +427,7 @@ export async function refreshCollectionKey(session: Session): Promise<number> {
       "This device no longer has access to the vault. It may have been revoked; sign in again.",
     );
   }
-  // unwrapCk resolves the device wrap first and never touches the password or
-  // salt, so empty values are correct here rather than a placeholder.
   const collectionKey = unwrapCk(
-    "",
-    "",
     bytesFromJson(state.hpke_sk),
     state.device_id,
     state.collection_id,
@@ -471,7 +435,7 @@ export async function refreshCollectionKey(session: Session): Promise<number> {
     JSON.stringify([deviceWrap]),
   );
   const fromEpoch = session.keyEpoch;
-  await adoptKey(session, collectionKey, resp.key_epoch);
+  await adoptKey(session, collectionKey.collection_key, resp.key_epoch, collectionKey.legacy_wrap);
   log.info("collection key refreshed", { from_epoch: fromEpoch, to_epoch: resp.key_epoch });
   return resp.key_epoch;
 }
@@ -549,7 +513,6 @@ export function toCoreState(state: DeviceState): CoreDeviceState {
     collection_id: state.collection_id,
     device_id: state.device_id,
     session_token: state.session_token ?? undefined,
-    kdf_salt: b64ToByteArray(bytesFromJson(state.kdf_salt)),
     hpke_sk: b64ToByteArray(bytesFromJson(state.hpke_sk)),
     mldsa_seed: b64ToByteArray(bytesFromJson(state.mldsa_seed)),
     ed25519_sk: b64ToByteArray(bytesFromJson(state.ed25519_sk)),
@@ -568,7 +531,6 @@ export function fromCoreState(state: CoreDeviceState): DeviceState {
     collection_id: state.collection_id,
     device_id: state.device_id,
     session_token: state.session_token ?? null,
-    kdf_salt: state.kdf_salt,
     hpke_sk: state.hpke_sk,
     mldsa_seed: state.mldsa_seed,
     ed25519_sk: state.ed25519_sk,
@@ -598,7 +560,6 @@ export function deviceFromSecrets(
     account_id: NIL_UUID,
     collection_id: NIL_UUID,
     device_id: device.device.device_id,
-    kdf_salt: [],
     hpke_sk: b64ToByteArray(device.hpke_sk),
     mldsa_seed: b64ToByteArray(device.mldsa_seed),
     ed25519_sk: b64ToByteArray(device.ed25519_sk),

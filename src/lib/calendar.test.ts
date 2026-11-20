@@ -93,10 +93,15 @@ describe("archived calendars", () => {
    * as a calendar that loses its state when it crosses between them.
    */
   it("matches the Android client's payload for an archived calendar", () => {
-    const android = '{"@type":"Calendar","version":"1.0","name":"Old Team","color":"#9ece6a","favorite":false,"archived":true}';
+    const android = '{"@type":"Calendar","version":"1.1","name":"Old Team","color":"#9ece6a","archived":true,"createdAt":"2026-10-28T12:00:00Z","updatedAt":"2026-10-28T12:00:00Z"}';
     const ours = serializeCalendar({ name: "Old Team", color: "#9ece6a", favorite: false, archived: true });
 
-    expect(parsed(ours)).toEqual(parsed(android));
+    // The stamps are the moment of the write, so they are compared by shape.
+    const { createdAt, updatedAt, ...rest } = parsed(ours);
+    expect(typeof createdAt).toBe("string");
+    expect(typeof updatedAt).toBe("string");
+    const { createdAt: _c, updatedAt: _u, ...expected } = parsed(android);
+    expect(rest).toEqual(expected);
     expect(parseCalendar("cal-1", android)).toEqual({
       id: "cal-1",
       name: "Old Team",

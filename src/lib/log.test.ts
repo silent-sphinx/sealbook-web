@@ -37,21 +37,21 @@ describe("logPath", () => {
   it("replaces the collection id and drops the query", () => {
     expect(
       logPath(
-        "https://vault.example.com/v1/collections/8f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d" +
+        "https://vault.example.com/v2/collections/8f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d" +
           "/changes?after=0&limit=500",
       ),
-    ).toBe("/v1/collections/:id/changes");
+    ).toBe("/v2/collections/:id/changes");
   });
 
   it("handles a same-origin path", () => {
-    expect(logPath("/v1/opaque/login/start")).toBe("/v1/opaque/login/start");
+    expect(logPath("/v2/opaque/login/start")).toBe("/v2/opaque/login/start");
   });
 
   it("replaces an opaque identifier that is not a uuid", () => {
     // Pair codes and object ids are not all uuids, and a long segment is never
     // something worth printing.
     const code = "a".repeat(48);
-    expect(logPath(`/v1/pair/${code}/ready`)).toBe("/v1/pair/:id/ready");
+    expect(logPath(`/v2/pair/${code}/ready`)).toBe("/v2/pair/:id/ready");
   });
 });
 

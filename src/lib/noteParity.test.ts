@@ -113,7 +113,7 @@ describe("a payload from a newer schema major", () => {
   it("is refused for a notebook too", () => {
     let caught: unknown;
     try {
-      coreNotebookWrite("edited", undefined, false, false, '{"@type":"Notebook","version":"3.1","name":"future"}');
+      coreNotebookWrite("edited", undefined, false, false, '{"@type":"Notebook","version":"3.1","name":"future"}', "2026-05-01T00:00:00Z");
     } catch (err) {
       caught = err;
     }

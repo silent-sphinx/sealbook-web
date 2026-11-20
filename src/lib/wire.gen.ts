@@ -8,6 +8,13 @@
  */
 export type Base64Url = string;
 /**
+ * Why a rotation is owed.
+ *
+ * This interface was referenced by `SealbookWireTypes`'s JSON-Schema
+ * via the `definition` "RotationOwed".
+ */
+export type RotationOwed = "recovery" | "upgrade";
+/**
  * This interface was referenced by `SealbookWireTypes`'s JSON-Schema
  * via the `definition` "RosterSignerBody".
  */
@@ -66,7 +73,7 @@ export interface AttachmentMetaResponse {
 /**
  * A device's signature over one attachment create, commit or delete.
  *
- * The challenge comes from `POST /v1/attachments/challenge` and is single use.
+ * The challenge comes from `POST /v2/attachments/challenge` and is single use.
  * A session token alone cannot create, commit or delete an attachment: the
  * signature is over the operation, the collection and the attachment, made with
  * the device's own signing keys.
@@ -115,11 +122,7 @@ export interface BatchObject {
  */
 export interface ChangePasswordRequest {
   challenge: Base64Url;
-  kdf_salt: Base64Url;
   password_change_id: string;
-  recovery_ciphersuite: string;
-  recovery_nonce: Base64Url;
-  recovery_wrapped_ck: Base64Url;
   signature: DualSignatureBody;
   upload: Base64Url;
 }
@@ -304,7 +307,6 @@ export interface CreateAttachmentRequest {
   auth: AttachmentOpAuth;
   chunk_count: number;
   chunk_size: number;
-  total_plaintext_size: number;
 }
 /**
  * This interface was referenced by `SealbookWireTypes`'s JSON-Schema
@@ -394,7 +396,6 @@ export interface LoginFinishRequest {
 export interface LoginFinishResponse {
   account_id: string;
   collection_id: string;
-  kdf_salt: Base64Url;
   /**
    * The epoch these wraps belong to, so a client starts in sync and only
    * re-fetches its wrap when a rotation actually happens.
@@ -402,15 +403,11 @@ export interface LoginFinishResponse {
   key_epoch: number;
   key_wraps: KeyWrapBody[];
   /**
-   * True when a recovery enrolled a device and the collection key has still
-   * not been rotated, so the phrase used then — and any other copy of it —
-   * can still open this vault. The client must finish that rotation before
-   * the account can be written to again.
-   *
-   * `#[serde(default)]` so a client built before this field existed still
-   * deserializes a response carrying it.
+   * Set when the collection key must be rotated before the account can be
+   * written to again, and why, so the client shows the right message. It is a
+   * hint: the client's own roster check decides whether a rotation is owed.
    */
-  recovery_pending?: boolean;
+  rotation_owed?: RotationOwed | null;
   session_token: string;
 }
 /**
@@ -559,6 +556,12 @@ export interface RosterBody {
   key_commitment?: Base64Url;
   key_epoch: number;
   mac: Base64Url;
+  /**
+   * Sealed by protocol v2, under its own transcript label. The signed marker
+   * that the account has migrated: the chain refuses an older roster after one.
+   * Absent on rosters sealed by protocol v1.
+   */
+  migrated?: boolean;
   phrase_ed25519_pk: Base64Url;
   phrase_mldsa_pk: Base64Url;
   roster_seq: number;
@@ -761,20 +764,15 @@ export interface RecoverFinishRequest {
   challenge: Base64Url;
   device: DevicePublicKeys;
   enrollment_signature: DualSignatureBody;
-  kdf_salt: Base64Url;
   phrase_proof: DualSignatureBody;
-  recovery_ciphersuite: string;
   recovery_id: string;
-  recovery_nonce: Base64Url;
-  recovery_wrapped_ck: Base64Url;
   /**
    * The current roster plus the recovering device, signed by the phrase key.
    */
   roster: RosterBody;
   /**
-   * The replacement password, as an OPAQUE registration upload, plus the KDF
-   * salt and the collection-key wrap re-made under it. `phrase_proof` covers
-   * all of it, so none of it can be substituted in flight.
+   * The replacement password, as an OPAQUE registration upload. `phrase_proof`
+   * covers it, so it cannot be substituted in flight.
    */
   upload: Base64Url;
   username: string;
@@ -847,7 +845,6 @@ export interface RegisterFinishRequest {
   collection_id: string;
   device: DevicePublicKeys;
   enrollment_signature: DualSignatureBody;
-  kdf_salt: Base64Url;
   key_wraps: KeyWrapBody[];
   /**
    * Manifest for the empty collection, so an account has a signed manifest
@@ -915,7 +912,7 @@ export interface RosterResponse {
  * Every operation that must invalidate the old key goes through this one
  * request, because they all require the same work and only a client can do it:
  *
- * * revoking a device (`revoke_device_id`), which already holds the old key;
+ * * revoking devices (`revoke_device_ids`), which already hold the old key;
  * * changing the recovery phrase, since a rotation always issues a new one;
  * * finishing a recovery, where the phrase that was just used — and anyone who
  *   has ever seen it — must stop being able to decrypt.
@@ -935,13 +932,12 @@ export interface RotateRequest {
    * manifest is what pins this list.
    */
   drop_tombstones?: string[];
-  kdf_salt: Base64Url;
   /**
    * Must be exactly one greater than the collection's current epoch.
    */
   key_epoch: number;
   /**
-   * One wrap per device that keeps access, plus `recovery` and `phrase`.
+   * One wrap per device that keeps access, plus `phrase`.
    */
   key_wraps: KeyWrapBody[];
   manifest: ManifestBody;
@@ -952,10 +948,11 @@ export interface RotateRequest {
    */
   phrase_recovery: PhraseRecoveryBody;
   /**
-   * The device to revoke as part of this rotation, if any. It must not be the
-   * device making the request.
+   * The devices to revoke as part of this rotation, strictly ascending. None may
+   * be the device making the request. Empty means nothing is revoked, as in a
+   * phrase or migration rotation.
    */
-  revoke_device_id?: string | null;
+  revoke_device_ids: string[];
   /**
    * The remaining devices and the new phrase key, at the new epoch, signed by
    * the rotating device.

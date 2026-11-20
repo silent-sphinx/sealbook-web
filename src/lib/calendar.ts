@@ -51,7 +51,7 @@ export function serializeCalendar(calendar: Omit<Calendar, "id">): string {
     archived: calendar.archived === true,
     hide_from_all: calendar.hideFromAll === true,
     raw: calendar.raw,
-  });
+  }, new Date().toISOString());
 }
 
 export function parseCalendar(id: string, raw: string): Calendar {
@@ -81,7 +81,7 @@ function calendarFrom(calendar: CoreCalendar): Calendar {
  * single event everywhere, which is what Android did.
  */
 export function serializeEvent(event: Omit<CalendarEvent, "id">): string {
-  return coreEventWrite(coreEventDraftOf(event));
+  return coreEventWrite(coreEventDraftOf(event), new Date().toISOString());
 }
 
 /** This client's event as core's draft. */

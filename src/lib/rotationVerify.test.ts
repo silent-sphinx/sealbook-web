@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { verifyWalk } from "./clientRotation";
-import { entryFor, requireManifestAbsenceOk, verifyManifest, type Session } from "./clientCore";
+import { entryFor, refuseMissingManifest, verifyManifest, type Session } from "./clientCore";
 import type { ChangesWalk } from "./clientVault";
 
 vi.mock("./clientCore", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./clientCore")>()),
   verifyManifest: vi.fn(),
-  requireManifestAbsenceOk: vi.fn(),
+  refuseMissingManifest: vi.fn(),
   entryFor: vi.fn((object: { id: string }) => ({ id: object.id })),
 }));
 
@@ -42,9 +42,12 @@ describe("verifying the walk a rotation re-encrypts", () => {
     await expect(verifyWalk(session, walk(8), 7)).rejects.toThrow(/changed while/);
   });
 
-  it("applies the absence rule when no manifest was served", async () => {
-    await verifyWalk(session, walk(null), 0);
-    expect(requireManifestAbsenceOk).toHaveBeenCalledWith(session);
+  it("refuses a walk that came with no manifest", async () => {
+    vi.mocked(refuseMissingManifest).mockImplementationOnce(() => {
+      throw new Error("no signed manifest");
+    });
+    await expect(verifyWalk(session, walk(null), 0)).rejects.toThrow("no signed manifest");
+    expect(refuseMissingManifest).toHaveBeenCalledWith(session);
     expect(verifyManifest).not.toHaveBeenCalled();
   });
 });

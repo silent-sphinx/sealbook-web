@@ -33,7 +33,7 @@ describe("speaksProtocol", () => {
   });
 
   it("refuses anything else, including a missing version", () => {
-    expect(speaksProtocol("sealbook-v2")).toBe(false);
+    expect(speaksProtocol("sealbook-v1")).toBe(false);
     expect(speaksProtocol("")).toBe(false);
     expect(speaksProtocol(undefined)).toBe(false);
     expect(speaksProtocol(null)).toBe(false);
@@ -43,7 +43,7 @@ describe("speaksProtocol", () => {
 
 describe("a flow that reaches a server speaking another generation", () => {
   it("stops before sending anything, naming both versions", async () => {
-    const reached = serverSpeaking("sealbook-v2");
+    const reached = serverSpeaking("sealbook-v1");
     await expect(pairJoin("https://vault.example", "ada")).rejects.toThrow(
       /sealbook-v2.*sealbook-v1|sealbook-v1.*sealbook-v2/u,
     );

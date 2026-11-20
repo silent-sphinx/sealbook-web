@@ -116,7 +116,7 @@ describe("the shared change-feed fixture", () => {
   it("asks for the live rows from the start", () => {
     const request = coreChangesRequest(fixture.collection_id, coreWalkStart(0));
     expect(request.path).toBe(
-      `/v1/collections/${fixture.collection_id}/changes?after=0&limit=500&snapshot=true`,
+      `/v2/collections/${fixture.collection_id}/changes?after=0&limit=500&snapshot=true`,
     );
   });
 

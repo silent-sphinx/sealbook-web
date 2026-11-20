@@ -79,7 +79,6 @@ import init, {
   core_contact_write,
   core_contacts_import,
   core_error_message,
-  core_legacy_roster_message,
   core_csv_import,
   core_notes_import,
   core_notes_write_json,
@@ -154,7 +153,6 @@ import init, {
   core_register_start_accept,
   core_register_start_request,
   core_latest_revisions,
-  core_manifest_absence_ok,
   core_manifest_accept,
   core_manifest_apply,
   core_manifest_buckets_accept,
@@ -200,6 +198,7 @@ import init, {
   core_attachment_meta_accept,
   core_attachment_meta_request,
   core_attachment_plan,
+  core_attachment_read_len,
   core_attachment_ranges,
   core_attachment_sweep_orphans,
   core_attachment_sweep_page,
@@ -214,6 +213,9 @@ import init, {
   core_require_key_epoch,
   core_resolve_notebook_id,
   core_reseal_row,
+  core_reseal_row_upgrading,
+  core_payload_upgrade,
+  core_container_key,
   core_rotation_entries,
   core_rotation_plan,
   core_rotation_recipients,
@@ -332,6 +334,8 @@ import type {
   CoreRoster,
   CoreRosterPin,
   CoreSealedRow,
+  CoreResealed,
+  UnwrappedKey,
   HttpRequest,
   LoggedIn,
   LoginStarting,
@@ -430,8 +434,8 @@ export async function initWasm(): Promise<void> {
   log.debug("crypto module versions match", { ...built });
 }
 
-export function createEnrollment(password: string, collectionId: string): Enrollment {
-  return create_enrollment(password, collectionId);
+export function createEnrollment(collectionId: string): Enrollment {
+  return create_enrollment(collectionId);
 }
 
 export function createDevice(): DeviceOut {
@@ -530,15 +534,13 @@ export function localStorageKey(password: string, saltB64: string, suite: string
 }
 
 export function unwrapCk(
-  password: string,
-  kdfSalt: string,
   hpkeSk: string,
   deviceId: string,
   collectionId: string,
   keyEpoch: number,
   wrapsJson: string,
-): string {
-  return unwrap_ck(password, kdfSalt, hpkeSk, deviceId, collectionId, keyEpoch, wrapsJson);
+): UnwrappedKey {
+  return unwrap_ck(hpkeSk, deviceId, collectionId, keyEpoch, wrapsJson);
 }
 
 export function encryptContact(
@@ -626,7 +628,6 @@ export function newCollectionKey(): string {
  * can confirm the whole rotation came from a device that holds the signing key.
  */
 export type RotationRecovery = {
-  kdf_salt: string;
   phrase_mldsa_pk: string;
   phrase_ed25519_pk: string;
   phrase_lookup_id: string;
@@ -637,14 +638,14 @@ export function rotationSign(
   mldsaSeed: string,
   ed25519Sk: string,
   collectionId: string,
-  /** Empty to rotate without revoking a device, as a phrase change does. */
-  revokedDeviceId: string,
+  /** Empty to rotate without revoking a device, as a phrase change does. Ascending. */
+  revokedDeviceIds: string[],
   keyEpoch: number,
   wraps: KeyWrap[],
   objects: RotatedObject[],
   manifestDigest: string,
   /**
-   * The KDF salt and phrase record this rotation installs. Signed, so a modified
+   * The phrase record this rotation installs. Signed, so a modified
    * request body cannot swap in recovery material the account holder never
    * produced, which is why it is not optional.
    */
@@ -655,7 +656,7 @@ export function rotationSign(
       mldsaSeed,
       ed25519Sk,
       collectionId,
-      revokedDeviceId,
+      revokedDeviceIds,
       BigInt(keyEpoch),
       JSON.stringify(wraps),
       JSON.stringify(objects),
@@ -778,11 +779,6 @@ export function coreManifestVerify(
   devices: CoreDevice[],
 ): ManifestPlan {
   return core_manifest_verify(context, manifestJson, entries, devices);
-}
-
-/** The rule for a server that served objects with no manifest at all. */
-export function coreManifestAbsenceOk(context: ManifestContext): void {
-  core_manifest_absence_ok(context);
 }
 
 /** The bucketed view of a collection whose every entry is in hand. */
@@ -943,11 +939,6 @@ export function coreErrorOf(err: unknown): CoreError | null {
   return null;
 }
 
-/** The warning for an account whose roster predates key commitments. */
-export function coreLegacyRosterMessage(): string {
-  return core_legacy_roster_message();
-}
-
 /**
  * The sentence core words for an error, or `null` when it has none.
  *
@@ -995,10 +986,12 @@ export function coreRosterAcceptKey(
   context: RosterContext,
   ck: string,
   keyEpoch: number,
+  /** Whether the wrap that opened `ck` was the unbound form. */
+  legacyWrap: boolean,
   status: number,
   body: string,
 ): VerifiedRoster {
-  return core_roster_accept_key(context, ck, BigInt(keyEpoch), status, body);
+  return core_roster_accept_key(context, ck, BigInt(keyEpoch), legacyWrap, status, body);
 }
 
 /** Verifies a roster this device sealed itself, at the roster's own key epoch. */
@@ -1068,18 +1061,17 @@ export function coreRotationWraps(
   newKeyEpoch: number,
   recipients: CoreDevice[],
   username: string,
-  password: string,
 ): CoreRotationWraps {
-  return core_rotation_wraps(newCk, collectionId, newKeyEpoch, recipients, username, password);
+  return core_rotation_wraps(newCk, collectionId, newKeyEpoch, recipients, username);
 }
 
 /** The devices a rotation re-wraps the new key for, from the verified roster. */
 export function coreRotationRecipients(
   selfDeviceId: string,
-  revokeDeviceId: string | null,
+  revokeDeviceIds: string[],
   devices: CoreDevice[],
 ): CoreDevice[] {
-  return core_rotation_recipients(selfDeviceId, revokeDeviceId, devices);
+  return core_rotation_recipients(selfDeviceId, revokeDeviceIds, devices);
 }
 
 /**
@@ -1096,6 +1088,32 @@ export function coreResealRow(
   row: ResealRow,
 ): CoreSealedRow {
   return core_reseal_row(oldCk, newCk, collectionId, row);
+}
+
+/**
+ * A payload moved to the current schema, or `undefined` when it already is one
+ * or is not one this build can move.
+ */
+export function corePayloadUpgrade(contentType: string, raw: string): string | undefined {
+  return core_payload_upgrade(contentType, raw);
+}
+
+/** The payload key that names an object's container, for a content type that has one. */
+export function coreContainerKey(contentType: string): string | undefined {
+  return core_container_key(contentType);
+}
+
+/**
+ * As `coreResealRow`, moving a payload that declares the older schema to the
+ * current one on the way, and saying whether it did.
+ */
+export function coreResealRowUpgrading(
+  oldCk: string,
+  newCk: string,
+  collectionId: string,
+  row: ResealRow,
+): CoreResealed {
+  return core_reseal_row_upgrading(oldCk, newCk, collectionId, row);
 }
 
 /**
@@ -1217,6 +1235,8 @@ export function corePairApprove(
   verified: VerifiedRoster,
   response: CorePairResponse,
   preview: CorePairPreview,
+  /** The manifest sequence this device holds, which the joiner takes as its own. */
+  manifestSeq: number,
 ): PairApproval {
   return core_pair_approve(
     mldsaSeed,
@@ -1227,6 +1247,7 @@ export function corePairApprove(
     verified,
     response,
     preview,
+    BigInt(manifestSeq),
   );
 }
 
@@ -1332,11 +1353,10 @@ export function coreRegisterStartAccept(body: string): string {
  */
 export function coreRegisterFinishRequest(
   username: string,
-  password: string,
   upload: string,
   identity: RegisterIdentity,
 ): Registering {
-  return core_register_finish_request(username, password, upload, identity);
+  return core_register_finish_request(username, upload, identity);
 }
 
 /** Reads the register finish response into the state this device persists. */
@@ -1389,10 +1409,9 @@ export function coreLoginFinishRequest(
  */
 export function coreLoginAccept(
   state: CoreDeviceState,
-  password: string,
   body: string,
 ): LoggedIn {
-  return core_login_accept(state, password, body);
+  return core_login_accept(state, body);
 }
 
 export function coreRecoverStartRequest(
@@ -1418,7 +1437,6 @@ export function coreRecoverStartAccept(
 export function coreRecoverFinishRequest(
   username: string,
   phrase: string,
-  password: string,
   started: RecoverStarted,
   device: CoreDeviceSecrets,
   upload: string,
@@ -1426,7 +1444,6 @@ export function coreRecoverFinishRequest(
   return core_recover_finish_request(
     username,
     phrase,
-    password,
     started,
     device,
     upload,
@@ -1483,17 +1500,15 @@ export function corePasswordChangeStartAccept(
 }
 
 /**
- * The new verifier and the collection key re-wrapped under the new password,
- * with a signature covering both.
+ * The new OPAQUE verifier, with a signature over it. Nothing is re-wrapped:
+ * no wrap of the collection key depends on the password.
  */
 export function coreChangePasswordRequest(
   state: CoreDeviceState,
-  ck: string,
-  newPassword: string,
   upload: string,
   started: PasswordChangeStarted,
 ): PasswordChange {
-  return core_change_password_request(state, ck, newPassword, upload, started);
+  return core_change_password_request(state, upload, started);
 }
 
 export function coreDeleteAccountRequest(
@@ -1528,8 +1543,20 @@ export function coreAttachmentLimits(): AttachmentLimits {
  * Throws on an empty file and on one over the protocol ceiling, so neither
  * becomes a server error with nothing the user can do about it.
  */
-export function coreAttachmentPlan(totalPlaintextSize: number): AttachmentPlan {
-  return core_attachment_plan(BigInt(totalPlaintextSize));
+export function coreAttachmentPlan(byteSize: number): AttachmentPlan {
+  return core_attachment_plan(BigInt(byteSize));
+}
+
+/**
+ * The length a download is cut to, once its padded copy is checked against the
+ * size the owning record says the file is. Throws on any other length.
+ */
+export function coreAttachmentReadLen(
+  attachmentId: string,
+  byteSize: number,
+  decryptedLen: number,
+): number {
+  return Number(core_attachment_read_len(attachmentId, BigInt(byteSize), BigInt(decryptedLen)));
 }
 
 /** The slices of plaintext the plan's chunks are taken from, in order. */
@@ -1776,9 +1803,10 @@ export function coreNotebookWrite(
   color: string | undefined,
   archived: boolean,
   hideFromAll: boolean,
-  previousRaw?: string,
+  previousRaw: string | undefined,
+  now: string,
 ): string {
-  return core_notebook_write(name, color, archived, hideFromAll, previousRaw);
+  return core_notebook_write(name, color, archived, hideFromAll, previousRaw, now);
 }
 
 /**
@@ -1839,8 +1867,8 @@ export function coreCalendarParse(id: string, raw: string): CoreCalendar {
  * Throws `PayloadSchema` for a calendar written by a newer client, which this
  * build may read but must not write over.
  */
-export function coreCalendarWrite(draft: CoreCalendarDraft): string {
-  return core_calendar_write(draft);
+export function coreCalendarWrite(draft: CoreCalendarDraft, now: string): string {
+  return core_calendar_write(draft, now);
 }
 
 /** The days a rule lands on from `from` to `to` inclusive, as `YYYY-MM-DD`. */
@@ -1888,8 +1916,8 @@ export function coreEventParse(id: string, raw: string): CoreCalendarEvent {
  * Serialises an event onto `draft.raw`. A repeat rule core cannot name rides
  * through in `unreadable_recurrence` rather than being dropped.
  */
-export function coreEventWrite(draft: CoreCalendarEventDraft): string {
-  return core_event_write(draft);
+export function coreEventWrite(draft: CoreCalendarEventDraft, now: string): string {
+  return core_event_write(draft, now);
 }
 
 /** The reminders an event editor offers, in minutes before the start. */
@@ -2075,8 +2103,8 @@ export function coreAddressBookParse(id: string, raw: string): CoreAddressBook {
   return core_address_book_parse(id, raw);
 }
 
-export function coreAddressBookWrite(draft: CoreAddressBookDraft): string {
-  return core_address_book_write(draft);
+export function coreAddressBookWrite(draft: CoreAddressBookDraft, now: string): string {
+  return core_address_book_write(draft, now);
 }
 
 export function coreAddressBookTone(id: string, color?: string): string {
@@ -2189,8 +2217,9 @@ export function coreBookmarkCollectionParse(
 
 export function coreBookmarkCollectionWrite(
   draft: CoreBookmarkCollectionDraft,
+  now: string,
 ): string {
-  return core_bookmark_collection_write(draft);
+  return core_bookmark_collection_write(draft, now);
 }
 
 export function coreBookmarkCollectionNameById(
@@ -2260,8 +2289,8 @@ export function coreTaskListParse(id: string, raw: string): CoreTaskList {
   return core_task_list_parse(id, raw);
 }
 
-export function coreTaskListWrite(draft: CoreTaskListDraft): string {
-  return core_task_list_write(draft);
+export function coreTaskListWrite(draft: CoreTaskListDraft, now: string): string {
+  return core_task_list_write(draft, now);
 }
 
 export function coreTaskListNameById(

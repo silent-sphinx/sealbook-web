@@ -42,7 +42,12 @@ beforeAll(async () => {
   await init({ module_or_path: wasm });
 });
 
-type PlanCase = { size: number; chunk_count: number; ranges?: [number, number][] };
+type PlanCase = {
+  size: number;
+  padded_size: number;
+  chunk_count: number;
+  ranges?: [number, number, number][];
+};
 type DigestCase = { plaintext_b64: string; digest: string };
 type ContentHashCase = { digests: string[]; hash: string };
 
@@ -106,14 +111,15 @@ function refusalOf(run: () => unknown): string {
   }
 }
 
-function planOf(size: number): AttachmentPlan {
+function planOf(entry: PlanCase): AttachmentPlan {
   return {
     attachment_id: ATTACHMENT,
     key: fixture.key,
     chunk_size: fixture.limits.chunk_size,
-    chunk_count: Math.ceil(size / fixture.limits.chunk_size),
-    total_plaintext_size: size,
-  } as AttachmentPlan;
+    chunk_count: entry.chunk_count,
+    byte_size: entry.size,
+    padded_size: entry.padded_size,
+  };
 }
 
 function metaBody(id: string, state: string, chunkCount: number): string {
@@ -152,15 +158,18 @@ describe("attachment planning", () => {
       if (entry.size === 0 || entry.size > fixture.limits.max_size) continue;
       const plan = coreAttachmentPlan(entry.size);
       expect(plan.chunk_count).toBe(entry.chunk_count);
-      expect(Number(plan.total_plaintext_size)).toBe(entry.size);
+      expect(Number(plan.byte_size)).toBe(entry.size);
+      expect(Number(plan.padded_size)).toBe(entry.padded_size);
     }
   });
 
   it("covers the plaintext once and in order", () => {
     for (const entry of fixture.plans) {
       if (!entry.ranges) continue;
-      const ranges = coreAttachmentRanges(planOf(entry.size));
-      expect(ranges.map((r) => [Number(r.start), Number(r.end)])).toEqual(entry.ranges);
+      const ranges = coreAttachmentRanges(planOf(entry));
+      expect(ranges.map((r) => [Number(r.start), Number(r.end), Number(r.len)])).toEqual(
+        entry.ranges,
+      );
       expect(ranges.map((r) => r.index)).toEqual(ranges.map((_, i) => i));
     }
   });
@@ -181,7 +190,6 @@ const DEVICE_STATE: CoreDeviceState = {
   account_id: "55555555-5555-4555-8555-555555555555",
   collection_id: COLLECTION,
   device_id: "66666666-6666-4666-8666-666666666666",
-  kdf_salt: new Array(16).fill(4),
   hpke_sk: new Array(32).fill(7),
   mldsa_seed: new Array(32).fill(1),
   ed25519_sk: new Array(32).fill(11),
@@ -197,7 +205,7 @@ const CHALLENGE = JSON.stringify({
 describe("attachment paths", () => {
   it("are the ones the fixture pins", () => {
     expect(
-      coreAttachmentCreateRequest(DEVICE_STATE, COLLECTION, planOf(1), CHALLENGE).path,
+      coreAttachmentCreateRequest(DEVICE_STATE, COLLECTION, planOf({ size: 1, padded_size: 1, chunk_count: 1 }), CHALLENGE).path,
     ).toBe(fixture.paths.create);
     expect(coreAttachmentChunkPath(COLLECTION, ATTACHMENT, 0)).toBe(fixture.paths.chunk);
     expect(

@@ -75,7 +75,7 @@ export type { RegisterResult } from "./clientAuth";
 export {
   changePassword,
   changeUsername,
-  completeRecoveryRotation,
+  rotateOwed,
   deleteAccount,
   loginAccount,
   recoverAccount,
@@ -101,7 +101,7 @@ export {
   pairJoinStep,
   pairPreviewStep,
   pairRespond,
-  revokeDevice,
+  revokeDevices,
 } from "./clientPairing";
 
 export type { VaultExport, VaultImportResult, VaultListing, VaultProgress } from "./clientVault";

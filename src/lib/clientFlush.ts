@@ -10,7 +10,7 @@ import {
   manifestBucketState,
   refreshCollectionKey,
   rememberManifestSeq,
-  requireManifestAbsenceOk,
+  refuseMissingManifest,
   sealPayload,
   serializeVault,
   verifyManifest,
@@ -325,7 +325,7 @@ async function sendBatch(
     content_type: sealedContentType(),
     tombstone: write.tombstone,
   }));
-  const collectionRoot = `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}`;
+  const collectionRoot = `${apiRoot(session.state.server)}/v2/collections/${session.state.collection_id}`;
   if (objects.length === 1) {
     const response = await putJson<{ revision: number }>(
       `${collectionRoot}/objects`,
@@ -382,7 +382,7 @@ export async function catchUp(session: Session): Promise<void> {
     if (walk.manifestJson) {
       await verifyManifest(session, walk.manifestJson, walk.objects.map(entryFor));
     } else {
-      requireManifestAbsenceOk(session);
+      refuseMissingManifest(session);
     }
   }
   const opened = walk.full

@@ -48,7 +48,7 @@ beforeAll(async () => {
 type UsernameCase = { typed: string; normalized: string; refused: boolean };
 type PhraseCase = { typed: string; normalized: string; refused: boolean };
 type PathCase = { what: string; path: string };
-type LoginCase = { what: string; body: string; wrap: string; recovery_pending: boolean };
+type LoginCase = { what: string; body: string; wrap: string; rotation_owed: string | null };
 type RefusalCase = {
   what: string;
   flow: string;
@@ -86,7 +86,6 @@ function identity(): RegisterIdentity {
     device: fixture.device,
     collection_id: fixture.collection_id,
     collection_key: fixture.collection_key,
-    kdf_salt: b64(fixture.state.kdf_salt),
     phrase: fixture.phrase,
   };
 }
@@ -174,7 +173,7 @@ describe("the paths", () => {
   it("posts each round where the fixture says", () => {
     expect(coreRegisterStartRequest("alice", b64([1])).path).toBe(pathFor("register start"));
     expect(
-      coreRegisterFinishRequest("alice", fixture.password, b64([1]), identity()).request.path,
+      coreRegisterFinishRequest("alice", b64([1]), identity()).request.path,
     ).toBe(pathFor("register finish"));
     expect(coreLoginChallengeRequest("alice", fixture.state.device_id).path).toBe(
       pathFor("login challenge"),
@@ -193,25 +192,14 @@ describe("the paths", () => {
       pathFor("account delete"),
     );
     expect(
-      coreChangePasswordRequest(
-        fixture.state,
-        fixture.collection_key,
-        "a new password",
-        b64([1]),
-        PASSWORD_START,
-      ).request.path,
+      coreChangePasswordRequest(fixture.state, b64([1]), PASSWORD_START).request.path,
     ).toBe(pathFor("password change"));
   });
 });
 
 describe("registering", () => {
   it("pins the genesis roster it signed", () => {
-    const registering = coreRegisterFinishRequest(
-      "alice",
-      fixture.password,
-      b64([1]),
-      identity(),
-    );
+    const registering = coreRegisterFinishRequest("alice", b64([1]), identity());
     const body = JSON.parse(registering.request.body) as {
       roster: { roster_seq: number; key_epoch: number };
       key_wraps: { recipient_kind: string; recipient_id: string }[];
@@ -219,14 +207,9 @@ describe("registering", () => {
     expect(body.roster.roster_seq).toBe(1);
     expect(body.roster.key_epoch).toBe(1);
     expect(registering.pin.roster_seq).toBe(1);
-    // One wrap the device opens, one the password opens and one the phrase
-    // opens, so losing any single one of the three is survivable.
-    expect(body.key_wraps.map((wrap) => wrap.recipient_kind)).toEqual([
-      "device",
-      "recovery",
-      "phrase",
-    ]);
-    expect(body.key_wraps[1].recipient_id).toBe("alice");
+    // One wrap the device opens and one the phrase opens. The password wraps
+    // nothing, so the server holds no copy of the key a password can open.
+    expect(body.key_wraps.map((wrap) => wrap.recipient_kind)).toEqual(["device", "phrase"]);
   });
 
   /**
@@ -236,12 +219,7 @@ describe("registering", () => {
    */
   it("refuses a collection the server substituted", () => {
     const chosen = identity();
-    const registering = coreRegisterFinishRequest(
-      "alice",
-      fixture.password,
-      b64([1]),
-      chosen,
-    );
+    const registering = coreRegisterFinishRequest("alice", b64([1]), chosen);
     const elsewhere = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
     expect(
       refusalOf(() =>
@@ -260,14 +238,10 @@ describe("registering", () => {
 describe("signing in", () => {
   it("opens the wrap the fixture names and reports what it found", () => {
     for (const entry of fixture.logins) {
-      const logged = coreLoginAccept(fixture.state, fixture.password, entry.body);
+      const logged = coreLoginAccept(fixture.state, entry.body);
       expect(logged.collection_key).toBe(fixture.collection_key);
-      expect(logged.recovery_pending).toBe(entry.recovery_pending);
-      const served = JSON.parse(entry.body) as {
-        key_wraps: { recipient_kind: string }[];
-      };
-      const has = served.key_wraps.some((wrap) => wrap.recipient_kind === "device");
-      expect(has ? "device" : "recovery").toBe(entry.wrap);
+      expect(logged.rotation_owed ?? null).toBe(entry.rotation_owed);
+      expect(logged.legacy_wrap ? "legacy" : "bound").toBe(entry.wrap);
     }
   });
 
@@ -277,7 +251,7 @@ describe("signing in", () => {
    */
   it("persists what the server confirmed and nothing else", () => {
     const entry = fixture.logins[0];
-    const logged = coreLoginAccept(fixture.state, fixture.password, entry.body);
+    const logged = coreLoginAccept(fixture.state, entry.body);
     const served = JSON.parse(entry.body) as { session_token: string; key_epoch: number };
     expect(logged.state.session_token).toBe(served.session_token);
     expect(logged.key_epoch).toBe(served.key_epoch);
@@ -313,14 +287,7 @@ describe("recovering", () => {
   it("signs the roster step with the phrase and pins it", () => {
     const started = coreRecoverStartAccept(fixture.phrase, fixture.recover_start);
     const device = coreNewDevice();
-    const recovering = coreRecoverFinishRequest(
-      "alice",
-      fixture.phrase,
-      "a new password",
-      started,
-      device,
-      b64([1]),
-    );
+    const recovering = coreRecoverFinishRequest("alice", fixture.phrase, started, device, b64([1]));
     const body = JSON.parse(recovering.request.body) as {
       roster: { roster_seq: number; signer: { kind: string }; devices: { device_id: string }[] };
     };
@@ -341,25 +308,16 @@ describe("account operations", () => {
   });
 
   /**
-   * The signature covers the replacement recovery wrap as well as the new
-   * verifier, so nobody holding only a token can swap in key material the
-   * account holder never produced.
+   * The password wraps nothing, so a change carries the new verifier and a
+   * signature and no key material for a token holder to swap.
    */
-  it("sends a fresh wrap on a password change and signs over it", () => {
-    const changed = coreChangePasswordRequest(
-      fixture.state,
-      fixture.collection_key,
-      "a new password",
-      b64([1, 2]),
-      PASSWORD_START,
-    );
-    const body = JSON.parse(changed.request.body) as {
-      kdf_salt: string;
-      recovery_nonce: string;
+  it("sends only the new verifier on a password change, signed", () => {
+    const changed = coreChangePasswordRequest(fixture.state, b64([1, 2]), PASSWORD_START);
+    const body = JSON.parse(changed.request.body) as Record<string, unknown> & {
       signature: { mldsa: string };
     };
-    expect(body.kdf_salt).toBe(changed.kdf_salt);
-    expect(body.kdf_salt).not.toBe(b64(fixture.state.kdf_salt));
+    expect(body).not.toHaveProperty("kdf_salt");
+    expect(body).not.toHaveProperty("recovery_nonce");
     expect(body.signature.mldsa.length).toBeGreaterThan(0);
   });
 
@@ -379,7 +337,7 @@ describe("the refusals", () => {
       const run =
         entry.flow === "recover start accept"
           ? () => coreRecoverStartAccept(fixture.phrase, entry.body)
-          : () => coreLoginAccept(fixture.state, fixture.password, entry.body);
+          : () => coreLoginAccept(fixture.state, entry.body);
       expect(refusalOf(run)).toBe(entry.refusal.refusal);
     }
   });

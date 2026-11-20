@@ -133,6 +133,7 @@ export function serializeNotebook(
     archived ?? stored?.archived ?? false,
     hideFromAll ?? stored?.hide_from_all ?? false,
     previousRaw,
+    new Date().toISOString(),
   );
 }
 

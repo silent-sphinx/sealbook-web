@@ -23,8 +23,8 @@ export type BookmarkExportEntry = {
 };
 
 type BookmarkExportPayload = {
-  "@type": "sealbook-bookmark-export";
-  version: 1;
+  "@type": "SealbookBookmarksExport";
+  version: "1.1";
   exportedAt: string;
   bookmarks: BookmarkExportEntry[];
   collections: Array<{
@@ -82,8 +82,8 @@ export function generateBookmarkExportData(
   }));
 
   const payload: BookmarkExportPayload = {
-    "@type": "sealbook-bookmark-export",
-    version: 1,
+    "@type": "SealbookBookmarksExport",
+    version: "1.1",
     exportedAt: new Date().toISOString(),
     bookmarks: entries,
     collections: collections.map((c) => ({

@@ -124,7 +124,9 @@ describe("parseAccountExport", () => {
       {
         id: "00000000-0000-0000-0000-000000000001",
         contentType: "application/jscontact+json",
-        payload: '{"@type":"Card","name":{"full":"Ada"}}',
+        // Read back through core, which moves a 1.0 payload to the current schema.
+        payload:
+          '{"@type":"Card","name":{"full":"Ada"},"sealbook:addressBookId":"00000000-0000-0000-0000-000000000001","sealbook:version":"1.1","version":"1.0"}',
       },
       {
         id: "00000000-0000-0000-0000-000000000003",
@@ -134,7 +136,7 @@ describe("parseAccountExport", () => {
       {
         id: "00000000-0000-0000-0000-000000000002",
         contentType: "application/sealbook.note+json",
-        payload: '{"@type":"Note","parentId":"x","pinned":true,"title":"Plan"}',
+        payload: '{"@type":"Note","parentId":"x","pinned":true,"title":"Plan","version":"1.1"}',
       },
     ]);
   });

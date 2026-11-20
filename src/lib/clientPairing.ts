@@ -21,6 +21,7 @@ import { pinSealedRoster, syncRoster, verifiedRosterCore } from "./roster";
 import { apiRoot, getJson, getTextStatus, postJson, postText } from "./transport";
 import { checkProtocol, deviceFromSecrets, type Session } from "./clientCore";
 import { rotateVault } from "./clientAuth";
+import type { PhraseConfirm, RotationOutcome } from "./clientRotation";
 import type { CoreDevice, CorePairPreview, CorePairResponse } from "./wasm";
 import type { DeviceState, Roster } from "./types";
 
@@ -78,7 +79,7 @@ export async function pairJoin(server: string, username: string): Promise<JoinPa
   const generated = coreNewDevice();
   const device: CoreDevice = generated.device;
   const started = corePairStart(username, device, generated.mldsa_seed, generated.ed25519_sk);
-  const served = await postJson<unknown>(`${root}/v1/pair/join`, JSON.parse(started.body));
+  const served = await postJson<unknown>(`${root}/v2/pair/join`, JSON.parse(started.body));
   const joined = corePairJoinAccept(JSON.stringify(served));
   return {
     pairId: joined.pair_id,
@@ -113,7 +114,15 @@ export async function pairJoinStep(
     const pin = corePairFinish(pairing.secret, pairing.device, pairing.pairId, text);
     return {
       kind: "ready",
-      state: { ...pairing.state, roster_seq: pin.roster_seq, roster_transcript: pin.transcript },
+      // The approver vouches for the manifest sequence too. Taking it as this
+      // device's own high-water mark is what stops a server serving a manifest
+      // older than the one the approver had seen.
+      state: {
+        ...pairing.state,
+        roster_seq: pin.roster_seq,
+        roster_transcript: pin.transcript,
+        manifest_seq: pin.manifest_seq,
+      },
     };
   }
   if (decision === "Expired") return { kind: "expired" };
@@ -232,6 +241,7 @@ export async function pairApprove(
     verified,
     response,
     preview,
+    session.manifestSeq,
   );
   await postJson<unknown>(
     `${apiRoot(state.server)}${corePairApprovePath(response.nameplate)}`,
@@ -264,7 +274,7 @@ export async function listDevices(session: Session): Promise<DeviceSummary[]> {
 }
 
 /**
- * Revokes another device and rotates the vault key away from it.
+ * Revokes other devices and rotates the vault key away from them, in one rotation.
  *
  * Removing a device is not enough on its own: it still holds the collection key
  * and any copy of the ciphertext it kept. So the key is replaced, every object
@@ -275,16 +285,19 @@ export async function listDevices(session: Session): Promise<DeviceSummary[]> {
  *
  * `onProgress` reports re-encryption progress; a large vault takes a while.
  */
-export async function revokeDevice(
+export async function revokeDevices(
   session: Session,
-  deviceId: string,
+  deviceIds: string[],
   password: string,
+  confirmPhrase: PhraseConfirm,
   onProgress?: (done: number, total: number) => void,
-): Promise<{ session: Session; phrase: string }> {
+): Promise<RotationOutcome> {
   // Core refuses this too, but only once the rotation has a verified roster to
   // check against, which costs a fresh sign-in and the user's password first.
-  if (deviceId === session.state.device_id) {
+  if (deviceIds.includes(session.state.device_id)) {
     throw new Error("You cannot revoke the device you are signed in on.");
   }
-  return rotateVault(session, deviceId, password, onProgress);
+  // Core wants them strictly ascending, which the signature then covers in order.
+  const ids = [...new Set(deviceIds)].sort();
+  return rotateVault(session, ids, password, confirmPhrase, onProgress);
 }

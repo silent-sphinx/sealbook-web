@@ -33,7 +33,7 @@ describe("a task export", () => {
     const body = JSON.parse(data);
     expect(filename).toMatch(/^sealbook-tasks-\d{4}-\d{2}-\d{2}\.json$/);
     expect(mime).toBe("application/json");
-    expect(body["@type"]).toBe("sealbook-task-export");
+    expect(body["@type"]).toBe("SealbookTasksExport");
     expect(body.lists.map((list: { name: string }) => list.name)).toEqual(["Default Task List", "Work"]);
     expect(body.tasks[0].listName).toBe("Work");
     expect(body.tasks[0].raw).toBeUndefined();

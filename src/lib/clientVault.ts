@@ -66,7 +66,7 @@ import {
   manifestContext,
   manifestState,
   rememberManifestSeq,
-  requireManifestAbsenceOk,
+  refuseMissingManifest,
   sealPayload,
   serializeVault,
   verifyManifest,
@@ -164,7 +164,7 @@ export async function putCalendarEvents(
         root,
       );
       const response = await putJson<{ latest_revision: number }>(
-        `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects/batch`,
+        `${apiRoot(session.state.server)}/v2/collections/${session.state.collection_id}/objects/batch`,
         {
           objects: writes.map((write) => ({
             id: write.id,
@@ -280,7 +280,7 @@ export type ChangesWalk = {
   /**
    * The manifest to check the objects against, verbatim as it was served.
    * Absent for a collection no manifest-writing client has written, where
-   * `requireManifestAbsenceOk` is the rule instead.
+   * `refuseMissingManifest` is the rule instead.
    */
   manifestJson?: string;
   tombstoneFloor: number;
@@ -455,7 +455,7 @@ async function openVault(
     onProgress?.({ stage: "verifying" });
     await verifyManifest(session, walk.manifestJson, walk.objects.map(entryFor));
   } else {
-    requireManifestAbsenceOk(session);
+    refuseMissingManifest(session);
   }
   if (onProgress && walk.objects.length > 0) {
     onProgress({ stage: "decrypting", count: walk.objects.length });
@@ -585,7 +585,7 @@ export async function importVault(
         root,
       );
       const response = await putJson<{ latest_revision: number }>(
-        `${apiRoot(session.state.server)}/v1/collections/${session.state.collection_id}/objects/batch`,
+        `${apiRoot(session.state.server)}/v2/collections/${session.state.collection_id}/objects/batch`,
         {
           objects: sealed.map((write) => ({
             id: write.id,

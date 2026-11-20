@@ -17,6 +17,7 @@ import {
   coreAttachmentDeleteRequest,
   coreAttachmentLimits,
   coreAttachmentPlan,
+  coreAttachmentReadLen,
   coreAttachmentRanges,
   coreAttachmentSweepOrphans,
   coreAttachmentSweepPage,
@@ -155,7 +156,10 @@ async function uploadChunks(
   const nonceLen = coreAttachmentLimits().nonce_len;
   const digests: string[] = [];
   for (const range of coreAttachmentRanges(plan)) {
-    const plaintext = bytes.subarray(Number(range.start), Number(range.end));
+    // The chunk is the slice plus its Padme zero fill, so the server learns the
+    // size only to within a small step. The digest covers the padded chunk too.
+    const plaintext = new Uint8Array(Number(range.len));
+    plaintext.set(bytes.subarray(Number(range.start), Number(range.end)));
     digests.push(coreAttachmentChunkDigest(plaintext));
     const sealed = coreSealAttachmentChunk(
       plan.key,
@@ -197,6 +201,7 @@ export async function downloadAttachment(
   // file is held once rather than twice.
   const parts: Blob[] = [];
   const digests: string[] = [];
+  let decrypted = 0;
   for (let index = 0; index < attachment.chunkCount; index += 1) {
     const { nonce, bytes } = await getAttachmentChunk(
       `${root}${coreAttachmentChunkPath(collectionId, attachment.id, index)}`,
@@ -214,12 +219,18 @@ export async function downloadAttachment(
       ),
     );
     digests.push(coreAttachmentChunkDigest(plaintext));
+    decrypted += plaintext.length;
     parts.push(new Blob([plaintext]));
   }
   asIntegrityError(attachment.id, () =>
     coreAttachmentVerify(attachment.id, attachment.contentHash, digests),
   );
-  return new Blob(parts, { type: attachment.mimeType });
+  // The digests matched, so the padding is cut off only now; a length that is
+  // neither the file's nor its padded one is not the file the record committed to.
+  const length = asIntegrityError(attachment.id, () =>
+    coreAttachmentReadLen(attachment.id, attachment.byteSize, decrypted),
+  );
+  return new Blob(parts, { type: attachment.mimeType }).slice(0, length, attachment.mimeType);
 }
 
 /**

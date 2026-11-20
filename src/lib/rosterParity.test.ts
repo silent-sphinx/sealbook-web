@@ -73,7 +73,7 @@ const refusal = (run: () => unknown): string | undefined => {
 
 describe("the shared roster chain", () => {
   it("asks from the pin, so the chain back to it can be checked", () => {
-    const base = `/v1/collections/${fixture.collection_id}/roster`;
+    const base = `/v2/collections/${fixture.collection_id}/roster`;
     expect(coreRosterRequest(context(0)).path).toBe(base);
     expect(coreRosterRequest(context(2)).path).toBe(`${base}?from=2`);
   });

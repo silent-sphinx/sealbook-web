@@ -265,7 +265,9 @@ export async function saveDevice(state: DeviceState, password: string): Promise<
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const kdf = localStorageKdf();
   const key = await deriveStorageKey(password, salt, kdf);
-  const { session_token: _sessionToken, ...secretState } = state;
+  // The salt belonged to the password wrap the protocol no longer has. A record
+  // written before that is still read, and the field goes when it is next saved.
+  const { session_token: _sessionToken, kdf_salt: _staleSalt, ...secretState } = state;
   const metadata = metadataOf(state);
   const ciphertext = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv, additionalData: metadataAad(metadata) },

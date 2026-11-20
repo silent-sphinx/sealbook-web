@@ -157,7 +157,15 @@ describe("this client's own calendar helpers", () => {
     const calendar = parseCalendar("c1", '{"@type":"Calendar","version":"1.0","name":"Work"}');
     const written = JSON.parse(serializeCalendar(calendar)) as Record<string, unknown>;
     expect(written.id).toBeUndefined();
-    expect(Object.keys(written).sort()).toEqual(["@type", "color", "favorite", "name", "version"]);
+    // `favorite` is written only when true, and every write carries its stamps.
+    expect(Object.keys(written).sort()).toEqual([
+      "@type",
+      "color",
+      "createdAt",
+      "name",
+      "updatedAt",
+      "version",
+    ]);
   });
 
   it("keep the flags and an unknown key through a rename", () => {
@@ -223,18 +231,25 @@ describe("this client's own calendar helpers", () => {
  * the one record of what a released client wrote, and they must still read and
  * write back byte for byte.
  */
+/** A write stamps `updatedAt` with the moment it happens, so only the rest is compared. */
+const unstamped = (raw: string): Record<string, unknown> => {
+  const value = JSON.parse(raw) as Record<string, unknown>;
+  delete value.updatedAt;
+  return value;
+};
+
 describe("the payloads the writers before core produced", () => {
   it("an event round-trips through core's writer", () => {
     const stored = readFixture("payloads/calendar-event.json");
     const event = parseEvent("e1", stored);
-    expect(JSON.parse(serializeEvent(event))).toEqual(JSON.parse(stored));
+    expect(unstamped(serializeEvent(event))).toEqual(unstamped(stored));
   });
 
   it.each(["payloads/calendar.json", "payloads/calendar-archived.json"])(
     "%s round-trips through core's writer",
     (name) => {
       const stored = readFixture(name);
-      expect(JSON.parse(serializeCalendar(parseCalendar("c1", stored)))).toEqual(JSON.parse(stored));
+      expect(unstamped(serializeCalendar(parseCalendar("c1", stored)))).toEqual(unstamped(stored));
     },
   );
 });

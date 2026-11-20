@@ -41,7 +41,7 @@ export function serializeAddressBook(
     hide_from_all: hideFromAll ?? stored?.hide_from_all ?? false,
     color,
     raw: previousRaw,
-  });
+  }, new Date().toISOString());
 }
 
 export function parseAddressBook(id: string, raw: string): AddressBook {

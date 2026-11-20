@@ -166,7 +166,7 @@ export function serializeTaskList(
     archived: archived ?? stored?.archived ?? false,
     hide_from_all: hideFromAll ?? stored?.hide_from_all ?? false,
     raw: previousRaw,
-  });
+  }, new Date().toISOString());
 }
 
 export function parseTaskList(id: string, raw: string): TaskList {

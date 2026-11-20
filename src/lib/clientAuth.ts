@@ -1,4 +1,3 @@
-import { b64ToByteArray } from "./bytes";
 import {
   coreAccountChallengeRequest,
   coreChangePasswordRequest,
@@ -30,7 +29,7 @@ import { elapsed, log } from "./log";
 import { adoptKey } from "./roster";
 import { apiRoot, deleteJson, postText } from "./transport";
 import { checkProtocol, fromCoreState, rememberManifestSeq, toCoreState, type Session } from "./clientCore";
-import { rotateAuthenticated } from "./clientRotation";
+import { rotateAuthenticated, type PhraseConfirm, type RotationOutcome } from "./clientRotation";
 import { saveServerPosture } from "./storage";
 import type { DeviceState } from "./types";
 
@@ -52,15 +51,15 @@ export async function registerAccount(
   const root = apiRoot(server);
   await checkProtocol(root);
   log.info("registering a new account");
-  // The device, the collection, the collection key, the salt and the phrase all
-  // come from core, so this app is not the one deciding what a new account is.
+  // The device, the collection, the collection key and the phrase all come from
+  // core, so this app is not the one deciding what a new account is.
   const identity = coreNewRegistration();
   const opaque = coreOpaqueRegisterStart(password);
   const started = coreRegisterStartAccept(
     await post(root, coreRegisterStartRequest(username, opaque.request)),
   );
   const upload = coreOpaqueRegisterUpload(opaque.state, password, started);
-  const registering = coreRegisterFinishRequest(username, password, upload, identity);
+  const registering = coreRegisterFinishRequest(username, upload, identity);
   const finished = await post(root, registering.request);
   // Pinned on the roster this device sealed, not on one fetched back: the first
   // roster a device accepts is the only one it can anchor on without either a
@@ -99,7 +98,7 @@ export async function loginAccount(state: DeviceState, password: string): Promis
     root,
     coreLoginFinishRequest(core, opaque.state, password, starting.challenge, startedBody),
   );
-  const logged = coreLoginAccept(core, password, finished);
+  const logged = coreLoginAccept(core, finished);
   // No key until the roster has vouched for it, below.
   const session: Session = {
     collectionKey: "",
@@ -109,7 +108,6 @@ export async function loginAccount(state: DeviceState, password: string): Promis
     // Seeded from the device state, not from zero: the high-water mark has to
     // outlive the session or a restart would reopen the rollback window.
     manifestSeq: logged.state.manifest_seq ?? 0,
-    recoveryPending: logged.recovery_pending,
     state: { ...fromCoreState(logged.state), server: root },
   };
   // The roster comes first, before anything reads or writes the vault: it is
@@ -117,7 +115,11 @@ export async function loginAccount(state: DeviceState, password: string): Promis
   // longer in it has been revoked and should say so here rather than fail
   // confusingly later. It is also what proves the key login opened is the
   // account's: the server can seal a wrap of its own key to this device.
-  await adoptKey(session, logged.collection_key, logged.key_epoch);
+  await adoptKey(session, logged.collection_key, logged.key_epoch, logged.legacy_wrap);
+  // An unmigrated roster owes the one rotation whatever the server reports, so a
+  // server that left the hint off cannot keep the account on the old protocol.
+  session.rotationOwed =
+    logged.rotation_owed ?? (session.rosterMigrated === false ? "upgrade" : undefined);
   // Pin the accepted posture now the sign-in has succeeded, so a later visit
   // catches a server that has weakened itself. This is the single funnel every
   // authenticated flow passes through, mirroring the native client.
@@ -125,13 +127,13 @@ export async function loginAccount(state: DeviceState, password: string): Promis
   log.info("signed in", {
     key_epoch: session.keyEpoch,
     latest_revision: session.latestRevision,
-    recovery_pending: session.recoveryPending === true,
+    rotation_owed: session.rotationOwed ?? "none",
     ms: elapsed(loginStarted),
   });
-  if (session.rosterLacksKeyCommitment) {
-    log.warn("the account's roster predates key commitments; a rotation upgrades it");
+  if (session.rotationOwed === "upgrade") {
+    log.warn("the account has not moved to the current protocol; writes wait for the rotation");
   }
-  if (session.recoveryPending) {
+  if (session.rotationOwed === "recovery") {
     log.warn(
       "a recovery is unfinished, so the phrase used for it still opens this vault and " +
         "writes are refused until it is rotated",
@@ -141,7 +143,7 @@ export async function loginAccount(state: DeviceState, password: string): Promis
 }
 
 export async function revokeSession(session: Session): Promise<void> {
-  await deleteJson(`${apiRoot(session.state.server)}/v1/session`, session.token);
+  await deleteJson(`${apiRoot(session.state.server)}/v2/session`, session.token);
 }
 
 /**
@@ -162,7 +164,8 @@ export async function recoverAccount(
   username: string,
   phrase: string,
   password: string,
-): Promise<{ session: Session; phrase: string }> {
+  confirmPhrase: PhraseConfirm,
+): Promise<RotationOutcome> {
   const root = apiRoot(server);
   await checkProtocol(root);
   // Begin registering the replacement password, so the server can answer with
@@ -174,14 +177,7 @@ export async function recoverAccount(
   );
   const upload = coreOpaqueRegisterUpload(opaque.state, password, started.opaque_response);
   const device = coreNewDevice();
-  const recovering = coreRecoverFinishRequest(
-    username,
-    phrase,
-    password,
-    started,
-    device,
-    upload,
-  );
+  const recovering = coreRecoverFinishRequest(username, phrase, started, device, upload);
   const finished = await post(root, recovering.request);
   // Pinned from the roster this device signed with the phrase, so its first
   // fetch has to be a step from a roster it has already checked.
@@ -192,30 +188,34 @@ export async function recoverAccount(
   // The phrase just used would otherwise keep working, and so would any copy of
   // it someone else kept: enrolling a device does not change the key the phrase
   // unwraps. Rotate, which issues a fresh phrase and retires the old one. Until
-  // it finishes the server reports `recovery_pending` and refuses writes.
-  return rotateVault(session, null, password);
+  // it finishes the server reports a rotation owed and refuses writes.
+  return rotateVault(session, [], password, confirmPhrase);
 }
 
 /**
- * Finishes the rotation an interrupted recovery left owing, and returns the
- * replacement recovery phrase for the caller to show.
+ * Finishes the rotation the account owes, optionally revoking devices in the same
+ * pass, and returns the replacement recovery phrase for the caller to show.
  *
  * A recovery enrols a device but does not change the key the phrase unwraps, so
  * until the vault is rotated the phrase just used, and any copy of it, still
  * opens everything. `recoverAccount` rotates straight away; this is the path for
  * a recovery that was interrupted between the two, which the server reports as
- * `recovery_pending` at every login and enforces by refusing writes.
+ * a rotation owed at every login and enforces by refusing writes. It is also the
+ * rotation an account that has not moved to the current protocol owes.
  *
  * Unlike the Rust client, a pending recovery is not raised as an error from
  * `loginAccount`: the vault is still readable, and refusing to open it would
  * leave the user with no way to see what they recovered. The session carries
- * `recoveryPending` instead, and the app asks to finish it.
+ * `rotationOwed` instead, and the app asks to finish it.
  */
-export async function completeRecoveryRotation(
+export async function rotateOwed(
   session: Session,
+  revokeDeviceIds: string[],
   password: string,
-): Promise<{ session: Session; phrase: string }> {
-  return rotateVault(session, null, password);
+  confirmPhrase: PhraseConfirm,
+  onProgress?: (done: number, total: number) => void,
+): Promise<RotationOutcome> {
+  return rotateVault(session, revokeDeviceIds, password, confirmPhrase, onProgress);
 }
 
 async function accountChallenge(session: Session): Promise<string> {
@@ -266,21 +266,11 @@ export async function changePassword(
     await post(root, corePasswordChangeStartRequest(opaque.request), fresh.token),
   );
   const upload = coreOpaqueRegisterUpload(opaque.state, newPassword, started.opaque_response);
-  // The signature covers the replacement recovery wrap as well as the new
-  // verifier, so nobody holding only a token can swap in key material the account
-  // holder never produced and quietly destroy password-based recovery.
-  const changed = coreChangePasswordRequest(
-    toCoreState(fresh.state),
-    fresh.collectionKey,
-    newPassword,
-    upload,
-    started,
-  );
+  // The password wraps nothing, so changing it re-wraps nothing: the request is
+  // the new verifier, signed so a bare session token cannot swap it.
+  const changed = coreChangePasswordRequest(toCoreState(fresh.state), upload, started);
   await post(root, changed.request, fresh.token);
-  return loginAccount(
-    { ...fresh.state, kdf_salt: b64ToByteArray(changed.kdf_salt) },
-    newPassword,
-  );
+  return loginAccount(fresh.state, newPassword);
 }
 
 export async function deleteAccount(session: Session, currentPassword: string): Promise<void> {
@@ -302,14 +292,15 @@ export async function deleteAccount(session: Session, currentPassword: string): 
  *
  * Replacing the phrase without rotating would leave anyone who has ever seen the
  * old one still able to decrypt, because the key their wrap opens would not have
- * changed. Needs the password, since the new key must be re-wrapped for it.
+ * changed. The password is asked for only to prove intent with a fresh sign-in.
  */
 export async function rotatePhrase(
   session: Session,
   password: string,
+  confirmPhrase: PhraseConfirm,
   onProgress?: (done: number, total: number) => void,
-): Promise<{ session: Session; phrase: string }> {
-  return rotateVault(session, null, password, onProgress);
+): Promise<RotationOutcome> {
+  return rotateVault(session, [], password, confirmPhrase, onProgress);
 }
 
 /**
@@ -325,13 +316,14 @@ export async function rotatePhrase(
  */
 export async function rotateVault(
   session: Session,
-  revokeDeviceId: string | null,
+  revokeDeviceIds: string[],
   password: string,
+  confirmPhrase: PhraseConfirm,
   onProgress?: (done: number, total: number) => void,
-): Promise<{ session: Session; phrase: string }> {
+): Promise<RotationOutcome> {
   // The server requires a recently authenticated session, and re-asking for the
   // password is what proves intent for a destructive change.
   const fresh = await loginAccount(session.state, password);
   rememberManifestSeq(fresh, session.manifestSeq);
-  return rotateAuthenticated(fresh, revokeDeviceId, password, onProgress);
+  return rotateAuthenticated(fresh, revokeDeviceIds, confirmPhrase, onProgress);
 }

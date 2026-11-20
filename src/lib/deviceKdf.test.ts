@@ -13,7 +13,6 @@ const state: DeviceState = {
   account_id: "00000000-0000-0000-0000-0000000000a1",
   collection_id: "00000000-0000-0000-0000-0000000000c1",
   device_id: "00000000-0000-0000-0000-0000000000d1",
-  kdf_salt: "AAAA",
   hpke_sk: "BBBB",
   mldsa_seed: "CCCC",
   ed25519_sk: "DDDD",
@@ -70,6 +69,15 @@ describe("the device record's key stretching", () => {
     expect(await loadDevice("correct horse battery")).toEqual(state);
 
     expect(JSON.parse(stored[DEVICE_STORAGE_KEY]).kdf).toBe(localStorageKdf());
+    expect(await loadDevice("correct horse battery")).toEqual(state);
+  });
+
+  /**
+   * The salt belonged to the password wrap the protocol no longer has. A record
+   * written before that is still read, and the field goes when it is next saved.
+   */
+  it("drops the stale salt of a record written before the password wrapped nothing", async () => {
+    await saveDevice({ ...state, kdf_salt: "AAAA" }, "correct horse battery");
     expect(await loadDevice("correct horse battery")).toEqual(state);
   });
 

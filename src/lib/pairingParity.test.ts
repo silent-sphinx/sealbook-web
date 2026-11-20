@@ -113,6 +113,9 @@ type Fixture = {
 
 const fixture = JSON.parse(readFixture("pairing/handshake.json")) as Fixture;
 
+/** The sequence the fixture was generated with; core's pairing tests use the same. */
+const APPROVER_MANIFEST_SEQ = 9;
+
 function context() {
   return {
     collection_id: fixture.collection_id,
@@ -132,6 +135,7 @@ function approve(preview: CorePairPreview = fixture.preview) {
     fixture.verified,
     fixture.responded.response,
     preview,
+    APPROVER_MANIFEST_SEQ,
   );
 }
 
@@ -222,7 +226,9 @@ describe("the shared pairing fixture", () => {
     const body = JSON.parse(approval.body) as { sealed_pin: string };
     const pin = finish(withField(fixture.ready_response, "sealed_pin", body.sealed_pin));
     const signed = coreRosterAcceptSealed(context(), fixture.collection_key, approval.roster_json);
-    expect(pin).toEqual(signed.pin);
+    // The roster half is what the sealed step commits to; the manifest sequence
+    // is the approver's own, sealed alongside it.
+    expect(pin).toEqual({ ...signed.pin, manifest_seq: APPROVER_MANIFEST_SEQ });
     expect(signed.roster.devices.map((device) => device.device_id)).toContain(
       fixture.joining.device.device_id,
     );

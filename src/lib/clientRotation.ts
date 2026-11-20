@@ -1,7 +1,7 @@
 import { bytesFromJson } from "./bytes";
 import {
   coreManifestSign,
-  coreResealRow,
+  coreResealRowUpgrading,
   coreRotationEntries,
   coreRotationPlan,
   coreRotationRecipients,
@@ -20,7 +20,7 @@ import {
   manifestContext,
   manifestState,
   rememberManifestSeq,
-  requireManifestAbsenceOk,
+  refuseMissingManifest,
   serializeVault,
   verifyManifest,
   type Session,
@@ -28,6 +28,22 @@ import {
 import { walkChanges, type ChangesWalk } from "./clientVault";
 import type { CoreSealedRow } from "./wasm";
 import type { ManifestBody, RotatedObject } from "./types";
+
+/**
+ * Shows the new phrase to the user and resolves once they have proved they hold
+ * it, or rejects to abandon the rotation. Called before anything is posted: the
+ * rotation replaces the phrase, and one shown only after the server has
+ * committed is lost if the tab closes on that screen, leaving a wrap for a
+ * phrase nobody holds.
+ */
+export type PhraseConfirm = (phrase: string) => Promise<void>;
+
+export type RotationOutcome = {
+  session: Session;
+  phrase: string;
+  /** Objects moved to the current payload schema on the way through. */
+  upgraded: number;
+};
 
 /**
  * The rotation proper, on a session that has just authenticated.
@@ -39,12 +55,12 @@ import type { ManifestBody, RotatedObject } from "./types";
  */
 export function rotateAuthenticated(
   fresh: Session,
-  revokeDeviceId: string | null,
-  password: string,
+  revokeDeviceIds: string[],
+  confirmPhrase: PhraseConfirm,
   onProgress?: (done: number, total: number) => void,
-): Promise<{ session: Session; phrase: string }> {
+): Promise<RotationOutcome> {
   return serializeVault(fresh.state.collection_id, () =>
-    rotateAuthenticatedInner(fresh, revokeDeviceId, password, onProgress),
+    rotateAuthenticatedInner(fresh, revokeDeviceIds, confirmPhrase, onProgress),
   );
 }
 
@@ -55,8 +71,7 @@ export function rotateAuthenticated(
  */
 export async function verifyWalk(session: Session, walk: ChangesWalk, seq: number): Promise<void> {
   if (!walk.manifestJson) {
-    requireManifestAbsenceOk(session);
-    return;
+    refuseMissingManifest(session);
   }
   await verifyManifest(session, walk.manifestJson, walk.objects.map(entryFor));
   const walkSeq = (JSON.parse(walk.manifestJson) as ManifestBody).manifest_seq;
@@ -67,10 +82,10 @@ export async function verifyWalk(session: Session, walk: ChangesWalk, seq: numbe
 
 async function rotateAuthenticatedInner(
   fresh: Session,
-  revokeDeviceId: string | null,
-  password: string,
+  revokeDeviceIds: string[],
+  confirmPhrase: PhraseConfirm,
   onProgress?: (done: number, total: number) => void,
-): Promise<{ session: Session; phrase: string }> {
+): Promise<RotationOutcome> {
   const root = apiRoot(fresh.state.server);
   const collectionId = fresh.state.collection_id;
 
@@ -86,7 +101,7 @@ async function rotateAuthenticatedInner(
   const currentRoster = await verifiedRoster(fresh);
   const remaining = coreRotationRecipients(
     fresh.state.device_id,
-    revokeDeviceId,
+    revokeDeviceIds,
     currentRoster.devices,
   );
   // Paged like any other full read. The server's own ceiling is the rotation
@@ -114,7 +129,7 @@ async function rotateAuthenticatedInner(
   );
   const rotationStarted = performance.now();
   log.info("rotating the vault key", {
-    revoking: revokeDeviceId !== null,
+    revoking: revokeDeviceIds.length,
     live: plan.reseal.length,
     tombstones: plan.carried.length,
     retiring: plan.retired.length,
@@ -128,15 +143,17 @@ async function rotateAuthenticatedInner(
     fromEpoch + 1,
     remaining,
     fresh.state.username,
-    password,
   );
   const keyWraps = wraps.key_wraps;
 
   const total = plan.reseal.length;
   const resealed: CoreSealedRow[] = [];
+  let upgraded = 0;
   const objects: RotatedObject[] = [];
   for (const row of plan.reseal) {
-    const sealed = coreResealRow(fresh.collectionKey, newCk, collectionId, row);
+    const outcome = coreResealRowUpgrading(fresh.collectionKey, newCk, collectionId, row);
+    const sealed = outcome.row;
+    if (outcome.upgraded) upgraded += 1;
     resealed.push(sealed);
     objects.push({
       id: sealed.id,
@@ -178,26 +195,27 @@ async function rotateAuthenticatedInner(
     bytesFromJson(fresh.state.mldsa_seed),
     bytesFromJson(fresh.state.ed25519_sk),
     collectionId,
-    revokeDeviceId ?? "",
+    revokeDeviceIds,
     keyEpoch,
     keyWraps,
     objects,
     manifest.digest,
     {
-      kdf_salt: wraps.kdf_salt,
       phrase_mldsa_pk: wraps.phrase_mldsa_pk,
       phrase_ed25519_pk: wraps.phrase_ed25519_pk,
       phrase_lookup_id: wraps.phrase_lookup_id,
       phrase_scheme: wraps.phrase_scheme,
     },
   );
+  // Everything is signed, but nothing is sent until the user has shown they hold
+  // the phrase; abandoning here leaves the account exactly as it was.
+  await confirmPhrase(wraps.phrase);
 
   const response = await postJson<{ key_epoch: number; latest_revision: number }>(
-    `${root}/v1/collections/${collectionId}/rotate`,
+    `${root}/v2/collections/${collectionId}/rotate`,
     {
       key_epoch: keyEpoch,
-      revoke_device_id: revokeDeviceId,
-      kdf_salt: wraps.kdf_salt,
+      revoke_device_ids: revokeDeviceIds,
       key_wraps: keyWraps,
       phrase_recovery: {
         mldsa_pk: wraps.phrase_mldsa_pk,
@@ -218,18 +236,18 @@ async function rotateAuthenticatedInner(
   fresh.collectionKey = newCk;
   fresh.keyEpoch = response.key_epoch;
   fresh.latestRevision = response.latest_revision;
-  fresh.state = { ...fresh.state, kdf_salt: wraps.kdf_salt };
   // The rotation carried a roster at the new epoch, so the pin moves with it.
   // Done after the key and epoch are updated, because the pin is computed from
   // the MAC under the new key.
   pinSealedRoster(fresh, newRoster);
-  // A rotation is exactly what an unfinished recovery owes, whatever prompted
-  // it: a new collection key, a new phrase, and everything re-encrypted.
-  fresh.recoveryPending = false;
+  // A rotation is exactly what an unfinished recovery or a migration owes,
+  // whatever prompted it: a new collection key, a new phrase, and everything re-encrypted.
+  fresh.rotationOwed = undefined;
   log.info("vault key rotated", {
     key_epoch: fresh.keyEpoch,
     devices: newRoster.devices.length,
+    upgraded,
     ms: elapsed(rotationStarted),
   });
-  return { session: fresh, phrase: wraps.phrase };
+  return { session: fresh, phrase: wraps.phrase, upgraded };
 }

@@ -27,7 +27,8 @@ export type DeviceState = {
   collection_id: string;
   device_id: string;
   session_token?: string | null;
-  kdf_salt: number[] | string;
+  /** Written by builds before the protocol dropped the password wrap; read, never written. */
+  kdf_salt?: number[] | string;
   hpke_sk: number[] | string;
   mldsa_seed: number[] | string;
   ed25519_sk: number[] | string;
@@ -52,8 +53,8 @@ export type RosterVerified = {
   roster: Roster;
   pin_seq: number;
   pin_transcript: string;
-  /** False for a roster that predates key commitments. */
-  key_committed: boolean;
+  /** Whether the account has moved to the current protocol. */
+  migrated: boolean;
 };
 
 /** The vault features an account can turn off; settings is always on. */

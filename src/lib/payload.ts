@@ -5,7 +5,7 @@
  * is no codegen between the two, so the pairing is covered by a test.
  */
 
-export const PAYLOAD_SCHEMA_VERSION = "1.0";
+export const PAYLOAD_SCHEMA_VERSION = "1.1";
 
 /**
  * Whether a payload declaring `version` can be read by this build.

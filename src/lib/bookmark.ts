@@ -104,7 +104,7 @@ export function serializeBookmarkCollection(
         ? coreBookmarkCollectionParse("", previousRaw).archived
         : false),
     raw: previousRaw,
-  });
+  }, new Date().toISOString());
 }
 
 export function parseBookmarkCollection(

@@ -51,7 +51,7 @@ type Fixture = {
   devices: CoreDevice[];
   recipients: {
     roster: string[];
-    revoke: string | null;
+    revoke: string[];
     keep: string[] | null;
     refusal: { refusal: string } | null;
   }[];

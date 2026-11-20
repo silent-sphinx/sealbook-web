@@ -93,7 +93,7 @@ function rememberRosterPin(session: Session, seq: number, transcript: string): v
  */
 async function verifiedRosterCore(
   session: Session,
-  served?: { collectionKey: string; keyEpoch: number },
+  served?: { collectionKey: string; keyEpoch: number; legacyWrap: boolean },
 ): Promise<VerifiedRoster> {
   const { state, token } = session;
   const context = rosterContext(state);
@@ -101,7 +101,14 @@ async function verifiedRosterCore(
   const body = await getText(`${apiRoot(state.server)}${request.path}`, token);
   try {
     const verified = served
-      ? coreRosterAcceptKey(context, served.collectionKey, served.keyEpoch, 200, body)
+      ? coreRosterAcceptKey(
+          context,
+          served.collectionKey,
+          served.keyEpoch,
+          served.legacyWrap,
+          200,
+          body,
+        )
       : coreRosterAccept(context, session.collectionKey, session.keyEpoch, 200, body);
     const roster = JSON.parse(verified.roster_json) as Roster;
     log.info("device roster verified", {
@@ -130,7 +137,7 @@ async function verifiedRosterChain(session: Session): Promise<RosterVerified> {
     roster: JSON.parse(verified.roster_json) as Roster,
     pin_seq: verified.pin.roster_seq,
     pin_transcript: verified.pin.transcript,
-    key_committed: verified.key_committed,
+    migrated: verified.migrated,
   };
 }
 
@@ -142,7 +149,7 @@ export async function syncRoster(session: Session): Promise<Roster> {
   const verified = await verifiedRosterChain(session);
   rememberRosterPin(session, verified.pin_seq, verified.pin_transcript);
   session.roster = verified.roster;
-  session.rosterLacksKeyCommitment = !verified.key_committed;
+  session.rosterMigrated = verified.migrated;
   return verified.roster;
 }
 
@@ -155,14 +162,15 @@ export async function adoptKey(
   session: Session,
   collectionKey: string,
   keyEpoch: number,
+  legacyWrap: boolean,
 ): Promise<Roster> {
-  const verified = await verifiedRosterCore(session, { collectionKey, keyEpoch });
+  const verified = await verifiedRosterCore(session, { collectionKey, keyEpoch, legacyWrap });
   const roster = JSON.parse(verified.roster_json) as Roster;
   rememberRosterPin(session, verified.pin.roster_seq, verified.pin.transcript);
   session.collectionKey = collectionKey;
   session.keyEpoch = keyEpoch;
   session.roster = roster;
-  session.rosterLacksKeyCommitment = !verified.key_committed;
+  session.rosterMigrated = verified.migrated;
   return roster;
 }
 
@@ -179,7 +187,7 @@ export function pinSealedRoster(session: Session, roster: Roster): void {
   }
   rememberRosterPin(session, verified.pin.roster_seq, verified.pin.transcript);
   session.roster = roster;
-  session.rosterLacksKeyCommitment = !verified.key_committed;
+  session.rosterMigrated = verified.migrated;
 }
 
 export async function rosterDevices(

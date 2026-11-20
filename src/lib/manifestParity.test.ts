@@ -72,17 +72,13 @@ const refusal = (run: () => unknown): string | undefined => {
 };
 
 const held = (): BucketedManifest => {
-  const outcome = coreManifestBucketsAccept(context(), ids, bucketsBody, fixture.devices);
-  if (outcome === "Unmanifested") {
-    throw new Error("the fixture carries a signed manifest");
-  }
-  return outcome.Signed.held;
+  return coreManifestBucketsAccept(context(), ids, bucketsBody, fixture.devices).Signed.held;
 };
 
 describe("the shared manifest fixture", () => {
   it("asks for the whole manifest, and for only the buckets a write touches", () => {
     expect(coreManifestRequest(context()).path).toBe(
-      `/v1/collections/${fixture.collection_id}/manifest`,
+      `/v2/collections/${fixture.collection_id}/manifest`,
     );
     const query = fixture.wanted
       .map((bucket) => bucket.toString(16).padStart(2, "0"))
@@ -127,11 +123,7 @@ describe("the shared manifest fixture", () => {
   });
 
   it("reaches the same root from the whole entry set as from the buckets", () => {
-    const outcome = coreManifestAccept(context(), wholeBody, fixture.devices);
-    if (!("Signed" in outcome)) {
-      throw new Error("the fixture carries a signed manifest");
-    }
-    const { plan, entries } = outcome.Signed;
+    const { plan, entries } = coreManifestAccept(context(), wholeBody, fixture.devices).Signed;
     const whole = coreManifestBucketsFromWhole(plan, entries);
     expect(coreManifestApply(whole, fixture.write).root).toBe(fixture.next_root);
   });
@@ -156,12 +148,13 @@ describe("the shared manifest fixture", () => {
     );
   });
 
-  it("sends a bucket answer with no manifest back to the whole read", () => {
+  it("refuses a bucket answer with no manifest, whatever this device has seen", () => {
     const body = JSON.stringify({ ...fixture.buckets_response, manifest: null });
-    expect(coreManifestBucketsAccept(context(), ids, body, fixture.devices)).toBe("Unmanifested");
-    expect(refusal(() => coreManifestBucketsAccept(context(7), ids, body, fixture.devices))).toBe(
-      "Manifest",
-    );
+    for (const seq of [0, 7]) {
+      expect(refusal(() => coreManifestBucketsAccept(context(seq), ids, body, fixture.devices))).toBe(
+        "Manifest",
+      );
+    }
   });
 
   it("signs the next manifest over the root the server will recompute", () => {
