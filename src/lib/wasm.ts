@@ -2559,8 +2559,13 @@ export function coreMergePayload(
 }
 
 /** What each queued write becomes against a vault just brought up to date. */
-export function coreFlushPlan(outbox: Outbox, vault: LocalVault, date: string): FlushPlan {
-  return core_flush_plan(outbox, vault, date);
+export function coreFlushPlan(
+  outbox: Outbox,
+  vault: LocalVault,
+  date: string,
+  ckB64: string,
+): FlushPlan {
+  return core_flush_plan(outbox, vault, date, ckB64);
 }
 
 /** Throws a core `CollectionBusy` once `attempt` reaches the restart limit. */

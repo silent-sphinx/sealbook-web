@@ -95,7 +95,7 @@ const operations: Record<string, (args: any[]) => unknown> = {
   "offline.local_view": ([vault, outbox]) => coreLocalView(vault, outbox),
   "offline.merge": ([contentType, base, local, remote, date]) =>
     withNulls(coreMergePayload(contentType, base, local, remote, date)),
-  "offline.flush_plan": ([outbox, vault, date]) => coreFlushPlan(outbox, vault, date),
+  "offline.flush_plan": ([outbox, vault, date, ck]) => coreFlushPlan(outbox, vault, date, ck),
   "trash.write": ([kind, raw, now]) => coreTrashWrite(kind, raw, now),
   "trash.restore_write": ([kind, raw, rehome]) => coreTrashRestoreWrite(kind, raw, rehome),
   "trash.hidden": ([nodes]) => [...coreTrashHidden(nodes)].sort(),

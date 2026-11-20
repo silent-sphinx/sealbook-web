@@ -168,7 +168,7 @@ async function flushRounds(session: Session, report: FlushReport): Promise<Flush
   for (;;) {
     const outbox = currentOutbox();
     if (outbox.writes.length === 0) break;
-    const plan = coreFlushPlan(outbox, currentVault(), localDate());
+    const plan = coreFlushPlan(outbox, currentVault(), localDate(), session.collectionKey);
     if (plan.dropped.length > 0) {
       await settle(
         outbox,
