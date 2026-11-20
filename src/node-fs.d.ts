@@ -21,3 +21,7 @@ declare const process: {
   env: Record<string, string | undefined>;
   cwd(): string;
 };
+
+declare module "node:zlib" {
+  export function gzipSync(data: Uint8Array): { length: number };
+}

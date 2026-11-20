@@ -24,3 +24,9 @@ wasm-pack build "$SEALBOOK/crates/sealbook-wasm" \
   --target web \
   --release \
   --out-dir "$ROOT/src/pkg"
+# The password strength check is its own module: zxcvbn's dictionaries are about as
+# large as the whole core, and only the screens that set a password need them.
+wasm-pack build "$SEALBOOK/crates/sealbook-strength" \
+  --target web \
+  --release \
+  --out-dir "$ROOT/src/pkg-strength"

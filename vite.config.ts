@@ -84,8 +84,8 @@ export default defineConfig(({ mode }) => {
           // The QR scanner is only used to approve a pairing, which needs the
           // server anyway, so its ~1 MB decoder is fetched when a scan starts
           // rather than precached for every visit.
-          globIgnores: ["**/node_modules/**/*", "**/zxing_reader-*", "**/ponyfill-*"],
-          navigateFallbackDenylist: [/^\/v1\//, /^\/health$/],
+          globIgnores: ["**/node_modules/**/*", "**/zxing_reader-*", "**/ponyfill-*", "**/sealbook_strength_bg-*"],
+          navigateFallbackDenylist: [/^\/v2\//, /^\/health$/],
         },
       }),
     ],
@@ -107,7 +107,7 @@ export default defineConfig(({ mode }) => {
         "Cross-Origin-Resource-Policy": "same-origin",
       },
       proxy: {
-        "/v1": {
+        "/v2": {
           target: apiTarget,
           changeOrigin: true,
           secure: false,

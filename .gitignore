@@ -8,3 +8,4 @@ tsconfig.app.tsbuildinfo
 
 .env
 .env.local
+src/pkg-strength

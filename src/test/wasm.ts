@@ -24,3 +24,15 @@ import init from "../pkg/sealbook_wasm.js";
 await init({
   module_or_path: readFileSync(resolve(process.cwd(), "src/pkg/sealbook_wasm_bg.wasm")),
 });
+
+import { setStrengthLoader } from "../lib/strength";
+
+// The strength module is its own wasm file, loaded on demand in the browser. Here
+// the bytes come off disk, as for the crypto module above.
+setStrengthLoader(async () => {
+  const module = await import("../pkg-strength/sealbook_strength.js");
+  await module.default({
+    module_or_path: readFileSync(resolve(process.cwd(), "src/pkg-strength/sealbook_strength_bg.wasm")),
+  });
+  return module as never;
+});
