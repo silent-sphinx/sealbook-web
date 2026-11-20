@@ -8,6 +8,8 @@ import { CalendarView } from "./components/CalendarView";
 import { DeleteAddressBookModal } from "./components/DeleteAddressBookModal";
 import { Modal } from "./components/Modal";
 import { Toast } from "./components/Toast";
+import { MigrationDialog } from "./components/MigrationDialog";
+import { usePhraseConfirm } from "./lib/usePhraseConfirm";
 import { Banner } from "./components/Banner";
 import { AppRail, MobileTabBar } from "./components/AppNav";
 import { NotesView } from "./components/NotesView";
@@ -24,7 +26,7 @@ import { ContactsTab } from "./components/ContactsTab";
 import { DecryptingScreen } from "./components/DecryptingScreen";
 import { SearchPalette } from "./components/SearchPalette";
 import {
-  completeRecoveryRotation,
+  rotateOwed,
   browserPlatform,
   ensureDefaultAddressBook,
   ensureDeviceLabel,
@@ -106,7 +108,6 @@ import { emptyDraft, sortContacts } from "./lib/contact";
 import { applyBulkChange, type ContactBulkChange } from "./lib/contactBulk";
 import {
   coreContactIndex,
-  coreLegacyRosterMessage,
   type ContactSearchIndex,
   type VaultSearchIndex,
 } from "./lib/wasm";
@@ -145,11 +146,11 @@ import {
   saveOnboarding,
   saveWeekStart,
   saveAutoLockMinutes,
-  passwordProblem,
   type AutoLockMinutes,
   TIMEZONE_KEY,
   type MainTab,
 } from "./lib/appState";
+import { newPasswordProblem } from "./lib/strength";
 import type { WeekStart } from "./lib/calendarModel";
 import { btnGhostSm, btnSecondarySm, btnWarningSm, focusRing } from "./lib/styles";
 import { mergeTaskLists, mergeTasks } from "./lib/task";
@@ -311,10 +312,13 @@ export default function App() {
   // Set when the welcome hands the user off to an importer, so Settings opens on
   // that feature's section instead of the account one.
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
-  // An interrupted recovery leaves the vault key unrotated, so the phrase that
-  // was used still opens it. The banner asks for the password to finish.
+  // An account owes one rotation until it is on the current protocol, and after
+  // an interrupted recovery. The dialog opens on its own at sign-in and the
+  // banner reopens it after "Later".
   const [finishingRecovery, setFinishingRecovery] = useState(false);
-  const [recoveryPassword, setRecoveryPassword] = useState("");
+  const [migrationDeclined, setMigrationDeclined] = useState(false);
+  const [rotationProgress, setRotationProgress] = useState({ done: 0, total: 0 });
+  const { confirm: confirmPhrase, dialog: phraseDialog } = usePhraseConfirm();
   // The password is dropped once a session is open, so a reconnect after going
   // offline, or after the outbox reports a sign-in is needed, asks for it again.
   const [reconnectPrompt, setReconnectPrompt] = useState(false);
@@ -1203,8 +1207,8 @@ export default function App() {
     // lose the only copy before it was written down.
     setPassword("");
     setConfirmPassword("");
-    setRecoveryPassword("");
     setFinishingRecovery(false);
+    setMigrationDeclined(false);
     setReconnectPrompt(false);
     setReconnectPassword("");
     setReconnectError(null);
@@ -1351,7 +1355,7 @@ export default function App() {
       setError("Passwords don't match.");
       return;
     }
-    const weak = passwordProblem(password);
+    const weak = await newPasswordProblem(password, username.trim());
     if (weak) {
       setError(weak);
       return;
@@ -1433,7 +1437,7 @@ export default function App() {
       setError(`"${invalidWords[0]}" is not a valid BIP-39 recovery word. Please check for typos.`);
       return;
     }
-    const weak = passwordProblem(password);
+    const weak = await newPasswordProblem(password, username.trim());
     if (weak) {
       setError(weak);
       return;
@@ -1449,6 +1453,7 @@ export default function App() {
         username.trim(),
         words.join(" "),
         password,
+        confirmPhrase,
       );
       await openSession(recovered, password);
       setPhrase(replacement);
@@ -1461,33 +1466,38 @@ export default function App() {
   }
 
   /**
-   * Finishes the rotation an interrupted recovery left owing.
-   *
-   * Until it runs, the phrase used to recover still opens the vault and so does
-   * any copy of it, and the server refuses every write. It issues a replacement
-   * phrase, which is shown the same way registration shows one.
+   * Finishes the rotation the account owes: a migration to the current protocol
+   * or an interrupted recovery. Until it runs the server refuses every write.
+   * The new phrase is confirmed before anything is sent, then shown once more
+   * the way registration shows one.
    */
-  async function onFinishRecovery(event: FormEvent) {
-    event.preventDefault();
+  async function onRunMigration(password: string, revokeIds: string[]) {
     if (!session) {
       return;
     }
     setBusy(true);
     setError(null);
+    setRotationProgress({ done: 0, total: 0 });
     try {
-      const { session: rotated, phrase: replacement } = await completeRecoveryRotation(
+      const { session: rotated, phrase: replacement, upgraded } = await rotateOwed(
         session,
-        recoveryPassword,
+        revokeIds,
+        password,
+        confirmPhrase,
+        (done, total) => setRotationProgress({ done, total }),
       );
-      await persistSession(rotated, recoveryPassword);
-      setRecoveryPassword("");
+      await persistSession(rotated, password);
       setFinishingRecovery(false);
       setPhrase(replacement);
       setScreen("phrase");
+      if (upgraded > 0) {
+        log.info("objects moved to the current format", { count: upgraded });
+      }
     } catch (err) {
       setError(friendlyError(err));
     } finally {
       setBusy(false);
+      setRotationProgress({ done: 0, total: 0 });
     }
   }
 
@@ -2152,6 +2162,7 @@ export default function App() {
   // ---------- RECOVER SCREEN ----------
   if (screen === "recover") {
     return (
+      <>
       <RecoverScreen
         connectionDomain={connectionDomain}
         saveDomain={saveDomain}
@@ -2166,6 +2177,8 @@ export default function App() {
         onSubmit={onRecover}
         onBack={backToAuth}
       />
+      {phraseDialog}
+      </>
     );
   }
 
@@ -2281,11 +2294,6 @@ export default function App() {
             device, so {unopened === 1 ? "it is" : "they are"} not shown. Nothing has been changed.
           </Banner>
         ) : null}
-        {session.rosterLacksKeyCommitment && !session.recoveryPending ? (
-          <Banner tone="warning" role="alert">
-            {coreLegacyRosterMessage()}
-          </Banner>
-        ) : null}
         {reconnectPrompt && (session.offline || outboxState.signIn) ? (
           <Banner tone="warning" role="alert">
             <form onSubmit={(event) => void onReconnect(event)} className="flex flex-wrap items-center gap-2">
@@ -2321,55 +2329,42 @@ export default function App() {
             {reconnectError ? <p className="mt-1.5">{reconnectError}</p> : null}
           </Banner>
         ) : null}
-        {session.recoveryPending ? (
+        {session.rotationOwed ? (
           <Banner tone="warning" role="alert">
-            {finishingRecovery ? (
-              <form onSubmit={onFinishRecovery} className="flex flex-wrap items-center gap-2">
-                <label htmlFor="finish-recovery-password" className="sr-only">
-                  Password
-                </label>
-                <PasswordField
-                  id="finish-recovery-password"
-                  value={recoveryPassword}
-                  onChange={(e) => setRecoveryPassword(e.target.value)}
-                  autoComplete="current-password"
-                  placeholder="Your password"
-                  className={bannerField}
-                  required
-                />
-                <button type="submit" disabled={busy || !recoveryPassword} className={btnWarningSm}>
-                  {busy ? "Rotating…" : "Finish recovery"}
-                </button>
-                <button
-                  type="button"
-                  className={btnGhostSm}
-                  onClick={() => {
-                    setFinishingRecovery(false);
-                    setRecoveryPassword("");
-                  }}
-                  disabled={busy}
-                >
-                  Later
-                </button>
-              </form>
-            ) : (
-              <span className="inline-flex flex-wrap items-center gap-2">
-                This vault was recovered but its key has not been replaced yet, so the recovery
-                words you used still open it. Saving is disabled until that is finished.
-                <button
-                  type="button"
-                  className={btnWarningSm}
-                  onClick={() => {
-                    setError(null);
-                    setFinishingRecovery(true);
-                  }}
-                >
-                  Finish now
-                </button>
-              </span>
-            )}
+            <span className="inline-flex flex-wrap items-center gap-2">
+              {session.rotationOwed === "recovery"
+                ? "This vault was recovered but its key has not been replaced yet, so the recovery words you used still open it."
+                : "This account has not moved to the current protocol yet."}{" "}
+              Saving is disabled until the key is replaced.
+              <button
+                type="button"
+                className={btnWarningSm}
+                onClick={() => {
+                  setError(null);
+                  setFinishingRecovery(true);
+                }}
+              >
+                Finish now
+              </button>
+            </span>
           </Banner>
         ) : null}
+        {session.rotationOwed && (finishingRecovery || !migrationDeclined) ? (
+          <MigrationDialog
+            session={session}
+            deviceLabels={deviceLabels}
+            busy={busy}
+            error={error}
+            progress={rotationProgress}
+            onRun={(password, revokeIds) => void onRunMigration(password, revokeIds)}
+            onLater={() => {
+              setFinishingRecovery(false);
+              setMigrationDeclined(true);
+              setError(null);
+            }}
+          />
+        ) : null}
+        {phraseDialog}
 
         <div className="flex min-h-0 flex-1 flex-col">
           {activeTab === "settings" ? (

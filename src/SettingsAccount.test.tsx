@@ -7,7 +7,7 @@
  * part worth pinning: a change that re-saves under the old one leaves the
  * device unopenable on the next unlock, and nothing on screen says so.
  *
- * `changeUsername`, `changePassword`, `revokeDevice` and `rotatePhrase` each
+ * `changeUsername`, `changePassword`, `revokeDevices` and `rotatePhrase` each
  * start with an OPAQUE exchange only the server can answer, so they are faked
  * rather than driven. What is under test is the view: which guards refuse
  * before a request is made, what each call is given, and what is cleared after.
@@ -24,7 +24,7 @@ import type { ComponentProps } from "react";
 const THIS_DEVICE = "device-1";
 const OTHER_DEVICE = "device-2";
 
-type Rotation = { session: Session; phrase: string };
+type Rotation = { session: Session; phrase: string; upgraded: number };
 
 const changeUsername = vi.hoisted(() =>
   vi.fn<(session: Session, name: string, password: string) => Promise<Session>>(),
@@ -34,11 +34,11 @@ const changePassword = vi.hoisted(() =>
 );
 const deleteAccount = vi.hoisted(() => vi.fn<(session: Session, password: string) => Promise<void>>());
 const listDevices = vi.hoisted(() => vi.fn<(session: Session) => Promise<DeviceSummary[]>>());
-const revokeDevice = vi.hoisted(() =>
-  vi.fn<(session: Session, deviceId: string, password: string, onProgress?: unknown) => Promise<Rotation>>(),
+const revokeDevices = vi.hoisted(() =>
+  vi.fn<(session: Session, deviceIds: string[], password: string, confirm: unknown, onProgress?: unknown) => Promise<Rotation>>(),
 );
 const rotatePhrase = vi.hoisted(() =>
-  vi.fn<(session: Session, password: string, onProgress?: unknown) => Promise<Rotation>>(),
+  vi.fn<(session: Session, password: string, confirm: unknown, onProgress?: unknown) => Promise<Rotation>>(),
 );
 const clearDevice = vi.hoisted(() => vi.fn<() => Promise<void>>());
 const renameDevice = vi.hoisted(() =>
@@ -47,7 +47,7 @@ const renameDevice = vi.hoisted(() =>
 
 vi.mock("./lib/client", async () => {
   const actual = await vi.importActual<typeof import("./lib/client")>("./lib/client");
-  return { ...actual, changeUsername, changePassword, deleteAccount, listDevices, renameDevice, revokeDevice, rotatePhrase };
+  return { ...actual, changeUsername, changePassword, deleteAccount, listDevices, renameDevice, revokeDevices, rotatePhrase };
 });
 
 vi.mock("./lib/storage", async () => {
@@ -203,6 +203,14 @@ describe("changing the password", () => {
     expect(changePassword).not.toHaveBeenCalled();
   });
 
+  it("refuses one that passes the floor but core scores below 3", async () => {
+    mount("Password");
+    fill("correct horse battery", "qwertyuiop[]", "qwertyuiop[]");
+
+    expect(await screen.findByText(/too easy to guess/u)).toBeDefined();
+    expect(changePassword).not.toHaveBeenCalled();
+  });
+
   it("refuses one the confirmation does not match", async () => {
     mount("Password");
     fill("correct horse battery", "a new password", "a new pasword");
@@ -222,7 +230,7 @@ describe("changing the password", () => {
     // Under the old password the stored record would not open on the next unlock.
     expect(handlers.onPersistSession).toHaveBeenCalledWith(rotated, "a new password");
     expect(handlers.onSessionUpdate).toHaveBeenCalledWith(rotated);
-    expect(await screen.findByText(/Password updated successfully/u)).toBeDefined();
+    expect(await screen.findByText(/Password updated\. Your other devices/u)).toBeDefined();
     expect((screen.getByLabelText("New password") as HTMLInputElement).value).toBe("");
   });
 });
@@ -236,7 +244,7 @@ describe("revoking another device", () => {
 
   async function revoke(password: string) {
     fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
-    const dialog = screen.getByRole("dialog", { name: "Revoke device" });
+    const dialog = screen.getByRole("dialog", { name: "Revoke devices" });
     fireEvent.change(within(dialog).getByLabelText("Confirm your password"), { target: { value: password } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Revoke device" }));
   }
@@ -252,20 +260,26 @@ describe("revoking another device", () => {
   it("asks for the password before it will rotate", async () => {
     mount("Devices");
     fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
-    fireEvent.click(within(screen.getByRole("dialog", { name: "Revoke device" })).getByRole("button", { name: "Revoke device" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Revoke devices" })).getByRole("button", { name: "Revoke device" }));
 
     expect(await screen.findByText("Enter your password to confirm.")).toBeDefined();
-    expect(revokeDevice).not.toHaveBeenCalled();
+    expect(revokeDevices).not.toHaveBeenCalled();
   });
 
   it("rotates the vault key away from the revoked device", async () => {
-    revokeDevice.mockResolvedValue({ session: rotated, phrase: aPhrase() });
+    revokeDevices.mockResolvedValue({ session: rotated, phrase: aPhrase(), upgraded: 0 });
     mount("Devices");
 
     await revoke("correct horse battery");
 
     await waitFor(() =>
-      expect(revokeDevice).toHaveBeenCalledWith(session, OTHER_DEVICE, "correct horse battery", expect.any(Function)),
+      expect(revokeDevices).toHaveBeenCalledWith(
+        session,
+        [OTHER_DEVICE],
+        "correct horse battery",
+        expect.any(Function),
+        expect.any(Function),
+      ),
     );
     await waitFor(() => expect(message()).toContain("your previous one no longer works"));
     expect(handlers.onPersistSession).toHaveBeenCalledWith(rotated, "correct horse battery");
@@ -275,7 +289,7 @@ describe("revoking another device", () => {
   });
 
   it("shows the replacement phrase on the devices page the revoke happened on", async () => {
-    revokeDevice.mockResolvedValue({ session: rotated, phrase: aPhrase() });
+    revokeDevices.mockResolvedValue({ session: rotated, phrase: aPhrase(), upgraded: 0 });
     mount("Devices");
 
     await revoke("correct horse battery");
@@ -306,7 +320,7 @@ describe("generating a new recovery phrase", () => {
 
   it("shows the new words and re-saves the device under the same password", async () => {
     const phrase = Array.from({ length: 24 }, (_, index) => `word${index + 1}`).join(" ");
-    rotatePhrase.mockResolvedValue({ session: rotated, phrase });
+    rotatePhrase.mockResolvedValue({ session: rotated, phrase, upgraded: 0 });
     const dialog = openDialog();
 
     fireEvent.change(within(dialog).getByPlaceholderText("Current password"), {
@@ -315,7 +329,12 @@ describe("generating a new recovery phrase", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Generate new phrase" }));
 
     await waitFor(() =>
-      expect(rotatePhrase).toHaveBeenCalledWith(session, "correct horse battery", expect.any(Function)),
+      expect(rotatePhrase).toHaveBeenCalledWith(
+        session,
+        "correct horse battery",
+        expect.any(Function),
+        expect.any(Function),
+      ),
     );
     expect(handlers.onPersistSession).toHaveBeenCalledWith(rotated, "correct horse battery");
     expect(await screen.findByText("word24")).toBeDefined();
@@ -450,7 +469,7 @@ describe("naming devices", () => {
     await screen.findByText("Pocket");
     fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]);
 
-    const dialog = screen.getByRole("dialog", { name: "Revoke device" });
+    const dialog = screen.getByRole("dialog", { name: "Revoke devices" });
     expect(within(dialog).getByText("Pocket")).toBeDefined();
     expect(within(dialog).getByText(phone)).toBeDefined();
   });

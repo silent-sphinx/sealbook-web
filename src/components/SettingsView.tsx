@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { DeviceEntry, DeviceLabel, DeviceSummary, Session } from "../lib/client";
+import { usePhraseConfirm } from "../lib/usePhraseConfirm";
 import {
   changePassword,
   changeUsername,
@@ -9,7 +10,7 @@ import {
   MAX_DEVICE_NAME_CHARS,
   removeStaleDeviceLabels,
   renameDevice,
-  revokeDevice,
+  revokeDevices,
   rotatePhrase,
 } from "../lib/client";
 import {
@@ -64,7 +65,8 @@ import type {
 } from "../lib/types";
 import { allTimezones, utcOffsetLabel } from "../lib/timezone";
 import type { WeekStart } from "../lib/calendarModel";
-import { AUTO_LOCK_OPTIONS, autoLockLabel, MIN_PASSWORD_LENGTH, passwordProblem, type AutoLockMinutes } from "../lib/appState";
+import { AUTO_LOCK_OPTIONS, autoLockLabel, MIN_PASSWORD_LENGTH, type AutoLockMinutes } from "../lib/appState";
+import { newPasswordProblem } from "../lib/strength";
 import { PAGE_GROUPS, pageForSection, type SettingsPage, type SettingsSection } from "../lib/settingsModel";
 import { Icon } from "./Icon";
 import { PaneHeader } from "./PaneControls";
@@ -210,7 +212,8 @@ export function SettingsView({
   const [newWords, setNewWords] = useState<string[] | null>(null);
   const [devices, setDevices] = useState<DeviceSummary[] | null>(null);
   const [devicesMsg, setDevicesMsg] = useState<Notice>(null);
-  const [revokeTarget, setRevokeTarget] = useState<DeviceEntry | null>(null);
+  const [revokeTargets, setRevokeTargets] = useState<DeviceEntry[]>([]);
+  const { confirm: confirmPhrase, dialog: phraseDialog } = usePhraseConfirm();
   const [renaming, setRenaming] = useState<{ deviceId: string; name: string } | null>(null);
   const [renameBusy, setRenameBusy] = useState(false);
   const entries = useMemo(
@@ -372,7 +375,7 @@ export function SettingsView({
       setPasswordMsg({ type: "error", text: "Please enter your current password to confirm." });
       return;
     }
-    const weak = passwordProblem(newPassword);
+    const weak = await newPasswordProblem(newPassword, session.state.username);
     if (weak) {
       setPasswordMsg({ type: "error", text: weak });
       return;
@@ -395,7 +398,7 @@ export function SettingsView({
       setConfirmPassword("");
       setPasswordMsg({
         type: "success",
-        text: "Password updated successfully. Encryption keys have been re-wrapped.",
+        text: "Password updated. Your other devices sign in with the new one.",
       });
     } catch (err) {
       setPasswordMsg({
@@ -434,7 +437,7 @@ export function SettingsView({
   }
 
   async function handleRevokeDevice() {
-    if (!revokeTarget) return;
+    if (revokeTargets.length === 0) return;
     if (!revokePassword) {
       setRevokeError("Enter your password to confirm.");
       return;
@@ -444,10 +447,11 @@ export function SettingsView({
     setDevicesMsg(null);
     setRevokeProgress({ done: 0, total: 0 });
     try {
-      const { session: updated, phrase } = await revokeDevice(
+      const { session: updated, phrase } = await revokeDevices(
         session,
-        revokeTarget.device_id,
+        revokeTargets.map((device) => device.device_id),
         revokePassword,
+        confirmPhrase,
         (done, total) => setRevokeProgress({ done, total }),
       );
       await onPersistSession(updated, revokePassword);
@@ -456,7 +460,7 @@ export function SettingsView({
       // message is the same one the recovery page renders.
       setNewWords(phrase.split(/\s+/u).filter(Boolean));
       setCopiedPhrase(false);
-      setRevokeTarget(null);
+      setRevokeTargets([]);
       setRevokePassword("");
       setDevicesMsg({
         type: "success",
@@ -485,6 +489,7 @@ export function SettingsView({
       const { session: updated, phrase } = await rotatePhrase(
         session,
         phrasePassword,
+        confirmPhrase,
         (done, total) => setPhraseProgress({ done, total }),
       );
       await onPersistSession(updated, phrasePassword);
@@ -836,7 +841,7 @@ export function SettingsView({
                             <button
                               type="button"
                               onClick={() => {
-                                setRevokeTarget(device);
+                                setRevokeTargets([device]);
                                 setRevokePassword("");
                                 setRevokeError(null);
                                 setDevicesMsg(null);
@@ -854,6 +859,22 @@ export function SettingsView({
               })}
             </SettingsList>
           )}
+          {entries && entries.filter((device) => !device.is_current).length > 1 ? (
+            <div className="pt-2">
+              <button
+                type="button"
+                className={btnSecondary}
+                onClick={() => {
+                  setRevokeTargets(entries.filter((device) => !device.is_current));
+                  setRevokePassword("");
+                  setRevokeError(null);
+                  setDevicesMsg(null);
+                }}
+              >
+                Revoke all other devices
+              </button>
+            </div>
+          ) : null}
           <NoticeLine notice={devicesMsg} />
           {recoveryPhraseCard}
         </SettingsGroup>
@@ -1386,10 +1407,11 @@ export function SettingsView({
           onClose={() => setSignOutConfirm(false)}
         />
       ) : null}
-      {revokeTarget ? (
+      {phraseDialog}
+      {revokeTargets.length > 0 ? (
         <ConfirmDialog
-          title="Revoke device"
-          heading="Revoke this device?"
+          title="Revoke devices"
+          heading={revokeTargets.length === 1 ? "Revoke this device?" : `Revoke these ${revokeTargets.length} devices?`}
           tone="danger"
           body={
             <span className="block space-y-3">
@@ -1401,13 +1423,15 @@ export function SettingsView({
                 It also replaces your recovery phrase: the current one stops working
                 and the new one is shown once, straight after.
               </span>
-              <span className="block">
-                <span className="block font-medium text-text">{revokeTarget.name}</span>
-                <span className="block text-xs text-mute">{revokeTarget.detail}</span>
-                <span className="block truncate font-mono text-2xs text-mute">
-                  {revokeTarget.device_id}
+              {revokeTargets.map((target) => (
+                <span key={target.device_id} className="block">
+                  <span className="block font-medium text-text">{target.name}</span>
+                  <span className="block text-xs text-mute">{target.detail}</span>
+                  <span className="block truncate font-mono text-2xs text-mute">
+                    {target.device_id}
+                  </span>
                 </span>
-              </span>
+              ))}
               <label className="block text-xs font-medium text-mute">
                 Confirm your password
                 <input
@@ -1422,14 +1446,14 @@ export function SettingsView({
               </label>
             </span>
           }
-          confirmLabel="Revoke device"
+          confirmLabel={revokeTargets.length === 1 ? "Revoke device" : "Revoke devices"}
           busyLabel={revokeProgress.total > 0
             ? `Re-encrypting ${revokeProgress.done} of ${revokeProgress.total}...`
             : "Revoking..."}
           busy={revokeBusy}
           error={revokeError}
           onConfirm={() => void handleRevokeDevice()}
-          onClose={() => { if (!revokeBusy) { setRevokeTarget(null); setRevokePassword(""); setRevokeError(null); } }}
+          onClose={() => { if (!revokeBusy) { setRevokeTargets([]); setRevokePassword(""); setRevokeError(null); } }}
         />
       ) : null}
     </main>
