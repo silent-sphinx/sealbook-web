@@ -59,8 +59,11 @@ export function rotateAuthenticated(
   confirmPhrase: PhraseConfirm,
   onProgress?: (done: number, total: number) => void,
 ): Promise<RotationOutcome> {
+  // The protocol wants the revoked ids strictly ascending so a roster has one
+  // canonical form; callers hand them over in whatever order the UI lists them.
+  const canonicalRevokeIds = [...new Set(revokeDeviceIds)].sort();
   return serializeVault(fresh.state.collection_id, () =>
-    rotateAuthenticatedInner(fresh, revokeDeviceIds, confirmPhrase, onProgress),
+    rotateAuthenticatedInner(fresh, canonicalRevokeIds, confirmPhrase, onProgress),
   );
 }
 
