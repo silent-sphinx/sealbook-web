@@ -9,11 +9,15 @@ COPY sealbook/crates ./crates
 
 RUN rustup target add wasm32-unknown-unknown \
 		&& cargo install wasm-pack --version 0.15.1 --locked \
-		&& mkdir -p /workspace/sealbook-web/src/pkg \
+		&& mkdir -p /workspace/sealbook-web/src/pkg /workspace/sealbook-web/src/pkg-strength \
 		&& wasm-pack build crates/sealbook-wasm \
 			--target web \
 			--release \
-			--out-dir /workspace/sealbook-web/src/pkg
+			--out-dir /workspace/sealbook-web/src/pkg \
+		&& wasm-pack build crates/sealbook-strength \
+			--target web \
+			--release \
+			--out-dir /workspace/sealbook-web/src/pkg-strength
 
 FROM node:24.22.3-bookworm@sha256:9d266751ca3d7fdbe651c878ffd5ad0a42fed49a18c283509267c97f025b7496 AS web-builder
 
@@ -23,6 +27,7 @@ RUN npm ci --ignore-scripts
 
 COPY sealbook-web/ ./
 COPY --from=wasm-builder /workspace/sealbook-web/src/pkg/ ./src/pkg/
+COPY --from=wasm-builder /workspace/sealbook-web/src/pkg-strength/ ./src/pkg-strength/
 RUN SKIP_WASM=1 npm run build \
 		&& find dist -type f \
 			\( -name '*.css' -o -name '*.html' -o -name '*.js' -o -name '*.json' \
