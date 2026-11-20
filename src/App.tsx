@@ -129,7 +129,7 @@ import {
   saveAccentHint,
   type DeviceMetadata,
 } from "./lib/storage";
-import { friendlyError } from "./lib/errors";
+import { friendlyError, isOpaqueMismatch, PasswordChangedError } from "./lib/errors";
 import { describeError, log, serverHost } from "./lib/log";
 import {
   IDLE_BURST_THROTTLE_MS,
@@ -1297,6 +1297,9 @@ export default function App() {
           await openSession(await loginAccount(unlocked, password), password);
           return;
         } catch (err) {
+          // The stored keys opened, so this is the password they were saved
+          // under; the server rejecting it means it was changed elsewhere.
+          if (isOpaqueMismatch(err)) throw new PasswordChangedError();
           if (failedStatus(err) !== 0) throw err;
           log.warn("the server could not be reached at unlock; opening this device's copy", {
             reason: describeError(err),

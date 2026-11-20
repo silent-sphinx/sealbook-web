@@ -1,5 +1,27 @@
 import { coreErrorMessage } from "./wasm";
 
+/**
+ * This device unlocked with the password it was stored under, but the server
+ * holds a different one, so the password was changed on another device. Named
+ * so `friendlyError` can say what happened rather than "try again".
+ */
+export class PasswordChangedError extends Error {
+  constructor() {
+    super("The password was changed on another device.");
+    this.name = "PasswordChangedError";
+  }
+}
+
+/**
+ * True when the client's own OPAQUE step rejected the typed password against
+ * the server's record. That step fails locally, so it carries no HTTP status;
+ * a revoked device is a 401 instead and must not be mistaken for this.
+ */
+export function isOpaqueMismatch(err: unknown): boolean {
+  const raw = err instanceof Error ? err.message : String(err);
+  return raw.toLowerCase().includes("opaque error");
+}
+
 export function friendlyError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   const text = raw.toLowerCase();
@@ -12,6 +34,9 @@ export function friendlyError(err: unknown): string {
   }
   if (err instanceof Error && err.name === "RequestTimeoutError") {
     return "The server didn't answer in time. It may be starting up, or the address may point somewhere else.";
+  }
+  if (err instanceof Error && err.name === "PasswordChangedError") {
+    return "Your password was changed on another device, and this one still unlocks with the old password. Sign out of this device, then pair it again or use your 24 recovery words.";
   }
   // A pre-auth safety refusal: the message already names what is wrong with the
   // server and what to do, so it reaches the user as written.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { friendlyError } from "./errors";
+import { friendlyError, isOpaqueMismatch, PasswordChangedError } from "./errors";
 import {
   ManifestError,
   RequestTimeoutError,
@@ -136,5 +136,18 @@ describe("friendlyError", () => {
     expect(friendlyError(new Error("The vault kept changing while it was being read. Try again."))).toBe(
       "The vault kept changing while it was being read. Try again.",
     );
+  });
+
+  it("says the password was changed elsewhere rather than offering a retry", () => {
+    const text = friendlyError(new PasswordChangedError());
+    expect(text).not.toBe("Something went wrong. Try again.");
+    expect(text).toContain("changed on another device");
+  });
+
+  it("recognises the client's own OPAQUE failure but not a revoked device", () => {
+    const core = JSON.stringify({ kind: "Crypto", detail: "opaque error: invalid login" });
+    expect(isOpaqueMismatch(new Error(core))).toBe(true);
+    expect(isOpaqueMismatch(new ApiError("invalid credentials", 401))).toBe(false);
+    expect(isOpaqueMismatch(new ServerUnreachableError("down"))).toBe(false);
   });
 });
