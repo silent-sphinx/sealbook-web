@@ -106,7 +106,6 @@ export function buildContactNetwork(
 const SPRING_STRENGTH = 0.02;
 const DAMPING = 0.85;
 const MIN_DISTANCE = 1;
-const SETTLE_SPEED = 0.02;
 const MARGIN = 20;
 
 /** Edge length as a share of the pane area each node gets, bounded so avatars neither overlap nor strand each other. */
@@ -129,21 +128,45 @@ const COLLISION_STRENGTH = 0.03;
 const CLUSTER_PUSH_RATE = 0.5;
 const CLUSTER_PUSH_MAX = 6;
 
+/**
+ * Steps a fully heated layout takes to cool to rest. The layout forces fade
+ * with the heat, so a layout always comes to rest in bounded time instead of
+ * creeping on while forces that never quite balance trade small pushes.
+ */
+export const COOLING_STEPS = 300;
+/** Heat below which the layout counts as settled and stops stepping. */
+const ALPHA_MIN = 0.001;
+const ALPHA_DECAY = 1 - ALPHA_MIN ** (1 / COOLING_STEPS);
+/** Heat held while a node is dragged, so its neighbours follow it at once. */
+const DRAG_ALPHA = 0.3;
+/** Heat a changed graph brings back: enough to fit newcomers in without scrambling the rest. */
+const RESHAPE_ALPHA = 0.5;
+const RESIZE_ALPHA = 0.3;
+
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+/** Spacing between a new cluster's members as they are seeded, as a share of the edge length. */
+const SEED_SPACING = 0.5;
+/** Clear space left between seeded clusters, as a share of the edge length. */
+const SEED_GAP = 0.5;
+/** Distance between the spots tried when looking for room for a new cluster, as a share of the edge length. */
+const SEED_PROBE_STEP = 0.25;
+
 /** Drawn radius of a node, which the simulation also uses to keep avatars and clusters apart. */
 export function nodeRadius(degree: number): number {
   return Math.min(Math.max(MIN_NODE_RADIUS + degree * 3, MIN_NODE_RADIUS), MAX_NODE_RADIUS);
 }
 
-/** Synchronous steps run when a simulation is first created, so the initial layout doesn't visibly spring into place. */
-export const PRESETTLE_ITERATIONS = 250;
+/** A disc of the pane a cluster takes up. */
+type Footprint = { x: number; y: number; radius: number };
 
 /**
  * A continuously-steppable force simulation: nodes repel each other, edges
  * pull their pair toward a rest length, and a weak centering force keeps the
- * graph from drifting off-canvas. Call `step()` once per frame to animate
- * it. Dragging a node calls `pin()` on every frame instead of moving it
- * directly, which holds it at the pointer while forces still propagate
- * through its edges each step, pulling connected nodes along with it.
+ * graph from drifting off-canvas. Those forces fade as the layout cools, and
+ * `step()` reports when it has cooled to rest. Call `step()` once per frame to
+ * animate it. Dragging a node calls `pin()` on every frame instead of moving
+ * it directly, which holds it at the pointer and keeps the layout warm, so
+ * forces still propagate through its edges, pulling connected nodes along.
  */
 export class NetworkSimulation {
   private count = 0;
@@ -155,18 +178,20 @@ export class NetworkSimulation {
   private forces = new Float64Array(0);
   private pinned = new Uint8Array(0);
   private radii = new Float64Array(0);
-  private previous = new Float64Array(0);
   /** Connected group each node belongs to, as an index into the cluster arrays. */
   private clusterOf = new Int32Array(0);
   private clusterCount = 0;
   private clusterPx = new Float64Array(0);
   private clusterPy = new Float64Array(0);
   private indexById = new Map<string, number>();
+  private edgeIds = new Set<string>();
   /** Edge endpoints as index pairs into `positions`, resolved once per graph rather than per step. */
   private edgePairs = new Int32Array(0);
   private springLength = MIN_SPRING_LENGTH;
   private repel = 0;
   private centerStrength = MIN_CENTER_STRENGTH;
+  private alpha = 0;
+  private alphaTarget = 0;
 
   constructor(graph: ContactNetworkGraph, width: number, height: number) {
     this.width = width;
@@ -186,29 +211,32 @@ export class NetworkSimulation {
     this.centerStrength = Math.min(Math.max(strength, MIN_CENTER_STRENGTH), MAX_CENTER_STRENGTH);
   }
 
-  /** Adopts a new graph, keeping positions for nodes that survive and starting new ones on the ring. */
-  setGraph(graph: ContactNetworkGraph): void {
-    const centerX = this.width / 2;
-    const centerY = this.height / 2;
-    const radius = Math.min(this.width, this.height) * 0.35;
-    const count = graph.nodes.length;
+  private heat(alpha: number): void {
+    this.alpha = Math.max(this.alpha, alpha);
+  }
 
+  /**
+   * Adopts a new graph, keeping positions for nodes that survive and seeding
+   * the rest. Only a graph whose nodes or links changed warms the layout up
+   * again, so a refresh that changes nothing the map draws leaves it still.
+   */
+  setGraph(graph: ContactNetworkGraph): void {
+    const count = graph.nodes.length;
     const positions = new Float64Array(count * 2);
     const velocities = new Float64Array(count * 2);
     const pinned = new Uint8Array(count);
+    const placed = new Uint8Array(count);
     const radii = new Float64Array(count);
     const indexById = new Map<string, number>();
+    let kept = 0;
 
     graph.nodes.forEach((node, index) => {
       indexById.set(node.id, index);
       radii[index] = nodeRadius(node.degree);
       const previous = this.indexById.get(node.id);
-      if (previous === undefined) {
-        const angle = (2 * Math.PI * index) / Math.max(count, 1);
-        positions[index * 2] = centerX + radius * Math.cos(angle);
-        positions[index * 2 + 1] = centerY + radius * Math.sin(angle);
-        return;
-      }
+      if (previous === undefined) return;
+      kept++;
+      placed[index] = 1;
       positions[index * 2] = this.positions[previous * 2];
       positions[index * 2 + 1] = this.positions[previous * 2 + 1];
       velocities[index * 2] = this.velocities[previous * 2];
@@ -242,8 +270,14 @@ export class NetworkSimulation {
       clusterOf[i] = clusterIds.get(root)!;
     }
 
+    const edgeIds = new Set(graph.edges.map((edge) => edge.id));
+    const reshaped =
+      kept < count ||
+      kept < this.count ||
+      edgeIds.size !== this.edgeIds.size ||
+      [...edgeIds].some((id) => !this.edgeIds.has(id));
+
     this.radii = radii;
-    this.previous = new Float64Array(count * 2);
     this.clusterOf = clusterOf;
     this.clusterCount = clusterIds.size;
     this.clusterPx = new Float64Array(clusterIds.size);
@@ -254,14 +288,167 @@ export class NetworkSimulation {
     this.forces = new Float64Array(count * 2);
     this.pinned = pinned;
     this.indexById = indexById;
+    this.edgeIds = edgeIds;
     this.edgePairs = edgePairs;
+    this.alphaTarget = pinned.includes(1) ? DRAG_ALPHA : 0;
     this.retune();
+    this.seed(placed);
+    if (reshaped) this.heat(kept === 0 ? 1 : RESHAPE_ALPHA);
   }
 
+  /**
+   * Gives every node without a position a starting point. One that links to
+   * a contact already on the map starts beside it; a cluster wholly new to
+   * the map starts in free space, laid out around its best-connected member.
+   * Seeding each cluster in its own patch, rather than interleaving them all
+   * on one ring, means none has to pass through another to find its place.
+   */
+  private seed(placed: Uint8Array): void {
+    const { count, positions, edgePairs, clusterOf, clusterCount, springLength } = this;
+    if (placed.every(Boolean)) return;
+
+    const neighbours: number[][] = Array.from({ length: count }, () => []);
+    for (let e = 0; e < edgePairs.length; e += 2) {
+      const a = edgePairs[e];
+      const b = edgePairs[e + 1];
+      if (a < 0 || b < 0 || a === b) continue;
+      neighbours[a].push(b);
+      neighbours[b].push(a);
+    }
+    const members: number[][] = Array.from({ length: clusterCount }, () => []);
+    for (let i = 0; i < count; i++) members[clusterOf[i]].push(i);
+
+    const spacing = springLength * SEED_SPACING;
+    const taken: Footprint[] = [];
+    const fresh: number[] = [];
+    let turn = 0;
+
+    for (let c = 0; c < clusterCount; c++) {
+      const queue = members[c].filter((i) => placed[i]);
+      if (queue.length === 0) {
+        fresh.push(c);
+        continue;
+      }
+      for (let q = 0; q < queue.length; q++) {
+        const from = queue[q];
+        for (const to of neighbours[from]) {
+          if (placed[to]) continue;
+          const angle = turn++ * GOLDEN_ANGLE;
+          this.place(
+            to,
+            positions[from * 2] + spacing * Math.cos(angle),
+            positions[from * 2 + 1] + spacing * Math.sin(angle),
+          );
+          placed[to] = 1;
+          queue.push(to);
+        }
+      }
+      taken.push(this.footprintOf(members[c]));
+    }
+
+    fresh.sort((a, b) => members[b].length - members[a].length || a - b);
+    // A spot too tight for one cluster is too tight for the next of the same
+    // size, so a run of them (such as every unlinked contact) resumes the
+    // search where the last one found room instead of rescanning the centre.
+    let resume = { radius: -1, probe: 0 };
+    for (const c of fresh) {
+      const order = breadthFirst(members[c], neighbours);
+      const radius = spacing * Math.sqrt(order.length);
+      const spot = this.freeSpot(radius, taken, radius === resume.radius ? resume.probe : 0);
+      resume = { radius, probe: spot.probe };
+      order.forEach((node, k) => {
+        const r = spacing * Math.sqrt(k);
+        const angle = k * GOLDEN_ANGLE;
+        this.place(node, spot.x + r * Math.cos(angle), spot.y + r * Math.sin(angle));
+      });
+      taken.push({ x: spot.x, y: spot.y, radius });
+    }
+  }
+
+  private place(index: number, x: number, y: number): void {
+    this.positions[index * 2] = Math.min(Math.max(x, MARGIN), this.width - MARGIN);
+    this.positions[index * 2 + 1] = Math.min(Math.max(y, MARGIN), this.height - MARGIN);
+  }
+
+  private footprintOf(nodes: number[]): Footprint {
+    const { positions, radii } = this;
+    let x = 0;
+    let y = 0;
+    for (const i of nodes) {
+      x += positions[i * 2];
+      y += positions[i * 2 + 1];
+    }
+    x /= nodes.length;
+    y /= nodes.length;
+    let radius = 0;
+    for (const i of nodes) {
+      radius = Math.max(radius, Math.hypot(positions[i * 2] - x, positions[i * 2 + 1] - y) + radii[i]);
+    }
+    return { x, y, radius };
+  }
+
+  /**
+   * The spot nearest the pane's centre where a footprint this size fits
+   * inside the pane and clear of every taken one, or the roomiest spot tried
+   * when the pane has no such room left. The search spirals out from the
+   * centre, stretched to the pane's shape so a wide pane fills sideways.
+   * `probe` is where on the spiral a clear spot was found, or 0 if none was.
+   */
+  private freeSpot(
+    radius: number,
+    taken: Footprint[],
+    from: number,
+  ): NetworkPoint & { probe: number } {
+    const { width, height, springLength } = this;
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const short = Math.min(width, height);
+    const stretchX = width / short;
+    const stretchY = height / short;
+    const step = springLength * SEED_PROBE_STEP;
+    const gap = springLength * SEED_GAP;
+    const reach = Math.hypot(width, height) / 2;
+
+    let best = { x: centerX, y: centerY, probe: 0 };
+    let bestRoom = -Infinity;
+    for (let t = from; step * Math.sqrt(t) <= reach; t++) {
+      const r = step * Math.sqrt(t);
+      const x = centerX + r * Math.cos(t * GOLDEN_ANGLE) * stretchX;
+      const y = centerY + r * Math.sin(t * GOLDEN_ANGLE) * stretchY;
+      let room = Math.min(x - MARGIN, width - MARGIN - x, y - MARGIN, height - MARGIN - y) - radius;
+      for (const other of taken) {
+        if (room <= bestRoom) break;
+        room = Math.min(room, Math.hypot(x - other.x, y - other.y) - other.radius - radius - gap);
+      }
+      if (room >= 0) return { x, y, probe: t };
+      if (room > bestRoom) {
+        bestRoom = room;
+        best = { x, y, probe: 0 };
+      }
+    }
+    return best;
+  }
+
+  /** Follows the pane's centre, so a resize keeps the layout where it was within the pane rather than drifting over to it. */
   resize(width: number, height: number): void {
+    const dx = (width - this.width) / 2;
+    const dy = (height - this.height) / 2;
+    for (let i = 0; i < this.count; i++) {
+      if (this.pinned[i]) continue;
+      this.positions[i * 2] += dx;
+      this.positions[i * 2 + 1] += dy;
+    }
     this.width = width;
     this.height = height;
     this.retune();
+    this.heat(RESIZE_ALPHA);
+  }
+
+  /** Runs the layout until it cools, so it can be drawn already in place rather than springing into it. */
+  settle(): void {
+    for (let i = 0; i < COOLING_STEPS; i++) {
+      if (!this.step()) return;
+    }
   }
 
   /** Holds a node at a fixed point, e.g. the pointer during a drag, until `unpin`. */
@@ -273,11 +460,15 @@ export class NetworkSimulation {
     this.velocities[index * 2] = 0;
     this.velocities[index * 2 + 1] = 0;
     this.pinned[index] = 1;
+    this.alphaTarget = DRAG_ALPHA;
+    this.heat(DRAG_ALPHA);
   }
 
   unpin(id: string): void {
     const index = this.indexById.get(id);
-    if (index !== undefined) this.pinned[index] = 0;
+    if (index === undefined) return;
+    this.pinned[index] = 0;
+    if (!this.pinned.includes(1)) this.alphaTarget = 0;
   }
 
   getPosition(id: string): NetworkPoint | undefined {
@@ -300,11 +491,14 @@ export class NetworkSimulation {
     return this.edgePairs;
   }
 
-  /** Advances the simulation by one step. Returns whether anything is still moving. */
+  /** Advances the simulation by one step. Returns whether it is still warm enough to move. */
   step(): boolean {
-    const { count, positions, velocities, forces, pinned, edgePairs, repel, springLength, radii } = this;
+    if (this.alpha < ALPHA_MIN && this.alphaTarget < ALPHA_MIN) return false;
+    this.alpha += (this.alphaTarget - this.alpha) * ALPHA_DECAY;
+
+    const { count, positions, velocities, forces, pinned, edgePairs, springLength, radii, alpha } = this;
+    const repel = this.repel * alpha;
     forces.fill(0);
-    this.previous.set(positions);
 
     for (let i = 0; i < count; i++) {
       const a = i * 2;
@@ -318,6 +512,7 @@ export class NetworkSimulation {
         const dy = ay - positions[b + 1];
         const distance = Math.max(Math.sqrt(dx * dx + dy * dy), MIN_DISTANCE);
         let scale = repel / (distance * distance * distance);
+        // Collision does not fade with the heat, so avatars end apart however the layout cooled.
         const minGap = radii[i] + radii[j] + NODE_GAP;
         if (distance < minGap) scale += ((minGap - distance) * COLLISION_STRENGTH) / distance;
         const fx = dx * scale;
@@ -331,6 +526,7 @@ export class NetworkSimulation {
       forces[a + 1] += fay;
     }
 
+    const spring = SPRING_STRENGTH * alpha;
     for (let e = 0; e < edgePairs.length; e += 2) {
       const source = edgePairs[e];
       const target = edgePairs[e + 1];
@@ -340,7 +536,7 @@ export class NetworkSimulation {
       const dx = positions[b] - positions[a];
       const dy = positions[b + 1] - positions[a + 1];
       const distance = Math.max(Math.sqrt(dx * dx + dy * dy), MIN_DISTANCE);
-      const scale = ((distance - springLength) * SPRING_STRENGTH) / distance;
+      const scale = ((distance - springLength) * spring) / distance;
       const fx = dx * scale;
       const fy = dy * scale;
       forces[a] += fx;
@@ -353,8 +549,7 @@ export class NetworkSimulation {
     const centerY = this.height / 2;
     const maxX = this.width - MARGIN;
     const maxY = this.height - MARGIN;
-    const centerStrength = this.centerStrength;
-    const settleSpeed = SETTLE_SPEED * SETTLE_SPEED;
+    const centerStrength = this.centerStrength * alpha;
 
     for (let i = 0; i < count; i++) {
       if (pinned[i]) continue;
@@ -367,19 +562,10 @@ export class NetworkSimulation {
       velocities[a + 1] = vy;
       positions[a] = Math.min(Math.max(positions[a] + vx, MARGIN), maxX);
       positions[a + 1] = Math.min(Math.max(positions[a + 1] + vy, MARGIN), maxY);
-
     }
 
     this.separateClusters();
-
-    for (let i = 0; i < count; i++) {
-      if (pinned[i]) continue;
-      const a = i * 2;
-      const dx = positions[a] - this.previous[a];
-      const dy = positions[a + 1] - this.previous[a + 1];
-      if (dx * dx + dy * dy > settleSpeed) return true;
-    }
-    return false;
+    return this.alpha >= ALPHA_MIN;
   }
 
   /** Pushes a whole cluster away when one of its avatars would touch another cluster's, so groups never overlap but may sit close. */
@@ -397,9 +583,10 @@ export class NetworkSimulation {
         if (a === b) continue;
         let dx = positions[i * 2] - positions[j * 2];
         let dy = positions[i * 2 + 1] - positions[j * 2 + 1];
-        let distance = Math.hypot(dx, dy);
-        const overlap = radii[i] + radii[j] + NODE_GAP - distance;
-        if (overlap <= 0) continue;
+        const reach = radii[i] + radii[j] + NODE_GAP;
+        if (dx * dx + dy * dy >= reach * reach) continue;
+        let distance = Math.sqrt(dx * dx + dy * dy);
+        const overlap = reach - distance;
         if (distance < MIN_DISTANCE) {
           dx = 1;
           dy = 0;
@@ -427,4 +614,22 @@ export class NetworkSimulation {
       positions[i * 2 + 1] = Math.min(Math.max(positions[i * 2 + 1] + py[c], MARGIN), maxY);
     }
   }
+}
+
+/** A cluster's members in breadth-first order from its best-connected one, so a hub is seeded with its contacts around it. */
+function breadthFirst(nodes: number[], neighbours: number[][]): number[] {
+  let hub = nodes[0];
+  for (const node of nodes) {
+    if (neighbours[node].length > neighbours[hub].length) hub = node;
+  }
+  const seen = new Set([hub]);
+  const order = [hub];
+  for (let q = 0; q < order.length; q++) {
+    for (const next of neighbours[order[q]]) {
+      if (seen.has(next)) continue;
+      seen.add(next);
+      order.push(next);
+    }
+  }
+  return order;
 }

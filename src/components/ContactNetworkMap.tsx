@@ -3,7 +3,6 @@ import {
   buildContactNetwork,
   NetworkSimulation,
   nodeRadius,
-  PRESETTLE_ITERATIONS,
   type ContactNetworkEdge,
   type NetworkPoint,
 } from "../lib/contactNetwork";
@@ -267,7 +266,7 @@ export function ContactNetworkMap({
   if (size) {
     if (!simRef.current) {
       const sim = new NetworkSimulation(graph, size.width, size.height);
-      for (let i = 0; i < PRESETTLE_ITERATIONS; i++) sim.step();
+      sim.settle();
       simRef.current = sim;
       simGraphRef.current = graph;
       simSizeRef.current = size;

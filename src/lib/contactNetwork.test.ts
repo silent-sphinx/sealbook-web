@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  COOLING_STEPS,
   NetworkSimulation,
   nodeRadius,
   type ContactNetworkGraph,
@@ -40,6 +41,37 @@ function settle(sim: NetworkSimulation, limit = 5000): number {
 
 function distance(a: NetworkPoint, b: NetworkPoint): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+/** Star clusters whose ids interleave once sorted, the order the graph lists its nodes in. */
+function interleavedClusters(sizes: number[]): { graph: ContactNetworkGraph; clusters: string[][] } {
+  const clusters = sizes.map((size, c) =>
+    Array.from({ length: size }, (_, i) => `${String(i).padStart(2, "0")}-${String.fromCharCode(97 + c)}`),
+  );
+  const graph = graphOf(
+    clusters.flat().sort(),
+    clusters.flatMap((ids) => ids.slice(1).map((id): [string, string] => [ids[0]!, id])),
+  );
+  return { graph, clusters };
+}
+
+/** Each cluster's centroid and the radius that takes in every member's avatar. */
+function footprints(sim: NetworkSimulation, clusters: string[][]) {
+  return clusters.map((ids) => {
+    const points = ids.map((id) => sim.getPosition(id)!);
+    const x = points.reduce((sum, p) => sum + p.x, 0) / points.length;
+    const y = points.reduce((sum, p) => sum + p.y, 0) / points.length;
+    const radius = Math.max(...points.map((p) => distance(p, { x, y }))) + nodeRadius(0);
+    return { x, y, radius };
+  });
+}
+
+function centroid(sim: NetworkSimulation, ids: string[]): NetworkPoint {
+  const points = ids.map((id) => sim.getPosition(id)!);
+  return {
+    x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
+    y: points.reduce((sum, p) => sum + p.y, 0) / points.length,
+  };
 }
 
 describe("NetworkSimulation cluster separation", () => {
@@ -76,16 +108,127 @@ describe("NetworkSimulation cluster separation", () => {
   });
 });
 
-describe("NetworkSimulation", () => {
-  it("seeds a node with no position yet on the ring around the centre", () => {
-    const sim = new NetworkSimulation(graphOf(["a", "b", "c", "d"]), WIDTH, HEIGHT);
-    const radius = Math.min(WIDTH, HEIGHT) * 0.35;
+describe("NetworkSimulation seeding and settling", () => {
+  it("seeds each cluster in its own patch, so none starts tangled in another", () => {
+    const { graph, clusters } = interleavedClusters([9, 6, 6]);
+    const sim = new NetworkSimulation(graph, 800, 680);
 
-    const points = ["a", "b", "c", "d"].map((id) => sim.getPosition(id)!);
-    for (const point of points) {
-      expect(distance(point, CENTER)).toBeCloseTo(radius, 6);
+    const seeded = footprints(sim, clusters);
+    for (let i = 0; i < seeded.length; i++) {
+      for (let j = i + 1; j < seeded.length; j++) {
+        const a = seeded[i]!;
+        const b = seeded[j]!;
+        expect(distance(a, b)).toBeGreaterThan(a.radius + b.radius);
+      }
     }
-    expect(new Set(points.map((point) => point.x)).size).toBe(4);
+  });
+
+  it("comes to rest within its cooling period rather than drifting on", () => {
+    const { graph } = interleavedClusters([9, 6, 6, 3, 2, 4]);
+    const sim = new NetworkSimulation(graph, 800, 680);
+
+    expect(settle(sim)).toBeLessThanOrEqual(COOLING_STEPS);
+    expect(sim.step()).toBe(false);
+  });
+
+  it("opens with no avatar of one cluster touching another's", () => {
+    for (const sizes of [[9, 6, 6], [9, 6, 6, 3, 2, 4], [12, 2, 2, 2, 2, 2, 2, 5]]) {
+      const { graph, clusters } = interleavedClusters(sizes);
+      const sim = new NetworkSimulation(graph, 800, 680);
+      sim.settle();
+
+      const owner = new Map(clusters.flatMap((ids, c) => ids.map((id) => [id, c] as const)));
+      const ids = clusters.flat();
+      for (let i = 0; i < ids.length; i++) {
+        for (let j = i + 1; j < ids.length; j++) {
+          if (owner.get(ids[i]!) === owner.get(ids[j]!)) continue;
+          const gap = distance(sim.getPosition(ids[i]!)!, sim.getPosition(ids[j]!)!);
+          expect(gap).toBeGreaterThan(nodeRadius(0) * 2);
+        }
+      }
+    }
+  });
+
+  it("is still once settled, and stays still for a graph with the same nodes and links", () => {
+    const { graph } = interleavedClusters([5, 3]);
+    const sim = new NetworkSimulation(graph, WIDTH, HEIGHT);
+    sim.settle();
+
+    sim.setGraph({ ...graph, nodes: graph.nodes.map((node) => ({ ...node, name: `${node.name}!` })) });
+
+    expect(sim.step()).toBe(false);
+  });
+
+  it("comes back to rest once a dragged node is let go", () => {
+    const { graph } = interleavedClusters([5, 3]);
+    const sim = new NetworkSimulation(graph, WIDTH, HEIGHT);
+    sim.settle();
+
+    sim.pin("00-a", { x: 60, y: 60 });
+    for (let i = 0; i < 30; i++) expect(sim.step()).toBe(true);
+    sim.unpin("00-a");
+
+    expect(settle(sim)).toBeLessThan(COOLING_STEPS);
+  });
+
+  it("places a newcomer next to the contact it links to", () => {
+    const sim = new NetworkSimulation(graphOf(["a", "b"], [["a", "b"]]), WIDTH, HEIGHT);
+    sim.settle();
+    const anchor = sim.getPosition("a")!;
+
+    sim.setGraph(graphOf(["a", "b", "z"], [["a", "b"], ["a", "z"]]));
+
+    expect(sim.getPosition("a")).toEqual(anchor);
+    expect(distance(sim.getPosition("z")!, anchor)).toBeLessThan(distance(sim.getPosition("b")!, anchor));
+  });
+
+  it("places a cluster that joins the map clear of the ones already on it", () => {
+    const { graph, clusters } = interleavedClusters([6, 4]);
+    const sim = new NetworkSimulation(graph, 800, 680);
+    sim.settle();
+    const before = footprints(sim, clusters);
+
+    const joining = ["x1", "x2", "x3"];
+    sim.setGraph({
+      ...graph,
+      nodes: [...graph.nodes, ...graphOf(joining).nodes],
+      edges: [...graph.edges, ...graphOf([], [["x1", "x2"], ["x1", "x3"]]).edges],
+    });
+
+    for (const id of joining) {
+      const point = sim.getPosition(id)!;
+      for (const existing of before) expect(distance(point, existing)).toBeGreaterThan(existing.radius);
+    }
+  });
+
+  it("keeps the layout centred on the pane when it resizes", () => {
+    const { graph } = interleavedClusters([5, 3]);
+    const ids = graph.nodes.map((node) => node.id);
+    const sim = new NetworkSimulation(graph, WIDTH, HEIGHT);
+    sim.settle();
+    const offset = { x: centroid(sim, ids).x - CENTER.x, y: centroid(sim, ids).y - CENTER.y };
+
+    sim.resize(WIDTH + 200, HEIGHT + 100);
+
+    const moved = centroid(sim, ids);
+    expect(moved.x).toBeCloseTo(CENTER.x + 100 + offset.x, 6);
+    expect(moved.y).toBeCloseTo(CENTER.y + 50 + offset.y, 6);
+  });
+});
+
+describe("NetworkSimulation", () => {
+  it("seeds every node at its own point inside the pane", () => {
+    const ids = ["a", "b", "c", "d"];
+    const sim = new NetworkSimulation(graphOf(ids), WIDTH, HEIGHT);
+
+    const points = ids.map((id) => sim.getPosition(id)!);
+    for (const point of points) {
+      expect(point.x).toBeGreaterThanOrEqual(MARGIN);
+      expect(point.x).toBeLessThanOrEqual(WIDTH - MARGIN);
+      expect(point.y).toBeGreaterThanOrEqual(MARGIN);
+      expect(point.y).toBeLessThanOrEqual(HEIGHT - MARGIN);
+    }
+    expect(new Set(points.map((point) => `${point.x},${point.y}`)).size).toBe(4);
   });
 
   it("reports movement until the layout settles, then stops", () => {
@@ -129,17 +272,6 @@ describe("NetworkSimulation", () => {
 
     for (let i = 0; i < 20; i++) sim.step();
     expect(sim.getPosition("a")).not.toEqual({ x: 30, y: 40 });
-  });
-
-  it("keeps a surviving node's position across a new graph and rings the newcomer", () => {
-    const sim = new NetworkSimulation(graphOf(["a", "b"], [["a", "b"]]), WIDTH, HEIGHT);
-    settle(sim);
-    const kept = sim.getPosition("a")!;
-
-    sim.setGraph(graphOf(["a", "b", "z"], [["a", "z"]]));
-
-    expect(sim.getPosition("a")).toEqual(kept);
-    expect(distance(sim.getPosition("z")!, CENTER)).toBeCloseTo(Math.min(WIDTH, HEIGHT) * 0.35, 6);
   });
 
   it("keeps a node pinned across a new graph, so a drag survives a refresh", () => {

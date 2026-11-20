@@ -31,7 +31,7 @@ vi.mock("./ContactCard", async () => {
 
 const { ContactNetworkMap } = await import("./ContactNetworkMap");
 
-/** A ring of mutually linked contacts, large enough that the presettle leaves it still moving. */
+/** A ring of mutually linked contacts. */
 function aRing(count: number): Contact[] {
   return Array.from({ length: count }, (_, index) => {
     const next = `c${(index + 1) % count}`;
@@ -125,6 +125,13 @@ function mount(count = 40) {
   return render(<ContactNetworkMap contacts={aRing(count)} onSelectContact={() => {}} />);
 }
 
+/** Presses on a contact and moves the pointer far enough to count as a drag rather than a tap. */
+function dragNode(name: string): void {
+  const node = screen.getByRole("button", { name }).closest("g")!;
+  fireEvent.pointerDown(node, { clientX: 10, clientY: 10 });
+  fireEvent.pointerMove(node, { clientX: 80, clientY: 80 });
+}
+
 function nodeX(transform: string | null): number {
   return Number(/translate\(([-\d.]+)/.exec(transform ?? "")?.[1]);
 }
@@ -150,25 +157,41 @@ describe("the contact network map's frame loop", () => {
     expect(new Set(transforms).size).toBe(transforms.length);
   });
 
-  it("moves the nodes and their edges on a frame", () => {
+  it("opens at rest, so nothing moves and the loop stops on its first frame", () => {
+    const { container } = mount();
+    const before = nodeTransforms(container);
+
+    runFrames(1);
+
+    expect(frames).toEqual([]);
+    expect(nodeTransforms(container)).toEqual(before);
+  });
+
+  it("moves the dragged node's neighbours and their edges on a frame", () => {
     const { container } = mount();
     const nodesBefore = nodeTransforms(container);
     const edgesBefore = edgeEnds(container);
 
+    dragNode("Person 0");
     runFrames(10);
 
-    expect(nodeTransforms(container)).not.toEqual(nodesBefore);
-    expect(edgeEnds(container)).not.toEqual(edgesBefore);
+    const changed = (after: (string | null)[], before: (string | null)[]) =>
+      after.filter((value, index) => value !== before[index]).length;
+    // More than the dragged node and its own two edges, so the frame moved its neighbours too.
+    expect(changed(nodeTransforms(container), nodesBefore)).toBeGreaterThan(1);
+    expect(changed(edgeEnds(container), edgesBefore)).toBeGreaterThan(2);
   });
 
   it("paints a frame without re-rendering the node subtrees", () => {
     const { container } = mount();
     const painted = avatarRenders;
     expect(painted).toBeGreaterThan(0);
+    const before = nodeTransforms(container);
 
+    dragNode("Person 0");
     runFrames(10);
 
-    expect(nodeTransforms(container)).not.toEqual([]);
+    expect(nodeTransforms(container)).not.toEqual(before);
     expect(avatarRenders).toBe(painted);
   });
 
@@ -202,11 +225,8 @@ describe("the contact network map's frame loop", () => {
 
   it("goes idle after a drag the browser cancels", () => {
     mount(3);
-    const node = screen.getByRole("button", { name: "Person 0" }).closest("g")!;
-
-    fireEvent.pointerDown(node, { clientX: 10, clientY: 10 });
-    fireEvent.pointerMove(node, { clientX: 80, clientY: 80 });
-    fireEvent.pointerCancel(node);
+    dragNode("Person 0");
+    fireEvent.pointerCancel(screen.getByRole("button", { name: "Person 0" }).closest("g")!);
     runFrames(400);
 
     expect(frames).toEqual([]);
