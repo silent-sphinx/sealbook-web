@@ -217,21 +217,23 @@ export function PickerMenu({
                 ) : null}
               </div>
               {options.length > FILTER_FROM ? (
-                <div className="relative px-2.5 pb-2 pt-1">
-                  <Icon name="search" className={`${searchIcon} left-5`} />
-                  <input
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter") return;
-                      event.preventDefault();
-                      if (shown[0]) pick(shown[0].id);
-                      else if (createFromQuery) void make(typed);
-                    }}
-                    placeholder={searchLabel}
-                    aria-label={searchLabel}
-                    className={`${searchField} h-8`}
-                  />
+                <div className="px-2.5 pb-2 pt-1">
+                  <div className="relative">
+                    <Icon name="search" className={searchIcon} />
+                    <input
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        event.preventDefault();
+                        if (shown[0]) pick(shown[0].id);
+                        else if (createFromQuery) void make(typed);
+                      }}
+                      placeholder={searchLabel}
+                      aria-label={searchLabel}
+                      className={`${searchField} h-8`}
+                    />
+                  </div>
                 </div>
               ) : null}
               <ul className="max-h-[min(20rem,60vh)] space-y-0.5 overflow-y-auto overscroll-contain border-t border-line p-1.5">
