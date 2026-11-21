@@ -206,6 +206,60 @@ export function sortNotes(notes: Note[]): Note[] {
   });
 }
 
+export type NoteSort = "updated" | "created-newest" | "created-oldest" | "title-asc" | "title-desc";
+
+export const NOTE_SORTS: readonly { key: NoteSort; label: string }[] = [
+  { key: "updated", label: "Recently updated" },
+  { key: "created-newest", label: "Newest created" },
+  { key: "created-oldest", label: "Oldest created" },
+  { key: "title-asc", label: "Title A to Z" },
+  { key: "title-desc", label: "Title Z to A" },
+];
+
+export const DEFAULT_NOTE_SORT: NoteSort = "updated";
+
+const NOTE_SORT_STORAGE_KEY = "sealbook.notes.sort";
+
+export function isNoteSort(value: unknown): value is NoteSort {
+  return NOTE_SORTS.some((sort) => sort.key === value);
+}
+
+export function noteSortLabel(sort: NoteSort): string {
+  return NOTE_SORTS.find((entry) => entry.key === sort)?.label ?? "";
+}
+
+/** Ties keep the recency order, so every sort is total. */
+export function sortNotesBy(notes: Note[], sort: NoteSort): Note[] {
+  const byRecency = sortNotes(notes);
+  if (sort === "updated") return byRecency;
+  const created = (note: Note) => Date.parse(note.createdAt ?? "") || 0;
+  const title = (a: Note, b: Note) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+  const compare: Record<Exclude<NoteSort, "updated">, (a: Note, b: Note) => number> = {
+    "created-newest": (a, b) => created(b) - created(a),
+    "created-oldest": (a, b) => created(a) - created(b),
+    "title-asc": title,
+    "title-desc": (a, b) => title(b, a),
+  };
+  return byRecency.sort(compare[sort]);
+}
+
+export function loadNoteSort(): NoteSort {
+  try {
+    const stored = localStorage.getItem(NOTE_SORT_STORAGE_KEY);
+    return isNoteSort(stored) ? stored : DEFAULT_NOTE_SORT;
+  } catch {
+    return DEFAULT_NOTE_SORT;
+  }
+}
+
+export function storeNoteSort(sort: NoteSort): void {
+  try {
+    localStorage.setItem(NOTE_SORT_STORAGE_KEY, sort);
+  } catch {
+    // Storage unavailable; the choice then lasts for this session only.
+  }
+}
+
 /**
  * One line of plain text for a list row. The body is sliced before the markers
  * are stripped, so a megabyte-long note costs the same as a short one.

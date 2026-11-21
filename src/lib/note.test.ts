@@ -18,6 +18,7 @@ import {
   serializeNotebook,
   sortNotebooks,
   sortNotes,
+  sortNotesBy,
 } from "./note";
 import type { Note } from "./types";
 
@@ -230,5 +231,28 @@ describe("indexMatches", () => {
     for (const query of ["  ", "WEEKLY", "okapi", "quetzal"]) {
       expect(indexMatches(index, query)).toBe(noteMatches(subject, query));
     }
+  });
+});
+
+describe("sortNotesBy", () => {
+  const notes = [
+    note({ id: "b", title: "banana", createdAt: "2026-02-01T00:00:00Z", updatedAt: "2026-09-01T00:00:00Z" }),
+    note({ id: "a", title: "Apple", createdAt: "2026-03-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }),
+    note({ id: "c", title: "cherry", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-05-01T00:00:00Z" }),
+  ];
+  const ids = (sort: Parameters<typeof sortNotesBy>[1]) => sortNotesBy(notes, sort).map((entry) => entry.id);
+
+  it("orders by edit time, creation time and title", () => {
+    expect(ids("updated")).toEqual(["b", "c", "a"]);
+    expect(ids("created-newest")).toEqual(["a", "b", "c"]);
+    expect(ids("created-oldest")).toEqual(["c", "b", "a"]);
+    expect(ids("title-asc")).toEqual(["a", "b", "c"]);
+    expect(ids("title-desc")).toEqual(["c", "b", "a"]);
+  });
+
+  it("does not reorder the list it was given", () => {
+    const before = notes.map((entry) => entry.id);
+    sortNotesBy(notes, "title-asc");
+    expect(notes.map((entry) => entry.id)).toEqual(before);
   });
 });

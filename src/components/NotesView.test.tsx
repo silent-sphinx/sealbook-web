@@ -1116,6 +1116,23 @@ describe("NotesView, the notebook page views", () => {
     fireEvent.click(within(pane().getByRole("table")).getByRole("button", { name: "Alpha" }));
     await screen.findByLabelText("Note title");
   });
+
+  it("sorts a notebook's pages from the Sort menu, and remembers the choice", () => {
+    mount({ notes: [aNote({ id: "a", title: "Alpha" }), aNote({ id: "b", title: "Beta" })] });
+    openBook();
+    fireEvent.click(pane().getByRole("radio", { name: "Table" }));
+    const titles = () =>
+      within(pane().getByRole("table")).getAllByRole("row").slice(1).map((row) => within(row).getAllByRole("button")[0].textContent);
+
+    fireEvent.click(pane().getByRole("button", { name: "Sort: Recently updated" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Title Z to A" }));
+    expect(titles()).toEqual(["Beta", "Alpha"]);
+    expect(localStorage.getItem("sealbook.notes.sort")).toBe("title-desc");
+
+    fireEvent.click(pane().getByRole("button", { name: "Sort: Title Z to A" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Title A to Z" }));
+    expect(titles()).toEqual(["Alpha", "Beta"]);
+  });
 });
 
 describe("NotesView, right-clicking a note in the main pane", () => {

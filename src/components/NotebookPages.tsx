@@ -3,8 +3,8 @@ import { Fragment, useMemo, useState } from "react";
 import { useItemSelection } from "../lib/useItemSelection";
 
 import { ancestorsOf } from "../lib/tree";
-import { notePreview, resolveNotebookId, sortNotes } from "../lib/note";
-import { btnPrimarySm, btnSecondary, focusRing, paneCount, paneHeader, paneTitle } from "../lib/styles";
+import { NOTE_SORTS, loadNoteSort, notePreview, noteSortLabel, resolveNotebookId, sortNotesBy, storeNoteSort, type NoteSort } from "../lib/note";
+import { btnPrimarySm, btnSecondary, btnSecondarySm, focusRing, paneCount, paneHeader, paneTitle } from "../lib/styles";
 import type { Note, Notebook } from "../lib/types";
 import { EmptyState } from "./EmptyState";
 import { NoteBulkBar, NotePick, useNoteMenu } from "./NoteBulkBar";
@@ -12,6 +12,7 @@ import { NoteSearchField } from "./NoteSearchField";
 import { Icon } from "./Icon";
 import { SidebarToggle, type Sidebar } from "./SidebarDrawer";
 import { SegmentedControl } from "./PaneControls";
+import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 
 type Props = {
   sidebar: Sidebar;
@@ -79,14 +80,25 @@ export function NotebookPages({ sidebar, notebook, notes, notebooks, search, onS
   const folded = trail.length > 2 ? trail.slice(1, -1) : [];
   const shown = trail.length > 2 ? [trail[0], trail[trail.length - 1]] : trail;
 
+  const [sort, setSort] = useState<NoteSort>(loadNoteSort);
+  const sortMenu = useContextMenu();
+  const sortItems: MenuItem[] = NOTE_SORTS.map(({ key, label }) => ({
+    label: key === sort ? `\u2713 ${label}` : label,
+    onSelect: () => {
+      setSort(key);
+      storeNoteSort(key);
+    },
+  }));
+
   const pages = useMemo(() => {
     const hits = results ? new Set(results.map((note) => note.id)) : null;
-    return sortNotes(
+    return sortNotesBy(
       notes.filter(
         (note) => resolveNotebookId(note.notebookId) === notebook.id && (!hits || hits.has(note.id)),
       ),
+      sort,
     );
-  }, [notes, notebook.id, results]);
+  }, [notes, notebook.id, results, sort]);
 
   const selection = useItemSelection(pages, { paused: dialogOpen });
   const [view, setView] = useState<PagesView>(loadView);
@@ -114,6 +126,7 @@ export function NotebookPages({ sidebar, notebook, notes, notebooks, search, onS
   return (
     <div className="flex h-full flex-col">
       {noteMenu.element}
+      <ContextMenu state={sortMenu.menu} onClose={sortMenu.close} />
       <header className={paneHeader}>
         <div className="flex min-w-0 items-center gap-2">
           <SidebarToggle sidebar={sidebar} />
@@ -154,6 +167,18 @@ export function NotebookPages({ sidebar, notebook, notes, notebooks, search, onS
           <button type="button" onClick={onNewNote} className={btnPrimarySm}>
             <Icon name="plus" className="h-3.5 w-3.5" />
             New note
+          </button>
+          <button
+            type="button"
+            data-menu-trigger
+            onClick={(event) => sortMenu.toggle(event, sortItems, "sort")}
+            aria-haspopup="menu"
+            aria-label={`Sort: ${noteSortLabel(sort)}`}
+            title={`Sort: ${noteSortLabel(sort)}`}
+            className={btnSecondarySm}
+          >
+            <Icon name="text" className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Sort</span>
           </button>
           <SegmentedControl
             label="View"
