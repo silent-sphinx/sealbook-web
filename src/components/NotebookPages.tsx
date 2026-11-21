@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 
 import { useItemSelection } from "../lib/useItemSelection";
 
+import { ancestorsOf } from "../lib/tree";
 import { notePreview, resolveNotebookId, sortNotes } from "../lib/note";
 import { btnPrimarySm, btnSecondary, focusRing, paneCount, paneHeader, paneTitle } from "../lib/styles";
 import type { Note, Notebook } from "../lib/types";
@@ -26,6 +27,8 @@ type Props = {
   /** A dialog is open, so Escape and Ctrl+A are left to it. */
   dialogOpen: boolean;
   onBack: () => void;
+  /** Open a notebook this one sits under. */
+  onOpenNotebook: (id: string) => void;
   onOpenNote: (note: Note) => void;
   onNewNote: () => void;
   onMoveNotes: (notes: Note[], notebookId: string) => void;
@@ -65,7 +68,17 @@ function day(iso: string | undefined): string {
   return new Date(parsed).toLocaleDateString(undefined, { dateStyle: "medium" });
 }
 
-export function NotebookPages({ sidebar, notebook, notes, notebooks, search, onSearch, results, query, dialogOpen, onBack, onOpenNote, onNewNote, onMoveNotes, onCreateNotebook, onDeleteNotes, onRenameNote, onDeleteNote }: Props) {
+export function NotebookPages({ sidebar, notebook, notes, notebooks, search, onSearch, results, query, dialogOpen, onBack, onOpenNotebook, onOpenNote, onNewNote, onMoveNotes, onCreateNotebook, onDeleteNotes, onRenameNote, onDeleteNote }: Props) {
+  // Root first. Past two ancestors the middle ones fold into an ellipsis.
+  const trail = useMemo(() => {
+    const byId = new Map(notebooks.map((candidate) => [candidate.id, candidate]));
+    return ancestorsOf(notebooks, notebook.id)
+      .reverse()
+      .flatMap((id) => byId.get(id) ?? []);
+  }, [notebooks, notebook.id]);
+  const folded = trail.length > 2 ? trail.slice(1, -1) : [];
+  const shown = trail.length > 2 ? [trail[0], trail[trail.length - 1]] : trail;
+
   const pages = useMemo(() => {
     const hits = results ? new Set(results.map((note) => note.id)) : null;
     return sortNotes(
@@ -113,6 +126,26 @@ export function NotebookPages({ sidebar, notebook, notes, notebooks, search, onS
             <Icon name="chevron" className="h-3.5 w-3.5 rotate-180 sm:hidden" />
             <span className="hidden sm:inline">All notebooks</span>
           </button>
+          {shown.map((ancestor, index) => (
+            <Fragment key={ancestor.id}>
+              <span aria-hidden="true" className="hidden text-mute/50 sm:inline">/</span>
+              {index === 1 && folded.length > 0 ? (
+                <>
+                  <span title={folded.map((book) => book.name).join(" / ")} className="hidden shrink-0 text-base font-semibold text-mute sm:inline">
+                    …
+                  </span>
+                  <span aria-hidden="true" className="hidden text-mute/50 sm:inline">/</span>
+                </>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => onOpenNotebook(ancestor.id)}
+                className={`hidden min-w-0 max-w-40 truncate rounded-md text-base font-semibold tracking-tight text-mute transition-colors hover:text-text sm:block ${focusRing}`}
+              >
+                {ancestor.name}
+              </button>
+            </Fragment>
+          ))}
           <span aria-hidden="true" className="hidden text-mute/50 sm:inline">/</span>
           <h1 className={`min-w-0 ${paneTitle}`}>{notebook.name}</h1>
           <span className={paneCount}>{pages.length}</span>

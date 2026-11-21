@@ -79,8 +79,8 @@ const operations: Record<string, (args: any[]) => unknown> = {
   "note.write": ([draft, now]) => coreNoteWrite(draft, now),
   "note.parse": ([id, raw]) => coreNoteParse(id, raw),
   "notebook.tone": ([id, color]) => coreNotebookTone(id, color ?? undefined),
-  "notebook.write": ([name, color, archived, hideFromAll, previous, now]) =>
-    coreNotebookWrite(name, color ?? undefined, archived === true, hideFromAll === true, previous ?? undefined, now),
+  "notebook.write": ([name, parentId, color, archived, hideFromAll, previous, now]) =>
+    coreNotebookWrite(name, parentId ?? undefined, color ?? undefined, archived === true, hideFromAll === true, previous ?? undefined, now),
   "notebook.parse": ([id, raw]) => coreNotebookParse(id, raw),
   "calendar.write": ([draft, now]) => coreCalendarWrite(draft, now),
   "calendar.parse": ([id, raw]) => coreCalendarParse(id, raw),

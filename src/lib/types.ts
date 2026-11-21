@@ -492,6 +492,11 @@ export type Notebook = {
   /** When it went into the trash. Set and cleared only through `lib/trash`. */
   trashedAt?: string;
   name: string;
+  /**
+   * The notebook this one sits under. Absent at the top level; a parent that is
+   * missing, or a loop, reads as the top level too.
+   */
+  parentId?: string;
   /** Explicit colour; absent means one derived from the id. See `notebookTone`. */
   color?: string;
   /** Put away: out of the notebook list, its notes left as they are. */

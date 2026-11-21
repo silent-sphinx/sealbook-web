@@ -92,7 +92,7 @@ export function trashNodes(items: TrashableItems): TrashNode[] {
     ...items.calendarEvents.map((event) =>
       node(event.id, "calendar_event", event.trashedAt, undefined, event.calendarId),
     ),
-    ...items.notebooks.map((notebook) => node(notebook.id, "notebook", notebook.trashedAt)),
+    ...items.notebooks.map((notebook) => node(notebook.id, "notebook", notebook.trashedAt, notebook.parentId)),
     ...items.notes.map((note) =>
       node(note.id, "note", note.trashedAt, note.parentId, note.notebookId),
     ),

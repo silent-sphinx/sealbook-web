@@ -2,7 +2,7 @@ import { useMemo } from "react";
 
 import { useItemSelection } from "../lib/useItemSelection";
 
-import { DEFAULT_NOTEBOOK_ID, notebookTone, notePreview, resolveNotebookId, sortNotes } from "../lib/note";
+import { DEFAULT_NOTEBOOK_ID, notebookToneIn, notePreview, resolveNotebookId, sortNotes } from "../lib/note";
 import { btnPrimarySm, eyebrow, focusRing } from "../lib/styles";
 import type { Note, Notebook } from "../lib/types";
 import { EmptyState } from "./EmptyState";
@@ -45,8 +45,7 @@ function day(iso: string | undefined): string {
   return new Date(parsed).toLocaleDateString(undefined, { dateStyle: "medium" });
 }
 
-function NotebookCover({ notebook, count, onOpen, onContextMenu }: { notebook: Notebook; count: number; onOpen: () => void; onContextMenu: (event: React.MouseEvent) => void }) {
-  const tone = notebookTone(notebook.id, notebook.color);
+function NotebookCover({ notebook, tone, count, onOpen, onContextMenu }: { notebook: Notebook; tone: string; count: number; onOpen: () => void; onContextMenu: (event: React.MouseEvent) => void }) {
   return (
     <button
       type="button"
@@ -132,10 +131,11 @@ export function NotesOverview({ sidebar, notebooks, notes, search, onSearch, res
             Notebooks
           </h2>
           <ul className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-5">
-            {notebooks.map((notebook) => (
+            {notebooks.filter((notebook) => !notebook.parentId).map((notebook) => (
               <li key={notebook.id}>
                 <NotebookCover
                   notebook={notebook}
+                  tone={notebookToneIn(notebooks, notebook)}
                   count={counts.get(notebook.id) ?? 0}
                   onOpen={() => onOpenNotebook(notebook.id)}
                   onContextMenu={(event) =>

@@ -11,6 +11,7 @@ import {
 } from "./wasm";
 import type { CoreNote, CoreNoteAttachment, CoreNotebook } from "./wasm";
 import { sortByRecency, sortContainers } from "./order";
+import { ancestorsOf } from "./tree";
 
 // Mirrors of the Rust constants in `sealbook-core`'s `notes` module. They stay
 // literals here because module scope runs before `initWasm`, and
@@ -116,8 +117,9 @@ function noteFrom(note: CoreNote): Note {
 }
 
 /**
- * `archived` and `hideFromAll` left out keep what `previousRaw` stores, so a
- * rename never restores or un-hides.
+ * `archived`, `hideFromAll` and `parentId` left out keep what `previousRaw`
+ * stores, so a rename never restores, un-hides or moves. A `parentId` of `null`
+ * moves the notebook to the top level.
  */
 export function serializeNotebook(
   name: string,
@@ -125,10 +127,12 @@ export function serializeNotebook(
   previousRaw?: string,
   archived?: boolean,
   hideFromAll?: boolean,
+  parentId?: string | null,
 ): string {
   const stored = previousRaw ? coreNotebookParse("", previousRaw) : undefined;
   return coreNotebookWrite(
     name,
+    parentId === undefined ? (stored?.parent_id ?? undefined) : (parentId ?? undefined),
     color,
     archived ?? stored?.archived ?? false,
     hideFromAll ?? stored?.hide_from_all ?? false,
@@ -145,6 +149,7 @@ function notebookFrom(notebook: CoreNotebook): Notebook {
   return {
     id: notebook.id,
     name: notebook.name,
+    parentId: notebook.parent_id ?? undefined,
     color: notebook.color ?? undefined,
     archived: notebook.archived || undefined,
     hideFromAll: notebook.hide_from_all || undefined,
@@ -183,6 +188,7 @@ export function notebookNameById(
     notebooks.map((notebook) => ({
       id: notebook.id,
       name: notebook.name,
+      parent_id: notebook.parentId,
       color: notebook.color,
       trashed_at: notebook.trashedAt,
       readable: notebook.readable ?? true,
@@ -289,3 +295,10 @@ export function noteWordCount(body: string): number {
 }
 
 export const notebookTone = coreNotebookTone;
+
+/** A nested notebook wears the colour of the top-level notebook it sits under. */
+export function notebookToneIn(notebooks: Notebook[], notebook: Notebook): string {
+  const rootId = ancestorsOf(notebooks, notebook.id).at(-1) ?? notebook.id;
+  const root = notebooks.find((candidate) => candidate.id === rootId) ?? notebook;
+  return coreNotebookTone(root.id, root.color);
+}

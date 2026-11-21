@@ -1800,13 +1800,14 @@ export function coreNotebookParse(id: string, raw: string): CoreNotebook {
 
 export function coreNotebookWrite(
   name: string,
+  parentId: string | undefined,
   color: string | undefined,
   archived: boolean,
   hideFromAll: boolean,
   previousRaw: string | undefined,
   now: string,
 ): string {
-  return core_notebook_write(name, color, archived, hideFromAll, previousRaw, now);
+  return core_notebook_write(name, parentId, color, archived, hideFromAll, previousRaw, now);
 }
 
 /**

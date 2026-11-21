@@ -24,13 +24,14 @@ import {
   buildSearchIndex,
   indexMatches,
   noteWordCount,
-  notebookTone,
+  notebookToneIn,
   parseNote,
   resolveNotebookId,
   serializeNote,
   sortNotes,
 } from "../lib/note";
-import { ancestorsOf, buildNoteTree, canReparent, noteSubtree } from "../lib/noteTree";
+import { ancestorsOf, noteSubtree } from "../lib/noteTree";
+import { canReparent as canReparentNotebook, subtree as notebookSubtree } from "../lib/tree";
 import {
   focusRing,
   sidebarSectionAction,
@@ -44,9 +45,8 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { TrashPanel, TrashRow, trashRootsFor } from "./Trash";
 import { NO_TRASH, type TrashListing } from "../lib/trash";
 import { trashItems } from "../lib/trashApi";
-import { CollectionSidebar, SidebarAddRow } from "./CollectionSidebar";
+import { CollectionSidebar } from "./CollectionSidebar";
 import { RenameNoteDialog } from "./RenameNoteDialog";
-import { NoteTreeList } from "./NoteTreeList";
 import { NotebookPages } from "./NotebookPages";
 import { NotesOverview } from "./NotesOverview";
 import { ContextMenu, useContextMenu } from "./ContextMenu";
@@ -135,7 +135,6 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
   const [browsing, setBrowsing] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [creatingNotebook, setCreatingNotebook] = useState(false);
   const [deletingNotebook, setDeletingNotebook] = useState<Notebook | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Note | null>(null);
@@ -240,8 +239,6 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
   const deferredSearch = useDeferredValue(search);
   const searching = deferredSearch.trim() !== "";
 
-  const tree = useMemo(() => buildNoteTree(notes, scope), [notes, scope]);
-
   const searchIndex = useMemo(() => buildSearchIndex(notes), [notes]);
 
   /**
@@ -342,12 +339,6 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
     };
   }, [autosaver]);
 
-  function reveal(id: string) {
-    const chain = ancestorsOf(notes, id);
-    if (chain.length === 0) return;
-    setExpanded((current) => new Set([...current, ...chain]));
-  }
-
   function reloadFrom(note: Note) {
     setDraft({
       title: note.title,
@@ -384,7 +375,6 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
     baseRef.current = { id: note.id, object: vaultObject(note.id) };
     setSelectedId(note.id);
     setScope(resolveNotebookId(note.notebookId));
-    reveal(note.id);
     setDraft({
       title: note.title,
       body: note.body,
@@ -413,7 +403,6 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
     setSaveState("clean");
     setError(null);
     sidebar.close();
-    if (parentId) setExpanded((current) => new Set([...current, parentId]));
   }
 
   async function goHome() {
@@ -491,38 +480,6 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
       schedule: (write) => autosaver.schedule(write),
       setError,
     });
-
-  function toggleExpanded(id: string) {
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  /** Reparenting writes the note itself; its descendants follow it as they are. */
-  async function moveNote(id: string, parentId: string | null) {
-    const note = notes.find((candidate) => candidate.id === id);
-    if (!note) return;
-    if (!canReparent(notes, id, parentId)) {
-      setError("A note cannot be moved inside itself.");
-      return;
-    }
-    if (editingId.current === id && draft) {
-      edit({ parentId: parentId ?? undefined });
-      if (parentId) setExpanded((current) => new Set([...current, parentId]));
-      return;
-    }
-    setError(null);
-    try {
-      await putNote(session, { ...note, parentId: parentId ?? undefined }, id);
-      if (parentId) setExpanded((current) => new Set([...current, parentId]));
-      await onRefresh();
-    } catch (err) {
-      setError(friendlyError(err));
-    }
-  }
 
   /** A note's subtree moves notebook with it, or its children would be stranded. */
   async function moveToNotebook(notebookId: string) {
@@ -643,10 +600,10 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
     }
   }
 
-  async function createNotebook(name: string): Promise<string | undefined> {
+  async function createNotebook(name: string, parentId?: string): Promise<string | undefined> {
     setError(null);
     try {
-      const id = await putNotebook(session, name);
+      const id = await putNotebook(session, name, undefined, undefined, undefined, undefined, undefined, parentId ?? null);
       await onRefresh();
       return id;
     } catch (err) {
@@ -660,6 +617,32 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
     try {
       const previous = notebooks.find((notebook) => notebook.id === id);
       await putNotebook(session, name, id, previous?.raw, previous?.color);
+      await onRefresh();
+    } catch (err) {
+      setError(friendlyError(err));
+    }
+  }
+
+  async function moveNotebook(id: string, parentId: string | null) {
+    const notebook = notebooks.find((candidate) => candidate.id === id);
+    if (!notebook) return;
+    if (!canReparentNotebook(notebooks, id, parentId)) {
+      setError("A notebook cannot be moved inside itself.");
+      return;
+    }
+    if ((notebook.parentId ?? null) === parentId) return;
+    setError(null);
+    try {
+      await putNotebook(
+        session,
+        notebook.name,
+        notebook.id,
+        notebook.raw,
+        notebook.color,
+        undefined,
+        undefined,
+        parentId,
+      );
       await onRefresh();
     } catch (err) {
       setError(friendlyError(err));
@@ -712,9 +695,8 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
     if (!deletingNotebook) return;
     setError(null);
     try {
-      const contained = notes.filter(
-        (candidate) => resolveNotebookId(candidate.notebookId) === deletingNotebook.id,
-      );
+      const gone = new Set(notebookSubtree(notebooks, deletingNotebook.id));
+      const contained = notes.filter((candidate) => gone.has(resolveNotebookId(candidate.notebookId)));
       for (const note of contained) autosaver.drop(note.id);
       await autosaver.flush();
       // Its notes go to the trash with it, and come back with it.
@@ -727,8 +709,8 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
         setSaveState("clean");
       }
       savedThisSession.current = false;
-      if (scope === deletingNotebook.id) setScope(DEFAULT_NOTEBOOK_ID);
-      if (browsing === deletingNotebook.id) setBrowsing(null);
+      if (gone.has(scope)) setScope(DEFAULT_NOTEBOOK_ID);
+      if (browsing && gone.has(browsing)) setBrowsing(null);
       await onRefresh();
     } catch (err) {
       setError(friendlyError(err));
@@ -745,31 +727,12 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
     return counts;
   }, [notes]);
 
-  const notebookContents =
-    tree.length === 0 ? (
-      <p className="px-1 py-2 text-xs leading-relaxed text-mute">
-        No notes here yet.
-      </p>
-    ) : (
-      <NoteTreeList
-        tree={tree}
-        selectedId={selectedId}
-        expanded={expanded}
-        onToggle={toggleExpanded}
-        onSelect={openNote}
-        onAddChild={(parentId) => newNote(parentId)}
-        onDelete={(note) => setConfirmDelete(note)}
-        blockedDropIds={(id) => new Set(noteSubtree(notes, id))}
-        onMove={(id, parentId) => void moveNote(id, parentId)}
-      />
-    );
-
-  const addNoteRow = <SidebarAddRow label="New note" onClick={() => newNote()} />;
-
   const browsingNotebook = notebooks.find((notebook) => notebook.id === browsing) ?? null;
-  const notesInDeletingNotebook = deletingNotebook
-    ? notes.filter((note) => resolveNotebookId(note.notebookId) === deletingNotebook.id).length
+  const deletingSubtree = deletingNotebook ? new Set(notebookSubtree(notebooks, deletingNotebook.id)) : null;
+  const notesInDeletingNotebook = deletingSubtree
+    ? notes.filter((note) => deletingSubtree.has(resolveNotebookId(note.notebookId))).length
     : 0;
+  const subNotebooksInDeleting = deletingSubtree ? deletingSubtree.size - 1 : 0;
   const deleteCount = confirmDelete ? noteSubtree(notes, confirmDelete.id).length : 0;
 
   const editorAction = `flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-mute transition-colors hover:bg-surface hover:text-text ${focusRing}`;
@@ -806,7 +769,8 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
               selectedId={scope}
               icon="book"
               kindLabel="notebook"
-              tone={(notebook) => notebookTone(notebook.id, notebook.color)}
+              tone={(notebook) => notebookToneIn(notebooks, notebook)}
+              subLabel="notebook"
               protectedId={DEFAULT_NOTEBOOK_ID}
               counts={countByNotebook}
               creating={creatingNotebook}
@@ -818,19 +782,15 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
                 void closeEditor();
                 setSearch("");
               }}
-              onCreate={(name) => createNotebook(name)}
+              onCreate={(name, parentId) => createNotebook(name, parentId)}
               onRename={(notebook, name) => renameNotebook(notebook.id, name)}
               onRecolor={(notebook, color) => recolorNotebook(notebook, color)}
               onDelete={(notebook) => setDeletingNotebook(notebook)}
               onArchive={(notebook) => void setNotebookArchived(notebook, true)}
               onRestore={(notebook) => void setNotebookArchived(notebook, false)}
               onToggleHidden={(notebook) => void toggleNotebookHidden(notebook)}
-              renderContents={() => (
-                <>
-                  {notebookContents}
-                  {addNoteRow}
-                </>
-              )}
+              canMove={(id, parentId) => canReparentNotebook(notebooks, id, parentId)}
+              onMove={(id, parentId) => moveNotebook(id, parentId)}
               busy={busy}
             />
             <TrashRow
@@ -1009,6 +969,11 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
                   setBrowsing(null);
                   setSearch("");
                 }}
+                onOpenNotebook={(id) => {
+                  setScope(id);
+                  setBrowsing(id);
+                  setSearch("");
+                }}
                 onOpenNote={openNote}
                 onNewNote={() => newNote()}
                 onMoveNotes={(picked, notebookId) => void moveNotesToNotebook(picked, notebookId)}
@@ -1109,9 +1074,13 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
           tone="danger"
           heading={`Move “${deletingNotebook.name}” to the trash?`}
           body={
-            notesInDeletingNotebook === 0
+            notesInDeletingNotebook === 0 && subNotebooksInDeleting === 0
               ? "It can be restored from the trash for 30 days."
-              : `The notebook and its ${notesInDeletingNotebook} note${notesInDeletingNotebook === 1 ? "" : "s"} can be restored from the trash for 30 days.`
+              : `The notebook${
+                  subNotebooksInDeleting > 0
+                    ? `, the ${subNotebooksInDeleting} notebook${subNotebooksInDeleting === 1 ? "" : "s"} inside it`
+                    : ""
+                } and its ${notesInDeletingNotebook} note${notesInDeletingNotebook === 1 ? "" : "s"} can be restored from the trash for 30 days.`
           }
           confirmLabel="Move to trash"
           onConfirm={() => void removeNotebook()}

@@ -89,6 +89,19 @@ describe("notebooks", () => {
     expect(notebookTone("b", renamed.color)).toBe("#ff8800");
   });
 
+  it("nests a notebook, and a rename keeps its parent", () => {
+    const nested = serializeNotebook("Work", undefined, undefined, undefined, undefined, "parent");
+    expect(parseNotebook("b", nested).parentId).toBe("parent");
+    const renamed = serializeNotebook("Home", undefined, nested);
+    expect(parseNotebook("b", renamed).parentId).toBe("parent");
+  });
+
+  it("moves a nested notebook to the top level with a null parent", () => {
+    const nested = serializeNotebook("Work", undefined, undefined, undefined, undefined, "parent");
+    const lifted = serializeNotebook("Work", undefined, nested, undefined, undefined, null);
+    expect(parseNotebook("b", lifted).parentId).toBeUndefined();
+  });
+
   it("matches the id reserved in the Rust protocol crate", () => {
     expect(DEFAULT_NOTEBOOK_ID).toBe("00000000-0000-0000-0000-000000000002");
   });

@@ -226,8 +226,14 @@ function titleField(): HTMLInputElement {
  * than bundled into the way to the unlock screen, so nothing in it is on the
  * page for a tick or two after the row is clicked.
  */
-async function openNote(title: string): Promise<void> {
-  fireEvent.click(screen.getByRole("button", { name: title }));
+async function openNote(title: string, notebook = "Default Notebook"): Promise<void> {
+  // Pages are listed in the main pane, not the sidebar, once a notebook is open.
+  if (!screen.queryByRole("button", { name: "All notebooks" })) {
+    const aside = within(document.querySelector("aside") as HTMLElement);
+    fireEvent.click(aside.getByRole("button", { name: new RegExp(`^${notebook}`) }));
+  }
+  // A page card's name carries its preview as well as its title.
+  fireEvent.click(screen.getAllByRole("button", { name: new RegExp(`^${title}`) })[0]);
   await screen.findByLabelText("Note title");
 }
 
@@ -352,11 +358,39 @@ describe("NotesView, the notebook sidebar", () => {
     await waitFor(() => expect(notebookWrites[1]).toMatchObject({ name: "Day job", color: "#4fae9f" }));
   });
 
-  it("offers no subnotebooks, since notebooks do not nest", () => {
+  it("offers a notebook inside a notebook from its context menu", () => {
     mount({ notebooks: [DEFAULT_BOOK] });
     fireEvent.contextMenu(side().getByRole("button", { name: /^Default Notebook/ }));
     const labels = screen.getAllByRole("menuitem").map((item) => item.textContent);
-    expect(labels).toEqual(["Rename notebook", "Change colour", "Hide from overview"]);
+    expect(labels).toEqual(["Add notebook", "Rename notebook", "Change colour", "Hide from overview"]);
+  });
+
+  it("colours a nested notebook like its root and keeps it off the overview", () => {
+    const work: Notebook = { id: "11111111-1111-4111-8111-111111111111", name: "Work", color: "#4fae9f", raw: "{}" };
+    const plans: Notebook = { id: "22222222-2222-4222-8222-222222222222", name: "Plans", parentId: work.id, color: "#ff0000", raw: "{}" };
+    mount({ notebooks: [DEFAULT_BOOK, work, plans] });
+    expect(screen.getByRole("button", { name: /^Work, \d+ notes?/ })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /^Plans, \d+ notes?/ })).toBeNull();
+    fireEvent.click(side().getByRole("button", { name: /^Work/ }));
+    const mark = (name: RegExp) => side().getByRole("button", { name }).querySelector("span") as HTMLElement;
+    expect(mark(/^Plans/).style.color).toBe("rgb(79, 174, 159)");
+  });
+
+  it("shows the notebooks above the open one in the pane header, folding the middle", () => {
+    const book = (name: string, parentId?: string): Notebook => ({ id: `id-${name}`, name, parentId, raw: "{}" });
+    const books = [DEFAULT_BOOK, book("Top"), book("Mid", "id-Top"), book("Low", "id-Mid"), book("Leaf", "id-Low")];
+    mount({ notebooks: books });
+    fireEvent.click(side().getByRole("button", { name: /^Top/ }));
+    fireEvent.click(side().getByRole("button", { name: /^Mid/ }));
+    fireEvent.click(side().getByRole("button", { name: /^Low/ }));
+    fireEvent.click(side().getByRole("button", { name: /^Leaf/ }));
+    const header = screen.getByRole("heading", { name: "Leaf" }).parentElement as HTMLElement;
+    expect(within(header).getByRole("button", { name: "Top" })).not.toBeNull();
+    expect(within(header).getByRole("button", { name: "Low" })).not.toBeNull();
+    expect(within(header).queryByRole("button", { name: "Mid" })).toBeNull();
+    expect(within(header).getByTitle("Mid")).not.toBeNull();
+    fireEvent.click(within(header).getByRole("button", { name: "Low" }));
+    expect(screen.getByRole("heading", { name: "Low" })).not.toBeNull();
   });
 
   it("moves a notebook to the trash, its notes with it", async () => {
@@ -375,6 +409,21 @@ describe("NotesView, the notebook sidebar", () => {
     expect(trashBatches).toBe(1);
     await waitFor(() => expect(screen.queryByRole("button", { name: "Delete Work" })).toBeNull());
     expect(notes.map((note) => note.id)).toEqual(["b"]);
+  });
+
+  it("says what goes to the trash with a notebook that has notebooks inside it", () => {
+    const work: Notebook = { id: "notebook-work", name: "Work", raw: "{}" };
+    const sub: Notebook = { id: "notebook-sub", name: "Sub", parentId: work.id, raw: "{}" };
+    mount({
+      notebooks: [DEFAULT_BOOK, work, sub],
+      notes: [aNote({ id: "a", notebookId: work.id }), aNote({ id: "b", notebookId: sub.id })],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Work" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Move to trash" });
+    expect(dialog.textContent).toContain("the 1 notebook inside it");
+    expect(dialog.textContent).toContain("its 2 notes");
   });
 
   it("keeps a notebook whose trash write was refused", async () => {
@@ -462,16 +511,15 @@ describe("NotesView, finding a note", () => {
     expect(screen.getByRole("heading", { name: "Recently modified" })).not.toBeNull();
   });
 
-  it("lists the selected notebook's notes as a tree", () => {
+  it("lists notebooks in the sidebar and leaves pages to the pane", () => {
     mount({
       notes: [aNote({ id: "parent", title: "Parent" }), aNote({ id: "child", title: "Child", parentId: "parent" })],
     });
 
-    expect(screen.getByRole("button", { name: "Parent" })).not.toBeNull();
-    // The child is behind its parent's collapsed row until that is expanded.
-    expect(screen.queryByRole("button", { name: "Child" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Expand Parent" }));
-    expect(screen.getByRole("button", { name: "Child" })).not.toBeNull();
+    const sidebar = within(document.querySelector("aside") as HTMLElement);
+    expect(sidebar.getByRole("button", { name: /^Default Notebook/ })).not.toBeNull();
+    expect(sidebar.queryByRole("button", { name: "Parent" })).toBeNull();
+    expect(sidebar.queryByRole("button", { name: "New note" })).toBeNull();
   });
 
   it("puts search in the pane header, not the sidebar", () => {
@@ -524,12 +572,6 @@ describe("NotesView, finding a note", () => {
       expect(screen.getByText("No note matches “hinges”.")).not.toBeNull(),
     );
   });
-
-  it("says a notebook is empty rather than showing a bare heading", () => {
-    mount({ notes: [] });
-
-    expect(screen.getByText("No notes here yet.")).not.toBeNull();
-  });
 });
 
 describe("NotesView, the editor", () => {
@@ -540,8 +582,7 @@ describe("NotesView, the editor", () => {
         aNote({ id: "child", title: "Hardware", parentId: "parent" }),
       ],
     });
-    fireEvent.click(screen.getByRole("button", { name: "Expand Shopping" }));
-    fireEvent.click(screen.getByRole("button", { name: "Hardware" }));
+    await openNote("Hardware");
     const crumbs = await screen.findByRole("navigation", { name: "Breadcrumb" });
 
     fireEvent.click(within(crumbs).getByRole("button", { name: "Shopping" }));
@@ -568,7 +609,6 @@ describe("NotesView, the editor", () => {
       ],
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Expand Shopping" }));
     await openNote("Hardware");
 
     const crumbs = screen.getByRole("navigation", { name: "Breadcrumb" });
@@ -677,7 +717,7 @@ describe("NotesView, the editor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
     await waitFor(() =>
-      expect(screen.getByText("Select a note to read or edit it.")).not.toBeNull(),
+      expect(screen.getByRole("button", { name: "All notebooks" })).not.toBeNull(),
     );
     expect(writes).toEqual([]);
     expect(screen.queryByText("Saving...")).toBeNull();
@@ -730,7 +770,7 @@ describe("NotesView, the editor", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
-    await waitFor(() => expect(screen.getByText("Select a note to read or edit it.")).not.toBeNull());
+    await waitFor(() => expect(screen.getByRole("button", { name: "All notebooks" })).not.toBeNull());
     expect(refreshes).toBe(0);
     expect(writes).toEqual([]);
   });
@@ -859,21 +899,6 @@ describe("NotesView, moving notes about", () => {
     await waitFor(() => expect(writes.some((write) => write.id === "parent")).toBe(true));
     expect(writes.find((write) => write.id === "parent")!.draft.notebookId).toBe(work.id);
   });
-
-  it("refuses to move a note inside its own subtree", async () => {
-    mount({
-      notes: [
-        aNote({ id: "parent", title: "Shopping" }),
-        aNote({ id: "child", title: "Hardware", parentId: "parent" }),
-      ],
-    });
-
-    // Driven through the handler's own rule rather than a drag, which
-    // `NoteTreeDrag.test.tsx` covers: the rows never offer this drop.
-    fireEvent.click(screen.getByRole("button", { name: "Expand Shopping" }));
-    expect(screen.getByRole("button", { name: "Hardware" })).not.toBeNull();
-    expect(writes).toEqual([]);
-  });
 });
 
 describe("NotesView, deleting notes", () => {
@@ -909,7 +934,7 @@ describe("NotesView, deleting notes", () => {
     );
 
     await waitFor(() =>
-      expect(screen.getByText("Select a note to read or edit it.")).not.toBeNull(),
+      expect(screen.getByRole("button", { name: "All notebooks" })).not.toBeNull(),
     );
   });
 
