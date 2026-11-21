@@ -1,7 +1,10 @@
 import { useRef, type ReactNode } from "react";
 
 import {
+  btnDangerGhostSm,
+  btnGhostSm,
   bulkBar,
+  bulkPrimary,
   checkbox,
   eyebrow,
   focusRing,
@@ -14,9 +17,10 @@ import {
   paneTitle,
   segment,
   segmented,
-  selectFieldSm,
 } from "../lib/styles";
+import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 import { Icon, type IconName } from "./Icon";
+import { PickerMenu, type PickerOption } from "./PickerMenu";
 import { SidebarToggle, type Sidebar } from "./SidebarDrawer";
 
 /** A detail pane's section: a sticky band heading over full-bleed rows. */
@@ -215,11 +219,23 @@ export function SegmentedControl<T extends string>({
   );
 }
 
+export type BulkMoveSpec = {
+  /** The picker's name, such as "Move selected tasks to". */
+  label: string;
+  /** What the targets are called, singular, such as "notebook". */
+  noun: string;
+  options: PickerOption[];
+  icon?: IconName;
+  /** Makes a new target and resolves to its id. Leave it out when the user cannot add one. */
+  onCreate?: (name: string) => Promise<string | undefined>;
+  onMove: (id: string) => void;
+};
+
 /**
  * The strip under a pane's header while items are selected. Every list has the
- * same four things here (a select-all, the count, what to do with the
- * selection, and a way out), so they are one component and the lists differ
- * only in the controls they hand it.
+ * same things here in the same order: a select-all, the count, then "Move to",
+ * the pane's own controls, Delete and a "More" menu, and a way out. The lists
+ * differ only in what they hand it.
  */
 export function BulkBar({
   label,
@@ -228,6 +244,10 @@ export function BulkBar({
   total,
   onToggleAll,
   onClear,
+  move,
+  onDelete,
+  more,
+  disabled,
   children,
 }: {
   /** The toolbar's name, such as "Bulk edit contacts". */
@@ -238,8 +258,16 @@ export function BulkBar({
   total: number;
   onToggleAll: () => void;
   onClear: () => void;
+  move?: BulkMoveSpec;
+  onDelete?: () => void;
+  /** Everything else that can be done to the selection; the button is left out when empty. */
+  more?: MenuItem[];
+  disabled?: boolean;
+  /** The pane's own controls, between "Move to" and Delete. */
   children?: ReactNode;
 }) {
+  const menu = useContextMenu();
+  const hasControls = Boolean(move || children || onDelete || (more && more.length > 0));
   return (
     <div role="toolbar" aria-label={label} className={bulkBar}>
       <input
@@ -252,10 +280,37 @@ export function BulkBar({
         aria-label={`Select all ${noun}`}
         className={checkbox}
       />
-      <span className="min-w-0 flex-1 text-xs text-mute" aria-live="polite">
+      <span className="grow whitespace-nowrap text-xs font-medium tabular-nums text-text" aria-live="polite">
         {selected} selected
       </span>
-      {children}
+      {/* On a narrow pane the controls drop to a line of their own, keeping the count and the close together above. */}
+      {hasControls ? (
+        <>
+          <div className="flex flex-wrap items-center gap-2 max-sm:order-last max-sm:w-full">
+            {move ? <BulkMove spec={move} disabled={disabled} /> : null}
+            {children}
+            {onDelete ? (
+              <button type="button" onClick={onDelete} disabled={disabled} className={btnDangerGhostSm}>
+                <Icon name="trash" className="size-3.5" />
+                Delete
+              </button>
+            ) : null}
+            {more && more.length > 0 ? (
+              <button
+                type="button"
+                onClick={(event) => menu.open(event, more)}
+                disabled={disabled}
+                aria-haspopup="menu"
+                className={btnGhostSm}
+              >
+                <span>More</span>
+                <Icon name="chevron" className="h-3 w-3 rotate-90" />
+              </button>
+            ) : null}
+          </div>
+          <span aria-hidden="true" className="mx-1 h-5 w-px bg-accent-line max-sm:hidden" />
+        </>
+      ) : null}
       <button
         type="button"
         onClick={onClear}
@@ -265,39 +320,31 @@ export function BulkBar({
       >
         <Icon name="close" className="size-3.5" />
       </button>
+      <ContextMenu state={menu.menu} onClose={menu.close} />
     </div>
   );
 }
 
-/** The "Move to…" select every bulk bar offers, which acts the moment it changes. */
-export function BulkMove({
-  label,
-  options,
-  disabled,
-  onMove,
-}: {
-  label: string;
-  options: { id: string; name: string }[];
-  disabled?: boolean;
-  onMove: (id: string) => void;
-}) {
+/** The "Move to" picker every bulk bar offers, which acts the moment a target is chosen. */
+function BulkMove({ spec, disabled }: { spec: BulkMoveSpec; disabled?: boolean }) {
+  const { label, noun, options, icon, onCreate, onMove } = spec;
   return (
-    <select
-      aria-label={label}
-      value=""
+    <PickerMenu
+      title={label}
+      searchLabel={`Find a ${noun}`}
+      emptyNoun={`${noun}s`}
+      options={icon ? options.map((option) => ({ ...option, glyph: <Icon name={icon} className="size-3.5" /> })) : options}
+      onPick={onMove}
+      create={onCreate ? { label: `New ${noun}`, placeholder: `${noun[0]!.toUpperCase()}${noun.slice(1)} name`, onCreate } : undefined}
       disabled={disabled}
-      onChange={(event) => {
-        if (event.target.value) onMove(event.target.value);
-      }}
-      className={selectFieldSm}
-    >
-      <option value="">Move to…</option>
-      {options.map((option) => (
-        <option key={option.id} value={option.id}>
-          {option.name}
-        </option>
-      ))}
-    </select>
+      triggerClassName={bulkPrimary}
+      trigger={
+        <>
+          <span>Move to…</span>
+          <Icon name="chevron" className="h-3 w-3 rotate-90" />
+        </>
+      }
+    />
   );
 }
 

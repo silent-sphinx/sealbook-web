@@ -15,6 +15,12 @@ export type ItemSelection<T extends { id: string }> = {
   isSelected: (id: string) => boolean;
   /** Starts a selection on one item. */
   begin: (item: T) => void;
+  /**
+   * Starts a selection that takes in another item, such as the one open beside
+   * the list: the run between them when `run` is set, or just the two. Falls back
+   * to `item` alone when the other is not listed.
+   */
+  beginFrom: (fromId: string, item: T, run: boolean) => void;
   /** Plain toggles; `extend` adds the run between this item and the last one toggled. */
   toggle: (item: T, extend?: boolean) => void;
   /** Replaces the selection with these ids. */
@@ -60,6 +66,23 @@ export function useItemSelection<T extends { id: string }>(
     setSelected(new Set([item.id]));
     anchorId.current = item.id;
   }, []);
+
+  const beginFrom = useCallback(
+    (fromId: string, item: T, run: boolean) => {
+      const from = items.findIndex((entry) => entry.id === fromId);
+      const to = items.findIndex((entry) => entry.id === item.id);
+      if (from < 0 || to < 0) {
+        begin(item);
+        return;
+      }
+      const ids = run
+        ? items.slice(Math.min(from, to), Math.max(from, to) + 1).map((entry) => entry.id)
+        : [fromId, item.id];
+      setSelected(new Set(ids));
+      anchorId.current = item.id;
+    },
+    [items, begin],
+  );
 
   const toggle = useCallback(
     (item: T, extend = false) => {
@@ -114,5 +137,5 @@ export function useItemSelection<T extends { id: string }>(
 
   const isSelected = useCallback((id: string) => selected.has(id), [selected]);
 
-  return { selected, selectedItems, selecting, isSelected, begin, toggle, select, toggleAll, clear };
+  return { selected, selectedItems, selecting, isSelected, begin, beginFrom, toggle, select, toggleAll, clear };
 }

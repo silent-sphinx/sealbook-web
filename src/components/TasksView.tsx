@@ -3,7 +3,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { TrashPanel, TrashRow, trashRootsFor } from "./Trash";
 import { NO_TRASH, type TrashListing } from "../lib/trash";
 import { trashItems } from "../lib/trashApi";
-import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
+import type { MenuItem } from "./ContextMenu";
 import { SidebarDrawer, SidebarHeader, type Sidebar } from "./SidebarDrawer";
 import { SplitHandle, useSplitPane } from "./SplitPane";
 import { TaskDetailPane } from "./TaskDetailPane";
@@ -25,6 +25,8 @@ import { archivedIds, hiddenIds } from "../lib/archive";
 import { friendlyError } from "../lib/errors";
 import {
   btnPrimarySm,
+  btnGhostSm,
+  btnSecondarySm,
   focusRing,
   searchClear,
   searchField,
@@ -76,7 +78,7 @@ import {
 } from "../lib/wasm";
 import type { CoreTaskPlan } from "../lib/wasm";
 import { Icon } from "./Icon";
-import { PaneHeader, BulkBar, BulkMove } from "./PaneControls";
+import { PaneHeader, BulkBar } from "./PaneControls";
 import { Banner } from "./Banner";
 import { EmptyState } from "./EmptyState";
 
@@ -126,8 +128,43 @@ function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
-const bulkControl =
-  "box-border h-7 shrink-0 cursor-pointer rounded-lg border border-line bg-bg px-2.5 text-xs font-medium text-mute outline-none transition-[border-color,box-shadow] hover:border-line-light focus:border-accent-dim focus:ring-2 focus:ring-accent-ring";
+/**
+ * A button over a hidden date field, so the bar shows an action instead of an
+ * empty dd/mm/yyyy field. Picking a day applies it to the whole selection.
+ */
+function BulkDueDate({ disabled, onPick }: { disabled: boolean; onPick: (day: string) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  function open() {
+    const node = input.current;
+    if (!node) return;
+    try {
+      node.showPicker();
+    } catch {
+      // Older browsers lack showPicker; a focused date field still takes typing and opens its own picker.
+      node.focus();
+    }
+  }
+  return (
+    <span className="relative inline-flex shrink-0">
+      <button type="button" onClick={open} disabled={disabled} className={btnGhostSm}>
+        <Icon name="calendar" />
+        Due date
+      </button>
+      <input
+        ref={input}
+        type="date"
+        tabIndex={-1}
+        aria-label="Set due date for selected tasks"
+        value=""
+        disabled={disabled}
+        onChange={(event) => {
+          if (event.target.value) onPick(event.target.value);
+        }}
+        className="pointer-events-none absolute inset-0 opacity-0"
+      />
+    </span>
+  );
+}
 
 type FormState = { initial: TaskDraft; editingId: string | null; key: number };
 type Notice = { message: string; previous: Task; reopened: Task[] };
@@ -152,7 +189,6 @@ export function TasksView({ session, trash = NO_TRASH, tasks, taskLists, busy, t
   const trashCount = useMemo(() => trashRootsFor(trash, "tasks").length, [trash]);
   const [saving, setSaving] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
-  const bulkMenu = useContextMenu();
   const folds = useAgendaFolds();
   const formCount = useRef(0);
   const [handledFocus, setHandledFocus] = useState<string | null>(null);
@@ -551,7 +587,8 @@ export function TasksView({ session, trash = NO_TRASH, tasks, taskLists, busy, t
     }
   }
 
-  function bulkItems(): MenuItem[] {
+  /** What the selection offers beyond Move and Delete, which the bar draws as their own controls. */
+  function bulkMoreItems(): MenuItem[] {
     const picked = selection.selectedItems;
     const open = picked.filter((task) => !task.done).length;
     const done = picked.length - open;
@@ -563,8 +600,14 @@ export function TasksView({ session, trash = NO_TRASH, tasks, taskLists, busy, t
         ? [{ label: `Reopen ${plural(done, "task")}`, onSelect: () => void applyBulk({ kind: "reopen" }) }]
         : []),
       { label: "Clear due date", onSelect: () => void applyBulk({ kind: "due" }) },
+    ];
+  }
+
+  function bulkItems(): MenuItem[] {
+    return [
+      ...bulkMoreItems(),
       {
-        label: `Delete ${plural(picked.length, "task")}`,
+        label: `Delete ${plural(selection.selectedItems.length, "task")}`,
         danger: true,
         onSelect: () => setConfirmBulkDelete(true),
       },
@@ -666,6 +709,7 @@ export function TasksView({ session, trash = NO_TRASH, tasks, taskLists, busy, t
           count: selection.selected.size,
           isSelected: selection.isSelected,
           onBegin: selection.begin,
+          onBeginFrom: selection.beginFrom,
           onToggle: selection.toggle,
           bulkItems,
         } satisfies TaskSelection),
@@ -697,7 +741,6 @@ export function TasksView({ session, trash = NO_TRASH, tasks, taskLists, busy, t
       {error ? (
         <Banner tone="danger" role="alert">{error}</Banner>
       ) : null}
-      <ContextMenu state={bulkMenu.menu} onClose={bulkMenu.close} />
       {notice ? (
         <p role="status" className="flex shrink-0 items-center gap-3 border-b border-line bg-panel/60 px-4 py-2 text-xs text-mute lg:px-6">
           <span>{notice.message}</span>
@@ -763,6 +806,12 @@ export function TasksView({ session, trash = NO_TRASH, tasks, taskLists, busy, t
                   <span className="sm:hidden">New</span>
                 </button>
               ) : null}
+              {!readOnlyMode && !selection.selecting && selectable.length > 0 ? (
+                <button type="button" onClick={selection.toggleAll} title="Select all tasks" aria-label="Select all tasks" className={btnSecondarySm}>
+                  <Icon name="check" />
+                  <span className="hidden sm:inline">Select all</span>
+                </button>
+              ) : null}
               {tagList.length > 0 ? <TagFilterMenu tags={tagList} active={activeTag} onChange={setTagFilter} /> : null}
               <div className="relative min-w-0 flex-1 sm:flex-none">
                 <Icon
@@ -798,36 +847,19 @@ export function TasksView({ session, trash = NO_TRASH, tasks, taskLists, busy, t
               total={selectable.length}
               onToggleAll={selection.toggleAll}
               onClear={selection.clear}
+              disabled={disabled}
+              move={{
+                label: "Move selected tasks to",
+                noun: "list",
+                icon: "tasks",
+                options: listRows.map(({ item, depth }) => ({ id: item.id, name: item.name, depth })),
+                onCreate: createList,
+                onMove: (taskListId) => void applyBulk({ kind: "move", taskListId }),
+              }}
+              onDelete={() => setConfirmBulkDelete(true)}
+              more={bulkMoreItems()}
             >
-              <BulkMove
-                label="Move selected tasks to"
-                options={listRows.map(({ item, depth }) => ({
-                  id: item.id,
-                  name: `${"\u00a0\u00a0".repeat(depth)}${item.name}`,
-                }))}
-                disabled={disabled}
-                onMove={(taskListId) => void applyBulk({ kind: "move", taskListId })}
-              />
-              <input
-                type="date"
-                aria-label="Set due date for selected tasks"
-                value=""
-                disabled={disabled}
-                onChange={(event) => {
-                  if (event.target.value) void applyBulk({ kind: "due", dueDate: event.target.value });
-                }}
-                className={bulkControl}
-              />
-              <button
-                type="button"
-                onClick={(event) => bulkMenu.open(event, bulkItems())}
-                disabled={disabled}
-                aria-haspopup="menu"
-                className={btnPrimarySm}
-              >
-                <span>Actions</span>
-                <Icon name="chevron" className="h-3 w-3 rotate-90" />
-              </button>
+              <BulkDueDate disabled={disabled} onPick={(dueDate) => void applyBulk({ kind: "due", dueDate })} />
             </BulkBar>
           ) : null}
 

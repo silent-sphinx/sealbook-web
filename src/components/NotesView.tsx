@@ -36,6 +36,7 @@ import {
   sidebarSectionAction,
   viewMain,
   viewGrid,
+  btnGhostSm,
 } from "../lib/styles";
 import type { Note, NoteDraft, Notebook } from "../lib/types";
 import type { OutboxState } from "../lib/outbox";
@@ -51,6 +52,7 @@ import { NotesOverview } from "./NotesOverview";
 import { ContextMenu, useContextMenu } from "./ContextMenu";
 import { SidebarDrawer, SidebarHeader, SidebarSection, SidebarToggle, type Sidebar } from "./SidebarDrawer";
 import { Icon } from "./Icon";
+import { PickerMenu } from "./PickerMenu";
 import { Banner } from "./Banner";
 
 /**
@@ -641,13 +643,15 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
     }
   }
 
-  async function createNotebook(name: string) {
+  async function createNotebook(name: string): Promise<string | undefined> {
     setError(null);
     try {
-      await putNotebook(session, name);
+      const id = await putNotebook(session, name);
       await onRefresh();
+      return id;
     } catch (err) {
       setError(friendlyError(err));
+      return undefined;
     }
   }
 
@@ -877,19 +881,24 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
                     {draft.title.trim() || "Untitled note"}
                   </span>
                 </nav>
-                <select
+                <PickerMenu
+                  title="Move to notebook"
+                  searchLabel="Find a notebook"
+                  emptyNoun="notebooks"
+                  options={notebooks.map((notebook) => ({ id: notebook.id, name: notebook.name, glyph: <Icon name="book" className="size-3.5" /> }))}
                   value={resolveNotebookId(draft.notebookId)}
-                  onChange={(event) => void moveToNotebook(event.target.value)}
-                  aria-label="Notebook"
+                  onPick={(id) => void moveToNotebook(id)}
+                  create={{ label: "New notebook", placeholder: "Notebook name", onCreate: createNotebook }}
                   disabled={notebooks.length === 0}
-                  className={`h-7 max-w-[9rem] shrink-0 cursor-pointer rounded-md border-0 bg-transparent py-0 pl-2 pr-6 text-2xs text-mute transition-colors hover:bg-surface hover:text-text disabled:opacity-40 ${focusRing}`}
-                >
-                  {notebooks.map((notebook) => (
-                    <option key={notebook.id} value={notebook.id}>
-                      {notebook.name}
-                    </option>
-                  ))}
-                </select>
+                  triggerLabel={`Notebook: ${notebooks.find((notebook) => notebook.id === resolveNotebookId(draft.notebookId))?.name ?? ""}`}
+                  triggerClassName={`${btnGhostSm} max-w-36 gap-1`}
+                  trigger={
+                    <>
+                      <span className="truncate">{notebooks.find((notebook) => notebook.id === resolveNotebookId(draft.notebookId))?.name}</span>
+                      <Icon name="chevron" className="size-3 shrink-0 rotate-90" />
+                    </>
+                  }
+                />
                 <button
                   type="button"
                   onClick={() => triggerDownload(fileNameFor(draft.title), "text/markdown", exportMarkdown(draft))}
@@ -1003,6 +1012,7 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
                 onOpenNote={openNote}
                 onNewNote={() => newNote()}
                 onMoveNotes={(picked, notebookId) => void moveNotesToNotebook(picked, notebookId)}
+                onCreateNotebook={createNotebook}
                 onDeleteNotes={setBulkDeleting}
                 onRenameNote={setRenaming}
                 onDeleteNote={setConfirmDelete}
@@ -1025,6 +1035,7 @@ export function NotesView({ session, trash = NO_TRASH, notes, notebooks, busy, o
                 onOpenNote={openNote}
                 onNewNote={() => newNote()}
                 onMoveNotes={(picked, notebookId) => void moveNotesToNotebook(picked, notebookId)}
+                onCreateNotebook={createNotebook}
                 onDeleteNotes={setBulkDeleting}
                 onRenameNote={setRenaming}
                 onDeleteNote={setConfirmDelete}

@@ -849,7 +849,8 @@ describe("NotesView, moving notes about", () => {
     });
     await openNote("Shopping");
 
-    fireEvent.change(screen.getByLabelText("Notebook"), { target: { value: work.id } });
+    fireEvent.click(screen.getByRole("button", { name: /^Notebook:/ }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Move to notebook" })).getByRole("button", { name: "Work" }));
 
     // The child is written straight away; the note itself rides the autosaver.
     await waitFor(() => expect(writes.some((write) => write.id === "child")).toBe(true));
@@ -995,6 +996,21 @@ describe("NotesView, bulk editing", () => {
     expect(screen.queryByLabelText("Note title")).toBeNull();
   });
 
+  it("makes a notebook from the Move to picker and moves the selection into it", async () => {
+    mount({ notebooks: [DEFAULT_BOOK], notes: three() });
+    fireEvent.click(screen.getByRole("button", { name: /^Default Notebook, \d+ notes?$/ }));
+    pick("Alpha");
+    fireEvent.click(within(bar()).getByRole("button", { name: /Move to/ }));
+    const picker = within(screen.getByRole("dialog", { name: "Move selected notes to" }));
+    fireEvent.click(picker.getByRole("button", { name: "New notebook" }));
+    const field = picker.getByLabelText("New notebook");
+    fireEvent.change(field, { target: { value: "Ideas" } });
+    fireEvent.submit(field.closest("form")!);
+    await waitFor(() => expect(writes.map((write) => write.id)).toEqual(["a"]));
+    expect(notebookWrites.map((write) => write.name)).toEqual(["Ideas"]);
+    expect(writes[0]!.draft.notebookId).toBe("notebook-Ideas");
+  });
+
   it("selects pages in a notebook and moves them, with what is inside, to another", async () => {
     const work: Notebook = { id: "notebook-work", name: "Work", raw: "{}" };
     mount({
@@ -1004,9 +1020,10 @@ describe("NotesView, bulk editing", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Default Notebook, \d+ notes?$/ }));
     pick("Alpha");
     pick("Beta");
-    fireEvent.change(within(bar()).getByLabelText("Move selected notes to"), {
-      target: { value: work.id },
-    });
+    fireEvent.click(within(bar()).getByRole("button", { name: /Move to/ }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Move selected notes to" })).getByRole("button", { name: "Work" }),
+    );
     await waitFor(() => expect(writes).toHaveLength(3));
     expect(writes.map((write) => write.id).sort()).toEqual(["a", "a1", "b"]);
     expect(writes.every((write) => write.draft.notebookId === work.id)).toBe(true);

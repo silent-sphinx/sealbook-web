@@ -63,7 +63,6 @@ import {
   searchField,
   searchIcon,
   selectField,
-  selectFieldSm,
   sidebarCount,
   sidebarMark,
   sidebarNameInput,
@@ -77,6 +76,7 @@ import { canonicalTag as canonicalTagIn, hasTag, tagVocabulary } from "../lib/ta
 import { flattenTree } from "../lib/tree";
 import type { Bookmark, BookmarkCollection, BookmarkDraft } from "../lib/types";
 import { Icon } from "./Icon";
+import { PickerMenu } from "./PickerMenu";
 import { PaneHeader, BulkBar } from "./PaneControls";
 import { TagsInput } from "./FieldControls";
 import { TagFilterBar } from "./TagFilterBar";
@@ -106,7 +106,7 @@ type Props = {
 /** Stands for "every collection" in the sidebar, as `ALL_NOTEBOOKS` does for notes. */
 const ALL = "all";
 
-type BulkKind = "addTag" | "removeTag" | "move" | "delete";
+type BulkKind = "addTag" | "removeTag" | "delete";
 
 /** What is being dragged. Held in state because a drop target cannot read a payload during dragover. */
 type DragItem = { kind: "bookmark"; ids: string[] } | { kind: "collection"; id: string };
@@ -156,7 +156,6 @@ export function BookmarksView({
   const [notice, setNotice] = useState<string | null>(null);
   const [bulk, setBulk] = useState<BulkKind | null>(null);
   const [bulkText, setBulkText] = useState("");
-  const [bulkCollection, setBulkCollection] = useState(DEFAULT_BOOKMARK_COLLECTION_ID);
   const [bulkError, setBulkError] = useState<string | null>(null);
 
   // The default collection is created on first entry here, not on every vault
@@ -218,6 +217,10 @@ export function BookmarksView({
   );
 
   const rows = useMemo(() => flattenTree(collectionTree), [collectionTree]);
+  const collectionOptions = useMemo(
+    () => rows.map(({ item, depth }) => ({ id: item.id, name: item.name, depth })),
+    [rows],
+  );
 
   /**
    * Bookmarks directly in the selected collection, not those of a collection
@@ -350,20 +353,30 @@ export function BookmarksView({
     setBulk(kind);
     setBulkText("");
     setBulkError(null);
-    setBulkCollection(
-      visible.length > 0 ? resolveCollectionId(selectedBookmarks[0]?.collectionId) : DEFAULT_BOOKMARK_COLLECTION_ID,
-    );
   }
 
-  function bulkItems(): MenuItem[] {
+  /** What the selection offers beyond Move and Delete, which the bar draws as their own controls. */
+  function bulkMoreItems(): MenuItem[] {
     const none = selected.size === 0;
     const count = plural(selected.size, "bookmark");
     const disabledReason = "Select bookmarks first";
     return [
       { label: `Add tag to ${count}`, disabled: none, disabledReason, onSelect: () => openBulk("addTag") },
       { label: `Remove tag from ${count}`, disabled: none, disabledReason, onSelect: () => openBulk("removeTag") },
-      { label: `Move ${count} to collection`, disabled: none, disabledReason, onSelect: () => openBulk("move") },
-      { label: `Delete ${count}`, danger: true, disabled: none, disabledReason, onSelect: () => openBulk("delete") },
+    ];
+  }
+
+  function bulkItems(): MenuItem[] {
+    const none = selected.size === 0;
+    return [
+      ...bulkMoreItems(),
+      {
+        label: `Delete ${plural(selected.size, "bookmark")}`,
+        danger: true,
+        disabled: none,
+        disabledReason: "Select bookmarks first",
+        onSelect: () => openBulk("delete"),
+      },
     ];
   }
 
@@ -394,13 +407,6 @@ export function BookmarksView({
         }
         writes.push({ id: bookmark.id, draft });
       }
-    } else if (bulk === "move") {
-      writes = writable
-        .filter((bookmark) => resolveCollectionId(bookmark.collectionId) !== bulkCollection)
-        .map((bookmark) => ({
-          id: bookmark.id,
-          draft: { ...bookmarkDraft(bookmark), collectionId: bulkCollection },
-        }));
     }
     setSaving(true);
     setError(null);
@@ -423,6 +429,32 @@ export function BookmarksView({
         selection.select(err.refused.keys());
       }
       setBulkError(friendlyError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function moveSelected(collectionId: string) {
+    const writable = selectedBookmarks.filter((bookmark) => bookmarkWritable(bookmark));
+    const skipped = selectedBookmarks.length - writable.length;
+    const writes = writable
+      .filter((bookmark) => resolveCollectionId(bookmark.collectionId) !== collectionId)
+      .map((bookmark) => ({ id: bookmark.id, draft: { ...bookmarkDraft(bookmark), collectionId } }));
+    setSaving(true);
+    setError(null);
+    try {
+      await putBookmarks(session, writes);
+      await onRefresh();
+      endSelecting();
+      const parts = [`${plural(writes.length, "bookmark")} updated`];
+      if (skipped > 0) parts.push(`${skipped} skipped: saved by a newer version of Sealbook`);
+      setNotice(`${parts.join(", ")}.`);
+    } catch (err) {
+      if (err instanceof RefusedWrites) {
+        await onRefresh();
+        selection.select(err.refused.keys());
+      }
+      setError(friendlyError(err));
     } finally {
       setSaving(false);
     }
@@ -950,18 +982,18 @@ export function BookmarksView({
               total={visible.length}
               onToggleAll={toggleAll}
               onClear={endSelecting}
-            >
-              <button
-                type="button"
-                onClick={(event) => menu.open(event, bulkItems())}
-                disabled={disabled}
-                aria-haspopup="menu"
-                className={btnPrimarySm}
-              >
-                <span>Actions</span>
-                <Icon name="chevron" className="h-3 w-3 rotate-90" />
-              </button>
-            </BulkBar>
+              disabled={disabled}
+              move={{
+                label: "Move selected bookmarks to",
+                noun: "collection",
+                icon: "bookmark",
+                options: collectionOptions,
+                onCreate: (name) => onCreateCollection(name),
+                onMove: (collectionId) => void moveSelected(collectionId),
+              }}
+              onDelete={() => openBulk("delete")}
+              more={bulkMoreItems()}
+            />
           ) : null}
 
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 lg:px-6">
@@ -1275,20 +1307,23 @@ export function BookmarksView({
                         {!readOnlyMode && !selecting ? (
                           <>
                               <div className="hidden w-36 sm:block">
-                                <select
+                                <PickerMenu
+                                  title="Move to collection"
+                                  searchLabel="Find a collection"
+                                  emptyNoun="collections"
+                                  options={collectionOptions}
                                   value={resolveCollectionId(bookmark.collectionId)}
-                                  onChange={(event) =>
-                                    void moveBookmark(bookmark, event.target.value)
+                                  onPick={(id) => void moveBookmark(bookmark, id)}
+                                  create={{ label: "New collection", placeholder: "Collection name", onCreate: (name) => onCreateCollection(name) }}
+                                  triggerLabel={`Collection for ${bookmark.title}`}
+                                  triggerClassName={`${btnSecondarySm} w-full justify-between`}
+                                  trigger={
+                                    <>
+                                      <span className="truncate">{collectionOptions.find((option) => option.id === resolveCollectionId(bookmark.collectionId))?.name}</span>
+                                      <Icon name="chevron" className="size-3 shrink-0 rotate-90" />
+                                    </>
                                   }
-                                  aria-label={`Collection for ${bookmark.title}`}
-                                  className={selectFieldSm}
-                                >
-                                  {rows.map(({ item, depth }) => (
-                                    <option key={item.id} value={item.id}>
-                                      {`${"— ".repeat(depth)}${item.name}`}
-                                    </option>
-                                  ))}
-                                </select>
+                                />
                               </div>
                               <button
                                 type="button"
@@ -1350,7 +1385,7 @@ export function BookmarksView({
       {bulk && bulk !== "delete" ? (
         <Modal
           title={
-            bulk === "addTag" ? "Add tag" : bulk === "removeTag" ? "Remove tag" : "Move to collection"
+            bulk === "addTag" ? "Add tag" : "Remove tag"
           }
           size="sm"
           onClose={() => setBulk(null)}
@@ -1396,23 +1431,6 @@ export function BookmarksView({
                   {bulkTagChoices.map((tag) => (
                     <option key={tag} value={tag}>
                       {tag}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-            {bulk === "move" ? (
-              <label className={`mt-4 ${fieldLabel}`}>
-                Collection
-                <select
-                  autoFocus
-                  value={bulkCollection}
-                  onChange={(event) => setBulkCollection(event.target.value)}
-                  className={`mt-1.5 ${selectField}`}
-                >
-                  {rows.map(({ item, depth }) => (
-                    <option key={item.id} value={item.id}>
-                      {`${"— ".repeat(depth)}${item.name}`}
                     </option>
                   ))}
                 </select>

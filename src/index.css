@@ -454,8 +454,8 @@ body.sb-dragging * {
 }
 
 /*
- * A parent task's open subtasks. The guide line sits in the parent's arrow
- * column (`--sb-task-guide`, set per level by `TaskTreeList`) and the tint
+ * A parent task's open subtasks. The guide line runs down from the parent's
+ * checkbox (`--sb-task-guide`, set per level by `TaskTreeList`) and the tint
  * recesses the group, so the rows read as inside the parent rather than as
  * siblings of it.
  */

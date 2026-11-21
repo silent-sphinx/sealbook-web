@@ -38,7 +38,7 @@ import type { ContactBulkChange } from "../lib/contactBulk";
 import { useItemSelection } from "../lib/useItemSelection";
 import type { AddressBook, Contact, ContactDraft } from "../lib/types";
 import { Icon } from "./Icon";
-import { PaneHeader, BulkBar, BulkMove } from "./PaneControls";
+import { PaneHeader, BulkBar } from "./PaneControls";
 import { Banner } from "./Banner";
 import { TrashPanel, TrashRow, trashRootsFor } from "./Trash";
 import type { TrashListing } from "../lib/trash";
@@ -179,7 +179,8 @@ export function ContactsTab({
   }
 
   /** The actions on the whole selection. Moving has its own dropdown in the bar. */
-  function bulkItems(): MenuItem[] {
+  /** What the selection offers beyond Move and Delete, which the bar draws as their own controls. */
+  function bulkMoreItems(): MenuItem[] {
     const count = `${checkedIds.size} contact${checkedIds.size === 1 ? "" : "s"}`;
     return [
       {
@@ -187,17 +188,20 @@ export function ContactsTab({
         onSelect: () =>
           onGuardEditing(() => void runBulk({ kind: viewingArchive ? "restore" : "archive" })),
       },
-      {
-        label: `Delete ${count}`,
-        danger: true,
-        onSelect: () =>
-          onGuardEditing(() => {
-            const targets = checkedContacts;
-            endSelecting();
-            onPromptBulkDelete(targets);
-          }),
-      },
     ];
+  }
+
+  function bulkDelete() {
+    onGuardEditing(() => {
+      const targets = checkedContacts;
+      endSelecting();
+      onPromptBulkDelete(targets);
+    });
+  }
+
+  function bulkItems(): MenuItem[] {
+    const count = `${checkedIds.size} contact${checkedIds.size === 1 ? "" : "s"}`;
+    return [...bulkMoreItems(), { label: `Delete ${count}`, danger: true, onSelect: bulkDelete }];
   }
 
   /** The detail pane's own actions, reachable from the row itself. */
@@ -358,28 +362,23 @@ export function ContactsTab({
               total={filtered.length}
               onToggleAll={selection.toggleAll}
               onClear={endSelecting}
-            >
-              {!viewingArchive && movableBooks.length > 0 ? (
-                <BulkMove
-                  label="Move selected contacts to"
-                  options={movableBooks}
-                  disabled={busy}
-                  onMove={(addressBookId) =>
-                    onGuardEditing(() => void runBulk({ kind: "move", addressBookId }))
-                  }
-                />
-              ) : null}
-              <button
-                type="button"
-                onClick={(event) => menu.open(event, bulkItems())}
-                disabled={busy}
-                aria-haspopup="menu"
-                className={btnPrimarySm}
-              >
-                <span>Actions</span>
-                <Icon name="chevron" className="h-3 w-3 rotate-90" />
-              </button>
-            </BulkBar>
+              disabled={busy}
+              move={
+                viewingArchive
+                  ? undefined
+                  : {
+                      label: "Move selected contacts to",
+                      noun: "address book",
+                      icon: "book",
+                      options: movableBooks,
+                      onCreate: onCreateBook,
+                      onMove: (addressBookId) =>
+                        onGuardEditing(() => void runBulk({ kind: "move", addressBookId })),
+                    }
+              }
+              onDelete={bulkDelete}
+              more={bulkMoreItems()}
+            />
           ) : null}
 
           <div

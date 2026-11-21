@@ -915,6 +915,15 @@ describe("TasksView, the list pills", () => {
     expect(within(taskRow("invoices")).queryByText("Work")).toBeNull();
   });
 
+  it("shows priority as a short flagged label and each tag as a hashtag", () => {
+    mount({ tasks: [aTask("water", { priority: 3, tags: ["home", "garden"] })] });
+    pick("Default Task List");
+    const row = within(taskRow("water"));
+    expect(row.getByTitle("High priority").textContent).toBe("High");
+    expect(row.getByText("#home")).not.toBeNull();
+    expect(row.getByText("#garden")).not.toBeNull();
+  });
+
   it("names the list on the detail pane", () => {
     mount({ tasks: seed(), taskLists: lists() });
     pick("Work");
@@ -1032,12 +1041,8 @@ describe("TasksView, the sidebar", () => {
 });
 
 describe("TasksView, bulk editing", () => {
-  // The first pick uses the row's hover button; once selecting, each row has a checkbox.
-  const pickRow = (title: string) =>
-    fireEvent.click(
-      within(board()).queryByRole("checkbox", { name: `Select ${title}` }) ??
-        within(board()).getByRole("button", { name: `Select ${title}` }),
-    );
+  const row = (title: string) => within(board()).getByRole("button", { name: new RegExp(`^${title}`) });
+  const pickRow = (title: string) => fireEvent.click(row(title), { ctrlKey: true });
   const bar = () => screen.getByRole("toolbar", { name: "Bulk edit tasks" });
 
   it("selects tasks and completes them together", async () => {
@@ -1047,7 +1052,7 @@ describe("TasksView, bulk editing", () => {
     pickRow("a");
     pickRow("b");
     expect(within(bar()).getByText("2 selected")).not.toBeNull();
-    fireEvent.click(within(bar()).getByRole("button", { name: /Actions/ }));
+    fireEvent.click(within(bar()).getByRole("button", { name: /More/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Complete 2 tasks" }));
     await waitFor(() => expect(writes).toHaveLength(2));
     expect(writes.map((write) => write.id).sort()).toEqual(["a", "b"]);
@@ -1055,11 +1060,19 @@ describe("TasksView, bulk editing", () => {
     expect(screen.queryByRole("toolbar", { name: "Bulk edit tasks" })).toBeNull();
   });
 
+  it("selects every task from the header button", () => {
+    mount({ tasks: [aTask("a"), aTask("b"), aTask("c")] });
+    pick("Default Task List");
+    fireEvent.click(screen.getByRole("button", { name: "Select all tasks" }));
+    expect(within(bar()).getByText("3 selected")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Select all tasks" })).toBeNull();
+  });
+
   it("extends a selection with shift and from the keyboard", () => {
     mount({ tasks: [aTask("a"), aTask("b"), aTask("c")] });
     pick("Default Task List");
     pickRow("a");
-    fireEvent.click(within(board()).getByRole("checkbox", { name: "Select c" }), { shiftKey: true });
+    fireEvent.click(row("c"), { shiftKey: true });
     expect(within(bar()).getByText("3 selected")).not.toBeNull();
     fireEvent.keyDown(document.body, { key: "Escape" });
     expect(screen.queryByRole("toolbar", { name: "Bulk edit tasks" })).toBeNull();
@@ -1075,15 +1088,93 @@ describe("TasksView, bulk editing", () => {
     expect(screen.queryByRole("region", { name: "a details" })).toBeNull();
   });
 
+  it("shift-clicks from the open task to select the run between them", () => {
+    mount({ tasks: [aTask("a"), aTask("b"), aTask("c"), aTask("d")] });
+    pick("Default Task List");
+    fireEvent.click(within(board()).getByRole("button", { name: /^b/ }));
+    fireEvent.click(within(board()).getByRole("button", { name: /^d/ }), { shiftKey: true });
+    expect(within(bar()).getByText("3 selected")).not.toBeNull();
+    for (const id of ["b", "c", "d"]) {
+      expect(row(id).getAttribute("aria-pressed")).toBe("true");
+    }
+  });
+
+  it("starts on the clicked task alone when shift-clicking with nothing open", () => {
+    mount({ tasks: [aTask("a"), aTask("b")] });
+    pick("Default Task List");
+    fireEvent.click(within(board()).getByRole("button", { name: /^b/ }), { shiftKey: true });
+    expect(within(bar()).getByText("1 selected")).not.toBeNull();
+    expect(screen.queryByRole("region", { name: "b details" })).toBeNull();
+  });
+
+  it.each([
+    ["cmd", { metaKey: true }],
+    ["ctrl", { ctrlKey: true }],
+  ])("%s-clicks to select the open task and the clicked one, then toggles more", (_, modifier) => {
+    mount({ tasks: [aTask("a"), aTask("b"), aTask("c"), aTask("d")] });
+    pick("Default Task List");
+    fireEvent.click(within(board()).getByRole("button", { name: /^a/ }));
+    fireEvent.click(within(board()).getByRole("button", { name: /^c/ }), modifier);
+    expect(within(bar()).getByText("2 selected")).not.toBeNull();
+    expect(row("b").getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(within(board()).getByRole("button", { name: /^d/ }), modifier);
+    expect(within(bar()).getByText("3 selected")).not.toBeNull();
+    fireEvent.click(within(board()).getByRole("button", { name: /^a/ }), modifier);
+    expect(within(bar()).getByText("2 selected")).not.toBeNull();
+  });
+
   it("moves the selection to another list", async () => {
     const work = parseTaskList("work", serializeTaskList("Work"));
     mount({ tasks: [aTask("a"), aTask("b")], taskLists: [DEFAULT_LIST, work] });
     pick("Default Task List");
     pickRow("a");
     pickRow("b");
-    fireEvent.change(within(bar()).getByLabelText("Move selected tasks to"), { target: { value: "work" } });
+    fireEvent.click(within(bar()).getByRole("button", { name: /Move to/ }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Move selected tasks to" })).getByRole("button", { name: "Work" }));
     await waitFor(() => expect(writes).toHaveLength(2));
     expect(writes.every((write) => write.draft.taskListId === "work")).toBe(true);
+  });
+
+  it("makes a list from the Move to picker and moves the selection into it", async () => {
+    mount({ tasks: [aTask("a"), aTask("b")] });
+    pick("Default Task List");
+    pickRow("a");
+    pickRow("b");
+    fireEvent.click(within(bar()).getByRole("button", { name: /Move to/ }));
+    const picker = within(screen.getByRole("dialog", { name: "Move selected tasks to" }));
+    fireEvent.click(picker.getByRole("button", { name: "New list" }));
+    const field = picker.getByLabelText("New list");
+    fireEvent.change(field, { target: { value: "Errands" } });
+    fireEvent.submit(field.closest("form")!);
+    await waitFor(() => expect(writes).toHaveLength(2));
+    expect(listWrites.map((write) => write.name)).toContain("Errands");
+    expect(writes.every((write) => write.draft.taskListId === "list-Errands")).toBe(true);
+  });
+
+  it("keeps Move, Delete and More in one order on the bar", () => {
+    mount({ tasks: [aTask("a")] });
+    pick("Default Task List");
+    pickRow("a");
+    const names = within(bar())
+      .getAllByRole("button")
+      .map((button) => button.textContent?.trim());
+    expect(names.indexOf("Move to…")).toBeLessThan(names.indexOf("Delete"));
+    expect(names.indexOf("Delete")).toBeLessThan(names.indexOf("More"));
+  });
+
+  it("opens the date picker from the due date button", () => {
+    const showPicker = vi.fn();
+    Object.defineProperty(HTMLInputElement.prototype, "showPicker", { value: showPicker, configurable: true });
+    try {
+      mount({ tasks: [aTask("a")] });
+      pick("Default Task List");
+      pickRow("a");
+      fireEvent.click(within(bar()).getByRole("button", { name: "Due date" }));
+      expect(showPicker).toHaveBeenCalledTimes(1);
+      expect(showPicker.mock.contexts[0]).toBe(within(bar()).getByLabelText("Set due date for selected tasks"));
+    } finally {
+      delete (HTMLInputElement.prototype as { showPicker?: unknown }).showPicker;
+    }
   });
 
   it("sets one due date on the selection", async () => {
@@ -1103,8 +1194,7 @@ describe("TasksView, bulk editing", () => {
     pick("Default Task List");
     pickRow("p");
     pickRow("other");
-    fireEvent.click(within(bar()).getByRole("button", { name: /Actions/ }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Delete 2 tasks" }));
+    fireEvent.click(within(bar()).getByRole("button", { name: "Delete" }));
     expect(trashed).toEqual([]);
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Move to trash" }));
     await waitFor(() => expect([...trashed].sort()).toEqual(["other", "p"]));
@@ -1115,7 +1205,9 @@ describe("TasksView, bulk editing", () => {
   it("offers no selection when read only", () => {
     mount({ tasks: [aTask("a")], readOnly: true });
     pick("Default Task List");
-    expect(screen.queryByRole("button", { name: "Select a" })).toBeNull();
+    fireEvent.click(row("a"), { ctrlKey: true });
+    expect(screen.queryByRole("toolbar", { name: "Bulk edit tasks" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Select all tasks" })).toBeNull();
   });
 });
 

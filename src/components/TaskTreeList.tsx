@@ -5,12 +5,16 @@ import { dueLabel, isOverdue, priorityLabel } from "../lib/task";
 import type { ChildCount, TaskTreeNode } from "../lib/taskTree";
 import { focusRing, iconBtn, iconBtnDanger, listRowState, tonePill } from "../lib/styles";
 import type { Task } from "../lib/types";
-import { SelectTick } from "./FieldControls";
 import { Icon } from "./Icon";
 
 const DRAG_TYPE = "application/x-sealbook-task";
 const ROOT_DROP = "__root__";
 const NO_BLOCKED: ReadonlySet<string> = new Set();
+/** How far each subtask level steps in, in rem. */
+const INDENT = 1.5;
+
+/** Tints a row's checkbox and flag, so priority reads down a column without words. */
+const PRIORITY_TONE: Record<string, string> = { High: "text-danger", Medium: "text-warning", Low: "text-accent" };
 
 type Zone = "top" | "inside" | "bottom";
 type Over = { id: string; zone: Zone; parentId: string | null } | typeof ROOT_DROP;
@@ -32,6 +36,8 @@ export type TaskSelection = {
   count: number;
   isSelected: (id: string) => boolean;
   onBegin: (task: Task) => void;
+  /** Starts from another task as well: the run between them, or just the two. */
+  onBeginFrom: (fromId: string, task: Task, run: boolean) => void;
   onToggle: (task: Task, extend: boolean) => void;
   /** The menu for the whole selection. */
   bulkItems: () => MenuItem[];
@@ -59,6 +65,7 @@ type RowProps = TaskActions & {
   depth?: number;
   /** The parent's title, for a subtask listed away from its parent. */
   parentTitle?: string;
+  /** The expand control of a parent, hung in the row's left gutter so every checkbox lines up. */
   lead?: React.ReactNode;
   className?: string;
   dropLine?: "top" | "bottom";
@@ -105,16 +112,40 @@ export function TaskRow(props: RowProps) {
   const overdue = isOverdue(task, now, timezone);
   const priority = priorityLabel(task.priority);
   const children = counts.get(task.id);
+  const tone = priority ? PRIORITY_TONE[priority] : "text-faint";
+  const canPick = selection !== undefined && !readOnly;
+
+  // Shift and Cmd/Ctrl work as in a file manager, where the open task is the
+  // one a selection grows from.
+  function clickTitle(event: React.MouseEvent) {
+    if (!canPick || !(picking || event.shiftKey || event.ctrlKey || event.metaKey)) onSelect(task);
+    else if (picking) selection.onToggle(task, event.shiftKey);
+    else if (activeId !== undefined && activeId !== task.id) selection.onBeginFrom(activeId, task, event.shiftKey);
+    else selection.onBegin(task);
+  }
+
+  // Stops a shift-click from also selecting the page's text across the rows.
+  function holdText(event: React.MouseEvent) {
+    if (canPick && event.shiftKey) event.preventDefault();
+  }
   const meta: React.ReactNode[] = [];
   if (parentTitle) meta.push(<span key="parent" className="max-w-[14rem] truncate">{`in ${parentTitle}`}</span>);
   if (due) {
     meta.push(
-      <span key="due" className={overdue ? "text-danger" : undefined}>
+      <span key="due" className={`inline-flex items-center gap-1 ${overdue ? "text-danger" : ""}`}>
+        <Icon name="calendar" className="h-3 w-3" />
         {due}
       </span>,
     );
   }
-  if (priority) meta.push(<span key="priority">{priority} priority</span>);
+  if (priority) {
+    meta.push(
+      <span key="priority" className="inline-flex items-center gap-1" title={`${priority} priority`}>
+        <Icon name="flag" className={`h-3 w-3 ${tone}`} />
+        {priority}
+      </span>,
+    );
+  }
   if (task.recurrence) {
     meta.push(
       <span key="repeat" className="inline-flex items-center gap-1">
@@ -124,54 +155,49 @@ export function TaskRow(props: RowProps) {
     );
   }
   if (children) meta.push(<span key="children">{`${children.done}/${children.total} subtasks`}</span>);
-  if (task.tags && task.tags.length > 0) meta.push(<span key="tags">{task.tags.join(", ")}</span>);
+  for (const tag of task.tags ?? []) meta.push(<span key={`tag:${tag}`} className="text-faint">{`#${tag}`}</span>);
 
   return (
     <div
       {...dragProps}
       data-task-id={task.id}
       onContextMenu={(event) => menu.open(event, itemsFor(task, actions))}
-      style={{ paddingLeft: `calc(var(--sb-gutter) + ${depth * 1.25}rem)` }}
-      className={`list-row relative flex items-start gap-2 border-b border-l-2 border-b-line/60 py-2 pr-(--sb-gutter) transition-colors duration-150 ${listRowState({ current, checked: picked })} ${className}`}
+      style={{ paddingLeft: `calc(var(--sb-gutter) + ${depth * INDENT}rem)` }}
+      className={`list-row relative flex items-center gap-2 border-b border-l-2 border-b-line/60 py-2 pr-(--sb-gutter) transition-colors duration-150 ${listRowState({ current, checked: picked })} ${className}`}
     >
       {dropLine ? (
         <span
           aria-hidden="true"
-          style={{ left: `calc(2.5rem + ${depth * 1.5}rem)` }}
+          style={{ left: `calc(var(--sb-gutter) + ${depth * INDENT}rem)` }}
           className={`pointer-events-none absolute right-3 h-0.5 rounded-full bg-accent ${
             dropLine === "top" ? "-top-px" : "-bottom-px"
           }`}
         />
       ) : null}
-      {lead ?? <span aria-hidden="true" className="h-5 w-5 shrink-0" />}
-      {picking ? (
-        <SelectTick
-          checked={picked}
-          label={task.title}
-          onToggle={(event) => selection.onToggle(task, event.shiftKey)}
-          className="hit-area relative mr-2"
+      {lead}
+      <label className="hit-area relative flex h-5 shrink-0 cursor-pointer items-center">
+        <input
+          type="checkbox"
+          checked={task.done === true}
+          disabled={readOnly}
+          onChange={() => onToggleDone(task)}
+          aria-label={`Complete ${task.title}`}
+          className={`peer size-4 cursor-pointer appearance-none rounded-[5px] border-[1.5px] border-current transition-colors checked:border-accent checked:bg-accent disabled:cursor-default ${tone} ${
+            priority ? "bg-[color-mix(in_srgb,currentColor_12%,transparent)]" : ""
+          } hover:bg-[color-mix(in_srgb,currentColor_22%,transparent)] ${focusRing}`}
         />
-      ) : (
-        <label className="hit-area relative flex h-5 shrink-0 cursor-pointer items-center">
-          <input
-            type="checkbox"
-            checked={task.done === true}
-            disabled={readOnly}
-            onChange={() => onToggleDone(task)}
-            aria-label={`Complete ${task.title}`}
-            className="h-4 w-4 cursor-pointer accent-accent disabled:cursor-default"
-          />
-        </label>
-      )}
+        <Icon
+          name="check"
+          strokeWidth={2.5}
+          className="pointer-events-none absolute top-1 left-0.5 size-3 text-on-accent opacity-0 peer-checked:opacity-100"
+        />
+      </label>
       <button
         type="button"
-        onClick={(event) => {
-          if (!selection || readOnly) onSelect(task);
-          else if (selection.selecting) selection.onToggle(task, event.shiftKey);
-          else if (event.ctrlKey || event.metaKey) selection.onBegin(task);
-          else onSelect(task);
-        }}
-        className={`ml-1 flex min-w-0 flex-1 items-start gap-3 rounded-md text-left ${focusRing}`}
+        aria-pressed={picking ? picked : undefined}
+        onMouseDown={holdText}
+        onClick={clickTitle}
+        className={`ml-1 flex min-w-0 flex-1 items-center gap-3 rounded-md text-left ${focusRing}`}
       >
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span
@@ -182,14 +208,7 @@ export function TaskRow(props: RowProps) {
             {task.title}
           </span>
           {meta.length > 0 ? (
-            <span className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs leading-4 text-mute">
-              {meta.map((entry, index) => (
-                <span key={index} className="inline-flex items-center gap-2">
-                  {index > 0 ? <span aria-hidden="true">·</span> : null}
-                  {entry}
-                </span>
-              ))}
-            </span>
+            <span className="flex min-w-0 flex-wrap items-center gap-x-3 text-xs leading-4 text-mute">{meta}</span>
           ) : null}
         </span>
         {list ? (
@@ -203,17 +222,6 @@ export function TaskRow(props: RowProps) {
       </button>
       {readOnly || picking ? null : (
         <span className="list-row-actions -my-1 ml-1 flex shrink-0 items-center gap-0.5">
-          {selection ? (
-            <button
-              type="button"
-              onClick={() => selection.onBegin(task)}
-              title="Select"
-              aria-label={`Select ${task.title}`}
-              className={iconBtn}
-            >
-              <Icon name="check" />
-            </button>
-          ) : null}
           <button
             type="button"
             onClick={() => onAddChild(task.id)}
@@ -266,7 +274,9 @@ function nested({ nodes, expanded, onToggle, renderRow, parentId = null }: NestP
         onClick={() => onToggle(task.id)}
         aria-label={open ? `Collapse ${task.title}` : `Expand ${task.title}`}
         aria-expanded={open}
-        className={`hit-area relative flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-mute transition-colors hover:text-text ${focusRing}`}
+        style={{ left: `${node.depth * INDENT}rem` }}
+        // Above the checkbox's widened hit area, which reaches into the gutter.
+        className={`absolute inset-y-0 z-1 flex w-(--sb-gutter) items-center justify-center rounded-md text-mute transition-colors hover:text-text ${focusRing}`}
       >
         <Icon name="chevron" className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} />
       </button>
@@ -277,7 +287,7 @@ function nested({ nodes, expanded, onToggle, renderRow, parentId = null }: NestP
         {hasChildren && open ? (
           <ul
             className="task-subtree"
-            style={{ "--sb-task-guide": `calc(1.125rem + 2px + ${node.depth * 1.5}rem)` } as CSSProperties}
+            style={{ "--sb-task-guide": `calc(var(--sb-gutter) + 0.5rem + 2px + ${node.depth * INDENT}rem)` } as CSSProperties}
           >
             {nested({ nodes: node.children, expanded, onToggle, renderRow, parentId: task.id })}
           </ul>

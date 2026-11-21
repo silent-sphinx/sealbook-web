@@ -499,9 +499,8 @@ describe("BookmarksView, the list", () => {
       bookmarks: [aBookmark({ id: "b1", title: "Rust book" })],
     });
 
-    fireEvent.change(screen.getByLabelText("Collection for Rust book"), {
-      target: { value: work.id },
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Collection for Rust book" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Move to collection" })).getByRole("button", { name: "Work" }));
 
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]!.id).toBe("b1");
@@ -881,7 +880,7 @@ describe("bulk editing", () => {
   }
 
   function runAction(name: RegExp): void {
-    fireEvent.click(within(board()).getByRole("button", { name: "Actions" }));
+    fireEvent.click(within(board()).getByRole("button", { name: "More" }));
     fireEvent.click(screen.getByRole("menuitem", { name }));
   }
 
@@ -934,18 +933,34 @@ describe("bulk editing", () => {
     });
     startSelecting();
     fireEvent.click(screen.getByLabelText("Select b"));
-    runAction(/Move 2 bookmarks/);
-    fireEvent.change(screen.getByLabelText("Collection"), { target: { value: "work" } });
-    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    fireEvent.click(within(board()).getByRole("button", { name: /Move to/ }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Move selected bookmarks to" })).getByRole("button", { name: "Work" }),
+    );
+    expect(screen.queryByRole("dialog", { name: "Move to collection" })).toBeNull();
     await waitFor(() => expect(writes).toHaveLength(2));
     expect(writes.every((write) => write.draft.collectionId === "work")).toBe(true);
+  });
+
+  it("makes a collection from the Move to picker and moves the selection into it", async () => {
+    mount({ bookmarks: three() });
+    startSelecting();
+    fireEvent.click(screen.getByLabelText("Select b"));
+    fireEvent.click(within(board()).getByRole("button", { name: /Move to/ }));
+    const picker = within(screen.getByRole("dialog", { name: "Move selected bookmarks to" }));
+    fireEvent.click(picker.getByRole("button", { name: "New collection" }));
+    const field = picker.getByLabelText("New collection");
+    fireEvent.change(field, { target: { value: "Later" } });
+    fireEvent.submit(field.closest("form")!);
+    await waitFor(() => expect(writes).toHaveLength(2));
+    expect(writes.every((write) => write.draft.collectionId === "collection-Later")).toBe(true);
   });
 
   it("moves the selection to the trash after confirming", async () => {
     mount({ bookmarks: three() });
     startSelecting();
     fireEvent.click(screen.getByLabelText("Select c"));
-    runAction(/Delete 2 bookmarks/);
+    fireEvent.click(within(board()).getByRole("button", { name: "Delete" }));
     expect(trashed).toEqual([]);
     fireEvent.click(screen.getByRole("button", { name: "Move to trash" }));
     await waitFor(() => expect([...trashed].sort()).toEqual(["a", "c"]));

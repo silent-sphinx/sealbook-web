@@ -25,6 +25,22 @@ describe("useItemSelection", () => {
     expect(result.current.selectedItems.map((entry) => entry.id)).toEqual(["b", "c", "d"]);
   });
 
+  it("starts from another item, as a run or as the pair", () => {
+    const { result } = renderHook(() => useItemSelection(rows));
+    act(() => result.current.beginFrom("d", rows[1]!, true));
+    expect(result.current.selectedItems.map((entry) => entry.id)).toEqual(["b", "c", "d"]);
+    act(() => result.current.beginFrom("a", rows[2]!, false));
+    expect(result.current.selectedItems.map((entry) => entry.id)).toEqual(["a", "c"]);
+    act(() => result.current.toggle(rows[3]!, true));
+    expect(result.current.selectedItems.map((entry) => entry.id)).toEqual(["a", "c", "d"]);
+  });
+
+  it("starts on the item alone when the other is not listed", () => {
+    const { result } = renderHook(() => useItemSelection(rows));
+    act(() => result.current.beginFrom("gone", rows[2]!, true));
+    expect(result.current.selectedItems.map((entry) => entry.id)).toEqual(["c"]);
+  });
+
   it("selects everything, then clears when all are picked", () => {
     const { result } = renderHook(() => useItemSelection(rows));
     act(() => result.current.toggleAll());

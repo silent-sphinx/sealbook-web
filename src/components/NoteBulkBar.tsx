@@ -1,5 +1,4 @@
-import { btnDangerGhostSm } from "../lib/styles";
-import { BulkBar, BulkMove } from "./PaneControls";
+import { BulkBar } from "./PaneControls";
 import type { ItemSelection } from "../lib/useItemSelection";
 import type { Note, Notebook } from "../lib/types";
 import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
@@ -55,11 +54,12 @@ type Props = {
   onToggleAll: () => void;
   onClear: () => void;
   onMove: (notebookId: string) => void;
+  onCreateNotebook: (name: string) => Promise<string | undefined>;
   onDelete: () => void;
 };
 
 /** The strip under a notes pane's header while notes are selected. */
-export function NoteBulkBar({ selected, total, notebooks, onToggleAll, onClear, onMove, onDelete }: Props) {
+export function NoteBulkBar({ selected, total, notebooks, onToggleAll, onClear, onMove, onCreateNotebook, onDelete }: Props) {
   return (
     <BulkBar
       label="Bulk edit notes"
@@ -68,13 +68,9 @@ export function NoteBulkBar({ selected, total, notebooks, onToggleAll, onClear, 
       total={total}
       onToggleAll={onToggleAll}
       onClear={onClear}
-    >
-      <BulkMove label="Move selected notes to" options={notebooks} onMove={onMove} />
-      <button type="button" onClick={onDelete} className={btnDangerGhostSm}>
-        <Icon name="trash" className="size-3.5" />
-        Delete
-      </button>
-    </BulkBar>
+      move={{ label: "Move selected notes to", noun: "notebook", icon: "book", options: notebooks, onCreate: onCreateNotebook, onMove }}
+      onDelete={onDelete}
+    />
   );
 }
 

@@ -86,10 +86,7 @@ describe("the contacts trash", () => {
     await unlock();
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Ada Lovelace" }));
-    fireEvent.click(screen.getByRole("button", { name: /Actions/ }));
-    const item = screen.getByRole("menuitem", { name: "Delete 1 contact" });
-    fireEvent.pointerDown(item);
-    fireEvent.click(item);
+    fireEvent.click(within(screen.getByRole("toolbar")).getByRole("button", { name: "Delete" }));
     fireEvent.click(await screen.findByRole("button", { name: "Move to trash" }));
 
     await waitFor(() => expect(screen.queryByRole("button", { name: "View Ada Lovelace" })).toBeNull());

@@ -7,7 +7,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "./test/dom";
 import { aContact, enrolDevice, setConnectionDomain } from "./test/vault";
 import { DEFAULT_ACCOUNT_SETTINGS } from "./lib/accountSettings";
@@ -126,7 +126,7 @@ describe("bulk selecting contacts", () => {
 
     pick("Ada Lovelace");
     pick("Grace Hopper");
-    fireEvent.click(screen.getByRole("button", { name: /Actions/ }));
+    fireEvent.click(screen.getByRole("button", { name: /More/ }));
     const item = screen.getByRole("menuitem", { name: "Archive 2 contacts" });
     fireEvent.pointerDown(item);
     fireEvent.click(item);
@@ -142,10 +142,7 @@ describe("bulk selecting contacts", () => {
 
     pick("Ada Lovelace");
     pick("Grace Hopper");
-    fireEvent.click(screen.getByRole("button", { name: /Actions/ }));
-    const item = screen.getByRole("menuitem", { name: "Delete 2 contacts" });
-    fireEvent.pointerDown(item);
-    fireEvent.click(item);
+    fireEvent.click(within(screen.getByRole("toolbar")).getByRole("button", { name: "Delete" }));
 
     expect(await screen.findByText("Move 2 contacts to the trash?")).toBeDefined();
     expect(trashed).toEqual([]);
@@ -177,13 +174,24 @@ describe("bulk selecting contacts", () => {
     await unlock();
 
     pick("Ada Lovelace");
-    fireEvent.change(screen.getByLabelText("Move selected contacts to"), {
-      target: { value: DEFAULT_ADDRESS_BOOK_ID },
-    });
+    fireEvent.click(screen.getByRole("button", { name: /Move to/ }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Move selected contacts to" })).getByRole("button", { name: "Contacts" }),
+    );
 
     await waitFor(() => expect(writes.length).toBe(1));
     expect(writes[0]!.id).toBe("c1");
     expect(writes[0]!.draft.addressBookId).toBe(DEFAULT_ADDRESS_BOOK_ID);
+  });
+
+  it("offers a way to make an address book from the Move to dropdown", async () => {
+    await unlock();
+
+    pick("Ada Lovelace");
+    fireEvent.click(screen.getByRole("button", { name: /Move to/ }));
+    expect(
+      within(screen.getByRole("dialog", { name: "Move selected contacts to" })).getByRole("button", { name: "New address book" }),
+    ).not.toBeNull();
   });
 
   it("clears the selection with Escape", async () => {

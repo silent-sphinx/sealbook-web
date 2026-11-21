@@ -97,19 +97,19 @@ export function TaskAgendaList({ agenda, folds, tasks, onAddDue, ...actions }: P
         const capped = key === "undated" && !allUndated ? ids.slice(0, UNDATED_SHOWN) : ids;
         const rows = capped.map((id) => byId.get(id)).filter((task): task is Task => task !== undefined);
         return (
-          <section key={key} aria-label={label} className="border-b border-line/60">
-            <div className="flex items-center gap-2 bg-panel/40 px-3 py-1.5">
+          <section key={key} aria-label={label}>
+            <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-line/60 bg-bg/90 py-2 pr-(--sb-gutter) pl-[calc(var(--sb-gutter)+2px)] backdrop-blur-sm">
               <button
                 type="button"
                 onClick={() => folds.toggle(key)}
                 aria-expanded={!closed}
-                className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-md text-left text-2xs font-semibold uppercase tracking-[0.14em] ${
-                  key === "overdue" ? "text-danger" : "text-mute"
+                className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-md text-left text-xs font-semibold ${
+                  key === "overdue" ? "text-danger" : "text-text"
                 } ${focusRing}`}
               >
-                <Icon name="chevron" className={`h-3 w-3 transition-transform ${closed ? "" : "rotate-90"}`} />
+                <Icon name="chevron" className={`h-3 w-3 text-mute transition-transform ${closed ? "" : "rotate-90"}`} />
                 <span>{label}</span>
-                {ids.length > 0 ? <span className="tabular-nums font-medium">{ids.length}</span> : null}
+                {ids.length > 0 ? <span className="font-medium tabular-nums text-mute">{ids.length}</span> : null}
               </button>
               {onAddDue && addOffset !== undefined ? (
                 <button
@@ -124,7 +124,7 @@ export function TaskAgendaList({ agenda, folds, tasks, onAddDue, ...actions }: P
               ) : null}
             </div>
             {closed ? null : ids.length === 0 ? (
-              <p className="px-9 py-2 text-xs text-mute">Nothing due today.</p>
+              <p className="py-2 pr-(--sb-gutter) pl-[calc(var(--sb-gutter)+2px+1.75rem)] text-xs text-mute">Nothing due today.</p>
             ) : (
               <ul className="min-w-0">
                 {rows.map((task) => (
@@ -142,7 +142,7 @@ export function TaskAgendaList({ agenda, folds, tasks, onAddDue, ...actions }: P
                     <button
                       type="button"
                       onClick={folds.showAllUndated}
-                      className={`w-full px-9 py-2 text-left text-xs font-medium text-accent hover:underline ${focusRing}`}
+                      className={`w-full py-2 pr-(--sb-gutter) pl-[calc(var(--sb-gutter)+2px+1.75rem)] text-left text-xs font-medium text-accent hover:underline ${focusRing}`}
                     >
                       {`Show all ${ids.length}`}
                     </button>

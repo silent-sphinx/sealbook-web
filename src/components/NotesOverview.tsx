@@ -31,6 +31,7 @@ type Props = {
   onOpenNote: (note: Note) => void;
   onNewNote: () => void;
   onMoveNotes: (notes: Note[], notebookId: string) => void;
+  onCreateNotebook: (name: string) => Promise<string | undefined>;
   onDeleteNotes: (notes: Note[]) => void;
   onRenameNote: (note: Note) => void;
   onDeleteNote: (note: Note) => void;
@@ -73,7 +74,7 @@ function NotebookCover({ notebook, count, onOpen, onContextMenu }: { notebook: N
   );
 }
 
-export function NotesOverview({ sidebar, notebooks, notes, search, onSearch, results, query, dialogOpen, onOpenNotebook, onOpenNote, onNewNote, onMoveNotes, onDeleteNotes, onRenameNote, onDeleteNote, onRenameNotebook, onDeleteNotebook }: Props) {
+export function NotesOverview({ sidebar, notebooks, notes, search, onSearch, results, query, dialogOpen, onOpenNotebook, onOpenNote, onNewNote, onMoveNotes, onCreateNotebook, onDeleteNotes, onRenameNote, onDeleteNote, onRenameNotebook, onDeleteNotebook }: Props) {
   const notebookMenu = useContextMenu();
   const counts = useMemo(() => {
     const result = new Map<string, number>();
@@ -120,6 +121,7 @@ export function NotesOverview({ sidebar, notebooks, notes, search, onSearch, res
             onMoveNotes(selection.selectedItems, notebookId);
             selection.clear();
           }}
+          onCreateNotebook={onCreateNotebook}
           onDelete={() => onDeleteNotes(selection.selectedItems)}
         />
       ) : null}

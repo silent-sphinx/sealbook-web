@@ -170,7 +170,9 @@ export const detailPane =
 
 /** A toolbar shown over a list while items are selected. */
 export const bulkBar =
-  "flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b border-line bg-accent-faint px-(--sb-gutter) py-1.5";
+  "flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b border-accent-line bg-accent-faint px-(--sb-gutter) py-1.5";
+/** The one primary control on a bulk bar, tinted so the rest read as secondary. */
+export const bulkPrimary = `${control} ${sizeSm} border border-accent-line bg-accent-soft font-medium text-text hover:border-accent-dim hover:bg-accent-line`;
 
 export const segmented = "inline-flex h-7 shrink-0 items-stretch rounded-lg bg-surface p-0.5";
 export const segment = (active: boolean) =>

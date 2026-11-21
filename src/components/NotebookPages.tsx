@@ -29,6 +29,7 @@ type Props = {
   onOpenNote: (note: Note) => void;
   onNewNote: () => void;
   onMoveNotes: (notes: Note[], notebookId: string) => void;
+  onCreateNotebook: (name: string) => Promise<string | undefined>;
   onDeleteNotes: (notes: Note[]) => void;
   onRenameNote: (note: Note) => void;
   onDeleteNote: (note: Note) => void;
@@ -64,7 +65,7 @@ function day(iso: string | undefined): string {
   return new Date(parsed).toLocaleDateString(undefined, { dateStyle: "medium" });
 }
 
-export function NotebookPages({ sidebar, notebook, notes, notebooks, search, onSearch, results, query, dialogOpen, onBack, onOpenNote, onNewNote, onMoveNotes, onDeleteNotes, onRenameNote, onDeleteNote }: Props) {
+export function NotebookPages({ sidebar, notebook, notes, notebooks, search, onSearch, results, query, dialogOpen, onBack, onOpenNote, onNewNote, onMoveNotes, onCreateNotebook, onDeleteNotes, onRenameNote, onDeleteNote }: Props) {
   const pages = useMemo(() => {
     const hits = results ? new Set(results.map((note) => note.id)) : null;
     return sortNotes(
@@ -144,6 +145,7 @@ export function NotebookPages({ sidebar, notebook, notes, notebooks, search, onS
             onMoveNotes(selection.selectedItems, notebookId);
             selection.clear();
           }}
+          onCreateNotebook={onCreateNotebook}
           onDelete={() => onDeleteNotes(selection.selectedItems)}
         />
       ) : null}
