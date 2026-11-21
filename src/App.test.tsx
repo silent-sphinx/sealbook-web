@@ -232,6 +232,20 @@ describe("the idle lock", () => {
     expect((screen.getByLabelText("Password") as HTMLInputElement).value).toBe("");
   });
 
+  it("locks on wake when the machine slept past the timeout", async () => {
+    await openOfflineVault();
+
+    // Sleep: the wall clock moves on, but no timer gets to fire.
+    vi.setSystemTime(Date.now() + 2 * IDLE_TIMEOUT_MS);
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await settle();
+
+    expect(screen.getByRole("button", { name: "Unlock" })).toBeDefined();
+    expect(screen.queryByText("Ada Lovelace")).toBeNull();
+  });
+
   it("resets the idle timer on activity", async () => {
     await openOfflineVault();
 

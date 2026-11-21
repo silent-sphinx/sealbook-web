@@ -15,6 +15,7 @@ export const AUTO_LOCK_OPTIONS = [1, 5, 15, 30, 60, 240, 0] as const;
 export type AutoLockMinutes = (typeof AUTO_LOCK_OPTIONS)[number];
 export const DEFAULT_AUTO_LOCK_MINUTES: AutoLockMinutes = 15;
 export const IDLE_BURST_THROTTLE_MS = 1000;
+export const IDLE_HEARTBEAT_MS = 5000;
 
 /** A minute's warning, or half the timeout when that is shorter. */
 export function idleWarningMs(timeoutMs: number): number {

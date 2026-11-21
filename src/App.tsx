@@ -137,6 +137,7 @@ import { friendlyError, isOpaqueMismatch, PasswordChangedError } from "./lib/err
 import { describeError, log, serverHost } from "./lib/log";
 import {
   IDLE_BURST_THROTTLE_MS,
+  IDLE_HEARTBEAT_MS,
   idleWarningMs,
   idleWarningSeconds,
   loadLastTab,
@@ -747,6 +748,7 @@ export default function App() {
     let warnTimeout = 0;
     let lockTimeout = 0;
     let tick = 0;
+    let lastActivity = Date.now();
 
     const clearTimers = () => {
       window.clearTimeout(warnTimeout);
@@ -754,8 +756,16 @@ export default function App() {
       window.clearInterval(tick);
     };
 
+    const lockNow = () => {
+      clearTimers();
+      setIdleCountdown(null);
+      log.info("locking the vault after an idle timeout", { minutes: autoLockMinutes });
+      void lock();
+    };
+
     const resetIdleTimer = () => {
       clearTimers();
+      lastActivity = Date.now();
       setIdleCountdown(null);
       warnTimeout = window.setTimeout(() => {
         let remaining = idleWarningSeconds(autoLockMinutes);
@@ -765,13 +775,23 @@ export default function App() {
           setIdleCountdown(remaining > 0 ? remaining : 0);
         }, 1000);
       }, warningMs);
-      lockTimeout = window.setTimeout(() => {
-        clearTimers();
-        setIdleCountdown(null);
-        log.info("locking the vault after an idle timeout", { minutes: autoLockMinutes });
-        void lock();
-      }, timeoutMs);
+      lockTimeout = window.setTimeout(lockNow, timeoutMs);
     };
+
+    // Timers do not count time the machine spent asleep, so a laptop closed
+    // past the timeout woke with the vault open and a fresh countdown. The wall
+    // clock does count it: compare against it on wake and on a short heartbeat
+    // (a lid closed under a visible tab fires no visibility event).
+    const lockIfElapsed = () => {
+      if (Date.now() - lastActivity >= timeoutMs) lockNow();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") lockIfElapsed();
+    };
+    const heartbeat = window.setInterval(lockIfElapsed, IDLE_HEARTBEAT_MS);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", lockIfElapsed);
+    window.addEventListener("pageshow", lockIfElapsed);
 
     // Reading a long note is activity, but a wheel fires none of the events
     // below, so the vault used to lock mid-read. These two reset on a throttle
@@ -793,6 +813,10 @@ export default function App() {
     resetIdleTimer();
     return () => {
       clearTimers();
+      window.clearInterval(heartbeat);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", lockIfElapsed);
+      window.removeEventListener("pageshow", lockIfElapsed);
       setIdleCountdown(null);
       events.forEach((event) => window.removeEventListener(event, resetIdleTimer));
       burstEvents.forEach((event) =>
