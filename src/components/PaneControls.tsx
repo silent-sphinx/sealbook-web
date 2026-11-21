@@ -354,7 +354,6 @@ export function EntryRow({
   leading,
   title,
   inlineMeta,
-  badge,
   trailingMeta,
   subtitle,
   note,
@@ -363,7 +362,6 @@ export function EntryRow({
   leading?: ReactNode;
   title: ReactNode;
   inlineMeta?: string;
-  badge?: string;
   trailingMeta?: string;
   subtitle?: ReactNode;
   note?: string;
@@ -377,11 +375,6 @@ export function EntryRow({
           <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
             <span className="min-w-0 truncate font-medium text-text">{title}</span>
             {inlineMeta ? <span className="text-xs text-mute">{inlineMeta}</span> : null}
-            {badge ? (
-              <span className="self-center rounded-full border border-accent-dim/40 bg-accent/10 px-2 text-2xs font-medium uppercase leading-[18px] tracking-wider text-accent">
-                {badge}
-              </span>
-            ) : null}
           </div>
           {trailingMeta ? (
             <span className="shrink-0 text-2xs uppercase tracking-wider text-mute/80">

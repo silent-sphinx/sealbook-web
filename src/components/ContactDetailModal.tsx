@@ -84,8 +84,17 @@ function ongoingFirst<T extends { current?: boolean; end?: string }>(rows: T[], 
   return [...ongoing, ...finished];
 }
 
+/** A current entry with no start date has no range to show, so it says so on its own. */
 function periodOf(row: { start?: string; end?: string; current?: boolean }): string | undefined {
-  return formatDateRange(row.start, row.current ? undefined : row.end) || undefined;
+  return formatDateRange(row.start, row.current ? undefined : row.end) || (row.current ? "Current" : undefined);
+}
+
+function leadingIcon(name: "pin" | "briefcase"): ReactNode {
+  return (
+    <span className="flex h-5 w-4 items-center justify-center text-mute/60">
+      <Icon name={name} className="h-4 w-4" />
+    </span>
+  );
 }
 
 function formatDate(value: string): string {
@@ -271,16 +280,16 @@ export function ContactDetailModal({
 
   const addressSection =
     addresses.length > 0 ? (
-      <PaneSection title={addresses.length > 1 ? "Addresses" : "Address"}>
+      <PaneSection title="Addresses">
         {addresses.map((a) => {
           const [first, ...rest] = addressLines(a);
           return (
             <EntryRow
               key={a.id}
+              leading={leadingIcon("pin")}
               title={first}
               inlineMeta={channelKindLabel(a.kind, a.label)}
               subtitle={rest.length > 0 ? rest.join(", ") : undefined}
-              badge={detailed && a.current ? "Current" : undefined}
               trailingMeta={detailed ? periodOf(a) : undefined}
             />
           );
@@ -290,7 +299,7 @@ export function ContactDetailModal({
 
   const detailSection =
     dates.length > 0 ? (
-      <PaneSection title="Details">
+      <PaneSection title="Dates">
         {dates.map((d) => (
           <FieldRow
             key={d.id}
@@ -308,14 +317,9 @@ export function ContactDetailModal({
         {work.map((w) => (
           <EntryRow
             key={w.id}
-            leading={
-              <span className="flex h-5 w-4 items-center justify-center text-mute/60">
-                <Icon name="briefcase" className="h-4 w-4" />
-              </span>
-            }
+            leading={leadingIcon("briefcase")}
             title={w.organization || w.title}
             subtitle={w.organization && w.title ? w.title : undefined}
-            badge={detailed && w.current ? "Current" : undefined}
             trailingMeta={detailed ? periodOf(w) : undefined}
             note={detailed ? w.note : undefined}
           />

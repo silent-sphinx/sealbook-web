@@ -146,7 +146,7 @@ describe("the contact detail pane", () => {
     expect(workplace.textContent).toContain("Analytical Engines");
     expect(workplace.textContent).not.toContain("Royal Society");
     expect(workplace.textContent).not.toContain("2018");
-    expect(headings()).not.toContain("Details");
+    expect(headings()).not.toContain("Dates");
     cleanup();
 
     mount(contact, { detailed: true });
@@ -154,7 +154,26 @@ describe("the contact detail pane", () => {
     expect(workplace.textContent).toContain("Royal Society");
     expect(workplace.textContent).toContain("2018 - Present");
     expect(workplace.textContent).toContain("2010 - 2015");
-    expect(within(workplace).getByText("Current")).toBeDefined();
+    expect(within(workplace).queryByText("Current")).toBeNull();
+  });
+
+  it("names the dates, addresses and workplace sections the way the form does", () => {
+    mount(
+      aContact({
+        dates: [{ id: "d1", kind: "birthday", date: "1979-09-04" }],
+        addresses: [{ id: "a1", kind: "home", street1: "189 Church Lane", locality: "Manchester", current: true }],
+        work: [{ id: "w1", organization: "Little Law Ltd", current: true }],
+      }),
+      { detailed: true },
+    );
+
+    expect(headings()).toEqual(
+      expect.arrayContaining(["Dates", "Addresses", "Workplace"]),
+    );
+    expect(headings()).not.toContain("Details");
+    expect(headings()).not.toContain("Address");
+    expect(within(sectionOf("Addresses")).getByText("Current")).toBeDefined();
+    expect(within(sectionOf("Workplace")).getByText("Current")).toBeDefined();
   });
 
   it("dates addresses and lists former ones only for detailed contacts", () => {
@@ -166,7 +185,7 @@ describe("the contact detail pane", () => {
     });
 
     mount(contact);
-    let section = sectionOf("Address");
+    let section = sectionOf("Addresses");
     expect(section.textContent).toContain("London");
     expect(section.textContent).not.toContain("Leeds");
     cleanup();
