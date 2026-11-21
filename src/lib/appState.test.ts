@@ -29,14 +29,14 @@ describe("loadLastTab", () => {
     saveLastTab("settings");
     expect(store.size).toBe(0);
     stubSession("settings");
-    expect(loadLastTab()).toBe("contacts");
+    expect(loadLastTab()).toBe("overview");
   });
 
-  it("falls back to contacts for nothing or for garbage", () => {
+  it("falls back to the overview for nothing or for garbage", () => {
     stubSession();
-    expect(loadLastTab()).toBe("contacts");
+    expect(loadLastTab()).toBe("overview");
     stubSession("nonsense");
-    expect(loadLastTab()).toBe("contacts");
+    expect(loadLastTab()).toBe("overview");
   });
 });
 

@@ -56,6 +56,21 @@ describe("syncSummary", () => {
   });
 });
 
+describe("the rail logo", () => {
+  it("goes to the overview when there is one", () => {
+    const onSelect = vi.fn<(id: string) => void>();
+    const tabs = [{ id: "overview", label: "Overview", icon: "home" as const }, ...TABS];
+    render(<AppRail {...props({ tabs, onSelect })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Sealbook home" }));
+    expect(onSelect).toHaveBeenCalledWith("overview");
+  });
+
+  it("is plain artwork without one", () => {
+    render(<AppRail {...props()} />);
+    expect(screen.queryByRole("button", { name: "Sealbook home" })).toBeNull();
+  });
+});
+
 describe("the desktop rail", () => {
   it("names the controls exactly as the header they replaced did", () => {
     render(<AppRail {...props()} />);

@@ -2,7 +2,7 @@ import { browserTimezone } from "./timezone";
 import { ONBOARDING_KEY } from "./onboarding";
 import type { WeekStart } from "./calendarModel";
 
-export const MAIN_TABS = ["contacts", "calendar", "notes", "bookmarks", "tasks", "settings"] as const;
+export const MAIN_TABS = ["overview", "contacts", "calendar", "notes", "bookmarks", "tasks", "settings"] as const;
 
 export type MainTab = (typeof MAIN_TABS)[number];
 
@@ -138,9 +138,9 @@ export function loadLastTab(): MainTab {
   try {
     const stored = sessionStorage.getItem(LAST_TAB_KEY);
     const tab = MAIN_TABS.find((candidate) => candidate === stored);
-    return tab && tab !== "settings" ? tab : "contacts";
+    return tab && tab !== "settings" ? tab : "overview";
   } catch {
-    return "contacts";
+    return "overview";
   }
 }
 

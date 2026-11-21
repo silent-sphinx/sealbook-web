@@ -136,6 +136,7 @@ export function AppRail({
   const syncId = useId();
   const features = tabs.filter((tab) => tab.id !== "settings");
   const settings = tabs.find((tab) => tab.id === "settings");
+  const home = tabs.find((tab) => tab.id === "overview");
   const summary = syncSummary(sync);
 
   function openAccount(event: MouseEvent<HTMLButtonElement>) {
@@ -158,9 +159,21 @@ export function AppRail({
         aria-label="Main Navigation"
         className="relative z-(--z-rail) flex w-(--sb-rail-w) shrink-0 flex-col items-center gap-1 border-r border-line bg-bg/60 py-3 backdrop-blur-xl"
       >
-        <div className="tip relative mb-3 flex size-9 items-center justify-center" data-tip="Sealbook">
-          <Logo className="size-7" />
-        </div>
+        {home ? (
+          <button
+            type="button"
+            aria-label="Sealbook home"
+            data-tip="Sealbook"
+            onClick={() => onSelect(home.id)}
+            className={`tip relative mb-3 flex size-9 cursor-pointer items-center justify-center rounded-lg ${focusRing}`}
+          >
+            <Logo className="size-7" />
+          </button>
+        ) : (
+          <div className="tip relative mb-3 flex size-9 items-center justify-center" data-tip="Sealbook">
+            <Logo className="size-7" />
+          </div>
+        )}
 
         {features.map((tab) => (
           <RailButton

@@ -14,6 +14,7 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach } from "vitest";
+import { saveLastTab } from "../lib/appState";
 import { closeLocalStore, openLocalStore, saveLocalVault } from "../lib/localStore";
 import { closeOutbox } from "../lib/outbox";
 import { saveConnectionDomain, saveDevice } from "../lib/storage";
@@ -160,6 +161,10 @@ beforeEach(() => {
   // Present in jsdom but not on every element path the shell touches.
   Element.prototype.scrollIntoView ??= function scrollIntoView(): void {};
   setOnline(true);
+  // The shell lands on the overview, but these suites drive the contacts view
+  // and were written for a shell that opened on it. A suite about the landing
+  // page clears this first.
+  saveLastTab("contacts");
 });
 
 afterEach(() => {

@@ -15,6 +15,7 @@ import { AppRail, MobileTabBar } from "./components/AppNav";
 import { NotesView } from "./components/NotesView";
 import { BookmarksView } from "./components/BookmarksView";
 import { TasksView } from "./components/TasksView";
+import { OverviewView } from "./components/OverviewView";
 import { SettingsView, type SettingsSection } from "./components/SettingsView";
 import { PasswordField } from "./components/PasswordField";
 import { WelcomeModal } from "./components/WelcomeModal";
@@ -86,6 +87,7 @@ import {
   accentVariables,
   isDetailedContacts,
   isFeatureEnabled,
+  enabledFeatures,
 } from "./lib/accountSettings";
 import { type OnboardingPlan } from "./lib/onboarding";
 import { HIDDEN_CALENDARS, loadCalendarIds, storeCalendarIds } from "./lib/calendarVisibility";
@@ -111,7 +113,7 @@ import {
   type ContactSearchIndex,
   type VaultSearchIndex,
 } from "./lib/wasm";
-import { buildVaultIndex, KIND_FEATURE, type SearchHit } from "./lib/vaultSearch";
+import { buildVaultIndex, KIND_FEATURE, type SearchHit, type SearchKind } from "./lib/vaultSearch";
 import { resolveEvent } from "./lib/calendarSearch";
 import { extractRecoveryWords } from "./lib/phrase";
 import { findInvalidBip39Words } from "./lib/bip39Words";
@@ -186,6 +188,7 @@ const searchShortcut =
   typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "\u2318K" : "Ctrl K";
 
 const TABS: { id: MainTab; label: string; icon: IconName }[] = [
+  { id: "overview", label: "Overview", icon: "home" },
   { id: "contacts", label: "Contacts", icon: "user" },
   { id: "calendar", label: "Calendar", icon: "calendar" },
   { id: "notes", label: "Notes", icon: "page" },
@@ -421,9 +424,13 @@ export default function App() {
     () => (session ? thisDeviceName(session, deviceLabels) : ""),
     [session, deviceLabels],
   );
-  // Settings is always present: it is where a feature gets turned back on.
+  // Settings is always present: it is where a feature gets turned back on. The
+  // overview is not a feature of its own and shows whichever ones are on.
   const visibleTabs = useMemo(
-    () => TABS.filter((tab) => tab.id === "settings" || isFeatureEnabled(accountSettings, tab.id)),
+    () =>
+      TABS.filter(
+        (tab) => tab.id === "settings" || tab.id === "overview" || isFeatureEnabled(accountSettings, tab.id),
+      ),
     [accountSettings],
   );
   // Derived rather than corrected in an effect, so a tab disabled on another
@@ -2064,10 +2071,15 @@ export default function App() {
   /** Closes the palette and opens what was picked in its own tab. */
   function openSearchHit(hit: SearchHit) {
     setSearchOpen(false);
+    openVaultItem(hit.kind, hit.id);
+  }
+
+  /** Opens one item in the view it belongs to, as the palette and the overview do. */
+  function openVaultItem(kind: SearchKind, id: string) {
     guardEditing(() => {
-      switch (hit.kind) {
+      switch (kind) {
         case "contact": {
-          const contact = contacts.find((item) => item.id === hit.id);
+          const contact = contacts.find((item) => item.id === id);
           if (!contact) return;
           setViewingArchive(false);
           setViewingTrash(false);
@@ -2077,19 +2089,19 @@ export default function App() {
           break;
         }
         case "event":
-          setEventFocusId(hit.id);
+          setEventFocusId(id);
           break;
         case "note":
-          setNoteFocusId(hit.id);
+          setNoteFocusId(id);
           break;
         case "bookmark":
-          setBookmarkFocusId(hit.id);
+          setBookmarkFocusId(id);
           break;
         case "task":
-          setTaskFocusId(hit.id);
+          setTaskFocusId(id);
           break;
       }
-      setActiveTab(KIND_FEATURE[hit.kind]);
+      setActiveTab(KIND_FEATURE[kind]);
     });
   }
 
@@ -2367,7 +2379,21 @@ export default function App() {
         {phraseDialog}
 
         <div className="flex min-h-0 flex-1 flex-col">
-          {activeTab === "settings" ? (
+          {activeTab === "overview" ? (
+            <OverviewView
+              username={session.state.username}
+              features={enabledFeatures(accountSettings)}
+              contacts={contacts}
+              calendars={calendars}
+              events={calendarEvents}
+              tasks={tasks}
+              notes={notes}
+              bookmarks={bookmarks}
+              timezone={timezone}
+              onOpenItem={openVaultItem}
+              onOpenFeature={(feature) => setActiveTab(feature)}
+            />
+          ) : activeTab === "settings" ? (
                       <SettingsView
                 key={settingsSection ?? "default"}
                 session={session}
