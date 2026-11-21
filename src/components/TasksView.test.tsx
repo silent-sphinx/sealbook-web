@@ -347,38 +347,51 @@ describe("TasksView, tags", () => {
     aTask("old", { tags: ["home"], done: true, completedAt: new Date().toISOString() }),
   ];
   const rows = () => within(board()).queryAllByRole("checkbox").map((box) => box.getAttribute("aria-label"));
+  const openTags = () => fireEvent.click(screen.getByRole("button", { name: /^Tags|^Tag:/ }));
+  const chooseTag = (name: RegExp) => {
+    openTags();
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Filter by tag" })).getByRole("button", { name }));
+  };
 
-  it("lists each tag once, counted across the view, and filters on click", () => {
+  it("lists each tag once, counted across the view, and filters on pick", () => {
     mount({ tasks: tagged() });
     pick("All tasks");
-    const home = screen.getByRole("button", { name: /^Home/, pressed: false });
-    expect(home.textContent).toContain("3");
-    fireEvent.click(screen.getByRole("button", { name: /^money/ }));
+    openTags();
+    const list = within(screen.getByRole("dialog", { name: "Filter by tag" }));
+    expect(list.getByRole("button", { name: /Home/ }).textContent).toContain("3");
+    fireEvent.click(list.getByRole("button", { name: /money/ }));
     expect(rows()).toEqual(["Complete rent"]);
-    fireEvent.click(screen.getByRole("button", { name: /^money/ }));
+    expect(screen.getByRole("button", { name: "Tag: money" })).not.toBeNull();
+    chooseTag(/money/);
     expect(rows()).toHaveLength(4);
   });
 
   it("filters the Up next agenda too", () => {
     mount({ tasks: [aTask("water", { tags: ["home"], dueDate: day(0) }), aTask("rent", { tags: ["money"], dueDate: day(0) })] });
-    fireEvent.click(screen.getByRole("button", { name: /^money/ }));
+    chooseTag(/money/);
     expect(rows()).toEqual(["Complete rent"]);
   });
 
-  it("says so when no task has the tag in the view, and drops a tag that is gone", () => {
+  it("drops a tag that is gone from the view", () => {
     mount({ tasks: tagged() });
     pick("All tasks");
-    fireEvent.click(screen.getByRole("button", { name: /^money/ }));
+    chooseTag(/money/);
     pick("Completed");
-    expect(screen.queryByRole("button", { name: /^money/ })).toBeNull();
+    openTags();
+    expect(within(screen.getByRole("dialog", { name: "Filter by tag" })).queryByRole("button", { name: /money/ })).toBeNull();
     expect(rows()).toEqual(["Complete old"]);
   });
 
-  it("hides the tag bar while searching", () => {
-    mount({ tasks: tagged() });
+  it("finds a tag in a long list by typing", () => {
+    const many = Array.from({ length: 12 }, (_, at) => aTask(`task ${at}`, { tags: [`tag${at}`] }));
+    mount({ tasks: many });
     pick("All tasks");
-    fireEvent.change(screen.getByLabelText("Search tasks"), { target: { value: "wat" } });
-    expect(screen.queryByRole("button", { name: /^money/ })).toBeNull();
+    openTags();
+    const list = within(screen.getByRole("dialog", { name: "Filter by tag" }));
+    fireEvent.change(list.getByLabelText("Find a tag"), { target: { value: "tag11" } });
+    expect(list.getAllByRole("button", { name: /tag/ })).toHaveLength(1);
+    fireEvent.click(list.getByRole("button", { name: /tag11/ }));
+    expect(rows()).toEqual(["Complete task 11"]);
   });
 
   it("offers earlier tags in the form and keeps their first spelling", async () => {
@@ -1002,7 +1015,8 @@ describe("TasksView, the sidebar", () => {
     const rows = () => within(board()).queryAllByRole("checkbox").map((box) => box.getAttribute("aria-label"));
 
     pick("All tasks");
-    fireEvent.click(screen.getByRole("button", { name: /^money/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Tags/ }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Filter by tag" })).getByRole("button", { name: /money/ }));
     expect(rows()).toEqual(["Complete rent"]);
     fireEvent.change(screen.getByLabelText("Search tasks"), { target: { value: "zebra" } });
     fireEvent.click(within(sidebar()).getByRole("button", { name: /^Trash/ }));

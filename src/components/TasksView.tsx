@@ -7,7 +7,7 @@ import { ContextMenu, useContextMenu, type MenuItem } from "./ContextMenu";
 import { SidebarDrawer, SidebarHeader, type Sidebar } from "./SidebarDrawer";
 import { SplitHandle, useSplitPane } from "./SplitPane";
 import { TaskDetailPane } from "./TaskDetailPane";
-import { TagFilterBar } from "./TagFilterBar";
+import { TagFilterMenu } from "./TagFilterMenu";
 import { TaskForm } from "./TaskForm";
 import { SMART_VIEWS, TaskListSidebar } from "./TaskListSidebar";
 import { TaskAgendaList, agendaVisibleIds, useAgendaFolds } from "./TaskAgendaList";
@@ -763,6 +763,7 @@ export function TasksView({ session, trash = NO_TRASH, tasks, taskLists, busy, t
                   <span className="sm:hidden">New</span>
                 </button>
               ) : null}
+              {tagList.length > 0 ? <TagFilterMenu tags={tagList} active={activeTag} onChange={setTagFilter} /> : null}
               <div className="relative min-w-0 flex-1 sm:flex-none">
                 <Icon
                   name="search"
@@ -836,11 +837,6 @@ export function TasksView({ session, trash = NO_TRASH, tasks, taskLists, busy, t
             className="sb-split grid min-h-0 flex-1"
           >
             <div className={`min-w-0 overflow-y-auto ${paneOpen ? "hidden lg:block" : ""}`}>
-              {!searching && tagList.length > 0 ? (
-                <div className="px-4 pt-4 lg:px-6">
-                  <TagFilterBar tags={tagList} active={activeTag} onChange={setTagFilter} />
-                </div>
-              ) : null}
               {showAgenda ? (
                 <TaskAgendaList
                   {...actions}
