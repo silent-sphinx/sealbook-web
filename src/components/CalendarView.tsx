@@ -14,7 +14,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { TrashPanel, TrashRow, trashRootsFor } from "./Trash";
 import { NO_TRASH, type TrashListing } from "../lib/trash";
 import { trashItems } from "../lib/trashApi";
-import { SidebarDrawer, SidebarHeader, SidebarSection, SidebarToggle, type Sidebar } from "./SidebarDrawer";
+import { SidebarDrawer, SidebarHeader, SidebarToggle, type Sidebar } from "./SidebarDrawer";
 import { Modal, ModalBody } from "./Modal";
 import { localInputToUtc, utcToLocalInput } from "../lib/timezone";
 import {
@@ -29,10 +29,11 @@ import {
   searchField,
   searchIcon,
   sidebarMark,
+  sidebarRow,
+  sidebarSubgroup,
   viewMain,
   viewGrid,
 } from "../lib/styles";
-import { VisibilityBox } from "./ContainerList";
 import { CalendarSections } from "./CalendarSidebar";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import { DayView as ExtractedDayView, MonthGrid as ExtractedMonthGrid, PhoneMonth, WeekView as ExtractedWeekView, YearView as ExtractedYearView } from "./CalendarViews";
@@ -810,13 +811,15 @@ export function CalendarView({
             onDelete={(calendar) => { setEditingCalendar(calendar); setConfirmDeleteCalendar(true); }}
           />
           {dueTasks ? (
-            <SidebarSection label="Tasks">
-              <label className={`mt-2.5 -mx-2 flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-xs font-medium transition-colors hover:bg-surface/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent-ring ${showTasks ? "text-text" : "text-mute hover:text-text"}`}>
-                <input type="checkbox" checked={showTasks} onChange={(event) => toggleTasks(event.target.checked)} className="sr-only" />
-                <span className={sidebarMark}><VisibilityBox shown={showTasks} /></span>
-                Show tasks with a due date
+            // mt-6 clears the archived group's -mb-3.5, leaving 10px above the rule as under it.
+            <div className={`${sidebarSubgroup} mt-6`}>
+              <label className={`${sidebarRow} cursor-pointer has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent-ring ${showTasks ? "text-text hover:bg-hover" : "text-mute hover:bg-hover hover:text-text"}`}>
+                <input type="checkbox" aria-label="Show tasks with a due date" checked={showTasks} onChange={(event) => toggleTasks(event.target.checked)} className="sr-only" />
+                <span className={sidebarMark}><Icon name="tasks" className="h-4 w-4" /></span>
+                <span className="min-w-0 flex-1 truncate font-medium">Tasks with a due date</span>
+                {showTasks ? <Icon name="check" className="h-3.5 w-3.5 shrink-0 text-accent" /> : null}
               </label>
-            </SidebarSection>
+            </div>
           ) : null}
           {readOnlyMode ? null : (
             <TrashRow
