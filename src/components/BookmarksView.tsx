@@ -79,7 +79,7 @@ import { Icon } from "./Icon";
 import { PickerMenu } from "./PickerMenu";
 import { PaneHeader, BulkBar } from "./PaneControls";
 import { TagsInput } from "./FieldControls";
-import { TagFilterBar } from "./TagFilterBar";
+import { TagFilterMenu } from "./TagFilterMenu";
 import { ErrorMessage } from "./ErrorMessage";
 import { Modal, ModalBody, ModalFooter } from "./Modal";
 import { EmptyState } from "./EmptyState";
@@ -925,6 +925,7 @@ export function BookmarksView({
                 <Icon name="text" className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Sort</span>
               </button>
+              {tagList.length > 0 ? <TagFilterMenu tags={tagList} active={tagFilter} onChange={setTagFilter} /> : null}
               <div
                 className="relative min-w-0 flex-1 sm:flex-none"
                 onFocus={() => setSearchFocused(true)}
@@ -1182,13 +1183,6 @@ export function BookmarksView({
                     ),
                   )}
                 </div>
-              </div>
-            ) : null}
-
-            {!search.trim() && scope === ALL && tagList.length > 0 ? (
-              <div className="mb-5">
-                <p className={`mb-2 ${eyebrow}`}>Tags</p>
-                <TagFilterBar tags={tagList} active={tagFilter} onChange={setTagFilter} />
               </div>
             ) : null}
 

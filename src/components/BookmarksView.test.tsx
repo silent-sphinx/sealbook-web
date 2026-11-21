@@ -804,8 +804,8 @@ describe("BookmarksView, offline", () => {
   });
 });
 
-describe("tags sidebar", () => {
-  it("lists every tag once with its count and filters the list on click", () => {
+describe("tag filter", () => {
+  it("lists every tag once with its count in the header menu and filters the list on pick", () => {
     mount({
       bookmarks: [
         aBookmark({ id: "a", tags: ["rust"] }),
@@ -814,15 +814,16 @@ describe("tags sidebar", () => {
       ],
     });
 
-    const rust = screen.getByRole("button", { name: /rust/i, pressed: false });
-    expect(rust.textContent).toContain("2");
-    expect(screen.getByRole("button", { name: /web/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Tags/ }));
+    const list = within(screen.getByRole("dialog", { name: "Filter by tag" }));
+    expect(list.getByRole("button", { name: /rust/i }).textContent).toContain("2");
 
-    fireEvent.click(screen.getByRole("button", { name: /web/ }));
+    fireEvent.click(list.getByRole("button", { name: /web/ }));
     expect(within(board()).queryByText("a")).toBeNull();
     expect(within(board()).getByText("b")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: /web/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Tag: web" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Filter by tag" })).getByRole("button", { name: /web/ }));
     expect(within(board()).getByText("c")).toBeTruthy();
   });
 });
