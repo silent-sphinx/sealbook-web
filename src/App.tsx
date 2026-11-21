@@ -102,6 +102,7 @@ import {
   loadShownArchivedBooks,
   pruneHiddenAddressBooks,
   resolveAddressBookId,
+  serializeAddressBook,
   storeHiddenAddressBooks,
   storeShownArchivedBooks,
   visibleAddressBooks,
@@ -1004,9 +1005,9 @@ export default function App() {
   }
 
   /** Re-lists from this device's copy, without reading the server. */
-  function showLocal(current: Session) {
+  function showLocal(current: Session, selectContactId?: string) {
     const listed = listingFrom(localObjects(), unopened);
-    applyListing(current, listed, listed.addressBooks);
+    applyListing(current, listed, listed.addressBooks, selectContactId);
   }
 
   function applyListing(
@@ -1134,11 +1135,18 @@ export default function App() {
     }
   }
 
-  // Refresh after a successful write. A refresh failure is reported separately
-  // so it isn't mistaken for a failed save. Returns whether the refresh worked.
+  // Re-list after a successful write. The write has already landed in this
+  // device's copy of the vault, so the list is read from there instead of
+  // walking the whole vault from the server. With no copy yet there is nothing
+  // to read, so it falls back to the full read. A failure is reported
+  // separately so it isn't mistaken for a failed save. Returns whether it worked.
   async function refreshAfterSave(next: Session, selectContactId?: string): Promise<boolean> {
     try {
-      await refresh(next, selectContactId);
+      if (localObjects().length > 0) {
+        showLocal(next, selectContactId);
+      } else {
+        await refresh(next, selectContactId);
+      }
       return true;
     } catch (err) {
       log.error("the write succeeded but the vault could not be re-read", {
@@ -1931,14 +1939,28 @@ export default function App() {
   async function setBooksHidden(books: AddressBook[], hidden: boolean): Promise<void> {
     if (!session || books.length === 0) return;
     setError(null);
+    // The flag is applied before the write so the list answers at once, and a
+    // failed write falls back to a re-read to show what was really stored.
+    const changing = new Set(books.map((book) => book.id));
+    setAddressBooks((current) =>
+      current.map((book) =>
+        changing.has(book.id)
+          ? {
+              ...book,
+              hideFromAll: hidden || undefined,
+              raw: serializeAddressBook(book.name, book.raw, book.archived === true, book.color, hidden),
+            }
+          : book,
+      ),
+    );
     try {
       for (const book of books) {
         await putAddressBook(session, book.name, book.id, book.raw, book.archived === true, book.color, hidden);
       }
     } catch (err) {
       setError(friendlyError(err));
+      await refreshAfterSave(session);
     }
-    await refreshAfterSave(session);
   }
 
   /**
@@ -2415,7 +2437,7 @@ export default function App() {
                 onSignOut={() => {
                   void signOut();
                 }}
-                onRefresh={() => refresh(session)}
+                onRefresh={async () => { await refreshAfterSave(session); }}
                 onCreateBook={onCreateBook}
                 onCreateNotebook={onCreateNotebook}
                 onCreateBookmarkCollection={(name) => onCreateBookmarkCollection(name)}
@@ -2436,7 +2458,7 @@ export default function App() {
                 sidebar={sidebar}
               />
           ) : activeTab === "calendar" ? (
-                      <CalendarView session={session} trash={trash} calendars={calendars} events={calendarEvents} contacts={contacts} busy={busy} timezone={timezone} weekStart={weekStart} onRefresh={() => refresh(session)} sidebar={sidebar} dueTasks={isFeatureEnabled(accountSettings, "tasks") ? tasks : undefined} onOpenTask={(id) => guardEditing(() => { setTaskFocusId(id); setActiveTab("tasks"); })} focusEventId={eventFocusId} onFocusHandled={clearEventFocus} />
+                      <CalendarView session={session} trash={trash} calendars={calendars} events={calendarEvents} contacts={contacts} busy={busy} timezone={timezone} weekStart={weekStart} onRefresh={async () => { await refreshAfterSave(session); }} sidebar={sidebar} dueTasks={isFeatureEnabled(accountSettings, "tasks") ? tasks : undefined} onOpenTask={(id) => guardEditing(() => { setTaskFocusId(id); setActiveTab("tasks"); })} focusEventId={eventFocusId} onFocusHandled={clearEventFocus} />
           ) : activeTab === "notes" ? (
                       <NotesView
                 session={session}
@@ -2444,7 +2466,7 @@ export default function App() {
                 notes={notes}
                 notebooks={notebooks}
                 busy={busy}
-                onRefresh={() => refresh(session)}
+                onRefresh={async () => { await refreshAfterSave(session); }}
                 onSaved={applySavedNote}
                 offline={isOffline}
                 outbox={outboxState}
@@ -2460,7 +2482,7 @@ export default function App() {
                 bookmarks={bookmarks}
                 collections={bookmarkCollections}
                 busy={busy}
-                onRefresh={() => refresh(session)}
+                onRefresh={async () => { await refreshAfterSave(session); }}
                 onCreateCollection={onCreateBookmarkCollection}
                 sidebar={sidebar}
                 focusBookmarkId={bookmarkFocusId}
@@ -2474,7 +2496,7 @@ export default function App() {
                 taskLists={taskLists}
                 busy={busy}
                 timezone={timezone}
-                onRefresh={() => refresh(session)}
+                onRefresh={async () => { await refreshAfterSave(session); }}
                 onApply={applyTaskPatch}
                 sidebar={sidebar}
                 focusTaskId={taskFocusId}

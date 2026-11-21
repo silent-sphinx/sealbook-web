@@ -24,6 +24,7 @@ const HIDDEN_KEY = "sealbook.hidden-address-books.collection-1";
 let store: Contact[] = [];
 let books: { id: string; name: string; raw: string; hideFromAll?: boolean }[] = [];
 let bookWrites: { id: string; hideFromAll?: boolean }[] = [];
+let listings = 0;
 
 vi.mock("./lib/client", async () => {
   const actual = await vi.importActual<typeof import("./lib/client")>("./lib/client");
@@ -37,7 +38,9 @@ vi.mock("./lib/client", async () => {
       keyEpoch: 0,
       manifestSeq: 1,
     }),
-    listVault: async () => ({
+    listVault: async () => {
+      listings += 1;
+      return {
       addressBooks: books.map((book) => ({ ...book })),
       contacts: [...store],
       calendars: [],
@@ -46,7 +49,8 @@ vi.mock("./lib/client", async () => {
       notebooks: [],
       accountSettings: DEFAULT_ACCOUNT_SETTINGS,
       unopened: 0,
-    }),
+      };
+    },
     ensureDefaultAddressBook: async (_session: unknown, listed: unknown) => listed,
     putAddressBook: async (
       _session: unknown,
@@ -89,6 +93,7 @@ beforeEach(() => {
     { id: WORK_BOOK, name: "Work", raw: "{}" },
   ];
   bookWrites = [];
+  listings = 0;
   store = [
     inBook("Ada Lovelace", "c1", DEFAULT_ADDRESS_BOOK_ID),
     inBook("Grace Hopper", "c2", WORK_BOOK),
@@ -109,6 +114,17 @@ describe("switching an address book off in the sidebar", () => {
     expect(localIds()).toEqual([]);
     // One book left showing, so the list is titled after it.
     expect(screen.getByRole("heading", { name: "Contacts", level: 1 })).toBeDefined();
+  });
+
+  it("does not re-read the vault to show the change", async () => {
+    await unlock();
+    const listedOnOpen = listings;
+
+    fireEvent.click(screen.getByRole("button", { name: "Work" }));
+
+    await waitFor(() => expect(screen.queryByText("Grace Hopper")).toBeNull());
+    await waitFor(() => expect(bookWrites).toHaveLength(1));
+    expect(listings).toBe(listedOnOpen);
   });
 
   it("is still in force on the next render, and Show all clears it", async () => {
