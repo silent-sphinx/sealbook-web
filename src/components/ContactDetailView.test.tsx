@@ -110,6 +110,29 @@ describe("the contact detail pane", () => {
     expect(within(family).getByText("Father")).toBeDefined();
   });
 
+  it("shows a current relationship as running to the present, with no badge", () => {
+    mount(
+      aContact({
+        profile: {
+          ...emptyProfile(),
+          relationships: [
+            { id: "r1", name: "Billy", kind: "Partner", current: true },
+            { id: "r2", name: "Sam", kind: "Partner", start: "2019", end: "2021", current: true },
+            { id: "r3", name: "Edward", kind: "Ex-spouse", start: "2023-02", end: "2024" },
+          ],
+        },
+      }),
+      { detailed: true },
+    );
+
+    const section = sectionOf("Relationship History");
+    expect(within(section).getByText("Current")).toBeDefined();
+    expect(section.textContent).toContain("2019 - Present");
+    expect(section.textContent).not.toContain("2021");
+    expect(section.textContent).toContain("2024");
+    expect(within(section).getAllByText(/current/i)).toHaveLength(1);
+  });
+
   it("lists workplaces under Workplace, with dates and history only for detailed contacts", () => {
     const contact = aContact({
       work: [

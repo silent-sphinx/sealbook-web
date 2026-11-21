@@ -9,7 +9,7 @@ import {
   type LinkableSection,
   type ProfileSection,
 } from "../lib/contactProfile";
-import type { Contact, ContactPerson, ContactProfile } from "../lib/types";
+import type { Contact, ContactPerson, ContactProfile, ContactRelationship } from "../lib/types";
 import { Avatar } from "./ContactCard";
 import { ChipList, EntryRow, PaneSection, ProseBlock, RowAction } from "./PaneControls";
 import { Icon } from "./Icon";
@@ -203,8 +203,7 @@ function SectionBody({ section, profile }: { section: ProfileSection; profile: C
               key={item.id}
               title={item.name}
               inlineMeta={item.kind || undefined}
-              badge={item.current ? "Current" : undefined}
-              trailingMeta={formatDateRange(item.start, item.end) || undefined}
+              trailingMeta={relationshipPeriod(item)}
               note={item.note}
             />
           ))}
@@ -217,6 +216,15 @@ function SectionBody({ section, profile }: { section: ProfileSection; profile: C
     case "colleagues":
       return null;
   }
+}
+
+/**
+ * A current relationship reads as running to the present rather than carrying
+ * a badge, and says "Current" on its own when it has no start date.
+ */
+function relationshipPeriod(item: ContactRelationship): string | undefined {
+  const period = formatDateRange(item.start, item.current ? undefined : item.end);
+  return period || (item.current ? "Current" : undefined);
 }
 
 /**

@@ -199,7 +199,7 @@ export type ContactRelationship = {
   kind: string;
   start?: string;
   end?: string;
-  /** Marks an ongoing relationship. Shown as a badge, independent of an open end. */
+  /** Marks an ongoing relationship, shown as running to the present whatever `end` holds. */
   current?: boolean;
   note?: string;
 };
