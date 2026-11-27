@@ -16,6 +16,7 @@ import { Placeholder } from "@tiptap/extensions";
 import { StarterKit } from "@tiptap/starter-kit";
 
 import { MD_TABLE_FILLS } from "./markdown";
+import { ShareTableView } from "./noteTableView";
 import { createLowlight } from "lowlight";
 
 import bash from "highlight.js/lib/languages/bash";
@@ -176,7 +177,8 @@ export function noteExtensions(placeholder: string, attachments?: AttachmentHook
     TaskList,
     TaskItem.configure({ nested: true }),
     TaskFromBullet,
-    Table.configure({ resizable: true, allowTableNodeSelection: true }),
+    // `resizable` would add pixel-based resizing; the view does its own.
+    Table.configure({ View: ShareTableView, allowTableNodeSelection: true }),
     TableRow.extend(rowAttribute),
     TableHeader.extend(cellAttributes),
     TableCell.extend(cellAttributes),

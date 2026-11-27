@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { docToMarkdown, markdownToDoc, type DocNode } from "../lib/noteDoc";
 import type { AttachmentResolver } from "../lib/attachmentImageExtension";
 import { CELL_FILLS, noteExtensions } from "../lib/noteEditorSchema";
+import { columnShares, setColumnShares } from "../lib/noteTableView";
 import { focusRing } from "../lib/styles";
 
 /** Uploads a chosen image and returns how to reference it, or null to cancel. */
@@ -615,6 +616,26 @@ function setRowHeight(editor: Editor, height: number | null, focus = true) {
   if (focus) editor.commands.focus();
 }
 
+/** The innermost table holding the selection, and where its content starts. */
+function selectedTable(editor: Editor) {
+  const { $from } = editor.state.selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    if ($from.node(depth).type.name === "table") return { table: $from.node(depth), start: $from.start(depth) };
+  }
+  return null;
+}
+
+function hasColumnShares(editor: Editor): boolean {
+  const at = selectedTable(editor);
+  return at !== null && columnShares(at.table).some((share) => share > 0);
+}
+
+function evenColumns(editor: Editor) {
+  const at = selectedTable(editor);
+  if (at) setColumnShares(editor.view, at.table, at.start, null);
+  editor.commands.focus();
+}
+
 /** The table element holding the selection, for anchoring the toolbar to it. */
 function tableRect(editor: Editor): DOMRect | null {
   const { $from } = editor.state.selection;
@@ -691,6 +712,7 @@ function TableToolbar({ editor }: { editor: Editor }) {
       <span className="note-bubble-sep" aria-hidden="true" />
       {button("Col +", "Insert column right", () => editor.chain().focus().addColumnAfter().run())}
       {button("Col −", "Delete column", () => editor.chain().focus().deleteColumn().run())}
+      {button("Even", "Make columns equal width", () => evenColumns(editor), hasColumnShares(editor))}
       <span className="note-bubble-sep" aria-hidden="true" />
       {button("Merge", "Merge cells", () => editor.chain().focus().mergeCells().run(), editor.can().mergeCells())}
       {button("Split", "Split cell", () => editor.chain().focus().splitCell().run(), editor.can().splitCell())}

@@ -325,17 +325,17 @@ describe("tables", () => {
 
   it("reads the layout sidecar that follows a table", () => {
     const block = table("| a | b |\n| --- | --- |\n| 1 | 2 |\n<!-- sealbook:table h=1:48 bg=0.0:amber rs=1.0:2 -->");
-    expect(block.layout).toEqual({ heights: { 1: 48 }, fills: { "0.0": "amber" }, rowspans: { "1.0": 2 } });
+    expect(block.layout).toEqual({ heights: { 1: 48 }, fills: { "0.0": "amber" }, rowspans: { "1.0": 2 }, widths: {} });
   });
 
   it("leaves the layout empty when no sidecar follows", () => {
     const block = table("| a | b |\n| --- | --- |\n| 1 | 2 |");
-    expect(block.layout).toEqual({ heights: {}, fills: {}, rowspans: {} });
+    expect(block.layout).toEqual({ heights: {}, fills: {}, rowspans: {}, widths: {} });
   });
 
   it("ignores a sidecar key it cannot read rather than failing the line", () => {
     const block = table("| a |\n| --- |\n| 1 |\n<!-- sealbook:table bg=0.0:neon future=yes h=0:24 -->");
-    expect(block.layout).toEqual({ heights: { 0: 24 }, fills: {}, rowspans: {} });
+    expect(block.layout).toEqual({ heights: { 0: 24 }, fills: {}, rowspans: {}, widths: {} });
   });
 
   it("does not consume a sidecar that is not the next line", () => {

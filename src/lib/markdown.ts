@@ -46,6 +46,8 @@ export const MD_TABLE_FILLS = ["grey", "red", "amber", "green", "blue", "purple"
 
 export type MdTableFill = (typeof MD_TABLE_FILLS)[number];
 
+export const MD_MAX_COLUMN_SHARE = 1000;
+
 /**
  * Table presentation the pipe grammar cannot spell, carried in a trailing
  * comment so that every other reader renders the table and ignores this.
@@ -57,6 +59,12 @@ export type MdTableLayout = {
   fills: Record<string, MdTableFill>;
   /** Rows a cell covers, only ever above 1. */
   rowspans: Record<string, number>;
+  /**
+   * Each grid column's share of the table's width, relative to the others, as
+   * pixels would not suit every screen. A column without one takes the average
+   * of those that have one.
+   */
+  widths: Record<number, number>;
 };
 
 export type MdTableCell = {
@@ -417,13 +425,13 @@ function readTable(
 }
 
 export function emptyTableLayout(): MdTableLayout {
-  return { heights: {}, fills: {}, rowspans: {} };
+  return { heights: {}, fills: {}, rowspans: {}, widths: {} };
 }
 
 const TABLE_LAYOUT = /^[ \t]*<!--[ \t]*sealbook:table[ \t]*(.*?)[ \t]*-->[ \t]*$/u;
 
 /**
- * `<!-- sealbook:table h=0:44 bg=1.2:amber rs=1.0:2 -->`, the line a table may
+ * `<!-- sealbook:table h=0:44 bg=1.2:amber rs=1.0:2 w=0:600,1:400 -->`, the line a table may
  * be followed by. Each key holds a comma-separated list of `index:value`, and
  * anything unreadable is dropped rather than failing the line, so a note written
  * by a later version loses the attribute instead of growing a stray paragraph.
@@ -451,6 +459,9 @@ function readTableLayout(line: string | undefined): MdTableLayout | null {
       } else if (key === "rs" && /^\d+\.\d+$/u.test(index)) {
         const span = Number(value);
         if (Number.isInteger(span) && span > 1 && span <= 1000) layout.rowspans[index] = span;
+      } else if (key === "w" && /^\d+$/u.test(index) && /^\d+$/u.test(value)) {
+        const share = Number(value);
+        if (share >= 1 && share <= MD_MAX_COLUMN_SHARE) layout.widths[Number(index)] = share;
       }
     }
   }
@@ -469,6 +480,8 @@ export function writeTableLayout(layout: MdTableLayout): string {
   if (fills.length > 0) groups.push(`bg=${list(fills)}`);
   const rowspans = Object.entries(layout.rowspans).sort(byPosition);
   if (rowspans.length > 0) groups.push(`rs=${list(rowspans)}`);
+  const widths = Object.entries(layout.widths).sort((a, b) => Number(a[0]) - Number(b[0]));
+  if (widths.length > 0) groups.push(`w=${list(widths)}`);
 
   return groups.length === 0 ? "" : `<!-- sealbook:table ${groups.join(" ")} -->`;
 }

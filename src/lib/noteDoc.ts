@@ -12,6 +12,7 @@
 
 import {
   emptyTableLayout,
+  MD_MAX_COLUMN_SHARE,
   MD_TABLE_FILLS,
   parseMarkdown,
   writeTableLayout,
@@ -139,7 +140,7 @@ function taskItemNode(item: MdListItem): DocNode {
 }
 
 function tableToNode(block: Extract<MdBlock, { kind: "table" }>): DocNode {
-  const { heights, fills, rowspans } = block.layout;
+  const { heights, fills, rowspans, widths } = block.layout;
   const grid = [block.header, ...block.rows];
 
   // A position covered by a rowspan reaching it carries no cell of its own, so
@@ -167,7 +168,7 @@ function tableToNode(block: Extract<MdBlock, { kind: "table" }>): DocNode {
           attrs: {
             colspan: cell.span > 1 ? cell.span : 1,
             rowspan: rowspans[at] ?? 1,
-            colwidth: null,
+            colwidth: cellShares(widths, column, cell.span > 1 ? cell.span : 1),
             align: block.align[column] ?? null,
             background: fills[at] ?? null,
           },
@@ -188,6 +189,16 @@ function tableToNode(block: Extract<MdBlock, { kind: "table" }>): DocNode {
     type: "table",
     content: grid.map((cells, r) => row(cells, r, r === 0 ? "tableHeader" : "tableCell")),
   };
+}
+
+/**
+ * A cell carries the width shares of the columns it covers in `colwidth`, which
+ * the table commands already keep in step as columns come, go and merge. Zero is
+ * their spelling of a column with none.
+ */
+function cellShares(widths: Record<number, number>, column: number, span: number): number[] | null {
+  const shares = Array.from({ length: span }, (_, i) => widths[column + i] ?? 0);
+  return shares.some((share) => share > 0) ? shares : null;
 }
 
 /** Omits `content` entirely when empty, which an empty block node requires. */
@@ -426,6 +437,21 @@ function serializeTable(node: DocNode, indent: string): string {
       layout.fills[at] = fill as MdTableFill;
     }
     if (entry.rowspan > 1) layout.rowspans[at] = entry.rowspan;
+    const shares = entry.cell.attrs?.colwidth;
+    if (!Array.isArray(shares)) continue;
+    shares.forEach((share, i) => {
+      const column = entry.column + i;
+      // The first cell to say wins; pasted HTML can disagree with itself.
+      if (column < columns && typeof share === "number" && share > 0 && layout.widths[column] === undefined) {
+        layout.widths[column] = share;
+      }
+    });
+  }
+  // Pasted tables measure in pixels, which are as good as shares once in range.
+  const largest = Math.max(0, ...Object.values(layout.widths));
+  const scale = largest > MD_MAX_COLUMN_SHARE ? MD_MAX_COLUMN_SHARE / largest : 1;
+  for (const [column, share] of Object.entries(layout.widths)) {
+    layout.widths[Number(column)] = Math.max(1, Math.round(share * scale));
   }
 
   const sidecar = writeTableLayout(layout);
