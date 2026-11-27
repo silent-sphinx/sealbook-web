@@ -41,7 +41,7 @@ import {
   coreFlushPlan,
   coreLocalVaultApply,
   coreOutboxFail,
-  coreOutboxSettle,
+  coreOutboxSettleSent,
   coreRequireKeyEpoch,
   coreWriteBatches,
   coreWriteGuard,
@@ -263,27 +263,10 @@ function firstBatch(writes: FlushWrite[]): FlushWrite[] {
   return writes.slice(0, end);
 }
 
-/**
- * Takes these entries out of the queue, unless one was edited again while it
- * was being sent: that edit stays queued, rebased on what the server now holds.
- */
+/** Takes these entries out of the queue, keeping any edited again while they were being sent. */
 async function settle(planned: Outbox, ids: string[]): Promise<void> {
-  const sent = new Map(planned.writes.map((write) => [write.id, write]));
   const vault = currentVault();
-  await mutateOutbox((current) => {
-    const done: string[] = [];
-    const writes = current.writes.map((write) => {
-      const was = sent.get(write.id);
-      if (!ids.includes(write.id) || !was) return write;
-      if (was.payload === write.payload && was.tombstone === write.tombstone) {
-        done.push(write.id);
-        return write;
-      }
-      const base = vault.objects.find((object) => object.id === write.id && !object.tombstone);
-      return { ...write, base };
-    });
-    return coreOutboxSettle({ ...current, writes }, done);
-  });
+  await mutateOutbox((current) => coreOutboxSettleSent(current, planned, vault, ids));
 }
 
 /** Seals and sends one batch at the next manifest sequence, then records it. */

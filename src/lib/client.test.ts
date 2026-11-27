@@ -2956,6 +2956,30 @@ describe("flushing the outbox", () => {
     expect([...(failure as RefusedWrites).refused.keys()].sort()).toEqual([...ids].sort());
   });
 
+  it("keeps another device's change when an edit lands while the merge is being sent", async () => {
+    const { owner, server, id, offline } = await opened();
+    await putSealed(offline, id, NOTE_CONTENT_TYPE, false, note("Plan A", "one\ntwo", "2026-11-02T09:00:00.000Z"));
+    server.remote(id, NOTE_CONTENT_TYPE, note("Plan", "one\nTWO", "2026-11-02T10:00:00.000Z"));
+    let edited = false;
+    server.holdWrites(async () => {
+      if (!edited) {
+        edited = true;
+        await queueWrite({
+          id,
+          contentType: NOTE_CONTENT_TYPE,
+          tombstone: false,
+          payload: note("Plan AB", "one\ntwo", "2026-11-02T09:01:00.000Z"),
+        });
+      }
+      return null;
+    });
+
+    await flushOutbox(owner.session);
+
+    expect(JSON.parse(server.payloadOf(id))).toMatchObject({ title: "Plan AB", body: "one\nTWO" });
+    expect(currentOutbox().writes).toEqual([]);
+  });
+
   it("keeps an edit made while its earlier version was being sent, based on what was sent", async () => {
     const { owner, server, id } = await opened();
     let release!: () => void;

@@ -119,6 +119,7 @@ import init, {
   core_outbox_push,
   core_outbox_read,
   core_outbox_settle,
+  core_outbox_settle_sent,
   core_outbox_write,
   core_write_guard,
   core_account_export_filename,
@@ -2566,6 +2567,15 @@ export function coreOutboxPush(outbox: Outbox, write: PendingWrite): Outbox {
 /** Takes these ids out of both the queue and the failed list. */
 export function coreOutboxSettle(outbox: Outbox, ids: string[]): Outbox {
   return core_outbox_settle(outbox, ids);
+}
+
+export function coreOutboxSettleSent(
+  current: Outbox,
+  planned: Outbox,
+  vault: LocalVault,
+  ids: string[],
+): Outbox {
+  return core_outbox_settle_sent(current, planned, vault, ids);
 }
 
 /** Moves these queued writes to the failed list. */
